@@ -1,6 +1,7 @@
 import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
+import type { BarResult } from '../judge/bars'
 import type { Baseline } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -49,6 +50,16 @@ const failedOver: ValveTimelineEntry = {
     releasedAt: at(32),
 }
 
+const dropped = (from: number, to: number): ValveTimelineEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    requestedAt: at(0),
+    intentAt: at(from),
+    appliedAt: at(from),
+    observedAt: at(from),
+    releasedAt: at(to),
+})
+
 const probed = (failing: (second: number) => string | false): WriterSample[] =>
     Array.from({ length: 56 }, (_, second) => {
         const failure = failing(second)
@@ -67,7 +78,17 @@ const exited = (role: Role, second: number, byValve = false, replica = 0): RoleE
     byValve,
 })
 
+const exitedWithError = (role: Role, second: number): RoleExit => ({ ...exited(role, second), code: 1, signal: null })
+
 describe('statusOf', () => {
+    const UNSOURCED: BarResult = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        passed: false,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
     it.each<[string, Partial<Verdict>, string, string]>([
         ['every invariant held', {}, 'passed', 'every invariant held'],
         ['an invariant failed', { invariants: [BROKEN] }, 'failed', 'at_least_once failed: run-1 email: lost'],
@@ -82,6 +103,15 @@ describe('statusOf', () => {
             { units: { targetUnits: 60, offeredUnits: 53 }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
+        ],
+        [
+            'a ramp that broke at a step before a later step fell short of minOffered',
+            {
+                units: { targetUnits: 60, offeredUnits: 53 },
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'writer_cpu_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: writer_cpu_under broke at the 2x step',
         ],
         [
             'a role was killed by its valve and every invariant held',
@@ -126,13 +156,143 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
-                        breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
+                        breakingPoint: {
+                            scale: 10,
+                            at: at(30),
+                            offeredPerSecond: 12.34,
+                            key: 'hogflow',
+                            value: 10,
+                            part: 'role:cdp-cyclotron-worker-hogflow',
+                        },
                     },
                 ],
             },
             'failed',
             'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a ramp that stopped at a harness limit in the step where a bar broke',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        limit: 5,
+                        passed: false,
+                        breakingPoint: { scale: 5, at: at(30), offeredPerSecond: 0, value: 10, part: 'role:x' },
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 2,
+                    reason: 'the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that broke before a later step whose bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        limit: 5,
+                        passed: false,
+                        breakingPoint: { scale: 2, at: at(30), offeredPerSecond: 2, value: 10, part: 'role:x' },
+                    },
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'no writer CPU reading in the 5x step',
+                        harnessLimit: { scale: 5, by: 'run_host' },
+                    },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'pickup_p99_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: pickup_p99_under broke at the 2x step',
+        ],
+        [
+            'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
+            {
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that stopped at a harness limit at the step whose accepted unit never delivered',
+            {
+                convergence: { converged: false, unfinishedJobs: 1, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that held up to its ceiling',
+            { ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' } },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that held up to its ceiling with a bar the stack has no source for',
+            {
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every judged bar held up to the 5x ceiling; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                },
+                bars: [UNSOURCED],
+            },
+            'invalid',
+            'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+        ],
+        [
+            'a ramp that broke with a bar the stack has no source for',
+            {
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'pickup_p99_under broke at the 2x step' },
+                bars: [UNSOURCED],
+            },
+            'failed',
+            'the ramp broke: pickup_p99_under broke at the 2x step; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+        ],
+        [
+            'a ramp that stopped at a harness limit while an invariant no unit crossed failed',
+            {
+                invariants: [
+                    {
+                        name: 'resident_backlog_intact',
+                        passed: false,
+                        observed: 3,
+                        violation: '3 rows lost',
+                        unitIds: [],
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'failed',
+            'resident_backlog_intact failed: 3 rows lost',
         ],
         [
             'a bar could not be judged',
@@ -141,6 +301,7 @@ describe('statusOf', () => {
                     {
                         name: 'writer_cpu_under',
                         unit: '%',
+                        limit: 70,
                         passed: false,
                         unjudged: 'no writer CPU reading off a run host in the 1x step',
                     },
@@ -249,13 +410,129 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
         ],
         [
+            "a role exited with an error while the roles' Postgres connections were dropped",
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 25)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error just after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 44)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error well after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 46)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error before the connection drop applied',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 8)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error after the connection drop failed to apply',
+            {
+                timeline: [
+                    {
+                        valve: 'pg.drop_connections',
+                        target: 'postgres',
+                        requestedAt: at(0),
+                        intentAt: at(10),
+                        error: 'the first sweep failed',
+                    },
+                ],
+                exits: [exitedWithError(HOGFLOW_WORKER, 25)],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it; pg.drop_connections on postgres was not observed: the first sweep failed`,
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error during the failover',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 15)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error before the failover was observed, and again after the fail-back began',
+            {
+                timeline: [{ ...failedOver, observedAt: at(24), releaseIntentAt: at(30), releasedAt: at(46) }],
+                exits: [exitedWithError('cdp-processed-events', 20), exitedWithError('cdp-processed-events', 41)],
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role that never opens Cyclotron exited with an error during the failover',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-ses-webhooks', 15)] },
+            'failed',
+            'cdp-ses-webhooks exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied',
+        ],
+        [
+            'a role that writes to Cyclotron was killed during the failover, and tsx reported the kill as an exit code',
+            {
+                timeline: [failedOver],
+                exits: [{ ...exitedWithError('cdp-processed-events', 15), code: 137 }],
+            },
+            'failed',
+            'cdp-processed-events exited (code 137) without a valve causing it, while pg.failover on cyclotron was applied',
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error 3 seconds after the fail-back finished',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 35)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error well after the fail-back',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 40)] },
+            'failed',
+            'cdp-processed-events exited (code 1) without a valve causing it',
+        ],
+        [
+            'a role failed to start while the connections were dropped',
+            {
+                timeline: [dropped(10, 40)],
+                exits: [{ ...exited(HOGFLOW_WORKER, 25), signal: null, error: 'spawn ENOENT' }],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code null) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
+            'a role was killed by a signal while the connections were dropped',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
+            'a role was killed while the connections were dropped, and tsx reported the kill as an exit code',
+            { timeline: [dropped(10, 40)], exits: [{ ...exitedWithError(HOGFLOW_WORKER, 25), code: 137 }] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 137) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
             'a dependency went away',
             { down: ['provider-edge'], invariants: [BROKEN], admissions: [REFUSED_LOAD] },
             'invalid',
             'dependencies went away: provider-edge',
         ],
     ])('%s', (_story, change, status, statusReason) => {
-        expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason })
+        expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason, restarts: expect.any(Array) })
+    })
+
+    it('lists the exits a valve caused without killing them, and leaves out the rest', () => {
+        const restart = exitedWithError('cdp-processed-events', 15)
+
+        const { restarts } = statusOf({
+            ...HELD,
+            timeline: [failedOver, killed(EMAIL_WORKER, 20, 21)],
+            exits: [restart, exitedWithError('cdp-ses-webhooks', 15), exited(EMAIL_WORKER, 20, true)],
+        })
+
+        expect(restarts).toEqual([restart])
     })
 
     const BASELINE: Baseline = {

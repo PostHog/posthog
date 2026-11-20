@@ -399,6 +399,16 @@ def _is_throttling(error: Exception) -> bool:
     return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
 
 
+# SES answers AccessDenied when the account's permissions block a write to this identity.
+# A retry gets the same answer, so the user needs a next step instead of a server error.
+def _raise_if_domain_setup_denied(error: ClientError, domain: str) -> None:
+    if error.response["Error"]["Code"] in ("AccessDenied", "AccessDeniedException"):
+        logger.warning("SES denied setting up email domain '%s'", domain, exc_info=error)
+        raise exceptions.ValidationError(
+            "Our email provider refused to set up this domain. Contact support for help."
+        ) from error
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
@@ -730,6 +740,7 @@ class SESProvider:
             verify_resp = self.ses_client.verify_domain_identity(Domain=domain)
             verification_token = verify_resp["VerificationToken"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
@@ -740,6 +751,7 @@ class SESProvider:
             dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
             dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
@@ -757,28 +769,27 @@ class SESProvider:
                     BehaviorOnMXFailure="UseDefaultValue",
                 )
             except ClientError as e:
+                _raise_if_domain_setup_denied(e, domain)
                 if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                     raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
-        dns_records = [
-            _legacy_dns_record(record)
-            for record in build_email_domain_records(
-                domain=domain,
-                mail_from_subdomain=mail_from_subdomain,
-                verification_token=verification_token,
-                dkim_tokens=dkim_tokens,
-                ses_region=self._ses_region,
-            )
-        ]
+        records = build_email_domain_records(
+            domain=domain,
+            mail_from_subdomain=mail_from_subdomain,
+            verification_token=verification_token,
+            dkim_tokens=dkim_tokens,
+            ses_region=self._ses_region,
+        )
+        dns_records = [_legacy_dns_record(record) for record in records]
 
         identity = self._read_identity_state_or_unknown(domain)
         verification_status = identity.verification_status
         dkim_status = identity.dkim_status
         mail_from_status = identity.mail_from_status
 
-        # One flag for both lookups below, so the DMARC and DKIM statuses stay pending together.
+        # One flag for every lookup below, so the SPF, DMARC and DKIM statuses stay pending together.
         refuses_lookups = is_cloud() and matched_oob_domain(domain) is not None
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
@@ -823,8 +834,14 @@ class SESProvider:
         # - Domain verification TXT is considered verified when VerificationStatus == Success
         # - DKIM CNAMEs considered verified when DkimVerificationStatus == Success
         if verification_status == "Success":
-            for r in dns_records:
-                if r["type"] == "verification":
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
+                    r["status"] = "success"
+        # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
+        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
+        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
         if dkim_status == "Success":
             for r in dns_records:
@@ -966,6 +983,8 @@ class SESProvider:
             )
             logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
         except (ClientError, BotoCoreError) as e:
+            if isinstance(e, ClientError):
+                _raise_if_domain_setup_denied(e, domain)
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
             raise
 

@@ -12,9 +12,11 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { InsightShortId } from '~/types'
+import type { DashboardType } from '~/types'
 
 import { dashboardsCreate } from 'products/dashboards/frontend/generated/api'
 
+import type { FileSystemEntry } from '../../queries/schema'
 import type { TaggableAnalyticsType } from './analyticsFeed'
 import { shareTargetKey } from './analyticsShareLogic'
 import { ANALYTICS_DRAG_SCOPE, AnalyticsItem } from './analyticsUtils'
@@ -32,20 +34,20 @@ export interface analyticsItemActionsLogicValues {
 export interface analyticsItemActionsLogicActions {
     deleteDashboard: (args_0: any) => any // dashboardsModel
     deleteDashboardSuccess: (
-        dashboard: import('~/types').DashboardType,
+        dashboard: DashboardType,
         payload?: any
     ) => {
-        dashboard: import('~/types').DashboardType
+        dashboard: DashboardType
         payload?: any
     } // dashboardsModel
-    deleteSavedItem: (savedItem: import('../../queries/schema').FileSystemEntry) => {
-        savedItem: import('../../queries/schema').FileSystemEntry
+    deleteSavedItem: (savedItem: FileSystemEntry) => {
+        savedItem: FileSystemEntry
     } // projectTreeDataLogic
     deleteTreeItem: (
-        item: import('../../queries/schema').FileSystemEntry,
+        item: FileSystemEntry,
         projectTreeLogicKey: string
     ) => {
-        item: import('../../queries/schema').FileSystemEntry
+        item: FileSystemEntry
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     closeDeleteConfirm: () => {

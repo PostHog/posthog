@@ -17,7 +17,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
-import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -155,7 +154,7 @@ const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you 
 - Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
 - Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
 - If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
-- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you. A report sent to the wrong person still holds work, so do not suppress it for that reason.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note. Suppressing the report also releases its claim. A report sent to the wrong person still holds work, so do not suppress it for that reason.
 - If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight. When the claim belongs to the person who started you, keep it: it is their claim, and only they can release it.`
 
 export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
@@ -202,13 +201,16 @@ export function isActionCapableReport(report: SignalReport): boolean {
 }
 
 /** Why Ask AI got the question: a dedicated surface that frames the run for one job. */
-export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr' | 'fix_ci'
+export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr' | 'fix_ci' | 'resolve_conflicts'
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
 export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make.`
 
 /** What "Make it green" in the Ask AI menu sends. The run fixes CI and stops: it never merges. */
 export const FIX_CI_REQUEST = `Make CI green on this PR. Fix the failing checks and resolve any merge conflicts, then stop. Do not merge it. Ask me before you make a decision I did not make.`
+
+/** What "Resolve conflicts" in the Ask AI menu sends. The run updates the PR from its base and stops. */
+export const RESOLVE_CONFLICTS_REQUEST = `Resolve the merge conflicts on this PR. Update it from its base branch, keep the intent of both sides, then stop. Do not merge it. Ask me before you make a decision I did not make.`
 
 /**
  * The selected PR's URL, rebuilt from its owner, repository, and number, when the fresh report still
@@ -230,6 +232,11 @@ export function selectedOpenPullRequestUrl(
 /** Pins a Make it green run from the inbox to the pull request the person had selected. */
 export function fixCiSelectedPullRequestInstructions(pullRequestUrl: string): string {
     return `The person chose the pull request at ${pullRequestUrl}. Fix CI on that pull request only, even when another open pull request also has failing checks.`
+}
+
+/** Pins a Resolve conflicts run from the inbox to the pull request the person had selected. */
+export function resolveConflictsSelectedPullRequestInstructions(pullRequestUrl: string): string {
+    return `The person chose the pull request at ${pullRequestUrl}. Resolve the conflicts on that pull request only, even when another open pull request also conflicts.`
 }
 
 function discussReportInstructions(
@@ -257,7 +264,14 @@ function discussReportInstructions(
     if (intent === 'fix_ci' && report !== null && hasActiveReportPullRequest(report)) {
         return [
             `A person asked you to make CI green on the pull request of the PostHog Inbox report at ${reportUrl}, without merging it, in the message after this block.`,
-            `Read the report first and find its open pull request whose CI checks fail with the inbox MCP tools. If more than one open pull request has failing checks, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state.`,
+            `Read the report first and find its open pull request whose CI checks fail or that conflicts with its base branch, with the inbox MCP tools. If more than one open pull request has failing checks or conflicts, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state.`,
+            NO_CHECKOUT_INSTRUCTIONS,
+        ]
+    }
+    if (intent === 'resolve_conflicts' && report !== null && hasActiveReportPullRequest(report)) {
+        return [
+            `A person asked you to resolve the merge conflicts on the pull request of the PostHog Inbox report at ${reportUrl}, without merging it, in the message after this block.`,
+            `Read the report first and find its open pull request that conflicts with its base branch, with the inbox MCP tools. If more than one open pull request conflicts, ask the person which one to update. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Update the branch from its base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Run the affected tests, push, and stop. If a conflict has two plausible resolutions that change what the pull request does, do not guess: lay out the options and ask the person. Do not fix CI failures that the update did not cause: name them in your summary. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Do not change the report state.`,
             NO_CHECKOUT_INSTRUCTIONS,
         ]
     }
@@ -354,6 +368,8 @@ function handleKickoffError(
 // comes back as a 400 on a field the reader never sees named.
 export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
 
+const REPOSITORY_MISSING_REASON = 'Select a repository to implement this report.'
+
 async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise<void> {
     try {
         await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, { only_if_awaiting_first_message: true })
@@ -448,7 +464,6 @@ function panelStillOnReport(context: ReportChatContext | null, reportId: string)
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
-    isPhaiSandboxFlagOn: boolean // aiShellLogic
     pageItems: AttachedContextItem[] // chatContextLogic
     picks: AttachedContextItem[] // chatContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -660,8 +675,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
         ],
         values: [
-            aiShellLogic,
-            ['isPhaiSandboxFlagOn'],
             projectLogic,
             ['currentProjectId'],
             teamLogic,
@@ -843,9 +856,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.metricCheckReplacementDisabledReason) {
                 return
             }
@@ -868,9 +878,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         openReportDiscussion: ({ report, reportUrl }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
@@ -878,9 +885,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         warmReportDiscussion: async ({ report }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             if (values.aiConsentDisabledReason || values.currentProjectId == null) {
                 return
             }
@@ -989,16 +993,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.discussReportFailure()
-                return
-            }
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
                 values.aiConsentDisabledReason ??
                 (intent === 'check_metrics' ? values.metricCheckReplacementDisabledReason : null) ??
-                (intent === 'merge_pr' || intent === 'fix_ci' ? values.freeTrialDisabledReason : null)
+                (intent === 'merge_pr' || intent === 'fix_ci' || intent === 'resolve_conflicts'
+                    ? values.freeTrialDisabledReason
+                    : null)
             if (disabledReason) {
                 lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
@@ -1043,7 +1045,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ) {
                 lemonToast.info('This PR is no longer open and approved, so AI will answer instead.')
             } else if (
-                intent === 'fix_ci' &&
+                (intent === 'fix_ci' || intent === 'resolve_conflicts') &&
                 currentReport !== null &&
                 hasActiveReportPullRequest(report) &&
                 !hasActiveReportPullRequest(currentReport)
@@ -1060,11 +1062,22 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
             try {
                 const messageText = discussReportMessage(agentQuestion ?? question)
-                // The pane enables Make it green from the selected PR's checks, so the run works on that PR.
+                // The pane enables Make it green and Resolve conflicts from the selected PR's state, so
+                // the run works on that PR.
                 const pinnedPullRequestUrl =
-                    intent === 'fix_ci' ? selectedOpenPullRequestUrl(currentReport, pullRequestUrl) : null
+                    intent === 'fix_ci' || intent === 'resolve_conflicts'
+                        ? selectedOpenPullRequestUrl(currentReport, pullRequestUrl)
+                        : null
                 const selectedPullRequest: AttachedContextItem[] = pinnedPullRequestUrl
-                    ? [{ type: 'instructions', value: fixCiSelectedPullRequestInstructions(pinnedPullRequestUrl) }]
+                    ? [
+                          {
+                              type: 'instructions',
+                              value:
+                                  intent === 'resolve_conflicts'
+                                      ? resolveConflictsSelectedPullRequestInstructions(pinnedPullRequestUrl)
+                                      : fixCiSelectedPullRequestInstructions(pinnedPullRequestUrl),
+                          },
+                      ]
                     : []
                 const prompt = buildDiscussReportPrompt(currentReport, reportUrl, messageText, intent, [
                     ...selectedPullRequest,
@@ -1122,9 +1135,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                return
-            }
             // A repeated press while the lazy chunks load would start the run twice.
             if (cache.implementationPending || values.isCreatingPr) {
                 return
@@ -1205,10 +1215,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback, repository }) => {
-            if (!values.isPhaiSandboxFlagOn) {
-                actions.createPrFailure()
-                return
-            }
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
             const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
                 (error) => {
@@ -1221,17 +1227,21 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
-            const githubAccessLogic =
+            const findGithubAccessLogic = (): ReturnType<typeof reportGithubAccessLogic.findMounted> =>
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })
+            const githubAccessLogic = findGithubAccessLogic()
+            const repositoryMissing = !!githubAccessLogic?.values.repositoryRequired && !repository
             const disabledReason =
                 values.createPrDisabledReason ??
-                (githubAccessLogic?.values.repositoryRequired && !repository
-                    ? 'Select a repository to implement this report.'
-                    : null) ??
+                (repositoryMissing ? REPOSITORY_MISSING_REASON : null) ??
                 githubAccessLogic?.values.disabledReason
             if (disabledReason) {
-                lemonToast.error(disabledReason)
+                if (disabledReason === REPOSITORY_MISSING_REASON) {
+                    githubAccessLogic?.actions.requireRepositorySelection()
+                } else {
+                    lemonToast.error(disabledReason)
+                }
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
@@ -1295,8 +1305,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     actions.clearActiveCreation()
                 }
                 if (error?.code === 'report_implementation_repository_unresolved') {
-                    githubAccessLogic?.actions.requireRepositorySelection()
-                    lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    // The reader can leave the report while the request runs, which unmounts the picker.
+                    // Without a mounted picker on screen, only the toast can report the refusal.
+                    const accessLogic = findGithubAccessLogic()
+                    if (accessLogic) {
+                        accessLogic.actions.requireRepositorySelection()
+                    } else {
+                        lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    }
                     captureInboxReportActionCompleted({
                         report,
                         actionType: 'create_pr',

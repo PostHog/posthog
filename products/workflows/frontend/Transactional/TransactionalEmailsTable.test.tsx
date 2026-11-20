@@ -3,16 +3,19 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, PreflightStatus } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { sendFromCodeGuideUrl } from './sendFromCode/sendFromCodeGuideUrl'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 
@@ -30,7 +33,11 @@ const codeEmail = (key: string, userAccessLevel: AccessControlLevel): CodeEmailA
 })
 
 describe('TransactionalEmailsTable', () => {
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        Reflect.deleteProperty(navigator, 'clipboard')
+        Reflect.deleteProperty(window.POSTHOG_APP_CONTEXT ?? {}, 'preflight')
+    })
 
     it.each([
         ['a workflow editor who can only view this email', AccessControlLevel.Editor, AccessControlLevel.Viewer, 0],
@@ -141,7 +148,23 @@ describe('TransactionalEmailsTable', () => {
         expect(await screen.findByText(heading)).toBeInTheDocument()
     })
 
-    const renderWithCodeSends = (get: Record<string, unknown>): ReturnType<typeof render> => {
+    const loadFlags = (wizardOffered = false, codeSendsOn = true): void =>
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
+            {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: codeSendsOn,
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: wizardOffered,
+            }
+        )
+
+    const renderWithCodeSends = (
+        get: Record<string, unknown>,
+        {
+            wizardOffered = false,
+            selfHosted = false,
+            flagsLoaded = true,
+        }: { wizardOffered?: boolean; selfHosted?: boolean; flagsLoaded?: boolean } = {}
+    ): ReturnType<typeof render> => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': { results: [] },
@@ -151,16 +174,51 @@ describe('TransactionalEmailsTable', () => {
                 ...get,
             } as Record<string, any>,
         })
+        if (!flagsLoaded) {
+            window.localStorage.clear()
+        }
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            preflight: { cloud: !selfHosted } as PreflightStatus,
+        } as AppContext
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
-        })
+        if (flagsLoaded) {
+            loadFlags(wizardOffered)
+        }
         return render(
             <Provider>
                 <TransactionalEmailsTable />
             </Provider>
         )
     }
+
+    it.each([
+        ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
+        ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
+    ])('%s', async (_case, selfHosted) => {
+        renderWithCodeSends(
+            {
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+            },
+            { selfHosted }
+        )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+
+        expect(
+            Boolean(
+                screen.queryByText(
+                    "Transactional emails count toward your daily sending allowance and are still sent after it's used up."
+                )
+            )
+        ).toBe(!selfHosted)
+        expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
+            selfHosted
+                ? undefined
+                : 'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+        )
+    })
 
     it('keeps the first send from code on screen in the empty tab', async () => {
         jest.useFakeTimers()
@@ -199,6 +257,85 @@ describe('TransactionalEmailsTable', () => {
         fireEvent.click(container.querySelector('[data-attr=send-from-code-reload-domain]')!)
 
         expect(await screen.findByText(/Set up the domain you send from/)).toBeInTheDocument()
+
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-set-up-domain]')!)
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
+        expect(router.values.searchParams).toEqual({ from: 'transactional' })
+    })
+
+    it.each([
+        ['leads with the Wizard command once it is offered', true, false, true],
+        ['leads with the agent prompt until the Wizard command is offered', false, false, false],
+        ['leads with the agent prompt on a self-hosted instance the Wizard cannot reach', true, true, false],
+    ])('%s, with the code one click away', async (_case, wizardOffered, selfHosted, wizardShown) => {
+        const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
+        await waitFor(() => {
+            expect(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')).toBeInTheDocument()
+            if (wizardShown) {
+                expect(container.querySelector('[data-attr=wizard-command-block]')).toHaveTextContent(
+                    'npx @posthog/wizard email'
+                )
+            }
+        })
+        if (!wizardShown) {
+            expect(container.querySelector('[data-attr=wizard-command-block]')).not.toBeInTheDocument()
+        }
+        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
+        expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
+
+        const clipboard = {
+            text: '',
+            writeText: async (text: string): Promise<void> => {
+                clipboard.text = text
+            },
+        }
+        Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+        if (wizardShown) {
+            const wizardButton = screen.getByLabelText('Copy wizard command')
+            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
+            expect(wizardButton.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+            fireEvent.click(wizardButton)
+            await waitFor(() => expect(clipboard.text).toBe('npx -y @posthog/wizard@latest email'))
+        }
+
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
+        await waitFor(() => expect(clipboard.text).toContain('PostHog project token: phc_default-team-api-token'))
+        expect(clipboard.text).toContain('Leave out the from address.')
+
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-show-code]')!)
+
+        expect(container.querySelector('[data-attr=send-from-code-snippet]')).toHaveTextContent('Node.js')
+    })
+
+    const receipt = {
+        id: 'template-1',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-1',
+        has_draft: false,
+        tags: [],
+    }
+
+    it.each([
+        ['opens the guide over the list', [receipt], [], 'Receipt', true],
+        [
+            'keeps the guide closed when the project already sends from code',
+            [receipt],
+            [codeEmail('welcome', AccessControlLevel.Editor)],
+            'Receipt',
+            false,
+        ],
+        ['shows the empty tab, which holds the guide already', [], [], 'Send your first email from code', false],
+    ])('answers a link from the domain-ready card: %s', async (_case, templates, codeEmails, landmark, modalOpens) => {
+        renderWithCodeSends({
+            '/api/projects/:team_id/messaging_templates/': { results: templates },
+            '/api/projects/:team_id/transactional_code_emails/': codeEmails,
+        })
+        expect(await screen.findByText(landmark)).toBeInTheDocument()
+        await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toHaveLength(codeEmails.length))
+        act(() => router.actions.push(sendFromCodeGuideUrl()))
+
+        await waitFor(() => expect(router.values.searchParams).toEqual({}))
+        expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
     })
 
     it('offers sending from code only once the templates loaded', async () => {
@@ -230,4 +367,32 @@ describe('TransactionalEmailsTable', () => {
 
         expect(await screen.findByText(/Your code can send any email/)).toBeInTheDocument()
     })
+
+    it.each([
+        ['opens the guide over the list once code sends turn out on', [receipt], 'Receipt', true, true],
+        [
+            'drops the link from an empty tab once code sends turn out off',
+            [],
+            'Create your first transactional email',
+            false,
+            false,
+        ],
+    ])(
+        'holds a link from the domain-ready card until feature flags load, then %s',
+        async (_case, templates, landmark, codeSendsOn, modalOpens) => {
+            renderWithCodeSends(
+                { '/api/projects/:team_id/messaging_templates/': { results: templates } },
+                { flagsLoaded: false }
+            )
+            expect(await screen.findByText(landmark)).toBeInTheDocument()
+            await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toEqual([]))
+            act(() => router.actions.push(sendFromCodeGuideUrl()))
+            expect(router.values.searchParams).toEqual({ guide: 'send-from-code' })
+
+            act(() => loadFlags(false, codeSendsOn))
+
+            await waitFor(() => expect(router.values.searchParams).toEqual({}))
+            expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
+        }
+    )
 })

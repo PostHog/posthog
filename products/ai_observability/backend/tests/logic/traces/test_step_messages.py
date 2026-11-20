@@ -1,6 +1,7 @@
 import tracemalloc
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,9 +20,16 @@ from products.ai_observability.backend.logic.message_normalizer.errors import (
     RecipeTimeoutError,
 )
 from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
-from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
+from products.ai_observability.backend.logic.message_normalizer.run_limits import (
+    OUTPUT_NODES_PER_CLOCK_CHECK,
+    time_limit,
+)
 from products.ai_observability.backend.logic.message_normalizer.values import CompatMessage
-from products.ai_observability.backend.logic.traces.step_messages import UnrenderableValueError, to_messages
+from products.ai_observability.backend.logic.traces.step_messages import (
+    UnrenderableValueError,
+    parsed_json_text,
+    to_messages,
+)
 
 TEAM_ID = 7
 
@@ -119,6 +127,28 @@ def test_keeps_a_tool_result_that_would_not_survive_parsing_as_its_exact_text(_n
             {"id": 9007199254740991, "rate": 0.1, "scale": 1e300, "small": -2.5e-7, "zero": -0.0},
         ),
         ("number_inside_a_string", '{"note": "id 1234567890123456789"}', {"note": "id 1234567890123456789"}),
+        (
+            "json_text_inside_a_text_block",
+            '{"content": [{"type": "text", "text": "{\\"rows\\": [1]}"}]}',
+            {"content": [{"type": "text", "text": {"rows": [1]}}]},
+        ),
+        ("text_after_nested_json_stays_text", '{"note": "[1, 2]\\n\\nmore"}', {"note": "[1, 2]\n\nmore"}),
+        ("nested_scalar_text_stays_text", '{"n": "42"}', {"n": "42"}),
+        (
+            "nested_number_that_would_lose_digits_stays_text",
+            '{"inner": "{\\"id\\": 9007199254740993}"}',
+            {"inner": '{"id": 9007199254740993}'},
+        ),
+        (
+            "nested_json_past_the_depth_bound_stays_text",
+            '{"inner": "' + "[" * 200 + "]" * 200 + '"}',
+            {"inner": "[" * 200 + "]" * 200},
+        ),
+        (
+            "nested_json_past_the_depth_bound_leaves_its_sibling_parsed",
+            '{"keep": "{\\"a\\": 1}", "inner": "' + "[" * 200 + "]" * 200 + '"}',
+            {"keep": {"a": 1}, "inner": "[" * 200 + "]" * 200},
+        ),
     ]
 )
 def test_tool_result_json_string_parses_to_structure(_name, content, expected):
@@ -462,6 +492,18 @@ def test_validating_a_wide_tool_value_holds_memory_to_its_depth():
 def test_validating_a_wide_tool_value_stops_at_the_deadline():
     with time_limit(0), pytest.raises(RecipeTimeoutError):
         to_messages(WIDE_UNRENDERABLE_ARGUMENTS, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
+
+
+def test_parsing_json_text_in_a_wide_value_stops_when_the_deadline_passes_partway():
+    ticks = iter(range(1_000_000))
+    wide = ["text"] * (2 * OUTPUT_NODES_PER_CLOCK_CHECK)
+
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: next(ticks))),
+        time_limit(1.5),
+        pytest.raises(RecipeTimeoutError),
+    ):
+        parsed_json_text(wide)
 
 
 def test_a_tool_result_longer_than_the_parse_cap_stays_its_raw_text():

@@ -75,4 +75,5 @@ export interface Tagger {
     created_at: string
     updated_at: string
     deleted?: boolean
+    migrated_to_evaluation_id?: string | null
 }

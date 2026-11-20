@@ -14,13 +14,13 @@ from products.stamphog.backend.facade.testing import seed_repo_config
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
-    # The serializer resolves stamphog_connected off the stamphog product DB on every response.
+    # The serializer resolves approval_connected off the stamphog product DB on every response.
     databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
 
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/settings/"
+        self.url = f"/api/projects/{self.team.id}/code_review/settings/"
 
     def test_get_returns_defaults_without_creating_a_row(self) -> None:
         res = self.client.get(self.url)
@@ -33,7 +33,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "urgency_threshold": "consider",
             "celebrate_clean_reviews": True,
             "review_inbox_prs": False,
-            "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
+            "approval_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "sources": {
                 "default_review_mode": "default",
                 "review_drafts": "default",
@@ -41,10 +41,10 @@ class TestReviewUserSettingsAPI(APIBaseTest):
                 "urgency_threshold": "default",
                 "celebrate_clean_reviews": "default",
                 "review_inbox_prs": "default",
-                "stamphog_review_inbox_prs": "default",
+                "approval_review_inbox_prs": "default",
             },
             "project_defaults": {"urgency_threshold": "consider", "celebrate_clean_reviews": True},
-            "stamphog_connected": False,  # no synced+enabled repo config in this project
+            "approval_connected": False,  # no synced+enabled repo config in this project
         }
         assert not ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).exists()
 
@@ -57,7 +57,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             self.url,
             {
                 "urgency_threshold": "must_fix",
-                "stamphog_review_inbox_prs": True,
+                "approval_review_inbox_prs": True,
                 "resolve_comments": True,
                 "default_review_mode": "flash",
                 "celebrate_clean_reviews": True,
@@ -95,7 +95,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             ("no_connecting_user", True, "inst-1", None, False),
         ]
     )
-    def test_stamphog_connected_requires_a_synced_enabled_repo_config(
+    def test_approval_connected_requires_a_synced_enabled_repo_config(
         self, _name, enabled, installation_id, connected_by_user_id, expected
     ) -> None:
         seed_repo_config(
@@ -109,7 +109,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        assert res.json()["stamphog_connected"] is expected
+        assert res.json()["approval_connected"] is expected
 
     def test_patch_rejects_an_unknown_threshold(self) -> None:
         res = self.client.patch(self.url, {"urgency_threshold": "everything"}, format="json")
@@ -143,7 +143,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         # raw-id create kwarg used to contradict each other: the row landed on the parent, the get
         # never matched, and every call after the first 500ed on the unique constraint.
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-        url = f"/api/projects/{env.id}/review_hog/settings/"
+        url = f"/api/projects/{env.id}/code_review/settings/"
         enabled_project_id = str(self.team.id)
 
         def enabled_for_project(

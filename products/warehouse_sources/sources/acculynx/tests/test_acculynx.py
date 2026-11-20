@@ -203,6 +203,62 @@ def test_missing_job_children_do_not_prevent_other_jobs_from_syncing(
     assert list(pipeline("invoices").items()) == [[{"id": "invoice-one", "job_id": "job-1"}]]
 
 
+PAGE_OFFSET_PARAMS = {
+    "jobs": "recordStartIndex",
+    "supplements": "recordStartIndex",
+    "representatives": "recordStartIndex",
+    "items": "recordStartIndex",
+    "custom-fields": "pageStartIndex",
+    "notations": "recordStartIndex",
+    "insurance-companies": "recordStartIndex",
+}
+
+
+@pytest.mark.parametrize(
+    "name, expected_rows, parent_key",
+    [
+        ("supplements", 2, None),
+        ("custom_field_definitions", 2, None),
+        ("supplement_items", 4, "supplement_id"),
+        ("job_representatives", 4, "job_id"),
+        ("job_custom_fields", 4, "job_id"),
+        ("job_contacts", 4, "job_id"),
+        ("supplement_notations", 4, "supplement_id"),
+        ("insurance_companies", 2, None),
+        ("workflow_milestones", 2, None),
+        ("job_insurance", 2, "job_id"),
+    ],
+)
+def test_tables_page_with_their_documented_offset_and_keep_keys_unique_across_parents(
+    name: str,
+    expected_rows: int,
+    parent_key: str | None,
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        segment = url.path.rsplit("/", 1)[-1]
+        if segment in ("contacts", "workflow-milestones"):
+            return response(request, {"items": [{"id": "row-0"}, {"id": "row-1"}]})
+        if segment == "insurance":
+            return response(request, {"insuranceCompany": {"id": "insurer-one"}, "claimNumber": "claim-one"})
+        # A wrong offset parameter is ignored by AccuLynx, which then repeats the first page.
+        offset = int(parse_qs(url.query).get(PAGE_OFFSET_PARAMS[segment], ["0"])[0])
+        row = {"id": f"row-{offset}", "type": "SalesOwner", "createdDate": "2025-01-01T00:00:00Z"}
+        return response(request, {"count": 2, "pageSize": 1, "pageStartIndex": offset, "items": [row]})
+
+    http_send.side_effect = send
+    resource = pipeline(name)
+    rows = [row for page in resource.items() for row in page]
+    assert len(rows) == expected_rows
+    assert resource.primary_keys
+    assert len({tuple(row[key] for key in resource.primary_keys) for row in rows}) == expected_rows
+    if parent_key:
+        assert {row[parent_key] for row in rows} == {"row-0", "row-1"}
+
+
 def test_appointments_walk_bounded_date_windows_for_every_calendar(
     pipeline: Callable[..., SyncSourceResponse],
     http_send: MagicMock,

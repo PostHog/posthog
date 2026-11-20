@@ -22,7 +22,7 @@ import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
@@ -224,11 +224,17 @@ describe('SandboxEmailSendStep', () => {
         expect(sent.invocation.queue).toBe('hogflow')
         expect(metricNames([sent])).toEqual([['email_sandbox_sent', 'email']])
         await waitForExpect(() =>
-            expect(capturedAnalytics).toEqual([
+            expect(capturedFor(world.team.uuid)).toEqual([
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: false,
+                        source: 'workflow',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
@@ -258,6 +264,12 @@ describe('SandboxEmailSendStep', () => {
             world.ses.replyNext(...sesReplies)
             return Promise.resolve()
         }
+
+    const ANALYTICS_EVENTS: Record<string, string> = {
+        email_sandbox_sent: 'workflows sandbox email sent',
+        email_sandbox_blocked: 'workflows sandbox email blocked',
+        email_sandbox_failed: 'workflows sandbox email failed',
+    }
 
     it.each<[string, () => Promise<void>, object, string, number, number]>([
         [
@@ -328,6 +340,11 @@ describe('SandboxEmailSendStep', () => {
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+            await waitForExpect(() =>
+                expect(
+                    capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])
+                ).toEqual([[ANALYTICS_EVENTS[metric], 'workflow']])
+            )
         }
     )
 
@@ -587,28 +604,54 @@ describe('SandboxEmailSendStep', () => {
         })
     })
 
-    it("delivers a marketing email until the person reaches the team's frequency cap, then skips the next one", async () => {
-        await world.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO workflows_teamworkflowsconfig
-                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                 email_sending_suspension_reason, marketing_frequency_cap_max_messages,
-                 marketing_frequency_cap_window_days)
-             VALUES ($1, false, 'off', '', 1, 7)`,
-            [world.team.id],
-            'test:cap-one-marketing-email-a-week'
-        )
-        const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+    type EmailResult = { status: 'accepted'; message_id: string } | { status: 'skipped' | 'failed'; reason: string }
 
-        const first = await runToNextAction(member(), roomy)
-        const second = await runToNextAction(member(), roomy)
-
-        expect(world.ses.delivered).toHaveLength(1)
-        expect([first, second].map(({ finished }) => finished.invocation.state.variables?.email_result)).toEqual([
+    it.each<[string, () => Promise<void>, EmailResult, EmailResult]>([
+        [
+            'the first one is delivered',
+            () => Promise.resolve(),
             { status: 'accepted', message_id: 'ses-1' },
             { status: 'skipped', reason: 'frequency_capped' },
-        ])
-    })
+        ],
+        [
+            'the sandbox tenant is paused for the first one',
+            () => world.setTenant('DISABLED', new Date()),
+            { status: 'skipped', reason: 'tenant_paused' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            "the sandbox tenant's state is stale for the first one",
+            () => world.setTenant('ENABLED', new Date(Date.now() - 600_000)),
+            { status: 'failed', reason: 'retries_exhausted' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+    ])(
+        "spends the team's frequency cap of one only on a marketing email the sandbox sends, when %s",
+        async (_name, arrangeFirst, firstResult, secondResult) => {
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                     marketing_frequency_cap_window_days)
+                 VALUES ($1, false, 'off', '', 1, 7)`,
+                [world.team.id],
+                'test:cap-one-marketing-email-a-week'
+            )
+            const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+
+            await arrangeFirst()
+            const first = await runToNextAction(member(), roomy)
+            await world.setTenant('ENABLED', new Date())
+            const second = await runToNextAction(member(), roomy)
+
+            expect(world.ses.delivered).toHaveLength(1)
+            expect([first, second].map(({ finished }) => finished.invocation.state.variables?.email_result)).toEqual([
+                firstResult,
+                secondResult,
+            ])
+        }
+    )
 
     it('logs why the template failed to render', async () => {
         const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!
@@ -618,7 +661,9 @@ describe('SandboxEmailSendStep', () => {
 
         expect(segments[0].logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
-            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+            expect.stringContaining(
+                'failed to render: The rendered email from the PostHog test sender is missing a recipient, subject'
+            ),
         ])
     })
 

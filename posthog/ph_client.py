@@ -23,6 +23,11 @@ PH_US_HOST = "https://us.i.posthog.com"
 PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
+# A `sync_mode` client sends, and retries, in the calling thread. One retry recovers a send whose
+# connection dropped, and the short timeout keeps both tries under the SDK's default wait for one.
+SYNC_SEND_MAX_RETRIES = 1
+SYNC_SEND_TIMEOUT_SECONDS = 5
+
 logger = structlog.get_logger(__name__)
 
 
@@ -263,11 +268,11 @@ def ph_scoped_capture(
         raise errors[0]
 
 
-_background_client: Any = None
+_background_clients: dict[str | None, Any] = {}
 _background_client_lock = threading.Lock()
 
 
-def ph_background_capture() -> ScopedCapture:
+def ph_background_capture(event_region: str | None = None) -> ScopedCapture:
     """Capture through a process-lifetime client whose batches the SDK's consumer
     thread delivers in the background — no per-call client setup or blocking flush.
 
@@ -276,18 +281,32 @@ def ph_background_capture() -> ScopedCapture:
     Delivery is best-effort: a bounded flush runs at interpreter exit, so don't use
     this where delivery must be confirmed before checkpointing durable state.
     """
-    global _background_client
-    if _background_client is None:
+    client = _background_clients.get(event_region)
+    if client is None:
         with _background_client_lock:
-            if _background_client is None:
-                _background_client = get_client()
+            client = _background_clients.get(event_region)
+            if client is None:
+                client = get_client()
+                if client and event_region is not None:
+                    # The client's own `region` super property would otherwise overwrite the event's region.
+                    client.super_properties["region"] = event_region
                 # The SDK's own atexit hook only joins the consumer mid-batch without
                 # draining the queue. atexit is LIFO, so this flush (registered after
                 # the client's hook) runs first and drains what a graceful shutdown
                 # enqueued last. Bounded (SDK default 10s) so a dead network can't
                 # stall process exit.
-                atexit.register(_background_client.flush)
-    return ScopedCapture(_background_client)
+                atexit.register(client.flush)
+                _background_clients[event_region] = client
+    return ScopedCapture(client)
+
+
+def flush_background_capture() -> None:
+    """Drain the process-lifetime clients, for a process that exits without running atexit hooks."""
+    for client in list(_background_clients.values()):
+        try:
+            client.flush()
+        except Exception:
+            logger.warning("background_capture_flush_failed", exc_info=True)
 
 
 def get_client(region: str = "US", **kwargs: Any):
@@ -328,7 +347,6 @@ def get_client(region: str = "US", **kwargs: Any):
         api_key,
         host=host,
         super_properties={"region": region},
-        _use_ai_lane=True,
-        _enable_multimodal_capture=True,
+        enable_full_ai_capture=True,
         **kwargs,
     )

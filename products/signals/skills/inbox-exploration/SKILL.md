@@ -7,8 +7,8 @@ description: >
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
-  Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  Covers listing, searching by topic, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill
+  when raw signals are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
   which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
@@ -19,8 +19,7 @@ The **Inbox** is where PostHog surfaces signal reports — clusters of related o
 /checkout"). Reports come from multiple source products: error tracking, session replay, web
 analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
-Inbox is part of [PostHog Desktop](https://posthog.com/desktop), PostHog's agentic surface for
-engineering teams.
+Inbox is part of the PostHog web app, where it is named **Self-driving inbox**.
 
 Don't assume the user's project has reports, or that any signal sources are configured — plenty
 of projects don't have Inbox set up. Always run the setup-check workflow below before answering
@@ -75,7 +74,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
-| `inbox-reports-search`                | Reports ranked by how well they match a query, by keywords and by meaning. Behind a rollout flag              |
+| `inbox-reports-search`                | Reports about a topic, ranked by keywords and by meaning, across every status                                 |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -127,7 +126,7 @@ By default `inbox-reports-list` excludes `suppressed` reports and orders results
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
 
-To find the reports about a topic, such as before filing one, use `inbox-reports-search` when it is present.
+To find the reports about a topic, such as before filing one, use `inbox-reports-search`.
 It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
 The `search` filter on `inbox-reports-list` matches the exact text only.
 
@@ -227,14 +226,14 @@ Three meaningful cases:
 **Case A — no source configs at all (`count: 0`)**
 
 The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
-plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
-this is to install **PostHog Desktop** at <https://posthog.com/desktop>. Example response:
+plainly that Inbox needs signal sources to be set up first, and that they do this by activating
+Self-driving in the Inbox in the PostHog web app. Example response:
 
 > Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
 > issues and trends that PostHog automatically clusters from sources like error tracking, session
-> replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
-> [PostHog Desktop](https://posthog.com/desktop) — once it's connected, signals will start flowing in
-> and reports will appear in your inbox over the next day or so.
+> replay, GitHub, Linear, and Zendesk. To set this up, open the Inbox in PostHog and activate
+> Self-driving. Signals then start flowing in, and reports appear in your inbox over the next day
+> or so.
 
 Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
 empty.
@@ -348,8 +347,17 @@ inbox-reports-list
 }
 ```
 
-Otherwise, search with a short term such as the error type, the page, or the feature name.
-`search` matches report titles and summaries only, so try one or two short terms instead of a full sentence:
+Otherwise, call `inbox-reports-search` with a `query` that names the error, the page, or the feature.
+It matches by keywords and by meaning across every status, so search again in other words before you decide that nothing matches.
+Read each result's `status`:
+
+```json
+inbox-reports-search
+{ "query": "checkout payment fails", "limit": 10 }
+```
+
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` instead.
+That filter matches the exact text of titles and summaries only, so try one or two short terms instead of a full sentence:
 
 ```json
 inbox-reports-list
@@ -421,19 +429,23 @@ inbox-reports-list
 
 ## Workflow: filter by topic or source
 
-"Are there any reports about <topic>?" — start with `search`:
+"Are there any reports about <topic>?" — start with `inbox-reports-search`:
 
 ```json
-inbox-reports-list
+inbox-reports-search
 {
-  "search": "checkout",
+  "query": "checkout",
   "status": "ready,in_progress,pending_input",
   "limit": 20
 }
 ```
 
-`search` matches title and summary. If the user is asking about a product area rather than a
-keyword, use `source_product`:
+Without `status`, the search covers every status, dismissed reports included, so read each result's `status`.
+Search again in other words before you tell the user that no report covers the topic.
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` and the same `status`.
+That filter matches the exact text of the title and summary only.
+
+If the user is asking about a product area rather than a topic, use `source_product`:
 
 ```json
 inbox-reports-list
@@ -443,14 +455,11 @@ inbox-reports-list
 }
 ```
 
-If the keyword search returns nothing meaningful, hand off to the `signals` skill — semantic
-search over signal text via `embedText()` will catch reports the keyword filter missed.
-
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
-  call `inbox-source-configs-list` first — no sources means the user needs to install
-  [PostHog Desktop](https://posthog.com/desktop) to start receiving signals; sources-but-no-reports
+  call `inbox-source-configs-list` first — no sources means the user needs to activate Self-driving
+  in the Inbox in the PostHog web app to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless

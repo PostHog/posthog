@@ -11,6 +11,7 @@
             "text": null,
             "subject_kinds": ["error_tracking_issue"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
                 "resource": "error_tracking",
                 "level": "editor"
@@ -31,6 +32,7 @@
             },
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
                 "resource": "task",
                 "level": "editor"
@@ -46,6 +48,7 @@
             "text": null,
             "subject_kinds": ["pull_request", "error_tracking_issue"],
             "refuses_forks": false,
+            "channels": ["github", "slack"],
             "access": null,
             "usage": "@posthog help"
         },
@@ -63,6 +66,7 @@
             },
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
                 "resource": "loop",
                 "level": "editor"
@@ -83,11 +87,37 @@
             },
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
                 "resource": "task",
                 "level": "editor"
             },
             "usage": "@posthog qa [<focus>]"
+        },
+        {
+            "verb": "recreate",
+            "aliases": [],
+            "summary": "Re-create this approved fork pull request on a branch in this repository, so CI runs on it.",
+            "dispatches_to": "PostHog Review",
+            "options": [
+                {
+                    "name": "enqueue",
+                    "spelling": "--enqueue",
+                    "kind": "flag",
+                    "choices": null,
+                    "default": false,
+                    "help": "Also submit the new pull request to the merge queue, when the repository has Trunk's label."
+                }
+            ],
+            "text": null,
+            "subject_kinds": ["pull_request"],
+            "refuses_forks": false,
+            "channels": ["github"],
+            "access": {
+                "resource": "code_review",
+                "level": "editor"
+            },
+            "usage": "@posthog recreate [--enqueue]"
         },
         {
             "verb": "resolve",
@@ -98,6 +128,7 @@
             "text": null,
             "subject_kinds": ["error_tracking_issue"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
                 "resource": "error_tracking",
                 "level": "editor"
@@ -130,8 +161,9 @@
             "text": null,
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
-                "resource": "review_hog",
+                "resource": "code_review",
                 "level": "editor"
             },
             "usage": "@posthog review [--deep] [--no-resolve]"
@@ -145,8 +177,9 @@
             "text": null,
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
+            "channels": ["github", "slack"],
             "access": {
-                "resource": "stamphog",
+                "resource": "code_review_approval",
                 "level": "editor"
             },
             "usage": "@posthog stamp"

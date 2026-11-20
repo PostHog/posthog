@@ -37,8 +37,8 @@ export interface saveToCohortModalContentLogicValues {
     paramsFromFilters: {
         limit: number
         offset: number
-        page?: number | undefined
-        search?: string | undefined
+        page?: number
+        search?: string
         type: 'dynamic' | 'static'
     }
 }
@@ -85,8 +85,8 @@ export interface saveToCohortModalContentLogicMeta {
         paramsFromFilters: (cohortFilters: CohortFilters) => {
             limit: number
             offset: number
-            page?: number | undefined
-            search?: string | undefined
+            page?: number
+            search?: string
             type: 'dynamic' | 'static'
         }
         pagination: (cohortFilters: CohortFilters, count: number) => PaginationManual

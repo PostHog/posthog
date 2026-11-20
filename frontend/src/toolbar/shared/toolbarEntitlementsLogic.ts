@@ -12,6 +12,8 @@ import { toolbarPosthogJS, useToolbarFeatureFlag } from '~/toolbar/shared/toolba
 import { safeFetch } from '~/toolbar/shared/utils'
 import { AvailableFeature } from '~/types'
 
+import type { ToolbarProject } from '../../lib/toolbar/toolbarProject'
+
 export type ToolbarEntitlements = ToolbarEntitlementsApiEntitlements
 
 const ENTITLEMENTS_PATH = '/api/user/toolbar_entitlements'
@@ -42,10 +44,12 @@ export interface toolbarEntitlementsLogicActions {
     setOAuthTokens: (
         accessToken: string,
         refreshToken: string | null,
-        clientId: string
+        clientId: string,
+        project: ToolbarProject
     ) => {
         accessToken: string
         clientId: string
+        project: ToolbarProject
         refreshToken: string | null
     } // toolbarConfigLogic
     loadEntitlements: () => any

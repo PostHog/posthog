@@ -99,7 +99,6 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         schemas: list[SourceSchema],
         client: _FakeClient,
         *,
-        flag: bool = True,
         configured: bool = True,
     ) -> MagicMock:
         gateway = GatewaySystemOneClient(
@@ -109,7 +108,6 @@ class TestRecommendIncrementalFields(SimpleTestCase):
             patch(f"{MODULE}.build_system_one_client", return_value=gateway),
             patch.object(GatewaySystemOneClient, "adecide", new=lambda _self, **kwargs: client.adecide(**kwargs)),
             patch(f"{MODULE}.system_one_configured", return_value=configured),
-            patch(f"{MODULE}.feature_enabled_or_false", return_value=flag),
             patch(f"{MODULE}.report_team_action") as report,
         ):
             recommend_incremental_fields(schemas, team=self.team, path=WIZARD_PATH)
@@ -171,12 +169,14 @@ class TestRecommendIncrementalFields(SimpleTestCase):
             patch(f"{MODULE}.build_system_one_client", return_value=gateway),
             patch.object(GatewaySystemOneClient, "adecide", new=lambda _self, **kwargs: client.adecide(**kwargs)),
             patch(f"{MODULE}.system_one_configured", return_value=True),
-            patch(f"{MODULE}.feature_enabled_or_false", return_value=True),
             patch(f"{MODULE}.groups", return_value={}),
             patch(f"{MODULE}.ph_scoped_capture") as scoped,
             patch(f"{MODULE}.report_team_action") as report,
+            patch(f"{MODULE}.get_instance_region", return_value="EU"),
         ):
             recommend_incremental_fields([_open_schema()], team=self.team, path=SYNC_FORM_PATH)
+
+        scoped.assert_called_once_with(event_region="EU")
 
         capture = scoped.return_value.__enter__.return_value
         assert capture.call_args.kwargs["event"] == "incremental field model answered"
@@ -222,7 +222,6 @@ class TestRecommendIncrementalFields(SimpleTestCase):
                 _schema("orders", _field("created_at"), _field("id", IncrementalFieldType.Integer)),
                 {},
             ),
-            ("flag_off", _open_schema(), {"flag": False}),
             ("gateway_not_configured", _open_schema(), {"configured": False}),
         ]
     )

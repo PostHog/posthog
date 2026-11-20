@@ -6,8 +6,10 @@ export {
     PROFILES_DIR,
     ROLE_RESTART_BACKOFF_MS,
     load,
+    loadText,
     readProfile,
 } from './load'
 export type { LoadOptions, LoadedCard } from './load'
 export { Backlog, Card, CdpRole, Named, Profile, RunningOnQueue, ValveEntry, stepsOf } from './schema'
 export type { Step } from './schema'
+export type { Target } from './target'

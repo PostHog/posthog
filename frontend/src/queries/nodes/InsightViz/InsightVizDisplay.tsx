@@ -8,11 +8,11 @@ import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMi
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { QuillSurfaceContext, useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { QuillSurfaceContext, useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -82,6 +82,11 @@ const WebAnalyticsInsight = lazyWithRetry(() =>
 const InsightExplainChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/explainChart/InsightExplainChart').then((m) => ({
         default: m.InsightExplainChart,
+    }))
+)
+const FunnelCardSummary = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelCardSummary').then((m) => ({
+        default: m.FunnelCardSummary,
     }))
 )
 const ExplainChartButton = lazyWithRetry(() =>
@@ -254,8 +259,13 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
-    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        funnelsFilter,
+        funnelVizType,
+        hasFunnelResults,
+        isFunnelWithEnoughSteps,
+        isFunnelWithIncompleteDataWarehouseStep,
+    } = useValues(funnelDataLogic(insightProps))
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -633,6 +643,14 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <QuillSurfaceContext.Provider value={quillSurface}>
                         <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {embedded &&
+                                isFunnels &&
+                                hasFunnelResults &&
+                                funnelsFilter?.showSummaryOnDashboards === true && (
+                                    <Suspense fallback={<Spinner />}>
+                                        <FunnelCardSummary />
+                                    </Suspense>
+                                )}
                             {!embedded &&
                                 ((isFunnels && hasFunnelResults) ||
                                     isPaths ||

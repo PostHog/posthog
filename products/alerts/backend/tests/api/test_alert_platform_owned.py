@@ -1,13 +1,15 @@
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from io import StringIO
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -25,6 +27,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -43,6 +46,7 @@ from products.alerts.backend.facade.api import (
     snooze_alert_from_slack,
 )
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
+from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT
 from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
@@ -69,6 +73,7 @@ from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
+    create_alert_destinations,
     get_configuration,
     list_alert_destinations,
     record_verdict_change,
@@ -79,8 +84,11 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDelivery,
+    AlertDestinationData,
+    AlertEventKind,
     DestinationType,
     InvalidPlatformAlertEdit,
+    NewAlertDestination,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     SourceKind,
@@ -90,7 +98,7 @@ from products.alerts_platform.backend.facade.enums import HoldRelease, HoldRelea
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
-from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack, template_webhook
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -239,6 +247,36 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
             "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
         }
+
+    def _copy_history(self, *flags: str) -> str:
+        out = StringIO()
+        call_command("copy_insight_alert_history_to_platform", "--team-id", str(self.team.id), *flags, stdout=out)
+        return out.getvalue()
+
+    def _shown_checks(self) -> list[tuple[Any, ...]]:
+        return [
+            (check["created_at"], check["state"], check["calculated_value"], check["triggered_dates"])
+            for check in self._row("retrieve", "?checks_limit=100")["checks"]
+        ]
+
+    def test_a_moved_alerts_checks_from_before_the_platforms_first_check_are_copied_once(self) -> None:
+        AlertCheck.objects.filter(alert_configuration=self.alert).update(created_at=self._at(110))
+        self._own_check(100, "2026-10-20", "Signups fell.")
+        self._record(60, "not_firing", value=50.0)
+        # The platform checked the alert from here on, so this check is one the page already replaced.
+        overlapped = AlertCheck.objects.create(alert_configuration=self.alert, state="Not firing")
+        AlertCheck.objects.filter(id=overlapped.id).update(created_at=self._at(50))
+
+        assert self._shown_checks() == [(_iso(self._at(60)), "Not firing", 50.0, None)]
+        assert "1 recorded by the platform, 2 to copy, 2 copied" in self._copy_history("--apply")
+        assert "2 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        AlertCheck.objects.filter(alert_configuration=self.alert).delete()
+
+        assert self._shown_checks() == [
+            (_iso(self._at(60)), "Not firing", 50.0, None),
+            (_iso(self._at(100)), "Firing", None, ["2026-10-20"]),
+            (_iso(self._at(110)), "Not firing", 1.0, None),
+        ]
 
     def test_a_moved_alert_shows_each_checks_investigation_and_what_the_agent_suppressed(self) -> None:
         notebook = create_notebook(self.team.id, title="Signups investigation", content=None)
@@ -590,14 +628,15 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list", "list", None),
-            ("retrieve", "retrieve", None),
-            ("threshold_insight_hidden", "list", "threshold"),
-            ("alert_moved_to_a_hidden_insight", "list", "alert"),
+            ("list", "list", None, False),
+            ("retrieve", "retrieve", None, False),
+            ("shared_with_an_alert_the_insight_stack_owns", "list", None, True),
+            ("threshold_insight_hidden", "list", "threshold", False),
+            ("alert_moved_to_a_hidden_insight", "list", "alert", False),
         ]
     )
     def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
-        self, _name: str, action: str, hidden: str | None
+        self, _name: str, action: str, hidden: str | None, shared_with_row_alert: bool
     ) -> None:
         assert self.alert.threshold is not None
         threshold_insight_id = self.alert.insight_id
@@ -605,6 +644,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
+        expected = [(copy_threshold, self.alert.name, copy_threshold, "Revenue bound")]
+        if shared_with_row_alert:
+            row_alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=self.alert.insight,
+                threshold=self.alert.threshold,
+                name="Row alert",
+                created_by=self.user,
+            )
+            # Edits to the row alert still write the threshold row, so the row's bounds are current.
+            expected = sorted(
+                [
+                    (row_threshold, self.alert.name, copy_threshold, "Revenue bound"),
+                    (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
+                ]
+            )
         if hidden is not None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -626,11 +681,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
-        assert [
+        assert sorted(
             (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
             for threshold in thresholds
             for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if hidden is None else [])
+        ) == (expected if hidden is None else [])
 
     @parameterized.expand(
         [
@@ -678,32 +733,233 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
 
-    @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
+    def test_a_new_destination_is_a_row_that_keeps_its_id_through_customize_and_reset(self) -> None:
+        sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+
+        with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
+            created = self.client.post(
+                f"{destinations_url}webhook/",
+                {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+                format="json",
+            )
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            (row_only,) = self.client.get(destinations_url).json()
+            assert created.json() == {"id": row_only["id"], "hog_function_ids": []}
+            assert (row_only["hog_function_ids"], row_only["message_customized"]) == ([], False)
+            assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
+            )
+            assert customized.status_code == status.HTTP_200_OK, customized.json()
+            (listed,) = self.client.get(destinations_url).json()
+            assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
+            (hog_function_id,) = listed["hog_function_ids"]
+            assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
+                "https://discord.com/api/webhooks/1/secret"
+            )
+
+            reset = self.client.post(
+                f"{destinations_url}reset/", {"hog_function_ids": [hog_function_id]}, format="json"
+            )
+
+        assert reset.status_code == status.HTTP_200_OK, reset.json()
+        (after_reset,) = self.client.get(destinations_url).json()
+        assert (reset.json()["id"], after_reset["id"], after_reset["hog_function_ids"]) == (
+            row_only["id"],
+            row_only["id"],
+            [],
+        )
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "insight alert destination created",
+            "insight alert destination customized",
+            "insight alert destination reset",
+        ]
+        changes = [
+            (change["action"], (change["before"] or change["after"])["id"])
+            for row in ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.alert.id), detail__type="alert_destination_change"
+            ).order_by("created_at")
+            for change in (row.detail or {})["changes"]
+        ]
+        assert changes == [
+            ("created", row_only["id"]),
+            ("created", hog_function_id),
+            ("deleted", hog_function_id),
+            ("created", row_only["id"]),
+        ]
+
+    @parameterized.expand([("row_only", False, 1, 0), ("row_copying_live_hog_functions", True, 0, 1)])
+    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
+    def test_a_slack_destination_is_counted_and_sent_a_test_once(
+        self, _name: str, through_hog_functions: bool, native_sends: int, hog_function_triggers: int, mock_trigger
+    ) -> None:
+        mock_trigger.return_value = [
+            AlertDelivery(channel="hog_function", target="Slack", template="slack", at="2026-11-18T00:00:00+00:00")
+        ]
+        sync_template_to_db(template_slack)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        slack = {"type": "slack", "slack_workspace_id": integration.id, "slack_channel_id": "C123"}
+        alert_url = f"{self.url}/{self.alert.id}"
+        if through_hog_functions:
+            created = self.client.post(f"{alert_url}/destinations/", slack, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            customized = self.client.post(
+                f"{alert_url}/destinations/customize/", {"destination_id": created.json()["id"]}, format="json"
+            )
+            assert customized.status_code == status.HTTP_200_OK, customized.json()
+        else:
+            with team_scope(self.team.id):
+                create_alert_destinations(
+                    team_id=self.team.id,
+                    configuration_id=self.copy_id,
+                    destinations=(
+                        NewAlertDestination(
+                            data=cast(AlertDestinationData, slack), event_kinds=(AlertEventKind.FIRING,)
+                        ),
+                    ),
+                )
+        (listed,) = self.client.get(f"{alert_url}/destinations/").json()
+        counted = [
+            (alert["id"], alert["destination_count"])
+            for alert in self.client.get(f"{self.url}/").json()["results"]
+            if alert["id"] == str(self.alert.id)
+        ]
+
+        with patch(
+            "slack_sdk.WebClient.chat_postMessage",
+            return_value={"ok": True, "channel": "C123", "ts": "1.0"},
+        ) as chat_post_message:
+            tested = self.client.post(f"{alert_url}/test-delivery/")
+
+        assert listed["hears_firing"] is True
+        assert counted == [(str(self.alert.id), 1)]
+        assert self.client.get(f"{alert_url}/").json()["destination_count"] == 1
+        assert (tested.status_code, tested.json()) == (
+            status.HTTP_202_ACCEPTED,
+            {"destination_count": 1, "email_recipient_count": 0, "failed_delivery_channels": []},
+        )
+        assert (chat_post_message.call_count, mock_trigger.call_count) == (native_sends, hog_function_triggers)
+
+    def test_an_alert_stops_taking_destinations_when_its_rows_reach_the_cap(self) -> None:
+        with team_scope(self.team.id):
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=self.copy_id,
+                destinations=tuple(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": "webhook", "webhook_url": f"https://hooks.example.com/{index}"},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    )
+                    for index in range(MAX_DESTINATIONS_PER_ALERT)
+                ),
+            )
+
+        response = self.client.post(
+            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/one-too-many"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "This alert already has 5 destinations. Remove one to add another."
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+
+    @parameterized.expand([("by_its_id",), ("customized_then_deleted_as_a_hog_function",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
         sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
         created = self.client.post(
-            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            f"{destinations_url}webhook/",
             {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
             format="json",
         )
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        (hog_function_id,) = created.json()["hog_function_ids"]
-        (listed,) = self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()
-        assert listed["id"] is not None
 
-        if delete_path == "alert_route":
+        if delete_path == "by_its_id":
             response = self.client.post(
-                f"{self.url}/{self.alert.id}/destinations/delete/",
-                {"hog_function_ids": [hog_function_id]},
-                format="json",
+                f"{destinations_url}delete/", {"destination_ids": [created.json()["id"]]}, format="json"
             )
         else:
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": created.json()["id"]}, format="json"
+            )
+            (hog_function_id,) = customized.json()["hog_function_ids"]
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/", {"deleted": True}, format="json"
             )
 
         assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
-        assert self.client.get(f"{self.url}/{self.alert.id}/destinations/").json() == []
+        assert self.client.get(destinations_url).json() == []
+
+    @parameterized.expand(
+        [
+            ("platform_sends_the_alertmanager_body", PlatformAlertOwner.PLATFORM, False, "webhook", False),
+            ("team_keeps_the_legacy_webhook_body", PlatformAlertOwner.PLATFORM, True, "webhook", True),
+            ("webhook_body_flag_unreadable", PlatformAlertOwner.PLATFORM, None, "webhook", True),
+            ("handed_back_after_the_alert_was_read", PlatformAlertOwner.SOURCE, False, "webhook", True),
+            ("pagerduty_keeps_the_stock_incident", PlatformAlertOwner.PLATFORM, False, "pagerduty", True),
+        ]
+    )
+    def test_a_new_destination_gets_hog_functions_only_where_a_row_would_not_send_what_they_send(
+        self,
+        _name: str,
+        copy_owner: PlatformAlertOwner,
+        keeps_legacy_body: bool | None,
+        route: str,
+        has_hog_functions: bool,
+    ) -> None:
+        sync_template_to_db(template_webhook)
+        sync_template_to_db(template_pagerduty)
+        with team_scope(self.team.id):
+            platform_testing.set_owner(self.copy_id, copy_owner)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        payload = (
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/secret"}
+            if route == "webhook"
+            else {"pagerduty_routing_key": "a" * 32}
+        )
+
+        with patch(
+            "products.alerts.backend.presentation.views.alert.keeps_legacy_webhook_body",
+            return_value=keeps_legacy_body,
+        ):
+            created = self.client.post(f"{destinations_url}{route}/", payload, format="json")
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert listed["id"] == created.json()["id"]
+        assert sorted(listed["hog_function_ids"]) == sorted(created.json()["hog_function_ids"])
+        assert bool(listed["hog_function_ids"]) is has_hog_functions
+
+    def test_an_alert_stops_taking_row_only_destinations_at_the_cap(self) -> None:
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/webhook/"
+        for index in range(MAX_DESTINATIONS_PER_ALERT):
+            response = self.client.post(
+                destinations_url,
+                {"type": "discord", "webhook_url": f"https://discord.com/api/webhooks/{index}/secret"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.post(
+            destinations_url,
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/one-too-many/secret"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert len(self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()) == MAX_DESTINATIONS_PER_ALERT
 
     def _copy(self) -> Any:
         with team_scope(self.team.id):
@@ -1241,13 +1497,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             assert due_after == due_before
 
-    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
-    def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
+    @parameterized.expand(
+        [
+            ("a_team_on_the_platform", "platform", "platform"),
+            ("a_team_off_the_platform", "source", "source"),
+            ("a_team_with_no_other_alert", None, "platform"),
+        ]
+    )
+    def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
+        self, _name: str, team_owner: str | None, expected_owner: str
+    ) -> None:
         team_cutover_at = self.now - timedelta(days=4)
-        AlertConfiguration.objects.filter(id=self.alert.id).update(
-            owner="platform" if begun else "source", owner_changed_at=team_cutover_at
-        )
         insight = create_insight_alert(self.team).insight
+        if team_owner is None:
+            AlertConfiguration.objects.filter(team_id=self.team.id).delete()
+        else:
+            AlertConfiguration.objects.filter(team_id=self.team.id).update(
+                owner=team_owner, owner_changed_at=team_cutover_at
+            )
 
         response = self.client.post(
             f"{self.url}",
@@ -1265,10 +1532,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
-        assert created.owner == ("platform" if begun else "source")
-        if begun:
+        assert created.owner == expected_owner
+        if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+        # A team's first alert has no insight history to shadow.
+        assert AlertConfiguration.objects.filter(
+            evaluated_by_insight_stack_q(timezone.now()), id=created.id
+        ).exists() is (team_owner is not None)
 
     @parameterized.expand(
         [
@@ -1458,6 +1729,17 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             for activity in ("created", "deleted")
         ]
 
+    def test_taking_ownership_of_a_moved_alert_makes_the_new_owner_its_copys_creator(self) -> None:
+        former_owner = User.objects.create_and_join(self.organization, "former-owner@example.com", None)
+        AlertConfiguration.objects.filter(id=self.alert.id).update(created_by=former_owner)
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, former_owner.id)
+
+        response = self.client.post(f"{self.url}/{self.alert.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._copy().created_by_id == self.user.id
+
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):
             platform_testing.forget_source_row(self.copy_id)
@@ -1577,7 +1859,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     check_interval_minutes=60 * 24,
                     recurrence_unit="day",
                     owner=PlatformAlertOwner.PLATFORM,
-                    destinations_owner=PlatformAlertOwner.PLATFORM,
                 )
 
         watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)
@@ -1677,12 +1958,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert elsewhere.json()["attr"] == "alert", elsewhere.json()
         assert watched.json()["detail"] == "simulated", watched.json()
 
-    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self, mock_trigger) -> None:
-        mock_trigger.return_value = [
-            AlertDelivery(channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00")
-        ]
-        sync_template_to_db(template_slack)
+    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self) -> None:
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -1692,31 +1968,30 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         )
         self._forget_the_insight_row()
         alert_url = f"{self.url}/{self.copy_id}"
+        slack = {
+            "type": "slack",
+            "slack_workspace_id": integration.id,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "product-alerts",
+        }
 
-        created = self.client.post(
-            f"{alert_url}/destinations/",
-            {
-                "type": "slack",
-                "slack_workspace_id": integration.id,
-                "slack_channel_id": "C123",
-                "slack_channel_name": "product-alerts",
-            },
-            format="json",
-        )
+        created = self.client.post(f"{alert_url}/destinations/", slack, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        [hog_function_id] = created.json()["hog_function_ids"]
-        assert (HogFunction.objects.get(id=hog_function_id).filters or {})["properties"][0]["value"] == str(
-            self.copy_id
-        )
-        tested = self.client.post(f"{alert_url}/test-delivery/")
-        assert (tested.status_code, tested.json()["destination_count"]) == (status.HTTP_202_ACCEPTED, 1)
+        destination_id = created.json()["id"]
+        assert created.json()["hog_function_ids"] == []
+        assert [destination["id"] for destination in self.client.get(f"{alert_url}/destinations/").json()] == [
+            destination_id
+        ]
+        again = self.client.post(f"{alert_url}/destinations/", slack, format="json")
+        assert again.status_code == status.HTTP_400_BAD_REQUEST, again.json()
+        assert again.json()["detail"] == "This alert already sends to this destination."
 
         deleted = self.client.post(
-            f"{alert_url}/destinations/delete/", {"hog_function_ids": [hog_function_id]}, format="json"
+            f"{alert_url}/destinations/delete/", {"destination_ids": [destination_id]}, format="json"
         )
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
-        assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
+        assert self.client.get(f"{alert_url}/destinations/").json() == []
         logged = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="AlertConfiguration",
@@ -1730,8 +2005,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
             for row in logged
         ] == [
-            (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),
-            (self.user.id, [("deleted", {"id": hog_function_id, "type": "slack"})]),
+            (self.user.id, [("created", {"id": destination_id, "type": "slack"})]),
+            (self.user.id, [("deleted", {"id": destination_id, "type": "slack"})]),
         ]
 
     def _destination(self, alert_id: UUID | None = None) -> HogFunction:

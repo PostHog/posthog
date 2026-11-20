@@ -1,15 +1,31 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { Suspense, lazy } from 'react'
 
 import { LemonButton, LemonDivider, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
 import { SetPasswordLinkPrompt } from './SetPasswordLinkPrompt'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillTimeSensitiveAuthenticationModal = lazy(() =>
+    retryImport(() => import('./QuillTimeSensitiveAuthenticationModal')).then((m) => ({
+        default: m.QuillTimeSensitiveAuthenticationModal,
+    }))
+)
+const QuillReauthenticationRequired = lazy(() =>
+    retryImport(() => import('./QuillReauthenticationRequired')).then((m) => ({
+        default: m.QuillReauthenticationRequired,
+    }))
+)
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const {
@@ -25,6 +41,8 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     } = useValues(timeSensitiveAuthenticationLogic)
     const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
         useActions(timeSensitiveAuthenticationLogic)
+    // A global modal sits outside every quill surface, so it follows the flag itself.
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
@@ -34,6 +52,18 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         next: location.href.replace(location.origin, ''),
         email: user?.email || '',
         reauth: 'true',
+    }
+
+    if (todayRailNav) {
+        return (
+            <Suspense fallback={null}>
+                <QuillTimeSensitiveAuthenticationModal
+                    showPassword={!!showPassword}
+                    showSetPasswordLink={showSetPasswordLink}
+                    extraQueryParams={extraQueryParams}
+                />
+            </Suspense>
+        )
     }
 
     return (
@@ -187,6 +217,17 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
 
     const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
     useOnMountEffect(checkReauthentication)
+    const quillSurface = useQuillSurface()
+
+    const reauthenticate = (): void => setDismissedReauthentication(false)
+
+    if (quillSurface && timeSensitiveAuthenticationRequired) {
+        return (
+            <Suspense fallback={null}>
+                <QuillReauthenticationRequired onReauthenticate={reauthenticate} />
+            </Suspense>
+        )
+    }
 
     return timeSensitiveAuthenticationRequired ? (
         <div className="w-full">
@@ -200,7 +241,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
                         </p>
                     </div>
 
-                    <LemonButton type="primary" onClick={() => setDismissedReauthentication(false)}>
+                    <LemonButton type="primary" onClick={reauthenticate}>
                         Re-authenticate
                     </LemonButton>
                 </div>

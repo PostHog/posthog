@@ -384,7 +384,7 @@ export interface hogFunctionConfigurationLogicValues {
     currentProject: ProjectType | null // projectLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     baseEventsQuery: EventsQuery | null
     canEditSource: boolean
     canLoadSampleGlobals: boolean
@@ -430,6 +430,7 @@ export interface hogFunctionConfigurationLogicValues {
     mightDropEvents: boolean
     newFilters: CyclotronJobFiltersType | null
     newHogCode: string | null
+    newInputValues: Record<string, CyclotronJobInputType> | null
     newInputs: CyclotronJobInputSchemaType[] | null
     oldFilters: CyclotronJobFiltersType | null
     oldHogCode: string | null
@@ -477,6 +478,25 @@ export interface hogFunctionConfigurationLogicActions {
         onContinue: () => void
         template: HogFunctionTemplateType
     } // destinationWorkflowSuggestionLogic
+    acceptInputsDiff: () => {
+        value: true
+    }
+    changeInput: (
+        key: string,
+        input: CyclotronJobInputType
+    ) => {
+        input: {
+            bytecode?: any
+            order?: number | undefined
+            secret?: boolean | undefined
+            templating?: 'hog' | 'liquid' | undefined
+            value: any
+        }
+        key: string
+    }
+    changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => {
+        inputsSchema: CyclotronJobInputSchemaType[]
+    }
     clearFiltersDiff: () => {
         value: true
     }
@@ -628,6 +648,18 @@ export interface hogFunctionConfigurationLogicActions {
     setNewHogCode: (newHogCode: string) => {
         newHogCode: string
     }
+    setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => {
+        newInputValues: Record<
+            string,
+            {
+                bytecode?: any
+                order?: number | undefined
+                secret?: boolean | undefined
+                templating?: 'hog' | 'liquid' | undefined
+                value: any
+            }
+        >
+    }
     setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => {
         newInputs: CyclotronJobInputSchemaType[]
     }
@@ -767,9 +799,7 @@ export interface hogFunctionConfigurationLogicMeta {
         logicProps: (arg: any) => HogFunctionConfigurationLogicProps
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
-        hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
-        ) => boolean
+        hasGroupsAddon: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
             template: HogFunctionTemplateType | null
@@ -947,6 +977,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersPromptOpen: true,
         setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
+        changeInput: (key: string, input: CyclotronJobInputType) => ({ key, input }),
+        changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => ({ inputsSchema }),
+        acceptInputsDiff: true,
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -1039,12 +1073,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearInputsDiff: () => null,
             },
         ],
+        newInputValues: [
+            null as Record<string, CyclotronJobInputType> | null,
+            {
+                setNewInputValues: (_, { newInputValues }) => newInputValues,
+                clearInputsDiff: () => null,
+            },
+        ],
     })),
     loaders(({ actions, props, values, cache }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
-                loadTemplate: async () => {
+                loadTemplate: async (): Promise<HogFunctionTemplateType | null> => {
                     cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null
@@ -1361,6 +1402,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
+                // The editor shows a pending PostHog AI suggestion that is not in `data` yet.
+                if (values.inputsDiff) {
+                    lemonToast.error('Accept or reject the suggested inputs first')
+                    return
+                }
+
                 // Check HOG code size immediately before submission
                 if (data.hog) {
                     const hogSize = new Blob([data.hog]).size
@@ -2057,6 +2104,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogFunctionInputsPrompted: () => {
             posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
+        },
+        changeInput: ({ key, input }) => {
+            // A suggested value stays pending until accept. Fields such as the JSON editor also report
+            // a change when they render a new value, so writing it to the form here would apply it early.
+            if (values.newInputValues && key in values.newInputValues) {
+                actions.setNewInputValues({ ...values.newInputValues, [key]: input })
+                return
+            }
+            actions.setConfigurationValue(`inputs.${key}`, input)
+        },
+        acceptInputsDiff: () => {
+            if (values.newInputs) {
+                actions.setConfigurationValue('inputs_schema', values.newInputs)
+            }
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.reportAIHogFunctionInputsAccepted()
+            actions.clearInputsDiff()
+        },
+        changeInputsSchema: ({ inputsSchema }) => {
+            // The editor builds the edited schema from the suggested one, so a schema edit during a
+            // suggestion takes the suggestion with it, including the values it holds as pending.
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.clearInputsDiff()
+            actions.setConfigurationValue('inputs_schema', inputsSchema)
         },
         reportAIHogFunctionInputsAccepted: () => {
             posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })

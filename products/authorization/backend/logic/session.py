@@ -32,12 +32,15 @@ class Session:
     principal: Callable[[], Any] | None = None
     users: dict[int, User | None] = field(default_factory=dict)
     access: dict[PrincipalKey, UserAccessControl] = field(default_factory=dict)
+    # Rules that a view loaded for an organization without a team, by principal and organization id.
+    organization_access: dict[tuple[PrincipalKey, str], UserAccessControl] = field(default_factory=dict)
     permissions: dict[int, UserPermissions] = field(default_factory=dict)
     uncommitted: bool = False
 
     def clear(self) -> None:
         self.users.clear()
         self.access.clear()
+        self.organization_access.clear()
         self.permissions.clear()
 
     def committed(self) -> None:

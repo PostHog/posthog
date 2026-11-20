@@ -22,7 +22,7 @@ Signals and their embeddings are stored in the `document_embeddings` ClickHouse 
 
 The two skills cover different layers of the same product:
 
-- **`inbox-exploration`** — curated report layer via dedicated MCP tools (`inbox-reports-list`, `inbox-reports-retrieve`, `inbox-source-configs-list`, `inbox-source-configs-retrieve`). Use for "what's in my inbox?", "what's actionable?", filtering reports by status / source / suggested reviewer, looking up a specific report by ID or URL.
+- **`inbox-exploration`** — curated report layer via dedicated MCP tools (`inbox-reports-list`, `inbox-reports-search`, `inbox-reports-retrieve`, `inbox-source-configs-list`, `inbox-source-configs-retrieve`). Use for "what's in my inbox?", "what's actionable?", filtering reports by status / source / suggested reviewer, looking up a specific report by ID or URL.
 - **This skill (`signals`)** — raw signal layer via HogQL on `document_embeddings`. Use when the curated report layer is not enough: semantic search over signal text, fetching every signal that contributed to a specific report, listing what kinds of signals exist, or any ad-hoc analytics that the report tools don't expose.
 
 The typical pattern is to start with `inbox-exploration`, get a `report_id` or a sense of the area the user cares about, then drop into this skill when the user wants to see the raw observations.

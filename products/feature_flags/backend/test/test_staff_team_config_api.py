@@ -34,6 +34,11 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 LIST_URL = "/api/feature_flags_staff_team_config/"
 SET_URL = "/api/feature_flags_staff_team_config/set/"
 SET_FLAG_EVALUATIONS_MODE_URL = "/api/feature_flags_staff_team_config/set_flag_evaluations_mode/"
+FLAG_CALL_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$feature_flag_called"},
+}
 
 
 def _list_url(team_ids: list[int]) -> str:
@@ -419,8 +424,9 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         create_experiment(
             team_id=sibling.id,
             feature_flag_id=FeatureFlag.objects.create(team=sibling, key="experiment-flag", created_by=self.user).id,
-            name="Started before the cutoff",
+            name="Metric on flag calls",
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            metrics=[FLAG_CALL_METRIC],
         )
 
         response = self.client.post(
@@ -446,7 +452,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(self.organization.id),
                         "organization_name": self.organization.name,
                         "team_count": 3,
-                        "running_experiments_on_feature_flag_called": 1,
+                        "running_experiments_needing_flag_calls_in_events": 1,
                         "current_mode": FlagEvaluationsMode.EVENTS,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[0],
@@ -456,7 +462,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(above_organization.id),
                         "organization_name": above_organization.name,
                         "team_count": 1,
-                        "running_experiments_on_feature_flag_called": 0,
+                        "running_experiments_needing_flag_calls_in_events": 0,
                         "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[1],
@@ -467,24 +473,28 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         )
 
     def test_set_flag_evaluations_mode_writes_no_organization_when_a_later_one_fails(self):
-        # The helper opens no transaction, so only the view's transaction keeps an earlier
-        # organization from staying written after a later one fails.
+        # The helper opens no transaction and counts experiments after its write, so only the view's
+        # transaction undoes the write when a later count fails.
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
         newer_organization = Organization.objects.create(name="Newer organization")
         newer_team = Team.objects.create(organization=newer_organization, name="Newer team")
         OrganizationFeatureFlagsConfig.objects.filter(organization=newer_organization).delete()
-        original_upsert = flag_evaluations_mode._upsert_mode
-        upserts = 0
+        original_count = flag_evaluations_mode.count_running_experiments_needing_flag_calls_in_events
+        counts = 0
 
-        # Organizations are written oldest first, so the second upsert belongs to the newer one.
-        def fail_on_second_upsert(*args, **kwargs) -> bool:
-            nonlocal upserts
-            upserts += 1
-            if upserts == 2:
-                raise RuntimeError("write failed")
-            return original_upsert(*args, **kwargs)
+        # Organizations are reported oldest first, so the second count belongs to the newer one.
+        def fail_on_second_count(*args, **kwargs) -> int:
+            nonlocal counts
+            counts += 1
+            if counts == 2:
+                raise RuntimeError("count failed")
+            return original_count(*args, **kwargs)
 
-        with patch.object(flag_evaluations_mode, "_upsert_mode", side_effect=fail_on_second_upsert):
+        with patch.object(
+            flag_evaluations_mode,
+            "count_running_experiments_needing_flag_calls_in_events",
+            side_effect=fail_on_second_count,
+        ):
             response = self.client.post(
                 SET_FLAG_EVALUATIONS_MODE_URL,
                 {
@@ -495,7 +505,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(upserts, 2)
+        self.assertEqual(counts, 2)
         self.assertEqual(self._stored_modes(self.organization, newer_organization), [None, None])
 
     def test_set_flag_evaluations_mode_rejects_an_unknown_id_before_writing(self):

@@ -128,7 +128,8 @@ These cross the boundary as classes — allowed only under all three rules:
    A registration point accepts only implementations of its base and rejects anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
    `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
-   The Temporal worker, Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
+   Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
+   The Temporal worker validates every product's declaration (see [Temporal](#temporal)), and refuses to start when a `facade/temporal.py` has none.
 
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
@@ -142,8 +143,8 @@ Four products hold entries.
 `data_modeling`: `DataWarehouseSavedQuery`, `DataWarehouseSavedQueryDraft`, `DataWarehouseSavedQueryColumnAnnotation`, `DataWarehouseManagedViewSet`, `DataModelingJob`, `DAG`, `Node` and `Edge`.
 Core HogQL reads saved queries to build the views a query can name, the same reason the `warehouse_sources` table models cross.
 The saved-query, draft and column-annotation `ModelViewSet`s live in `data_warehouse` `presentation/` and need the classes for `Meta.model`, querysets and writes.
-The materialization activities in `posthog/temporal/data_modeling/` lock and update `Node` and `DataModelingJob` rows, and `endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
-Retiring the entries means moving those viewsets and activities into the product, so that consumers keep only ids and contracts.
+`endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
+Retiring the entries means moving those viewsets into the product, so that consumers keep only ids and contracts.
 `product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.
@@ -235,6 +236,51 @@ See [posthog/ingress/README.md](/posthog/ingress/README.md).
 Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
 Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
 The facade stays honest only if what crosses is a frozen dataclass or an implementation of a core-owned interface — nothing else.
+
+### Temporal
+
+A product hosts its Temporal code on core's worker through one declaration, and offers its workflows to other code only through named functions.
+
+**Home.**
+A workflow or an activity that one product owns lives in `backend/temporal/`.
+`posthog/temporal/` holds the platform only: the worker, the client, the codec, core's interceptors and metrics, shared test infrastructure, and workflows whose domain is core.
+Do not add a product-owned subtree to `posthog/temporal/`.
+
+**The declaration.**
+`backend/facade/temporal.py` holds one value, `TEMPORAL`, of the core type `TemporalRegistration` (`posthog/temporal/common/registration.py`).
+It binds workflows and activities to task queues, and lists the product's interceptor classes, histogram specs, schedule reconcilers and log-source resolvers.
+A binding names its queue by the name of a `*_TASK_QUEUE` setting in `posthog/settings/temporal.py`, for example `QueueBinding(queue_setting="VIDEO_EXPORT_TASK_QUEUE", ...)`.
+Every queue setting resolves to one development queue under `DEBUG`, so tools such as the workflow catalog need the name, not the value.
+Core finds the declaration with `load_product_modules("facade.temporal")` and never imports a product's Temporal code by name.
+The module holds nothing else: no list, no workflow class, no activity, no helper.
+Only core's Temporal loaders and the product's own tests read it.
+`products/review_hog/backend/facade/temporal.py` is the reference.
+A `facade/temporal.py` without `TEMPORAL` stops every worker at startup, and CI fails on it first.
+
+**Validation.**
+Core validates every declaration before a worker starts and before schedules apply.
+It rejects a workflow without `@workflow.defn`, an activity without `@activity.defn`, a member that another product owns, two different implementations with one name on one queue, an unknown queue setting, and an interceptor that is not an `Interceptor` class.
+A product test calls the same validator (`validate_registration`), so a broken declaration fails in the product's own `backend:test`.
+
+**Using another product's workflow.**
+The product that owns a workflow offers named functions for it:
+
+- `backend/facade/temporal_client.py`: start, signal and query from ordinary code.
+- `backend/facade/temporal_workflow.py`: helpers that are safe to call from inside a workflow, for example to start a child workflow.
+
+Create each module only when another boundary needs it.
+Their inputs and outputs are contracts in `facade/contracts.py`: frozen dataclasses or pydantic models, with no model, no queryset and no bare `Any`.
+Do not start, signal or query another boundary's workflow by a literal name.
+A literal name is correct in one case: a deleted workflow or activity that an open execution must still replay.
+
+**Tests.**
+A product's Temporal tests live in the product and run in its `backend:test`.
+Core's Temporal tests use their own fixture workflows, not product workflows.
+A helper that other products' tests need goes in `facade/testing.py`.
+
+**Watching.**
+An Isolated product keeps `backend/temporal/` in its `backend:contract-check` inputs.
+A file that another boundary executes through a facade hand-out stays in the inputs.
 
 # 3. Folder Structure
 
@@ -362,7 +408,8 @@ If input and output shapes are identical, reuse the same dataclass.
 
 Each product exposes a facade via the `backend/facade/` package — the only place core and other products may import from (tach enforces this).
 `api.py` holds the data capabilities: functions that accept and return contracts.
-Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, …) exist only to re-export wiring implementations — see [Wiring couplings](#wiring-couplings) — and contain no logic of their own.
+Capability submodules (`queries.py`, `max_tools.py`, `tasks.py`, …) exist only to re-export wiring implementations — see [Wiring couplings](#wiring-couplings) — and contain no logic of their own.
+`temporal.py` holds the product's Temporal declaration, and `temporal_client.py` and `temporal_workflow.py` hold named functions that start, signal or call its workflows — see [Temporal](#temporal).
 
 ### Responsibilities
 

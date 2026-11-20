@@ -372,6 +372,12 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
         }
 
+    def to_representation(self, instance: DataWarehouseTable) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.team_credential is None:
+            data["credential"] = None
+        return data
+
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
         return get_data_warehouse_table_name(table.external_data_source, table.name)
@@ -430,7 +436,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        schema = instance.externaldataschema_set.first()
+        schema = min(instance.externaldataschema_set.all(), key=lambda schema: schema.pk, default=None)
         if schema is None:
             # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
             # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema
@@ -706,9 +712,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
-            if instance.credential is None:
+            if instance.credential_id is None:
                 raise serializers.ValidationError(
                     {"credential": "This table reads from PostHog's own storage, so it has no credential to change."}
+                )
+            credential = instance.team_credential
+            if credential is None:
+                raise serializers.ValidationError(
+                    {"credential": "This table's credential can't be changed. Contact support to fix this table."}
                 )
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
@@ -718,7 +729,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             if access_secret is not None and len(access_secret.strip()) == 0:
                 raise serializers.ValidationError("Access secret can't be blank")
 
-            credential = instance.credential
             if access_key is not None:
                 credential.access_key = access_key
             if access_secret is not None:

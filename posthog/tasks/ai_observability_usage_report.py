@@ -19,7 +19,7 @@ from posthog.models.event.new_events_schema import events_read_table, use_new_ev
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
-from posthog.ph_client import PH_US_API_KEY
+from posthog.ph_client import PH_US_API_KEY, SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -38,7 +38,9 @@ def get_ph_client() -> PostHogClient:
     already-reported lookup reads. A separate literal here could drift from that key, and the lookup
     would then resolve no team, report that it cannot verify, and emit without checking.
     """
-    return PostHogClient(PH_US_API_KEY, sync_mode=True)
+    return PostHogClient(
+        PH_US_API_KEY, sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS
+    )
 
 
 # Only team discovery reads this list: it must pick up customer-emitted core events, never
@@ -273,6 +275,7 @@ def get_teams_with_ai_events(
     end: datetime,
     trigger_events: list[str],
     event_prefix: str | None = None,
+    team_ids: list[int] | None = None,
 ) -> list[int]:
     """
     Get all team_ids that have at least one AI observability trigger event in the period.
@@ -287,12 +290,14 @@ def get_teams_with_ai_events(
     event_predicate = "event IN %(ai_observability_report_trigger_events)s"
     if event_prefix is not None:
         event_predicate = f"({event_predicate} OR startsWith(event, %(event_prefix)s))"
+    team_predicate = "AND team_id IN %(team_ids)s" if team_ids is not None else ""
     query = f"""
         SELECT DISTINCT team_id
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE {event_predicate}
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
+          {team_predicate}
     """
 
     with tags_context(
@@ -310,6 +315,7 @@ def get_teams_with_ai_events(
                 "event_prefix": event_prefix,
                 "begin": begin,
                 "end": end,
+                "team_ids": team_ids,
             },
             workload=Workload.OFFLINE,
             settings=CH_AI_OBSERVABILITY_SETTINGS,

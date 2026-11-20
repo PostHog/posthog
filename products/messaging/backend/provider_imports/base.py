@@ -6,9 +6,9 @@ together with the step's progress, and resumes a retried step from the last save
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from posthog.dataclasses import frozen
 
@@ -33,6 +33,18 @@ class ImportCredentialsInvalid(ImportStepError):
     """The provider rejected the API key. A retry does not fix this."""
 
 
+class ImportTooLarge(ImportStepError):
+    """The account holds more than one import takes. Another try reads the same data and stops at the same limit."""
+
+
+class ImportAccessLost(ImportStepError):
+    """The person who started the run can't make its changes anymore. Another try finds the same result."""
+
+
+class ImportStepBlocked(ImportStepError):
+    """A step the run needs first didn't complete, so this one doesn't run. Another try finds the same result."""
+
+
 class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 
@@ -46,6 +58,30 @@ class ImportStepSpec:
     key: str
     label: str
     description: str
+    # What the step counts in its summary, as (key, label) pairs in display order.
+    count_labels: tuple[tuple[str, str], ...] = ()
+    # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
+    requires: tuple[str, ...] = ()
+    # Steps the run must include for this one to do anything, such as contacts for new people.
+    needs: tuple[str, ...] = ()
+
+
+@frozen
+class ImportSettingChoice:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingSpec:
+    """A choice the person makes before a run, beyond its steps and API key."""
+
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoice, ...]
+    # None means the person has to choose.
+    default: str | None = None
 
 
 @frozen
@@ -58,6 +94,41 @@ class ImportContext:
     team_id: int
     created_by_id: int | None
     integration_id: int | None
+    # The key a provider with `retains_credentials = False` reads for this run only.
+    api_key: str | None = field(default=None, repr=False)
+    # Every step the run imports, for a step whose work depends on another step being selected.
+    steps: tuple[str, ...] = ()
+    # Names what the run stores, so a retried page overwrites what it stored before.
+    run_id: str = ""
+    settings: Mapping[str, str] = field(default_factory=dict)
+    completed_steps: tuple[str, ...] = ()
+
+
+ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
+
+
+@frozen
+class ImportItem:
+    """One object the step handled, such as a template, that the person running the import may need to act on."""
+
+    label: str
+    status: ImportItemStatus
+    # A path in the app, for example the draft the step created.
+    url: str | None = None
+    notes: tuple[str, ...] = ()
+
+
+@frozen
+class PeopleImportPlan:
+    """A list of contacts a page stored, which the run's workflow sends part by part once the step completes."""
+
+    cohort_id: int
+    storage_prefix: str
+    chunks: int
+    # False for a list whose people another list of the same page sends, so it only sets its cohort.
+    send_events: bool
+    # Set by the runner. The workflow checks this person can still edit persons before each write.
+    created_by_id: int | None = None
 
 
 @frozen
@@ -66,6 +137,12 @@ class SavedPage:
     imported: int
     # Problems with single records that do not fail the step.
     warnings: tuple[str, ...] = ()
+    # Added to the step's totals, by the keys in the step's `count_labels`.
+    counts: Mapping[str, int] = field(default_factory=dict)
+    items: tuple[ImportItem, ...] = ()
+    people_imports: tuple[PeopleImportPlan, ...] = ()
+    # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
+    error: str | None = None
 
 
 @frozen
@@ -84,21 +161,45 @@ class ImportProvider(ABC):
     label: ClassVar[str]
     # The steps in the order they run. Each one is safe to run again over records it already imported.
     steps: ClassVar[tuple[ImportStepSpec, ...]]
+    # A provider whose key can do more than read keeps it only on the run, which clears it when it ends.
+    retains_credentials: ClassVar[bool] = True
+    # A new run continues each failed step of the run before it, when a step's checkpoint stays valid between runs.
+    resumes_after_failure: ClassVar[bool] = False
+    # Hides the provider unless this flag is on for the team.
+    feature_flag: ClassVar[str | None] = None
+    api_key_label: ClassVar[str] = "API key"
+    api_key_help: ClassVar[str] = ""
+    api_key_url: ClassVar[str | None] = None
+    # What the import can't bring over, shown before it starts.
+    not_imported: ClassVar[str] = ""
+    # What the person does once the import has finished, in order.
+    next_steps: ClassVar[tuple[str, ...]] = ()
+    settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
 
     @abstractmethod
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
-        """Choose the API key to import with and check it with the provider. Without `api_key`, use the stored key.
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
+        """Choose the API key to import with and check it can read the selected `steps`. Without `api_key`, use the
+        stored key.
 
         This runs before the import claims its run, so it must not store anything. Raises the ImportCredentials*
         errors, or ImportProviderUnavailable when the provider can't answer.
         """
 
-    @abstractmethod
-    def store_credentials(self, team_id: int, credentials: ImportCredentials, created_by_id: int | None) -> int:
+    def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
+        """Refuse a key that can't read the selected steps, before the import claims its run. Raises
+        ImportCredentialsInvalid, with a message naming what is missing. A provider whose keys all read the same does
+        nothing here."""
+        return None
+
+    def store_credentials(self, team_id: int, credentials: ImportCredentials, created_by_id: int | None) -> int | None:
         """Store checked credentials on first use and return the integration id.
 
-        This runs in the transaction that claims the run, so a request that loses the claim stores nothing.
+        This runs in the transaction that claims the run, so a request that loses the claim stores nothing. It does
+        not run for a provider with `retains_credentials = False`.
         """
+        raise NotImplementedError(f"{self.key} keeps its credentials on the run.")
 
     @abstractmethod
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:

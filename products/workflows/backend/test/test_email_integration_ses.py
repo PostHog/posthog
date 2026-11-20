@@ -12,9 +12,19 @@ from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
+from products.workflows.backend.services.email_domain_dns import PublishedRecords
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(
+            patch(
+                "products.workflows.backend.providers.ses.find_published_records",
+                return_value=PublishedRecords(records=frozenset()),
+            )
+        )
+
     def _build_ses_provider(self, tenants_for_domain: dict[str, list[str]] | None = None) -> SESProvider:
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")
         patcher.start()
@@ -61,6 +71,19 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
         assert result_team_a["status"] == "success"
         assert result_team_b["status"] == "pending"
+
+    @patch("products.workflows.backend.tasks.ses_tenant_state.sync_ses_tenant_state_task.delay")
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_adding_a_domain_queues_the_first_tenant_sync(self, mock_create_email_domain, mock_sync):
+        with self.captureOnCommitCallbacks(execute=True):
+            EmailIntegration.create_native_integration(
+                {"email": "owner@partner.com", "name": "Owner"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        mock_sync.assert_called_once_with(self.team.id)
 
     @patch("products.workflows.backend.providers.SESProvider.delete_identity")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")

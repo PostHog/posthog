@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -37,7 +36,6 @@ const meta: Meta<typeof AIObservabilityScorersScene> = {
     parameters: {
         pageUrl: urls.aiObservabilityScorers(),
         mockDate: '2026-01-05',
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         (Story, { parameters }) => (
@@ -80,9 +78,6 @@ export default meta
 type Story = StoryObj<typeof AIObservabilityScorersScene>
 
 export const Default: Story = {}
-export const OfflineDisabled: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false } },
-}
 export const Narrow: Story = {
     parameters: { narrow: true },
 }

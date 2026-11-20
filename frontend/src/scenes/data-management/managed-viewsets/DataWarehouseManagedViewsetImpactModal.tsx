@@ -5,11 +5,13 @@ import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
 import { disableDataWarehouseManagedViewsetModalLogic } from './disableDataWarehouseManagedViewsetModalLogic'
+import { QuillDataWarehouseManagedViewsetImpactModal } from './QuillDataWarehouseManagedViewsetImpactModal'
 
 export interface ManagedViewsetImpactModalProps {
     type: string
@@ -41,9 +43,12 @@ export function DataWarehouseManagedViewsetImpactModal({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     const isConfirmationValid = matchesConfirmationText(confirmationInput, confirmText)
     const views = propViews !== undefined ? propViews : logicViews
+    const editDisabledReason = isDeleting ? 'Deleting...' : restrictedReason
+    const confirmDisabledReason = !isConfirmationValid ? 'Please type the correct confirmation text' : restrictedReason
 
     const onConfirm = async (): Promise<void> => {
         setIsDeleting(true)
@@ -54,6 +59,29 @@ export function DataWarehouseManagedViewsetImpactModal({
         setIsDeleting(false)
     }
 
+    if (quillSurface) {
+        return (
+            <QuillDataWarehouseManagedViewsetImpactModal
+                isOpen={isOpen}
+                onClose={closeModal}
+                title={title}
+                confirmText={confirmText}
+                confirmationInput={confirmationInput}
+                onConfirmationInputChange={setConfirmationInput}
+                views={views}
+                viewsLoading={viewsLoading}
+                isDeleting={isDeleting}
+                editDisabledReason={editDisabledReason}
+                confirmDisabledReason={confirmDisabledReason}
+                warningItems={warningItems}
+                infoMessage={infoMessage}
+                viewsActionText={viewsActionText}
+                confirmButtonText={confirmButtonText}
+                onConfirm={onConfirm}
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
@@ -61,20 +89,14 @@ export function DataWarehouseManagedViewsetImpactModal({
             title={title}
             footer={
                 <>
-                    <LemonButton
-                        type="secondary"
-                        onClick={closeModal}
-                        disabledReason={isDeleting ? 'Deleting...' : restrictedReason}
-                    >
+                    <LemonButton type="secondary" onClick={closeModal} disabledReason={editDisabledReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="primary"
                         status="danger"
                         loading={isDeleting}
-                        disabledReason={
-                            !isConfirmationValid ? 'Please type the correct confirmation text' : restrictedReason
-                        }
+                        disabledReason={confirmDisabledReason}
                         onClick={onConfirm}
                     >
                         {confirmButtonText}
@@ -121,7 +143,7 @@ export function DataWarehouseManagedViewsetImpactModal({
                         value={confirmationInput}
                         onChange={setConfirmationInput}
                         placeholder={`Type "${confirmText}" to confirm`}
-                        disabledReason={isDeleting ? 'Deleting...' : restrictedReason}
+                        disabledReason={editDisabledReason}
                         autoFocus
                     />
                 </div>

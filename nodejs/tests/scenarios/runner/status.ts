@@ -2,11 +2,12 @@ import type { Profile } from '../cards/schema'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
-import type { BarResult } from '../judge/bars'
+import { BarResult, unsourced } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
+import type { Ramp } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -89,7 +90,7 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
 export type Verdict = {
     admissions: Admission[]
     minOffered: number
-    units: DriveSummary
+    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
     down: string[]
     convergence: Convergence
     invariants: InvariantResult[]
@@ -98,19 +99,44 @@ export type Verdict = {
     writer: readonly WriterSample[]
     drive: DriveWindow
     bars: BarResult[]
+    ramp?: Ramp
 }
 
 const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
 
-const appliedDuring = ({ intentAt, appliedAt, releasedAt }: ValveTimelineEntry, at: string): boolean => {
+const appliedWithin = (
+    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
+    at: string,
+    graceMs: number
+): boolean => {
     const from = intentAt ?? appliedAt
-    return from !== undefined && from <= at && (releasedAt === undefined || at <= releasedAt)
+    const time = Date.parse(at)
+    return (
+        from !== undefined &&
+        appliedAt !== undefined &&
+        Date.parse(from) <= time &&
+        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
+    )
 }
 
+const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
+    exit.byValve ||
+    (exit.code !== null &&
+        exit.code < 128 &&
+        exit.signal === null &&
+        timeline.some((entry) => {
+            const valve = VALVES.find(({ name }) => name === entry.valve)
+            return (
+                valve?.roleExitGraceMs !== undefined &&
+                (valve.restarts?.includes(exit.role) ?? true) &&
+                appliedWithin(entry, exit.at, valve.roleExitGraceMs)
+            )
+        }))
+
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
-    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedDuring(entry, exit.at))
+    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedWithin(entry, exit.at, 0))
     return [
         `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`,
         ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
@@ -148,7 +174,56 @@ function interruptionWithoutValve(
     return undefined
 }
 
-export function statusOf({
+export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
+    `${valve} on ${target} was not observed: ${error ?? 'no record'}`
+
+export function statusOf(verdict: Verdict): { status: Status; statusReason: string; restarts: RoleExit[] } {
+    const { exits, timeline } = verdict
+    return {
+        ...judgedOf(verdict),
+        restarts: exits.filter((exit) => !exit.byValve && exitedByValve(exit, timeline)),
+    }
+}
+
+function withRamp(
+    verdict: { status: Status; statusReason: string },
+    ramp: Ramp
+): { status: Status; statusReason: string } {
+    if (verdict.status !== 'passed' || ramp.end === 'ceiling') {
+        return verdict
+    }
+    return ramp.end === 'harness_limit'
+        ? { status: 'invalid', statusReason: `the ramp hit a harness limit: ${ramp.reason}` }
+        : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
+}
+
+function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
+    if (!verdict.ramp) {
+        return unrampedStatusOf(verdict)
+    }
+    const { invariants, convergence } = verdict
+    const placesDeliveries = invariants.some(
+        ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
+    )
+    const ramped = withRamp(
+        unrampedStatusOf({
+            ...verdict,
+            bars: [],
+            invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
+            convergence: placesDeliveries ? { ...convergence, converged: true } : convergence,
+        }),
+        verdict.ramp
+    )
+    const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    if (notJudged.length === 0) {
+        return ramped
+    }
+    return ramped.status === 'passed'
+        ? { status: 'invalid', statusReason: notJudged.join('; ') }
+        : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
+}
+
+function unrampedStatusOf({
     admissions,
     minOffered,
     units,
@@ -160,6 +235,7 @@ export function statusOf({
     writer,
     drive,
     bars,
+    ramp,
 }: Verdict): {
     status: Status
     statusReason: string
@@ -174,7 +250,7 @@ export function statusOf({
             statusReason: refused.map(({ name, reason }) => `the ${name} admission failed: ${reason}`).join('; '),
         }
     }
-    if (units.targetUnits === 0 || units.offeredUnits < minOffered * units.targetUnits) {
+    if (units.targetUnits === 0 || (!ramp && units.offeredUnits < minOffered * units.targetUnits)) {
         return {
             status: 'invalid',
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
@@ -184,11 +260,9 @@ export function statusOf({
     if (interrupted !== undefined) {
         return { status: 'invalid', statusReason: interrupted }
     }
-    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
+    const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline
-            .filter(({ observedAt }) => observedAt === undefined)
-            .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`),
+        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),

@@ -14,15 +14,17 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
     state,
+    children,
   }: {
     to: string;
     state?: ((previous: unknown) => unknown) | undefined;
+    children?: React.ReactNode;
   }) => (
     <a
       href={to}
       data-state={state ? JSON.stringify(state(mocks.locationState)) : ""}
     >
-      {to}
+      {children ?? to}
     </a>
   ),
   useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
@@ -38,6 +40,10 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
+}));
+
+vi.mock("@posthog/ui/features/scouts/hooks/useScoutNamesBySkill", () => ({
+  useScoutNamesBySkill: () => ({ "signals-scout-apm": "Backend latency" }),
 }));
 
 import { ReportBreadcrumbs } from "./ReportBreadcrumbs";
@@ -99,5 +105,14 @@ describe("ReportBreadcrumbs", () => {
     expect(crumbs[1]?.getAttribute("href")).toBe(
       "/settings/agents?agent=scout-1",
     );
+  });
+
+  it.each([
+    ["signals-scout-apm", "Backend latency"],
+    ["signals-scout-mcp-tool-calls", "MCP tool calls"],
+  ])("names the %s agent crumb %s", (agent, name) => {
+    mocks.sourceHref = `/settings/agents?agent=${agent}`;
+    const { container } = render(<ReportBreadcrumbs report={report} />);
+    expect(container.textContent).toContain(name);
   });
 });

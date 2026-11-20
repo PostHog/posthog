@@ -25,6 +25,7 @@ import { AddCrossProjectTileModal } from './AddCrossProjectTileModal'
 import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
 import { QuillCrossProjectDashboardActions } from './QuillCrossProjectDashboardActions'
 
@@ -48,6 +49,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
         missingPropertyKeys,
         layoutEditMode,
         gridLayouts,
+        tileResults,
+        loadingTileIds,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -105,6 +108,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
                                     { value: 'month', label: 'Month' },
                                 ]}
                             />
+                            <CrossProjectDashboardRefreshAction />
                             <CrossProjectDashboardLayoutActions />
                             <LemonButton
                                 type="primary"
@@ -178,7 +182,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
                     tiles={tiles}
                     tileProjects={tileProjects}
                     timezonesDiverge={timezonesDiverge}
-                    dashboardFilters={dashboardFilters}
+                    tileResults={tileResults}
+                    loadingTileIds={loadingTileIds}
                     layouts={gridLayouts}
                     layoutEditMode={layoutEditMode}
                     onEnterLayoutEdit={enterLayoutEdit}

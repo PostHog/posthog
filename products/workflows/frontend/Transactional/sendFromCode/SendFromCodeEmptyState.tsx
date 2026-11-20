@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FirstSendStatus } from './FirstSendStatus'
-import { ProjectSenderSnippet } from './ProjectSenderSnippet'
+import { SendFromCodeSetup } from './SendFromCodeSetup'
 import { SendingDomainRow } from './SendingDomainRow'
 
 export function SendFromCodeEmptyState(): JSX.Element {
@@ -30,7 +30,7 @@ export function SendFromCodeEmptyState(): JSX.Element {
                 <SendingDomainRow />
                 <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                     <h3 className="m-0 text-base font-semibold">Add the send to your server code</h3>
-                    <ProjectSenderSnippet surface="transactional" />
+                    <SendFromCodeSetup surface="transactional" />
                 </LemonCard>
                 <FirstSendStatus surface="transactional" />
                 {canCreateTemplate ? (

@@ -1,10 +1,11 @@
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
+import { isCardId, runCardOf } from './card'
 import { awaitCard, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, ProfileInputs, REGION, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -13,7 +14,7 @@ export type { Controller } from './admission'
 
 const USAGE = [
     'Usage:',
-    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>',
+    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile> <card id>',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>',
 ].join('\n')
 
@@ -35,13 +36,27 @@ function defaultController(): Controller {
     }
 }
 
-async function run(controller: Controller, loaded: RunInputs): Promise<number> {
-    const { profile } = loaded
+async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
+    const { profile } = inputs
+    const { min, max, idleMax } = profile.readerAcu
+    if (idleMax !== undefined && idleMax < min) {
+        throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
+    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
+    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
+    if (card.failsOver && idleMax === undefined) {
+        throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
+    }
+    if (card.failsOver && idleMax !== undefined && idleMax >= max) {
+        throw new Error(
+            `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
+        )
+    }
+    const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
     const interruption = new AbortController()
@@ -84,17 +99,21 @@ async function cleanup(controller: Controller, profile: CloudProfile, target: st
 
 export async function main(argv: string[], controller: Controller = defaultController()): Promise<number> {
     const [command, file, target, ...rest] = argv
-    const usable =
-        (command === 'run' && file && !target) || (command === 'cleanup' && file && target && rest.length === 0)
+    const usable = ['run', 'cleanup'].includes(command) && file && target && rest.length === 0
     if (!usable) {
         controller.warn(USAGE)
         return EXIT_CODE.invalid
     }
     try {
+        if (command === 'run' && !isCardId(target)) {
+            throw new Error(
+                `${target} is not a card id. The run host runs the cards of the run's commit, so name one under tests/scenarios/cards.`
+            )
+        }
         const loaded = command === 'run' ? loadRunInputs(file) : undefined
         const profile = loaded?.profile ?? loadCloudProfile(file)
         await refuseOutsideDev(controller, profile.account)
-        return loaded ? await run(controller, loaded) : await cleanup(controller, profile, target)
+        return loaded ? await run(controller, loaded, target) : await cleanup(controller, profile, target)
     } catch (error) {
         controller.warn((error as Error).message)
         return EXIT_CODE.invalid

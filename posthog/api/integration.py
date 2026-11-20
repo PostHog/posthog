@@ -123,6 +123,7 @@ from posthog.models.integration import (
     GitHubIntegrationError,
     GitLabIntegration,
     GitLabIntegrationError,
+    GitLabOverwriteNotAllowed,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -131,6 +132,8 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
+    MotherDuckIntegration,
+    MotherDuckIntegrationError,
     OauthIntegration,
     PostgreSQLIntegration,
     ReconnectRequired,
@@ -1143,8 +1146,17 @@ class IntegrationSerializer(serializers.Serializer):
 
             try:
                 instance = GitLabIntegration.create_integration(
-                    hostname, project_id, project_access_token, team_id, request.user
+                    hostname,
+                    project_id,
+                    project_access_token,
+                    team_id,
+                    request.user,
+                    can_overwrite=github_callback_state.has_team_management_access(
+                        request.user, self.context["get_team"]()
+                    ),
                 )
+            except GitLabOverwriteNotAllowed:
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
             except GitLabIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
@@ -1238,6 +1250,19 @@ class IntegrationSerializer(serializers.Serializer):
                     created_by=request.user,
                 )
             except SnowflakeIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "motherduck":
+            config = validated_data.get("config", {})
+            try:
+                instance = MotherDuckIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    access_token=config.get("access_token"),
+                    created_by=request.user,
+                )
+            except MotherDuckIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 

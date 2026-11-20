@@ -221,4 +221,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "The date and time the device was last modified in ISO 8601 format.",
         },
     },
+    "taxes": {
+        "description": "A tax the business charges on its items, such as VAT.",
+        "docs_url": f"{_API_REFERENCE}/taxes/list-taxes-v-1-taxes-get",
+        "columns": {
+            "id": "The unique identifier of the tax.",
+            "name": "A human-readable name for the tax.",
+            "type": "How the tax is calculated: additive (added on top of the price) or inclusive (part of the price).",
+            "percentage": "The tax rate. For example, 15.00 is a tax rate of 15%.",
+            "is_default": "Whether this is the default tax, charged on items that have no taxes of their own.",
+            "created_at": "The tax creation date and time in ISO 8601 format.",
+            "updated_at": "The date and time the tax was last modified in ISO 8601 format.",
+        },
+    },
+    "active_capital_advances": {
+        "description": "A Capital advance the business is repaying now. Repaid advances are not listed.",
+        "docs_url": f"{_API_REFERENCE}/capital/list-active-capital-advances-v-1-capital-active-advances-get",
+        "columns": {
+            "id": "The unique identifier of the Capital advance.",
+            "business_id": "The unique identifier of the business this advance is for.",
+            "provider_name": "The name of the Capital provider.",
+            "repayment_rate": "The repayment rate as a decimal, for example 0.1 for 10%.",
+            "principal_amount": "The principal amount of the advance, in the smallest currency unit, with its currency.",
+            "total_payable_amount": "The total amount payable for the advance, with its currency.",
+            "total_paid_amount": "The total amount already paid towards the advance, with its currency.",
+            "created_at": "The advance creation date and time in ISO 8601 format.",
+        },
+    },
+    "active_capital_offers": {
+        "description": "A Capital offer open to the business now. Expired or accepted offers are not listed.",
+        "docs_url": f"{_API_REFERENCE}/capital/list-active-capital-offers-v-1-capital-active-offers-get",
+        "columns": {
+            "id": "The unique identifier of the Capital offer.",
+            "business_id": "The unique identifier of the business this offer is for.",
+            "provider_name": "The name of the Capital provider making the offer.",
+            "max_principal_amount": "The maximum amount offered, in the smallest currency unit, with its currency.",
+            "created_at": "The offer creation date and time in ISO 8601 format.",
+            "expires_at": "The offer expiration date and time in ISO 8601 format.",
+        },
+    },
 }

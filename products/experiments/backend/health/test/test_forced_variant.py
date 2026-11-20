@@ -76,6 +76,13 @@ def _property_is(key: str, value: str, *, group_type_index: int | None = None) -
     }
 
 
+def _properties_are(*pairs: tuple[str, str]) -> dict[str, Any]:
+    return {
+        "properties": [{"key": key, "value": [value], "operator": "exact", "type": "person"} for key, value in pairs],
+        "rollout_percentage": 100,
+    }
+
+
 def _context(
     groups: list[dict[str, Any]],
     *,
@@ -173,6 +180,127 @@ class TestForcedVariantReleaseCondition(TestCase):
                     ]
                 ),
                 ("assigned_by_property", ExperimentHealthFindingSeverity.INFO, "1, 2", "control, test", None),
+            ),
+            (
+                "variants_mapped_from_a_slot_in_each_stratum",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                ("assigned_by_property", ExperimentHealthFindingSeverity.INFO, "1, 2, 3, 4", "control, test", None),
+            ),
+            (
+                "one_variant_pinned_in_every_stratum",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "test"},
+                    ]
+                ),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test", None),
+            ),
+            (
+                "strata_that_map_the_slots_to_different_variants",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "control"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
+                "a_value_that_a_stratum_serves_twice",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4, 5",
+                    "test, control",
+                    None,
+                ),
+            ),
+            (
+                "a_partial_rollout_lets_matched_users_fall_through",
+                _context(
+                    [
+                        {
+                            **_properties_are(("tier", "a"), ("slot", "0")),
+                            "rollout_percentage": 50,
+                            "variant": "control",
+                        },
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
+                "group_filters_are_not_read_as_strata",
+                _context(
+                    [
+                        {
+                            "properties": [
+                                {
+                                    "key": "tier",
+                                    "value": [tier],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                                {
+                                    "key": "slot",
+                                    "value": [slot],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                            ],
+                            "rollout_percentage": 100,
+                            "variant": variant,
+                        }
+                        for tier, slot, variant in (
+                            ("a", "0", "control"),
+                            ("a", "1", "test"),
+                            ("b", "0", "control"),
+                            ("b", "1", "test"),
+                        )
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
             ),
             (
                 "segments_mapped_onto_variants",
@@ -608,9 +736,9 @@ class TestForcedVariantReleaseCondition(TestCase):
             (finding.title, finding.detail, finding.evidence["variant_property"]),
             (
                 "Variants are assigned outside PostHog",
-                'Each release condition that includes users matches the users whose property "checkout_arm" holds a '
-                'variant key, and serves them that variant. So the code that sets "checkout_arm" assigns the '
-                "variants, not PostHog. If it assigns at random, each variant gets similar users. If it assigns by "
+                "Each release condition that includes users serves one variant to the users with one value of the "
+                'property "checkout_arm". So the code that sets "checkout_arm" assigns the variants, not PostHog. '
+                "If it assigns at random, each variant gets similar users. If it assigns by "
                 "who the users are, for example by plan or country, a difference in the results can come from those "
                 "users and not from the variant.",
                 "checkout_arm",
