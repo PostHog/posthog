@@ -57,6 +57,7 @@ export type RampWatch = {
 }
 
 const REFUSED_AT_INTAKE = 'refused_at_intake'
+const WRITER_CPU_UNDER = 'writer_cpu_under'
 
 const iso = (at: number): string => new Date(at).toISOString()
 
@@ -121,7 +122,7 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
     if (admitted) {
         return { stop: admitted }
     }
-    const writerCpu = await live.writerCpu(span)
+    const writerCpu = live.bars.some(({ name }) => name === WRITER_CPU_UNDER) ? await live.writerCpu(span) : []
     const results = judgeStep(
         live.bars,
         {
@@ -188,7 +189,7 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
         stopped: () => stop,
         settled: () => settled,
         record: (entry) => {
-            if (stop !== undefined || !live.judgesRefusals || refusalsOf([entry]).length === 0) {
+            if (!live.judgesRefusals || refusalsOf([entry]).length === 0) {
                 return
             }
             refused.push(entry)
@@ -222,6 +223,9 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
                     stopWith({ index: window.index, ...stopped })
                 }
             } catch (error) {
+                if (signal.aborted) {
+                    return
+                }
                 stopWith({
                     index: window.index,
                     end: 'harness_limit',

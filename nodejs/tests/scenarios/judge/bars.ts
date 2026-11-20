@@ -85,7 +85,9 @@ const writerCpuUnder: BarDefinition = {
         if (minutes.length === 0) {
             return { unread: 'no whole writer CPU minute' }
         }
-        const readings = minutes.map((minute) => writerCpu.find(({ at }) => at === minute))
+        const readings = minutes.map((minute) =>
+            writerCpu.find(({ at, percent }) => at === minute && Number.isFinite(percent))
+        )
         const missing = readings.findIndex((reading) => reading === undefined)
         if (missing >= 0) {
             return { unread: `no writer CPU reading for the minute at ${iso(minutes[missing])}` }
