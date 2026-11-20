@@ -455,7 +455,7 @@ Note: Static schema list (no dynamic discovery). Coverage of the org/billing obj
 
 ## Alegra — gaps
 
-Today (18): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `purchase_orders`, `recurring_invoices`, `taxes`, `warehouse_transfers`, `warehouses`
+Today (22): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `payment_terms`, `price_lists`, `purchase_orders`, `recurring_invoices`, `remissions`, `taxes`, `users`, `warehouse_transfers`, `warehouses`
 
 Diffed against: <https://developer.alegra.com/reference>
 
@@ -474,13 +474,13 @@ Note: Read the official reference index and parsed embedded OpenAPI GET operatio
 
 Re-audited 2026-11-19 against: <https://developer.alegra.com/llms.txt>
 
-- [ ] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
-- [ ] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
+- [x] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
+- [x] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
 - [ ] `Retentions (GET /retentions)` — tax withholding definitions applied to documents (medium)
-- [ ] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
+- [x] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
 - [ ] `Currencies (GET /currencies)` — currency definitions and rates for multi-currency documents (medium)
 - [ ] `Custom fields (GET /custom-fields)` — definitions of user-defined fields on documents and contacts (medium)
-- [ ] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
+- [x] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
 - [ ] `Income debit notes (GET /income-debit-notes)` — debit notes issued to customers, the sales side of debit_notes (medium)
 - [ ] `Global invoices (GET /global-invoices)` — summary invoices for sales without a named customer (low)
 - [ ] `Recurring payments (GET /recurring-payments)` — scheduled recurring payments (low)
@@ -567,14 +567,14 @@ Today (5): `alarm_history`, `alarms`, `log_events`, `log_groups`, `metric_data`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/cloudwatch/2010-08-01/service-2.json>
 
-- [ ] `Metrics inventory (CloudWatch ListMetrics)` — lists namespaces, metric names and dimensions that exist, so users can see what to query with metric_data (high)
-- [ ] `Log streams (CloudWatch Logs DescribeLogStreams)` — streams under each synced log group, with first and last event times and stored bytes (medium)
-- [ ] `Metric filters (CloudWatch Logs DescribeMetricFilters)` — filters that turn log patterns into metrics, tied to the synced log groups (medium)
+- [x] `Metrics inventory (CloudWatch ListMetrics)` — lists namespaces, metric names and dimensions that exist, so users can see what to query with metric_data (high)
+- [x] `Log streams (CloudWatch Logs DescribeLogStreams)` — streams under each synced log group, with first and last event times and stored bytes (medium)
+- [x] `Metric filters (CloudWatch Logs DescribeMetricFilters)` — filters that turn log patterns into metrics, tied to the synced log groups (medium)
 - [ ] `Subscription filters (CloudWatch Logs DescribeSubscriptionFilters)` — where each synced log group streams its logs (low)
 - [ ] `Dashboards (CloudWatch ListDashboards)` — dashboard inventory with last modified time and size (low)
 - [ ] `Anomaly detectors (CloudWatch DescribeAnomalyDetectors)` — metric anomaly detection models configured for the account (low)
 - [ ] `Contributor Insights rules (CloudWatch DescribeInsightRules)` — rule inventory and state for log-based top-contributor analysis (low)
-- [ ] `Log anomalies (CloudWatch Logs ListAnomalies)` — anomalies found in log groups by the log anomaly detectors (low)
+- [x] `Log anomalies (CloudWatch Logs ListAnomalies)` — anomalies found in log groups by the log anomaly detectors (low)
 
 Note: Parsed the botocore service models for cloudwatch (2010-08-01) and logs (2014-03-28) and listed every Describe, List and Get operation against the 5 tables. The vendor reference is the AWS JSON-over-HTTP API, so each item is an operation, not a REST path. Excluded tags, policies, delivery and integration config, export and import tasks, and GetMetricStatistics and GetLogEvents, which duplicate metric_data and log_events. Log stream and metric filter reads fan out over log groups, and each call is region scoped.
 
@@ -703,7 +703,7 @@ Note (2026-11-19): Read the Dashboard REST page as .md plus the Experiment Manag
 
 ## Anthropic — gaps
 
-Today (23): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (27): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_cost`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_usage`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `spend_limits`, `spend_limits_effective`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -724,10 +724,10 @@ Note: Admin API coverage of the identity objects is good. The /v1/organizations/
 
 Re-audited 2026-11-19 against: <https://platform.claude.com/llms.txt>
 
-- [ ] `Effective spend limits (GET /v1/organizations/spend_limits/effective)` — one row per member and period with the effective limit and period-to-date spend, for budget tracking (high)
-- [ ] `Spend limits (GET /v1/organizations/spend_limits)` — organization and workspace spend limit definitions behind the effective rows (medium)
-- [ ] `Cost by dimension (GET /v1/organizations/analytics/cost)` — USD cost over a date range broken out by dimension, beyond the legacy cost_report (medium)
-- [ ] `Token usage by dimension (GET /v1/organizations/analytics/usage)` — token usage over a date range broken out by dimension (medium)
+- [x] `Effective spend limits (GET /v1/organizations/spend_limits/effective)` — one row per member and period with the effective limit and period-to-date spend, for budget tracking (high) → `spend_limits_effective` (full refresh, Claude Enterprise `read:spend_limits`, off by default)
+- [x] `Spend limits (GET /v1/organizations/spend_limits)` — organization and workspace spend limit definitions behind the effective rows (medium) → `spend_limits` (full refresh, beta header `spend-limit-reads-2026-09-26`, off by default)
+- [x] `Cost by dimension (GET /v1/organizations/analytics/cost)` — USD cost over a date range broken out by dimension, beyond the legacy cost_report (medium) → `analytics_cost` (incremental per day, beta header `analytics-usage-cost-2026-08-24`, off by default)
+- [x] `Token usage by dimension (GET /v1/organizations/analytics/usage)` — token usage over a date range broken out by dimension (medium) → `analytics_usage` (incremental per day, beta header `analytics-usage-cost-2026-08-24`, off by default)
 - [ ] `Rate limits (GET /v1/organizations/rate_limits)` — Messages API rate-limit groups per model family, to compare with usage_report (medium)
 - [ ] `Workspace rate limits (GET /v1/organizations/workspaces/{workspace_id}/rate_limits)` — per-workspace overrides, fan-out over the synced workspaces (low)
 - [ ] `Spend limit increase requests (GET /v1/organizations/spend_limit_increase_requests)` — requests members raised to lift a limit, with a live spend summary when pending (low)
@@ -949,7 +949,7 @@ Note: Parsed paths and HTTP methods from Apple's official Python SDK, then check
 
 ## AppLovin — gaps
 
-Today (12): `advertiser_report`, `assets`, `campaign_operation_logs`, `campaigns`, `creative_sets`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_cohort_ad_revenue`, `max_cohort_impressions`, `max_cohort_sessions`, `publisher_report`, `user_ad_revenue`
+Today (14): `advertiser_report`, `asset_report`, `assets`, `campaign_operation_logs`, `campaigns`, `creative_sets`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_cohort_ad_revenue`, `max_cohort_impressions`, `max_cohort_sessions`, `playable_metrics`, `publisher_report`, `user_ad_revenue`
 
 Diffed against: <https://support.applovin.com/en/growth/promoting-your-apps/api/axon-campaign-management-api>
 
@@ -963,8 +963,8 @@ Note: Compared collection GET operations in the official Campaign Management API
 
 Re-audited 2026-11-19 against: <https://support.applovin.com/en/growth/promoting-your-apps/api/asset-reporting-api>
 
-- [ ] `Asset reporting (GET https://r.applovin.com/assetAnalyticsReport; GET https://r.applovin.com/assetReport)` — creative asset level impressions, clicks and cost by campaign and creative set, which joins to the assets and creative_sets tables (high)
-- [ ] `HTML playable metrics (GET https://r.applovin.com/playableMetrics)` — engagement and error metrics for HTML playable ads by day (low)
+- [x] `Asset reporting (GET https://r.applovin.com/assetAnalyticsReport; GET https://r.applovin.com/assetReport)` — creative asset level impressions, clicks and cost by campaign and creative set, which joins to the assets and creative_sets tables (high)
+- [x] `HTML playable metrics (GET https://r.applovin.com/playableMetrics)` — engagement and error metrics for HTML playable ads by day (low)
 
 Note (2026-11-19): Parsed the Axon Campaign Management API page (all list endpoints are already synced) and the Reporting API page. The Asset Reporting and HTML Metrics API pages are separate pages on the same r.applovin.com host and Report Key. Both take start and end dates with a 45 day window, a columns list, and limit and offset paging. assetReport only takes a range of yesterday, last_7d or last_month, so use assetAnalyticsReport for incremental loads.
 
@@ -1288,7 +1288,7 @@ Note: Automox publishes six separate Scalar specs at /api/docs/specs/\*.json (co
 
 ## Autumn — gaps
 
-Today (9): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`
+Today (13): `BalanceLedger`, `Balances`, `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`, `Purchases`, `Subscriptions`
 
 Diffed against: <https://docs.useautumn.com/llms.txt>
 
@@ -1298,10 +1298,10 @@ Note: Every list endpoint in the API reference is already synced: listCustomers,
 
 Re-audited 2026-11-19 against: <https://docs.useautumn.com/llms.txt>
 
-- [ ] `Subscriptions (POST /v1/subscriptions.list)` — flat list of recurring plans and add-ons across customers with status, for MRR and churn work (high)
-- [ ] `Balances (POST /v1/balances.list)` — one row per grant of feature balance across customers, live or expired, for usage and credit analysis (high)
-- [ ] `Purchases (POST /v1/purchases.list)` — one-off plan purchases across customers, live or expired (medium)
-- [ ] `Balance ledger (POST /v1/balances.list_ledger)` — history of balance changes per customer and feature, with reason and before and after values; needs a customer and feature per request (medium)
+- [x] `Subscriptions (POST /v1/subscriptions.list)` — flat list of recurring plans and add-ons across customers with status, for MRR and churn work (high)
+- [x] `Balances (POST /v1/balances.list)` — one row per grant of feature balance across customers, live or expired, for usage and credit analysis (high)
+- [x] `Purchases (POST /v1/purchases.list)` — one-off plan purchases across customers, live or expired (medium)
+- [x] `Balance ledger (POST /v1/balances.list_ledger)` — history of balance changes per customer and feature, with reason and before and after values; needs a customer and feature per request (medium)
 - [ ] `License assignments (POST /v1/licenses.list_assignments)` — which entities hold each license seat; needs a customer per request (low)
 - [ ] `Referral programs (POST /v1/referral_programs.list)` — configured referral programs, a small lookup table (low)
 
