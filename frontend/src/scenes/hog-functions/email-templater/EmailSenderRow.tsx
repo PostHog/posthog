@@ -12,7 +12,14 @@ import { objectsEqual } from 'lib/utils/objects'
 import { EmailSetupModal } from 'products/workflows/frontend/Channels/EmailSetup/EmailSetupModal'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
-import { fromRowError, selectedSenderIds, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
+import {
+    fromRowError,
+    isSendingStopped,
+    selectedSenderIds,
+    selectedSenders,
+    senderAddressError,
+    senderFrom,
+} from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
 import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
@@ -66,9 +73,17 @@ export function EmailSenderRow(): JSX.Element {
 
     const finishSenderSetup = (integrationId?: number): void => {
         setSenderSetupOpen(false)
-        // Fill an empty From with the new sender. A step already on a sender, or on the sandbox, keeps its choice.
-        if (integrationId && !sandbox?.selected && selectedSenderIds(from).length === 0) {
+        if (!integrationId || selectedSenderIds(from).length > 0) {
+            return
+        }
+        if (!sandbox?.selected) {
             setEmailTemplateValue('from', { ...from, integrationId })
+            return
+        }
+        // A test sender step only leaves it for a sender that can send, so closing during DNS setup keeps it.
+        const sender = senders.find((candidate) => candidate.id === integrationId)
+        if (sender?.config?.verified === true && !isSendingStopped(sender)) {
+            changeFrom({ ...from, integrationId })
         }
     }
     const senderSetup = senderSetupOpen ? (
@@ -94,11 +109,16 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
+    // The setup sits outside every row, so it stays open when its new sender swaps one row for another.
     if (sandbox?.selected && sandbox.onlySender) {
-        return <TestSenderRow sandbox={sandbox} senders={senders} />
+        return (
+            <>
+                <TestSenderRow sandbox={sandbox} senders={senders} onAddSender={() => setSenderSetupOpen(true)} />
+                {senderSetup}
+            </>
+        )
     }
 
-    // The setup sits outside both rows, so it stays open when its new sender swaps the empty row for the picker.
     if (!sandbox && !integrationsLoading && senders.length === 0) {
         return (
             <>
