@@ -19,32 +19,6 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const InboxMonitorPrSchema = () => {
-    const SignalsMonitorPrCreateBody = orvalSchemas.SignalsMonitorPrCreateBody()
-    return SignalsMonitorPrCreateBody
-}
-
-const inboxMonitorPr = (): ToolBase<ReturnType<typeof InboxMonitorPrSchema>, Schemas.MonitorPRResponse> => ({
-    name: 'inbox-monitor-pr',
-    schema: InboxMonitorPrSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxMonitorPrSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.pr_url !== undefined) {
-            body['pr_url'] = params.pr_url
-        }
-        if (params.note !== undefined) {
-            body['note'] = params.note
-        }
-        const result = await context.api.request<Schemas.MonitorPRResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/monitor_pr/`,
-            body,
-        })
-        return result
-    },
-})
-
 const ActivitySummaryGetSchema = () => z.object({})
 
 const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
@@ -174,6 +148,32 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 order: params.order,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const InboxMonitorPrSchema = () => {
+    const SignalsMonitorPrCreateBody = orvalSchemas.SignalsMonitorPrCreateBody()
+    return SignalsMonitorPrCreateBody
+}
+
+const inboxMonitorPr = (): ToolBase<ReturnType<typeof InboxMonitorPrSchema>, Schemas.MonitorPRResponse> => ({
+    name: 'inbox-monitor-pr',
+    schema: InboxMonitorPrSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxMonitorPrSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.pr_url !== undefined) {
+            body['pr_url'] = params.pr_url
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<Schemas.MonitorPRResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/monitor_pr/`,
+            body,
         })
         return result
     },
@@ -4106,12 +4106,12 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'inbox-monitor-pr': inboxMonitorPr,
     'activity-summary-get': activitySummaryGet,
     'activity-summary-search': activitySummarySearch,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
+    'inbox-monitor-pr': inboxMonitorPr,
     'inbox-my-settings-get': inboxMySettingsGet,
     'inbox-my-settings-update': inboxMySettingsUpdate,
     'inbox-ranking-outcomes-list': inboxRankingOutcomesList,
