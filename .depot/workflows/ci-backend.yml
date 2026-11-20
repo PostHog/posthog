@@ -617,13 +617,11 @@ jobs:
                         # this tree, and the backend filter matches only the ones the test setup imports.
                         - 'tools/hogli-commands/**'
                       hoglint:
-                        # hoglint reads every first-party Python file (hoglint.toml), and the
-                        # backend filter leaves some of them out. A change there must still run
-                        # `hoglint compare` in repo-checks.
-                        - 'tools/**/*.py'
-                        - 'services/**/*.py'
-                        - 'packages/**/*.py'
-                        - 'common/**/*.py'
+                        # hoglint reads every Python file under the repo root (hoglint.toml
+                        # `source_roots`), and the backend filter leaves some of them out, such as
+                        # bin/, rust/, nodejs/ and the root scripts. A change to any of them must
+                        # still run `hoglint compare` in repo-checks.
+                        - '**/*.py'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
