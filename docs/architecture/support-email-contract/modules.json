@@ -36,7 +36,6 @@
                             "id": "ob-port",
                             "text": "reply sender: Mailgun | Workflows, per channel",
                             "change": "added",
-                            "q": "Q7",
                             "wide": true
                         },
                         {
@@ -100,16 +99,14 @@
                         "get_email_status",
                         {
                             "name": "match_sent_message_ids",
-                            "change": "added",
-                            "q": "Q3"
+                            "change": "added"
                         }
                     ],
                     "chips": [
                         {
                             "id": "s-fields",
                             "text": "CodeEmail + thread headers, stream",
-                            "change": "changed",
-                            "q": "Q2"
+                            "change": "changed"
                         },
                         {
                             "id": "s-wire",
@@ -132,8 +129,7 @@
                     "seam": [
                         {
                             "name": "ingest_email",
-                            "change": "added",
-                            "q": "Q6"
+                            "change": "added"
                         },
                         {
                             "name": "accept_mailgun_*_message",
@@ -150,8 +146,7 @@
                         {
                             "id": "in-ses",
                             "text": "InboundEmail to ParsedEmail",
-                            "change": "added",
-                            "q": "Q5"
+                            "change": "added"
                         },
                         {
                             "id": "in-policy",
@@ -202,7 +197,6 @@
             "to": "send-seam",
             "label": "in-process",
             "change": "added",
-            "q": "Q1",
             "toAt": 0.3
         },
         {
@@ -221,11 +215,10 @@
             "to": "send-seam",
             "label": "match",
             "change": "added",
-            "q": "Q3",
             "fromSide": "left",
             "toSide": "right",
             "toAt": 0.5,
-            "labelOffset": [0, -22],
+            "labelOffset": [0, -34],
             "labelAlign": "middle",
             "fromAt": 0.5,
             "labelAt": 0.5,
@@ -236,7 +229,6 @@
             "to": "ingest-seam",
             "label": "InboundEmail",
             "change": "added",
-            "q": "Q5",
             "toAt": 0.3
         },
         {
