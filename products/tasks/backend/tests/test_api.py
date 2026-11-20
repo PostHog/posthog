@@ -140,6 +140,7 @@ from products.tasks.backend.presentation.serializers import (
 )
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
@@ -663,13 +664,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("other_run",),
             ("unregistered_token",),
             ("foreign_client",),
-            ("gateway_only",),
             ("runtime_unbound",),
             ("runtime_sibling_task",),
             ("runtime_other_run",),
             ("runtime_unregistered_token",),
             ("runtime_foreign_client",),
-            ("runtime_gateway_only",),
             ("runtime_mcp_read_only",),
         ]
     )
@@ -683,8 +682,6 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             scopes=(
                 "task:read internal_run:read signal_scout_internal:read"
                 if case == "mcp_read_only"
-                else f"llm_gateway:read internal_run:read {runtime_scope}"
-                if case == "gateway_only"
                 else f"task:read internal_run:read {runtime_scope}"
             ),
         )
@@ -2660,6 +2657,70 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(Task.objects.count(), task_count)
         self.assertEqual(target.runs.count(), target_run_count)
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(["create", "run"])
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_bound_scope_token_works_its_own_run_but_cannot_start_agent_run(self, path, mock_workflow, _internal):
+        writer_task = self.create_task(title="Docs: writer")
+        run = writer_task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            extra_state={"pending_dispatch": {"posthog_mcp_scopes": ["internal_run:write"]}},
+        )
+        OAuthApplication.objects.create(
+            name="Array",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {create_oauth_access_token_for_run(writer_task, run.state, run_id=run.id)}"
+        )
+        target = self.create_task(title="Existing task")
+        task_count = Task.objects.count()
+
+        response = self._sandbox_start(client, path, target)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertEqual(Task.objects.count(), task_count)
+        self.assertFalse(target.runs.exists())
+        mock_workflow.assert_not_called()
+        with patch.object(tasks_facade, "prepare_task_run_artifact_uploads", return_value=([], True)):
+            upload = client.post(
+                f"/api/projects/@current/tasks/{writer_task.id}/runs/{run.id}/artifacts/prepare_upload/",
+                {"artifacts": [{"name": "writer-change.json", "type": "artifact", "size": 10}]},
+                format="json",
+            )
+        self.assertEqual(upload.status_code, status.HTTP_200_OK, upload.json())
+        run_url = f"/api/projects/@current/tasks/{writer_task.id}/runs/{run.id}/"
+        with (
+            patch.object(
+                tasks_facade,
+                "read_task_run_artifact",
+                return_value=(b"{}", {"name": "writer-change.json", "content_type": "application/json"}, None),
+            ),
+            patch.object(tasks_facade, "read_task_run_conversation_logs", return_value="{}\n"),
+        ):
+            own_reads = [
+                client.get(f"/api/projects/@current/tasks/{writer_task.id}/").status_code,
+                client.get(run_url).status_code,
+                client.get(f"{run_url}logs/").status_code,
+                client.post(
+                    f"{run_url}artifacts/download/", {"storage_path": "writer-change.json"}, format="json"
+                ).status_code,
+            ]
+        other_run = target.create_run(environment=TaskRun.Environment.CLOUD)
+        other_reads = [
+            client.get(f"/api/projects/@current/tasks/{target.id}/").status_code,
+            client.get(f"/api/projects/@current/tasks/{target.id}/runs/{other_run.id}/").status_code,
+        ]
+        self.assertEqual(own_reads, [status.HTTP_200_OK] * 4)
+        self.assertEqual(other_reads, [status.HTTP_403_FORBIDDEN] * 2)
 
     @parameterized.expand(
         [(path, limit) for path in ("create", "run") for limit in ("agent_run_fanout_cap", "agent_run_rate_limited")]

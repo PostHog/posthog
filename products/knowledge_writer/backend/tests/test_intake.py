@@ -610,7 +610,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     run = TaskRun.objects.get(task_id=task.id)
     assert (run.state["github_token_scope"], run.state["clone_commit_sha"]) == ("clone", BASE_SHA)
     assert run.state["pending_dispatch"]["create_pr"] is False
-    assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
+    assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == WRITER.mcp_scopes
     assert run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert run.state["include_live_context"] is False
@@ -620,7 +620,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert attachment["name"] == SOURCE_DIFF_ATTACHMENT_NAME
     assert object_storage.read(attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
     dispatch_options = start_workflow.call_args.kwargs["options"]
-    assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
+    assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, WRITER.mcp_scopes)
 
 
 def _new_page_with(companion_path: str, companion_text: str, base_files: Mapping[str, str] = BASE_FILES) -> bytes:

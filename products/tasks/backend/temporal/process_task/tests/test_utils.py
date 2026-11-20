@@ -328,11 +328,12 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 )
             ]
 
-    def test_empty_scopes_omit_posthog_mcp(self) -> None:
+    @parameterized.expand([("empty", []), ("run_bound_only", ["internal_run:write"])])
+    def test_scopes_without_mcp_access_omit_posthog_mcp(self, _name: str, scopes: list[str]) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://mcp.example.com/mcp"
             mock_settings.MCP_SERVER_URL = "https://fallback.example.com/mcp"
-            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=[]) == []
+            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=scopes) == []
 
     def test_returns_empty_list_when_no_mcp_server_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:

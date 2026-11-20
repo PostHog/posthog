@@ -264,7 +264,7 @@ def create_writer_task(
         user_id=writer.user_id,
         repository=writer.docs_repository,
         create_pr=False,
-        posthog_mcp_scopes=[],
+        posthog_mcp_scopes=WRITER.mcp_scopes,
         extra_run_state={**no_store_connectors_run_state(), "clone_commit_sha": base_sha},
         origin_key=request.dedupe_id,
         start_workflow=start_workflow,

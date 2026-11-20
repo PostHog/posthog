@@ -13,6 +13,9 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
+# Naming internal_run:write mints the sandbox token without task:write and inbox:write, which start runs.
+WRITER_POSTHOG_SCOPES = ["internal_run:write"]
+
 WRITER_ALLOWED_DOMAINS = (
     "github.com",
     "api.github.com",
@@ -41,7 +44,7 @@ WRITER = TaskProfile(
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_agent=None,
-    mcp_scopes=[],
+    mcp_scopes=WRITER_POSTHOG_SCOPES,
     mcp_store_servers=True,
     mcp_exclude_tools=(),
     oauth_app=OAuthApp.ARRAY,

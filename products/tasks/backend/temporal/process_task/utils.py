@@ -30,7 +30,13 @@ from posthog.models.user_integration import (
     UserGitHubIntegration,
     UserIntegration,
 )
-from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
+from posthog.temporal.oauth import (
+    MCP_READ_SCOPES,
+    MCP_WRITE_SCOPES,
+    TOKEN_EXPIRATION_SECONDS,
+    PosthogMcpScopes,
+    has_write_scopes,
+)
 
 from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
@@ -941,10 +947,10 @@ def get_sandbox_ph_mcp_configs(
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
     neither is set, because the instance has no MCP server.
-    An explicit empty scope list also omits the server: internal-only tokens cannot initialize
-    a PostHog MCP session.
+    An explicit scope list with no MCP read or write scope also omits the server: internal-only
+    tokens cannot initialize a PostHog MCP session.
     """
-    if scopes == []:
+    if isinstance(scopes, list) and not set(scopes) & {*MCP_READ_SCOPES, *MCP_WRITE_SCOPES}:
         return []
     url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
     if not url:

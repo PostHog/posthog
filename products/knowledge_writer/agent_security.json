@@ -165,6 +165,17 @@
             {
                 "kind": "prose",
                 "reason": "The AI gateway token stays readable in the sandbox: the tasks platform mints it per run, configured outside this product (see D3). It is capped at the writer profile's max_cost_usd, reaches only the egress allowlist, and anything it produces surfaces only in a reviewed pull request; the readable-credentials probe does not match its phe_ shape."
+            },
+            {
+                "kind": "prose",
+                "reason": "The PostHog OAuth token (pha_) stays readable in the sandbox, because the agent server uses it to upload the run log. The writer dispatches only internal_run:write, so its token is minted without task:write and inbox:write and holds internal_run:read and internal_run:write, which read and report on its own task and run and nothing else, and mount no PostHog MCP server; the readable-credentials probe does not match its pha_ shape. Without task:write it cannot start a run that would shed the clone-only GitHub scope and the egress allowlist; the checks below pin that."
+            },
+            {
+                "kind": "check",
+                "by": [
+                    "products/tasks/backend/tests/test_api.py::TestTaskAPI::test_run_bound_scope_token_works_its_own_run_but_cannot_start_agent_run",
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_writer_sandbox_token_holds_only_run_bound_posthog_scopes"
+                ]
             }
         ],
         "D3": [

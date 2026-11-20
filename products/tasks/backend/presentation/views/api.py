@@ -633,6 +633,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action != "retrieve":
+            return None
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        if "internal_run:write" not in scopes or not is_sandbox_agent_request(request, self.kwargs["pk"]):
+            return None
+        return ["internal_run:write"]
+
     def _sandbox_bound_task_id(self, request, task_id: str) -> UUID:
         authenticator = request.successful_authenticator
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -2293,20 +2301,32 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "append_log",
             "set_summary",
             "set_output",
+            "artifacts",
+            "artifacts_prepare_upload",
+            "artifacts_finalize_upload",
             "update",
             "partial_update",
             "artifacts_download",
             "retrieve",
+            "logs",
         }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
         runtime_scope = "internal_run:write" if "internal_run:write" in scopes else "scout_experiment_internal:read"
         if (
-            "task:read" in scopes
-            and runtime_scope in scopes
+            runtime_scope in scopes
             and (
                 self.action in {"append_log", "set_summary"}
-                or self.action == "set_output"
+                or self.action
+                in {
+                    "set_output",
+                    "artifacts",
+                    "artifacts_prepare_upload",
+                    "artifacts_finalize_upload",
+                    "artifacts_download",
+                    "retrieve",
+                    "logs",
+                }
                 and runtime_scope == "internal_run:write"
                 or self.action in {"update", "partial_update"}
                 and self._is_runtime_lifecycle_update(request.data)
@@ -2318,8 +2338,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=self.kwargs.get("pk"),
             )
         ):
-            return ["task:read", runtime_scope]
-        if self.action == "artifacts_download":
+            return [runtime_scope]
+        if self.action in {"artifacts_download", "logs"}:
             return ["task:read"]
         if self.action == "retrieve":
             return None
@@ -3147,7 +3167,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="artifacts",
-        required_scopes=["task:write"],
     )
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -3217,7 +3236,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="artifacts/prepare_upload",
-        required_scopes=["task:write"],
     )
     def artifacts_prepare_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -3257,7 +3275,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="artifacts/finalize_upload",
-        required_scopes=["task:write"],
     )
     def artifacts_finalize_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -3727,7 +3744,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "view=thread to drop the duplicate tool response copy that a rendered conversation does not use."
         ),
     )
-    @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="logs")
     def logs(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)
 

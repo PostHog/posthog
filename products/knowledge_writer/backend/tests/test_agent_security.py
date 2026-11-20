@@ -173,6 +173,10 @@ def test_writer_egress_is_the_pinned_allowlist() -> None:
     }
 
 
+def test_writer_sandbox_token_holds_only_run_bound_posthog_scopes() -> None:
+    assert WRITER.mcp_scopes == ["internal_run:write"]
+
+
 def test_writer_wake_spend_is_capped_at_5_dollars() -> None:
     assert WRITER.max_cost_usd == Decimal("5")
 
