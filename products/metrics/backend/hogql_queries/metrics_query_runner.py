@@ -345,7 +345,11 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 clause_order=clause_order,
                 formula=request.formula is not None,
             )
-            return MetricsQueryResponse(results=merged) if merged is not None else None
+            return (
+                MetricsQueryResponse(results=merged, resolved_date_range=self._resolved_date_range())
+                if merged is not None
+                else None
+            )
 
         return tail.run(
             response_type=MetricsQueryResponse,
@@ -477,9 +481,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 )
                 for s in series
             ],
-            resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self._date_from, date_to=self._date_range.date_to()
-            ),
+            resolved_date_range=self._resolved_date_range(),
         )
 
     def _provenance_response(self) -> MetricsQueryProvenance | None:
@@ -491,6 +493,9 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             precomputedUntil=until.isoformat() if until is not None else None,
             reasons=list(self._provenance.reasons) or None,
         )
+
+    def _resolved_date_range(self) -> ResolvedDateRangeResponse:
+        return ResolvedDateRangeResponse(date_from=self._date_from, date_to=self._date_range.date_to())
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
