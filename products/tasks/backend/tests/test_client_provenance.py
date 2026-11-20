@@ -11,7 +11,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
 )
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.temporal.oauth import (
@@ -147,10 +146,8 @@ class TestIsApiKeyRequest:
         [
             ("personal_api_key", PersonalAPIKeyAuthentication, True),
             ("delegated_personal_api_key", DelegatedPersonalAPIKeyAuthentication, True),
-            # Neither of these resolves to a real user — a team secret hands back a synthetic
-            # TeamSecretTokenUser and a PSAK is project-scoped — so neither may stand in for a
-            # person on something billed or attributed to one.
-            ("team_secret_token", TeamSecretTokenAuthentication, False),
+            # A PSAK is project-scoped, not bound to a real user, so it may not stand in
+            # for a person on something billed or attributed to one.
             ("project_secret_api_key", ProjectSecretAPIKeyAuthentication, False),
             ("oauth", OAuthAccessTokenAuthentication, False),
             ("unauthenticated", None, False),

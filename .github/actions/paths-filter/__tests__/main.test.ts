@@ -102,6 +102,7 @@ describe('reuse wiring', () => {
         repos: {
           compareCommitsWithBasehead: async () => ({data: {files: [rows[0]]}}),
           listCommits: async () => ({data: []}),
+          listActivities: async () => ({data: [{after: 'c'.repeat(40)}, {after: previousHead}]}),
           listPullRequestsAssociatedWithCommit: async () => ({data: [{number: 1}]})
         },
         checks: {
@@ -115,17 +116,11 @@ describe('reuse wiring', () => {
           listSuitesForRef: 'listSuitesForRef'
         }
       },
-      paginate: Object.assign(
-        async (method: unknown) =>
-          method === 'listSuitesForRef'
-            ? [{id: 1, created_at: new Date(Date.now() - 60_000).toISOString()}]
-            : [{sha: previousHead}],
-        {
-          iterator: async function* () {
-            yield {status: 200, data: rows}
-          }
+      paginate: Object.assign(async () => [{id: 1, created_at: new Date(Date.now() - 60_000).toISOString()}], {
+        iterator: async function* () {
+          yield {status: 200, data: rows}
         }
-      ),
+      }),
       graphql: async (query: string) =>
         query.includes('timelineItems')
           ? {repository: {pullRequest: {timelineItems: {nodes: []}}}}

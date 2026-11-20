@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any, cast
 from uuid import UUID
 
@@ -8,6 +9,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -245,6 +247,36 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
             "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
         }
+
+    def _copy_history(self, *flags: str) -> str:
+        out = StringIO()
+        call_command("copy_insight_alert_history_to_platform", "--team-id", str(self.team.id), *flags, stdout=out)
+        return out.getvalue()
+
+    def _shown_checks(self) -> list[tuple[Any, ...]]:
+        return [
+            (check["created_at"], check["state"], check["calculated_value"], check["triggered_dates"])
+            for check in self._row("retrieve", "?checks_limit=100")["checks"]
+        ]
+
+    def test_a_moved_alerts_checks_from_before_the_platforms_first_check_are_copied_once(self) -> None:
+        AlertCheck.objects.filter(alert_configuration=self.alert).update(created_at=self._at(110))
+        self._own_check(100, "2026-10-20", "Signups fell.")
+        self._record(60, "not_firing", value=50.0)
+        # The platform checked the alert from here on, so this check is one the page already replaced.
+        overlapped = AlertCheck.objects.create(alert_configuration=self.alert, state="Not firing")
+        AlertCheck.objects.filter(id=overlapped.id).update(created_at=self._at(50))
+
+        assert self._shown_checks() == [(_iso(self._at(60)), "Not firing", 50.0, None)]
+        assert "1 recorded by the platform, 2 to copy, 2 copied" in self._copy_history("--apply")
+        assert "2 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        AlertCheck.objects.filter(alert_configuration=self.alert).delete()
+
+        assert self._shown_checks() == [
+            (_iso(self._at(60)), "Not firing", 50.0, None),
+            (_iso(self._at(100)), "Firing", None, ["2026-10-20"]),
+            (_iso(self._at(110)), "Not firing", 1.0, None),
+        ]
 
     def test_a_moved_alert_shows_each_checks_investigation_and_what_the_agent_suppressed(self) -> None:
         notebook = create_notebook(self.team.id, title="Signups investigation", content=None)

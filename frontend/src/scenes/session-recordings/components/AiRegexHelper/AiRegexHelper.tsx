@@ -6,12 +6,15 @@ import posthog from 'posthog-js'
 
 import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
+import { QuillAiRegexHelper } from './QuillAiRegexHelper'
 
 type AiRegexHelperProps = {
     onApply: (regex: string) => void
@@ -21,6 +24,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
     const { isOpen, input, generatedRegex, error, isLoading } = useValues(aiRegexHelperLogic)
     const { setInput, handleGenerateRegex, onClose, handleCopyToClipboard } = useActions(aiRegexHelperLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const quillSurface = useQuillSurface()
 
     const { preflight } = useValues(preflightLogic)
     const aiAvailable = preflight?.openai_available
@@ -34,6 +38,19 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
             : !input.trim().length
               ? 'Provide a prompt first'
               : null
+
+    const applyGeneratedRegex = (): void => {
+        posthog.capture('path_cleaning_regex_ai_applied', {
+            prompt: input,
+            regex: generatedRegex,
+        })
+        onApply(generatedRegex)
+        onClose()
+    }
+
+    if (quillSurface) {
+        return <QuillAiRegexHelper disabledReason={disabledReason} onApply={applyGeneratedRegex} />
+    }
 
     return (
         <>
@@ -89,14 +106,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                             <LemonButton
                                 data-attr="ai-regex-apply"
                                 type="primary"
-                                onClick={() => {
-                                    posthog.capture('path_cleaning_regex_ai_applied', {
-                                        prompt: input,
-                                        regex: generatedRegex,
-                                    })
-                                    onApply(generatedRegex)
-                                    onClose()
-                                }}
+                                onClick={applyGeneratedRegex}
                                 tooltip="Apply"
                                 icon={<IconPlus />}
                             >
@@ -112,20 +122,31 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
     )
 }
 
+/** Lets a dialog that hosts the helper keep itself open while the helper's own dialog is on top. */
+export function useAiRegexHelperIsOpen(): boolean {
+    return useValues(aiRegexHelperLogic).isOpen
+}
+
 export function AiRegexHelperButton(): JSX.Element {
     const { setIsOpen } = useActions(aiRegexHelperLogic)
+    const quillSurface = useQuillSurface()
+
+    const openHelper = (): void => {
+        setIsOpen(true)
+        posthog.capture('ai_regex_helper_open')
+    }
+
+    if (quillSurface) {
+        return (
+            <Button data-attr="ai-regex-open" onClick={openHelper}>
+                <IconAI />
+                Help me with Regex
+            </Button>
+        )
+    }
 
     return (
-        <LemonButton
-            data-attr="ai-regex-open"
-            type="tertiary"
-            size="small"
-            icon={<IconAI />}
-            onClick={() => {
-                setIsOpen(true)
-                posthog.capture('ai_regex_helper_open')
-            }}
-        >
+        <LemonButton data-attr="ai-regex-open" type="tertiary" size="small" icon={<IconAI />} onClick={openHelper}>
             Help me with Regex
         </LemonButton>
     )

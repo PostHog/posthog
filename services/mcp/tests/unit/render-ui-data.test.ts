@@ -37,11 +37,25 @@ describe('render-ui data loading', () => {
                 structuredContent: data,
             })
             expect(callServerTool).toHaveBeenCalledExactlyOnceWith({
-                name: 'exec',
+                name: 'exec-read',
                 arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` },
             })
         }
     )
+
+    it('falls back to exec when the host refuses the unlisted exec-read', async () => {
+        const data = { results: [] }
+        const callServerTool = vi.fn(async ({ name }: { name: string }) => {
+            if (name === 'exec-read') {
+                throw new Error('Tool exec-read not found')
+            }
+            return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+        })
+
+        expect(await loadRenderUiData({ callServerTool } as any, 'query-trends', {}, 'query-results')).toEqual({
+            structuredContent: data,
+        })
+    })
 
     it.each<CallToolResult>([
         { content: [{ type: 'text', text: 'See structured content' }], structuredContent: { results: [] } },

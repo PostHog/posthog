@@ -316,10 +316,10 @@ export interface savedInsightsLogicActions {
     updateFavoritedInsightSuccess: (
         insights: {
             count: number
-            filters?: SavedInsightFilters | null | undefined
-            next?: string | null | undefined
+            filters?: SavedInsightFilters | null
+            next?: string | null
             offset: number
-            previous?: string | null | undefined
+            previous?: string | null
             results: InsightModel<Node<Record<string, any>>>[]
         },
         payload?: {
@@ -329,10 +329,10 @@ export interface savedInsightsLogicActions {
     ) => {
         insights: {
             count: number
-            filters?: SavedInsightFilters | null | undefined
-            next?: string | null | undefined
+            filters?: SavedInsightFilters | null
+            next?: string | null
             offset: number
-            previous?: string | null | undefined
+            previous?: string | null
             results: InsightModel<Node<Record<string, any>>>[]
         }
         payload?: {

@@ -16,12 +16,14 @@ dependencies = [
     "asyncpg>=0.30.0",
     "redis==5.3.1",
     "litellm==1.93.2",
+    # litellm.proxy imports backoff without declaring it; posthoganalytics 7 used to bring it in.
+    "backoff>=2.2.1",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
     "structlog>=24.4.0",
     "httpx>=0.28.0",
-    "posthoganalytics>=7.91.4",
+    "posthoganalytics>=8.0.1",
     "cachetools>=5.5.0",
     "python-multipart>=0.0.9",
     "boto3>=1.42.65",
@@ -115,4 +117,4 @@ exclude-newer = "7 days"
 exclude-newer-package = { certifi = false, posthoganalytics = false }
 # The SDK release bot resets the posthoganalytics spec to a floor on every release, so
 # this constraint is what keeps a new major out until its migration PR.
-constraint-dependencies = ["posthoganalytics<8"]
+constraint-dependencies = ["posthoganalytics<9"]

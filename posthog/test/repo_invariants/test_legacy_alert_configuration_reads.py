@@ -59,6 +59,8 @@ READERS: dict[str, str] = {
     "products/logs/backend/management/commands/delete_orphaned_platform_logs_alert_copies.py": (
         "finds copies whose row is gone"
     ),
+    "products/alerts/backend/legacy_history_copy.py": "G1 history copy",
+    "products/logs/backend/legacy_history_copy.py": "G1 history copy",
     "products/alerts/backend/platform_native_cleanup.py": "tells native alerts from copies by row existence (E2)",
     "products/logs/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",

@@ -177,7 +177,7 @@ export interface trendsDataLogicValues {
     getTrendsColor: (dataset: IndexedTrendResult) => string
     getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-    getTrendsYAxisPosition: (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
+    getTrendsYAxisPosition: (dataset: IndexedTrendResult) => ResultCustomization['yAxisPosition']
     hasBreakdownMore: boolean
     hasPersonsModal: boolean
     hoveredDatasetIndex: number | null
@@ -190,8 +190,8 @@ export interface trendsDataLogicValues {
     movingAverageIntervals: number
     pieChartVizOptions:
         | {
-              disableHoverOffset?: boolean | undefined
-              hideAggregation?: boolean | undefined
+              disableHoverOffset?: boolean
+              hideAggregation?: boolean
           }
         | undefined
     resultCustomizationBy: ResultCustomizationBy
@@ -382,8 +382,8 @@ export interface trendsDataLogicMeta {
         confidenceLevel: (trendsFilter: TrendsFilter | null | undefined) => number
         pieChartVizOptions: (arg: VizSpecificOptions | null | undefined) =>
             | {
-                  disableHoverOffset?: boolean | undefined
-                  hideAggregation?: boolean | undefined
+                  disableHoverOffset?: boolean
+                  hideAggregation?: boolean
               }
             | undefined
         mightContainFractionalNumbers: (
@@ -405,7 +405,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
@@ -440,7 +440,7 @@ export interface trendsDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null
-        ) => (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
+        ) => (dataset: IndexedTrendResult) => ResultCustomization['yAxisPosition']
         getTrendsHidden: (
             resultCustomizationBy: ResultCustomizationBy,
             resultCustomizations:

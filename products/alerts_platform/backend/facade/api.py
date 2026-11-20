@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -27,6 +27,8 @@ from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
+    LegacyAlertHistory,
+    LegacyHistoryCopyRun,
     NativeConfigurationMatch,
     NewAlertDestination,
     OwnedCopyKey,
@@ -70,6 +72,7 @@ from products.alerts_platform.backend.logic import (
     delivery_holds,
     destination_handoff,
     destination_sends,
+    legacy_history_copy,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -515,14 +518,17 @@ def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> di
 
 
 def notable_checks_by_public_id(
-    *, team_id: int, public_id: UUID, since: datetime, limit: int
+    *, team_id: int, public_id: UUID, since: datetime, limit: int, copies_before: bool = False
 ) -> PlatformCheckEventPage | None:
     """The newest `limit` checks since `since` that moved a named alert's state or failed, with
-    their total, or None when the platform does not own the alert.
+    their total, or None when the platform does not own the alert. With `copies_before`, the checks
+    copied from the source's own history are read from before `since` too.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
+    return platform_reads.notable_checks_by_public_id(
+        team_id=team_id, public_id=public_id, since=since, limit=limit, copies_before=copies_before
+    )
 
 
 def control_changes_by_public_id(
@@ -553,6 +559,25 @@ def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit
     """A configuration's notable checks across every group and its control-plane changes since `since`,
     each newest first. Raises when ClickHouse fails."""
     return platform_reads.alert_events(team_id=team_id, configuration_id=configuration_id, since=since, limit=limit)
+
+
+def copy_legacy_histories(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    alert_ids: Callable[[int], Iterable[UUID]],
+    legacy_history: Callable[[int, UUID], LegacyAlertHistory],
+    apply: bool,
+) -> LegacyHistoryCopyRun:
+    """Copies a source's own history of each alert `alert_ids` names into the platform's history,
+    skipping what an earlier run copied and what the platform recorded itself. Writes nothing unless
+    `apply`. Every team with a copy of the source's alerts when `team_ids` is None."""
+    return legacy_history_copy.copy_team_histories(
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        alert_ids=alert_ids,
+        legacy_history=legacy_history,
+        apply=apply,
+    )
 
 
 def control_history_by_public_id(
