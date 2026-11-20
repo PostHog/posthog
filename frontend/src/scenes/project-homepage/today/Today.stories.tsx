@@ -1219,31 +1219,6 @@ export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
     ],
 }
 
-export const ReportWithPullRequest: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-}
-
-export const ReportProposingItsFirstPrompt: Story = {
-    parameters: { pageUrl: urls.todayReport('report-2') },
-}
-
-export const ReportWithAnImpactMetric: Story = {
-    parameters: { pageUrl: urls.todayReport('report-4') },
-}
-
-export const ReportWithTicketsAndEvidenceDetail: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-}
-
-export const ReportThatFailsToLoad: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
-}
-
-export const ReportInANarrowWindow: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
-}
-
 export const ChatsPane: Story = {
     parameters: {
         featureFlags: [

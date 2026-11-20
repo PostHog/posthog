@@ -11,6 +11,8 @@ import { scoutNoteWriteDisabledReason } from '../../logics/scoutNotesLogic'
 import { SignalReport } from '../../types'
 import { reportNoteMaxChars } from '../../utils/reportNotes'
 import { ScoutNoteComposer } from '../config/scouts/ScoutNoteComposer'
+import { QuillReportNoteAddButton } from './QuillReportNoteAddButton'
+import { QuillReportNoteComposer } from './QuillReportNoteComposer'
 
 // The mention editor is TipTap, a heavy chunk, so it loads only when someone opens the note box.
 const ReportNoteEditor = lazyWithRetry(() =>
@@ -38,6 +40,9 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
     // when the person is allowed to send one.
     const [sendToScouts, setSendToScouts] = useState(!!reportScoutName && !steerDisabledReason)
     const [skillName, setSkillName] = useState(reportScoutName ?? EVERY_SCOUT)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const placeholder = 'e.g. this checkout flow is being replaced next month'
+    const targetOptions = reportNoteTargetOptions(scoutNamesBySkill, reportScoutName)
 
     const submit = async (): Promise<void> => {
         if (submitDisabledReason || savingNote) {
@@ -48,6 +53,27 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
         if (!logic.values.lastSaveFailed) {
             onClose()
         }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillReportNoteComposer
+                text={text}
+                onTextChange={setText}
+                maxLength={maxLength}
+                placeholder={placeholder}
+                sendToScouts={sendToScouts}
+                onSendToScoutsChange={setSendToScouts}
+                sendToScoutsDisabledReason={steerDisabledReason}
+                skillName={skillName}
+                onSkillNameChange={setSkillName}
+                targetOptions={targetOptions}
+                targetOptionsLoading={scoutConfigsLoading}
+                saving={savingNote}
+                onCancel={onClose}
+                onSubmit={() => void submit()}
+            />
+        )
     }
 
     return (
@@ -62,11 +88,7 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
                     />
                 </Suspense>
             ) : (
-                <ScoutNoteComposer
-                    maxLength={maxLength}
-                    placeholder="e.g. this checkout flow is being replaced next month"
-                    onChange={setText}
-                />
+                <ScoutNoteComposer maxLength={maxLength} placeholder={placeholder} onChange={setText} />
             )}
             <div className="flex flex-wrap items-center gap-2">
                 <LemonCheckbox
@@ -81,7 +103,7 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
                     <LemonSelect
                         size="small"
                         value={skillName}
-                        options={reportNoteTargetOptions(scoutNamesBySkill, reportScoutName)}
+                        options={targetOptions}
                         loading={scoutConfigsLoading}
                         onChange={setSkillName}
                         data-attr="inbox-report-note-target"
@@ -118,8 +140,12 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
 
 export function ReportNoteComposer({ report }: { report: SignalReport }): JSX.Element {
     const [open, setOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (open) {
         return <OpenComposer report={report} onClose={() => setOpen(false)} />
+    }
+    if (todayRailNav) {
+        return <QuillReportNoteAddButton onClick={() => setOpen(true)} />
     }
     return (
         <LemonInput

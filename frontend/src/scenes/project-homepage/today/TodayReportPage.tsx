@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { projectHomepageLogic } from '../projectHomepageLogic'
 import { TodayReportBody } from './TodayReportBody'
 import { TodayReportHeader } from './TodayReportHeader'
-import { TodayReportLiveBody } from './TodayReportLiveBody'
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportNav } from './TodayReportNav'
 import { TodaySampleBanner } from './TodaySampleBanner'
@@ -133,7 +132,6 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
             <TodaySampleBanner />
             {reportFailed && <ReportFailed reportId={reportId} />}
             {currentReport && isSample && <TodayReportBody report={currentReport} live={null} />}
-            {currentReport && !isSample && <TodayReportLiveBody report={currentReport} />}
         </div>
     )
 }

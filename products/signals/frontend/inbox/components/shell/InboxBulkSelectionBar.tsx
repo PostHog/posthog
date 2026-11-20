@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconHide, IconLeave, IconPerson, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { userLogic } from 'scenes/userLogic'
-
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
-import { canUnassignMe } from '../../utils/reportActions'
-import { isReportClaimable } from '../../utils/reportClaim'
+import { SignalReport } from '../../types'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
+import { useInboxBulkSelection } from './useInboxBulkSelection'
 
 /**
  * Bulk action toolbar shown when one or more reports are multi-selected.
@@ -22,28 +17,14 @@ import { openResolveReportDialog } from './ResolveReportDialog'
  * remain on `inboxSceneLogic` per-report.
  */
 export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }): JSX.Element | null {
-    const { selectedCount, selectedReportIds, isClaiming, isDismissing, isResolving, isUnassigning } =
-        useValues(inboxBulkActionsLogic)
+    const { isClaiming, isDismissing, isResolving, isUnassigning } = useValues(inboxBulkActionsLogic)
     const { clearSelection, bulkClaim, bulkDismiss, bulkResolve, bulkUnassignMe } = useActions(inboxBulkActionsLogic)
-    const { isScopedToMe } = useValues(inboxFiltersLogic)
-    const { user } = useValues(userLogic)
+    const { selectedCount, busy, isMonitoring, hasOpenPr, unassignableIds, claimableIds } =
+        useInboxBulkSelection(reports)
 
     if (selectedCount === 0) {
         return null
     }
-    const busy = isClaiming || isDismissing || isResolving || isUnassigning
-    const selectedIds = new Set(selectedReportIds)
-    const selectedReports = reports.filter((report) => selectedIds.has(report.id))
-    const isMonitoring =
-        selectedReports.length === selectedCount &&
-        selectedReports.every((report) => report.status === SignalReportStatus.MONITORING)
-    const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
-    const unassignableIds = reports
-        .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
-        .map((report) => report.id)
-    const claimableIds = selectedReports
-        .filter((report) => isReportClaimable(report, user?.uuid ?? null))
-        .map((report) => report.id)
 
     return (
         // The accent fill is translucent, so the opaque wrapper stops cards showing through while pinned.

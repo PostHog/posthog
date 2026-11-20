@@ -35,12 +35,19 @@ describe('projectHomepageLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadRecentInsights', 'loadRecentInsightsSuccess'])
     })
 
+    it('sends a Today report link to the inbox report page, with a way back to Home', () => {
+        router.actions.push(urls.todayReport('report-1'), { link_source: 'today' })
+
+        expect(router.values.location.pathname).toContain('/inbox/reports/report-1')
+        expect(router.values.searchParams).toEqual({ back: '/home', link_source: 'today' })
+    })
+
     it.each([
-        [true, '/home/reports/report-1'],
-        [false, '/inbox/reports/report-1'],
-    ])('waits for the flags before it leaves a Today report (today on: %s)', async (todayOn, expectedPath) => {
-        router.actions.push(urls.todayReport('report-1'))
-        expect(router.values.location.pathname).toContain('/home/reports/report-1')
+        [true, '/home/reports/sample-pr'],
+        [false, '/inbox/reports/sample-pr'],
+    ])('waits for the flags before it leaves a sample report (today on: %s)', async (todayOn, expectedPath) => {
+        router.actions.push(urls.todayReport('sample-pr'))
+        expect(router.values.location.pathname).toContain('/home/reports/sample-pr')
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayOn })
 

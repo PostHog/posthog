@@ -119,7 +119,7 @@ describe('todayLogic', () => {
             shown: 'the report list',
             expected: [
                 'the page shows these reports',
-                '](http://localhost/project/997/home/reports/r-1?link_source=today)',
+                '](http://localhost/project/997/inbox/reports/r-1?back=%2fhome&link_source=today)',
             ],
         },
         {

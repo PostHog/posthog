@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconClock, IconPullRequest, IconSparkles } from '@posthog/icons'
+import { IconClock, IconSparkles } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
-import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
+import type { InboxReportActionSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type {
     ImplementationSlotClaim,
@@ -15,71 +13,21 @@ import type {
 } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayImplementMenu } from './TodayImplementMenu'
-import { TodayPrimaryAction, startDisabledReason, todayNextStep } from './todayNextStep'
+import { startDisabledReason, todayNextStep } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
+import { TodayReportPrimaryAction } from './TodayReportPrimaryAction'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
-
-function PrimaryAction({
-    primary,
-    report,
-    reportUrl,
-    isSample,
-    startReason,
-}: {
-    primary: TodayPrimaryAction
-    report: SignalReport
-    reportUrl: string
-    isSample: boolean
-    startReason: string | null
-}): JSX.Element {
-    const { openReportTask } = useActions(inboxTaskKickoffLogic)
-    if (primary.kind === 'review') {
-        return (
-            <Button
-                variant="primary"
-                className="me-1"
-                render={<LinkPrimitive to={primary.url} target="_blank" />}
-                onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'today' })}
-                disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
-                data-attr="today-report-review-pr"
-            >
-                <IconPullRequest />
-                <span>{primary.label}</span>
-            </Button>
-        )
-    }
-    if (primary.kind === 'open_task') {
-        return (
-            <Button
-                variant="primary"
-                className="me-1"
-                onClick={() => openReportTask(report, primary.taskId, primary.runId)}
-                data-attr="today-report-open-task"
-            >
-                <IconClock />
-                <span>{primary.label}</span>
-            </Button>
-        )
-    }
-    return (
-        <TodayImplementMenu
-            report={report}
-            reportUrl={reportUrl}
-            disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
-            postHogDisabledReason={startReason}
-        />
-    )
-}
 
 export function TodayReportNextStep({
     report,
     reportTaskToOpen,
     slotClaim,
+    surface = 'today',
 }: {
     report: SignalReport
     reportTaskToOpen: ReportTaskEntry | null
     slotClaim: ImplementationSlotClaim | null
+    surface?: InboxReportActionSurface
 }): JSX.Element | null {
     const { createPrDisabledReason, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const logic = todayReportLogic({ reportId: report.id })
@@ -113,7 +61,7 @@ export function TodayReportNextStep({
         <div className="flex flex-col gap-2" data-attr="today-report-continue">
             <div className="flex flex-wrap items-center gap-1">
                 {primary && (
-                    <PrimaryAction
+                    <TodayReportPrimaryAction
                         primary={primary}
                         report={report}
                         reportUrl={reportUrl}
@@ -122,6 +70,7 @@ export function TodayReportNextStep({
                             createPrDisabledReason,
                             aiConsentDisabledReason,
                         })}
+                        surface={surface}
                     />
                 )}
                 <Button
@@ -144,7 +93,7 @@ export function TodayReportNextStep({
                 <Composer.Root
                     value={draft}
                     onChange={setDraft}
-                    onSubmit={() => askAboutReport(draft.trim())}
+                    onSubmit={() => askAboutReport(draft.trim(), surface)}
                     textAreaRef={textAreaRef}
                     loading={askingAi}
                     disabled={askingAi}

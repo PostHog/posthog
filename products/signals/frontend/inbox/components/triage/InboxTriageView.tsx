@@ -6,6 +6,7 @@ import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HotkeyInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
@@ -13,10 +14,12 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
 import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 import { SignalReport } from '../../types'
+import { claimKeyIntent, reportOwnerKind } from '../../utils/reportFacts'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -26,6 +29,7 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
 import { ImplementButton } from '../detail/ImplementButton'
 import { DismissOrUnassignButton } from './DismissOrUnassignButton'
+import { QuillInboxTriageView } from './QuillInboxTriageView'
 
 /**
  * Wrap a hotkey so it stays quiet while a dialog (the archive form) is up. The hotkey listener sits
@@ -43,10 +47,6 @@ function outsideDialogs(action: (event: KeyboardEvent) => void): HotkeyInterface
 
 const IS_MAC = isMac()
 const COMMAND_KEY = IS_MAC ? 'Meta' : 'Control'
-
-function isCommandKeyDown(event: KeyboardEvent): boolean {
-    return IS_MAC ? event.metaKey : event.ctrlKey
-}
 
 export type TriageEnterIntent = 'passthrough' | 'open' | 'toggle'
 
@@ -249,6 +249,8 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
  * bottom lists them.
  */
 export function InboxTriageView(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user } = useValues(userLogic)
     const {
         reports,
         isLoaded,
@@ -267,10 +269,14 @@ export function InboxTriageView(): JSX.Element {
         dismissCurrent,
         resolveCurrent,
         unassignCurrent,
+        claimCurrent,
+        unclaimCurrent,
         createPrForCurrent,
         openCurrent,
         ensureLoaded,
     } = useActions(inboxTriageLogic)
+
+    const isClaimedByMe = !!currentReport && reportOwnerKind(currentReport, user?.uuid ?? null) === 'me'
 
     useKeyboardHotkeys(
         {
@@ -298,15 +304,27 @@ export function InboxTriageView(): JSX.Element {
             a: { action: outsideDialogs(() => dismissCurrent()) },
             u: {
                 action: outsideDialogs((event) => {
-                    if (!isCommandKeyDown(event) || event.shiftKey || event.altKey) {
+                    const intent = claimKeyIntent(event, IS_MAC, {
+                        canClaim: todayRailNav,
+                        canUnclaim: true,
+                    })
+                    if (!intent) {
                         return
                     }
                     // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
                     event.preventDefault()
-                    unassignCurrent()
+                    if (intent === 'claim') {
+                        claimCurrent()
+                    } else if (todayRailNav && isClaimedByMe) {
+                        unclaimCurrent()
+                    } else {
+                        unassignCurrent()
+                    }
                 }),
                 willHandleEvent: true,
             },
+            // The Quill view frees the command chord for the claim, so removing yourself gets its own key.
+            x: { action: outsideDialogs(() => unassignCurrent()), disabled: !todayRailNav },
             r: { action: outsideDialogs(() => resolveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
@@ -328,6 +346,10 @@ export function InboxTriageView(): JSX.Element {
             dismissCurrent,
             resolveCurrent,
             unassignCurrent,
+            claimCurrent,
+            unclaimCurrent,
+            isClaimedByMe,
+            todayRailNav,
             createPrForCurrent,
             openCurrent,
         ]
@@ -342,6 +364,10 @@ export function InboxTriageView(): JSX.Element {
             captureInboxPanelViewed({ panel: 'triage', itemCount: reports.length })
         }
     }, [isLoaded, reports.length])
+
+    if (todayRailNav) {
+        return <QuillInboxTriageView />
+    }
 
     return (
         // The card is centered in whatever height the scene gives; the 70vh floor keeps it centered

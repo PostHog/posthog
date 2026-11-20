@@ -1,4 +1,5 @@
 import { NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+import { BaseMathType } from '~/types'
 
 import { reportMetricsFixture } from '../__mocks__/reportMetricMocks'
 import {
@@ -7,6 +8,7 @@ import {
     monitoringChartPoints,
     monitoringChartQuery,
     monitoringChartTargetLines,
+    monitoringOutcome,
 } from './reportMonitoringChart'
 
 const now = Date.parse('2026-08-29T12:00:00Z')
@@ -256,5 +258,44 @@ describe('Monitoring chart context', () => {
                 },
             })
         ).toEqual([])
+    })
+
+    const outcomeMetric = (series: TrendsQuery['series'][number], formula?: string): { query: unknown } => ({
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: { ...query, series: [series], trendsFilter: formula ? { formula } : undefined },
+        },
+    })
+    // The fix merged on Aug 26; `now` is midday on Aug 29, so the Aug 29 bucket is still in progress.
+    const outcomePoints = {
+        labels: ['2026-08-26', '2026-08-27', '2026-08-28', '2026-08-29'],
+        values: [50, 10, 20, 3],
+    }
+
+    it.each([
+        ['an event count', outcomeMetric({ kind: NodeKind.EventsNode, event: 'checkout_failed' }), 'total', 33],
+        [
+            'a daily active user count',
+            outcomeMetric({ kind: NodeKind.EventsNode, event: 'checkout_failed', math: BaseMathType.UniqueUsers }),
+            'average',
+            15,
+        ],
+        [
+            'a formula rate',
+            outcomeMetric({ kind: NodeKind.EventsNode, event: 'checkout_failed' }, 'A / B'),
+            'average',
+            15,
+        ],
+    ] as const)('reads %s since the fix as a %s', (_name, metric, aggregation, value) => {
+        expect(
+            monitoringOutcome({
+                metric,
+                points: outcomePoints,
+                startedAt: '2026-08-26T15:00:00Z',
+                interval: 'day',
+                now,
+                timezone: 'UTC',
+            })
+        ).toEqual({ value, from: '2026-08-27', aggregation })
     })
 })

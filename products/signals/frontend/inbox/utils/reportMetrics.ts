@@ -6,7 +6,7 @@ import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/u
 
 import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { ChartDisplayType, PropertyMathType } from '~/types'
+import { ChartDisplayType, IntervalType, PropertyMathType } from '~/types'
 
 import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -299,6 +299,20 @@ export function reportMetricUnitWord(metric: Pick<ReportMetricApi, 'kind' | 'uni
         case 'custom':
             return ''
     }
+}
+
+/** The bucket size of the metric's chart. Trends uses days when the query names no interval. */
+export function reportMetricInterval(metric: Pick<ReportMetricApi, 'query'>): IntervalType {
+    return asReportMetricTrendsQuery(metric.query)?.source.interval ?? 'day'
+}
+
+/** The words after the goal figure, such as `users` or `events per hour` for a goal each bucket must meet. */
+export function reportMetricGoalUnit(
+    metric: Pick<ReportMetricApi, 'kind' | 'unit' | 'value_format' | 'goal_grain' | 'query'>,
+    unit: string | null
+): string {
+    const word = unit ?? reportMetricUnitWord(metric)
+    return metric.goal_grain === 'per_interval' ? `${word} per ${reportMetricInterval(metric)}`.trim() : word
 }
 
 const ROW_COMPACT_FROM = 10_000

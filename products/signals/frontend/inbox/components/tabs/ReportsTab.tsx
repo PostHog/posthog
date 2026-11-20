@@ -4,6 +4,7 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { userLogic } from 'scenes/userLogic'
 
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
@@ -26,6 +27,7 @@ import {
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
+import { inboxListGroups } from '../../utils/reportFacts'
 import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
@@ -41,6 +43,7 @@ import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
+import { QuillReportsList, QuillReportsListState } from './QuillReportsList'
 
 /**
  * The states that make up "the inbox" for the `Inbox viewed` event. Not actionable is left out: it
@@ -242,6 +245,29 @@ const ReportRow = memo(function ReportRow({
     )
 })
 
+function quillListState({
+    inboxIsEmpty,
+    loading,
+    hasRows,
+    failed,
+}: {
+    inboxIsEmpty: boolean
+    loading: boolean
+    hasRows: boolean
+    failed: boolean
+}): QuillReportsListState {
+    if (inboxIsEmpty) {
+        return 'empty-inbox'
+    }
+    if (loading) {
+        return 'loading'
+    }
+    if (hasRows) {
+        return 'rows'
+    }
+    return failed ? 'failed' : 'no-match'
+}
+
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
         return 'No reports match the current filters.'
@@ -270,6 +296,8 @@ export function ReportsTab(): JSX.Element {
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     const { selectedReportIds } = useValues(inboxBulkActionsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user } = useValues(userLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -312,10 +340,19 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+    const mergedRows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
         collapsePlans: linkStrips,
         selectedReportIds,
     })
+    // The Quill list shows the reports for the person as their own group, and only when the whole project is
+    // in the list. The rows take that order here, so range selection and impressions follow what is on screen.
+    const groups = inboxListGroups(mergedRows, {
+        todayRailNav,
+        scope,
+        hasActiveFilters,
+        currentUserUuid: user?.uuid ?? null,
+    })
+    const rows = [...groups.forYou, ...groups.others]
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
@@ -412,6 +449,48 @@ export function ReportsTab(): JSX.Element {
     }, [])
     useEffect(() => () => observerRef.current?.disconnect(), [])
 
+    const listBanners = (
+        <>
+            <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
+                <div className="min-w-0" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={firstReportProgress}
+                        notificationEmail={savedState?.first_report_notification_email}
+                    />
+                </div>
+            )}
+        </>
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillReportsList
+                state={quillListState({
+                    inboxIsEmpty: inboxIsEmpty && !anyLoadFailed,
+                    loading: showFirstLoadSkeleton,
+                    hasRows: rows.length > 0,
+                    failed: anyLoadFailed,
+                })}
+                forYou={groups.forYou}
+                others={groups.others}
+                totalCount={selectedSections.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)}
+                timestampField={timestampField}
+                emptyCopy={emptyListCopy(scope, narrowed)}
+                emptyInbox={showActivation ? null : <InboxWaitingForWork />}
+                banners={listBanners}
+                pageLoading={pageLoading}
+                someLoadFailed={anyLoadFailed}
+                pageLoadFailed={pageLoadFailed}
+                hasMore={hasMore}
+                sentinelRef={sentinelRef}
+                onRetry={retryFailedSections}
+                onRetryPage={retryFailedPages}
+            />
+        )
+    }
+
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
             {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
@@ -438,16 +517,7 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
-            <InboxMcpBanner />
-            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
-                <div className="min-w-0" data-attr="inbox-first-report-progress">
-                    <FirstReportProgress
-                        result={firstReportProgress}
-                        notificationEmail={savedState?.first_report_notification_email}
-                    />
-                </div>
-            )}
+            {listBanners}
 
             {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (

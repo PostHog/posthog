@@ -3663,6 +3663,11 @@ class SignalReportListSerializer(SignalReportSerializer):
             "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
+    suggested_reviewer_count = serializers.IntegerField(
+        read_only=True,
+        default=0,
+        help_text="How many reviewers the report's newest reviewer suggestion names.",
+    )
     monitoring_summary = serializers.SerializerMethodField(
         help_text=(
             "Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring "
@@ -3688,6 +3693,7 @@ class SignalReportListSerializer(SignalReportSerializer):
             "inbox_merge_key",
             "personal_tier",
             "personal_reason",
+            "suggested_reviewer_count",
             "monitoring_summary",
             "monitoring_outcome",
             "link_summary",

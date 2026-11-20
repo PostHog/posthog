@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCopy, IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -21,6 +20,7 @@ import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
 import { IMPLEMENTATION_AGENTS } from './implementationAgents'
 import { ReportGithubConnection } from './ReportGithubConnection'
+import { ReportRepositorySelection } from './ReportRepositorySelection'
 
 interface ImplementButtonProps {
     report: SignalReport
@@ -51,13 +51,9 @@ export function ImplementButton({
         loading: githubCheckLoading,
         repositoryRequired,
         repositorySelectionRequests,
-        repositoryIntegrationId,
         selectedRepository,
-        githubIntegrations,
     } = useValues(reportGithubAccessLogic({ report, surface }))
-    const { retryAccess, setConnectionOpen, setSelectedRepository, setSelectedIntegrationId } = useActions(
-        reportGithubAccessLogic({ report, surface })
-    )
+    const { retryAccess, setConnectionOpen } = useActions(reportGithubAccessLogic({ report, surface }))
     const { implementReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const [choicesOpen, setChoicesOpen] = useState(false)
@@ -199,43 +195,15 @@ export function ImplementButton({
                         overlay: (
                             <div className="flex w-128 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2">
                                 {repositoryRequired && (
-                                    <div className="flex flex-col gap-2">
-                                        <span className="text-xs font-semibold text-tertiary">
-                                            Select a repository to implement this report
-                                        </span>
-                                        {githubIntegrations.length > 1 && (
-                                            <LemonSelect
-                                                value={repositoryIntegrationId}
-                                                options={githubIntegrations.map((integration) => ({
-                                                    value: integration.id,
-                                                    label: integration.display_name,
-                                                }))}
-                                                onChange={(id) => id != null && setSelectedIntegrationId(id)}
-                                                disabledReason={isCreatingPr ? 'Starting implementation' : undefined}
-                                                aria-label="GitHub account"
-                                            />
-                                        )}
-                                        {repositoryIntegrationId !== null ? (
-                                            <GitHubRepositoryPicker
-                                                integrationId={repositoryIntegrationId}
-                                                value={selectedRepository}
-                                                valueKey="full_name"
-                                                onChange={setSelectedRepository}
-                                                selectOnlyOption
-                                            />
-                                        ) : (
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() => {
-                                                    setChoicesOpen(false)
-                                                    setConnectionOpen(true)
-                                                }}
-                                                data-attr="inbox-report-select-repository-connect"
-                                            >
-                                                Connect GitHub
-                                            </LemonButton>
-                                        )}
-                                    </div>
+                                    <ReportRepositorySelection
+                                        report={report}
+                                        surface={surface}
+                                        onConnect={() => {
+                                            setChoicesOpen(false)
+                                            setConnectionOpen(true)
+                                        }}
+                                        integrationDisabledReason={isCreatingPr ? 'Starting implementation' : undefined}
+                                    />
                                 )}
                                 <span className="text-xs font-semibold text-tertiary">
                                     Add instructions for the PostHog agent

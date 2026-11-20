@@ -288,3 +288,62 @@ export function monitoringChartTargetLines({
         ]
     })
 }
+
+export interface MonitoringOutcome {
+    value: number
+    /** The start of the first bucket that began after monitoring started. */
+    from: string
+    /** A total for buckets that add up, otherwise the mean of the complete buckets. */
+    aggregation: 'total' | 'average'
+}
+
+/**
+ * The metric since monitoring started, read from the chart buckets. Only counts and sums add up across
+ * buckets. A rate, an average, or a distinct-user count would be wrong as a total, because a person
+ * active on two days counts twice, so those take the mean of the buckets that have ended.
+ */
+export function monitoringOutcome({
+    metric,
+    points,
+    startedAt,
+    interval,
+    now,
+    timezone,
+}: {
+    metric: Pick<ReportMetricApi, 'query'>
+    points: ReportMetricSeriesPoints
+    startedAt: string
+    interval: NonNullable<TrendsQuery['interval']>
+    now: number
+    timezone: string
+}): MonitoringOutcome | null {
+    const started = Date.parse(startedAt)
+    const starts = points.labels.map((label) => bucketTimestamp(label, timezone))
+    const firstAfter = starts.findIndex((start) => start > started)
+    if (!Number.isFinite(started) || firstAfter === -1) {
+        return null
+    }
+    const from = points.labels[firstAfter]
+    const source = asReportMetricTrendsQuery(metric.query)?.source
+    const onlySeries = source ? singleMetricSeries(source) : null
+
+    if (onlySeries && isAdditiveMetricSeries(onlySeries)) {
+        const value = points.values
+            .slice(firstAfter)
+            .reduce((sum, bucket) => sum + (Number.isFinite(bucket) ? bucket : 0), 0)
+        return { value, from, aggregation: 'total' }
+    }
+
+    // A bucket still in progress holds part of an interval, which reads low for a distinct-user count.
+    const complete = points.values.filter(
+        (bucket, index) =>
+            index >= firstAfter &&
+            Number.isFinite(bucket) &&
+            dayjs(starts[index]).tz(timezone).add(1, interval).valueOf() <= now
+    )
+    if (!complete.length) {
+        return null
+    }
+    const value = complete.reduce((sum, bucket) => sum + bucket, 0) / complete.length
+    return { value, from, aggregation: 'average' }
+}

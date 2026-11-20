@@ -26,6 +26,7 @@ import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { parseTeammateInboxScope } from '../inboxMembership'
 import {
     INBOX_REPORT_SECTION_KEYS,
+    INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     INBOX_SCOPE_NEEDS_YOU,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
@@ -346,6 +347,7 @@ export interface inboxFiltersLogicValues {
     activeSortField: InboxSortField
     activeSourceProductFilter: string[]
     activeTagFilter: string[]
+    allReportsByDefault: boolean
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     createdWindow: InboxCreatedWindow | null
@@ -530,6 +532,7 @@ export interface inboxFiltersLogicMeta {
             sortDirection: InboxSortDirection,
             modelSortAvailable: boolean
         ) => InboxSortDirection
+        allReportsByDefault: (featureFlags: FeatureFlagsSet) => boolean
         timeWindowAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeCreatedWindow: (
             createdWindow: InboxCreatedWindow | null,
@@ -962,6 +965,10 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     ? sortDirection
                     : DEFAULT_SORT_DIRECTION,
         ],
+        allReportsByDefault: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_TIME_WINDOW],
@@ -1042,6 +1049,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     }),
 
     subscriptions(({ actions, values }) => ({
+        // The Quill list groups the reports for the person above the others, so it starts from the whole
+        // project. A scope the person picked stays.
+        allReportsByDefault: (byDefault: boolean) => {
+            if (byDefault && values.scope === INBOX_SCOPE_FOR_YOU && !values.hasUserChosenScope) {
+                actions.applyDefaultScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            }
+        },
         // Rows loaded with a model sort carry no merge key. Without a reload, the Recommended merge
         // would show them in an arbitrary order.
         modelSortAvailable: (available: boolean, wasAvailable: boolean | undefined) => {

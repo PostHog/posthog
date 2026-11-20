@@ -3,6 +3,9 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -189,6 +192,63 @@ describe('inboxTriageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(bodies).toEqual([{ removal_reason: 'wrong_area' }])
+    })
+
+    it('moves to the next report after a claim, and sends one claim for the report it left', async () => {
+        const reports = FIRST_PAGE.slice(0, 5)
+        const claimed: string[] = []
+        useMocks({
+            get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
+                    claimed.push(String(params.id))
+                    return [200, { ...reports[2], assignee: null }]
+                },
+            },
+        })
+        await mountAt({ report: 'r-2', at: 2 })
+
+        logic.actions.claimCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentReport?.id).toBe('r-3')
+        await waitFor(() => expect(claimed).toEqual(['r-2']))
+    })
+
+    test.each([
+        ['offers Undo once the claim saves', 200, 1],
+        ['offers no Undo when the claim fails', 500, 0],
+    ])('%s', async (_name, status, successToasts) => {
+        const reports = FIRST_PAGE.slice(0, 3)
+        let claimArrived = false
+        let finishClaim: () => void = () => {}
+        useMocks({
+            get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': async () => {
+                    claimArrived = true
+                    await new Promise<void>((resolve) => (finishClaim = resolve))
+                    return [status, { ...reports[1], assignee: null }]
+                },
+            },
+        })
+        const success = jest.spyOn(toast, 'success').mockImplementation(() => 'toast')
+        const error = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        try {
+            await mountAt({ report: 'r-1', at: 1 })
+
+            logic.actions.claimCurrent()
+            await waitFor(() => expect(claimArrived).toBe(true))
+            expect(success).not.toHaveBeenCalled()
+            finishClaim()
+            await expectLogic(logic).toFinishAllListeners()
+            await waitFor(() => expect(success.mock.calls.length + error.mock.calls.length).toBe(1))
+
+            expect(success).toHaveBeenCalledTimes(successToasts)
+        } finally {
+            success.mockRestore()
+            error.mockRestore()
+        }
     })
 
     it('sends one unassign request for the last report while the first one is pending', async () => {
