@@ -106,6 +106,18 @@ logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
+
+def access_method_stamps_execution(access_method: AccessMethod | str | None) -> bool:
+    """Whether a run under this access method counts as the endpoint being used from code.
+
+    The stale-materialization cleanup reads the execution stamps to decide what nobody uses, so every
+    credential a caller can automate with has to stamp: API keys, OAuth tokens from agents, and the
+    ID-JAG and OIDC workload tokens. A session (no access method) is a person in the playground, and a
+    sharing token cannot run an endpoint; neither justifies keeping a materialization alive.
+    """
+    return access_method is not None and access_method != AccessMethod.SHARING_TOKEN
+
+
 ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
 
 # Deterministic, customer-caused ClickHouse cost guardrails → stable client `code` + remediation.
@@ -775,14 +787,8 @@ class EndpointExecutionService(PydanticModelMixin):
         return cache_outcome, result_row_count
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
-        """Record last execution time (30-minute granularity, programmatic calls only).
-
-        OAuth sits outside the API-key set because limits and billing treat a user-consented token
-        differently, but an agent calling an endpoint through the MCP server is still a consumer, and
-        the stale-materialization cleanup reads these stamps to decide what nobody uses.
-        """
-        access_method = get_query_tag_value("access_method")
-        if not (is_api_key_access_method(access_method) or access_method == AccessMethod.OAUTH):
+        """Record last execution time (30-minute granularity, programmatic calls only)."""
+        if not access_method_stamps_execution(get_query_tag_value("access_method")):
             return
         now = timezone.now()
         if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > LAST_EXECUTED_THROTTLE):
