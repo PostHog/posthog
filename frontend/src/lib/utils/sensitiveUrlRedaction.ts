@@ -34,7 +34,7 @@ export function redactSensitiveUrl(text: string): string {
     return SENSITIVE_SEGMENTS.reduce((redacted, [pattern, replacement]) => redacted.replace(pattern, replacement), text)
 }
 
-function redactArray(value: unknown[], seen: WeakSet<object>): unknown[] {
+function redactArray(value: unknown[], seen: WeakMap<object, unknown>): unknown[] {
     let copy: unknown[] | null = null
     value.forEach((item, index) => {
         const redacted = redactValue(item, seen)
@@ -48,7 +48,7 @@ function redactArray(value: unknown[], seen: WeakSet<object>): unknown[] {
 
 /** Keys are redacted too, because heatmap data is keyed by URL. Two keys that redact to the same value
  * merge their arrays, so no heatmap point is lost. */
-function redactObject(value: Record<string, unknown>, seen: WeakSet<object>): Record<string, unknown> {
+function redactObject(value: Record<string, unknown>, seen: WeakMap<object, unknown>): Record<string, unknown> {
     const original = Object.entries(value)
     const entries = original.map(([key, item]) => [redactSensitiveUrl(key), redactValue(item, seen)] as const)
     if (entries.every(([key, item], index) => key === original[index][0] && item === original[index][1])) {
@@ -63,16 +63,25 @@ function redactObject(value: Record<string, unknown>, seen: WeakSet<object>): Re
 }
 
 /** Every string at any depth, such as `$current_url`, `$session_entry_url`, an autocaptured `href`, or the
- * `href` of a replay meta event. A value with nothing to redact is returned as it is, so a large snapshot is not copied. */
-function redactValue(value: unknown, seen: WeakSet<object>): unknown {
+ * `href` of a replay meta event. A value with nothing to redact is returned as it is, so a large snapshot is not copied.
+ * An object that appears more than once gets the same redacted copy each time. */
+function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
     if (typeof value === 'string') {
         return redactSensitiveUrl(value)
     }
-    if (!value || typeof value !== 'object' || seen.has(value)) {
+    if (!value || typeof value !== 'object') {
         return value
     }
-    seen.add(value)
-    return Array.isArray(value) ? redactArray(value, seen) : redactObject(value as Record<string, unknown>, seen)
+    if (seen.has(value)) {
+        return seen.get(value)
+    }
+    // Set before the recursion, so a cycle ends at the original object.
+    seen.set(value, value)
+    const redacted = Array.isArray(value)
+        ? redactArray(value, seen)
+        : redactObject(value as Record<string, unknown>, seen)
+    seen.set(value, redacted)
+    return redacted
 }
 
 function withoutInviteBodies(request: unknown): unknown {
@@ -115,13 +124,13 @@ function redactProperties(properties: CaptureResult['properties']): CaptureResul
     const snapshots = properties?.$snapshot_data
     const filtered = withoutInviteRequestBodies(snapshots)
     const base = filtered === snapshots ? properties : { ...properties, $snapshot_data: filtered }
-    return redactValue(base, new WeakSet()) as CaptureResult['properties']
+    return redactValue(base, new WeakMap()) as CaptureResult['properties']
 }
 
 export const redactSensitiveUrls: BeforeSendFn = (event) => {
     const properties = redactProperties(event.properties)
-    const $set = redactValue(event.$set, new WeakSet()) as CaptureResult['$set']
-    const $set_once = redactValue(event.$set_once, new WeakSet()) as CaptureResult['$set_once']
+    const $set = redactValue(event.$set, new WeakMap()) as CaptureResult['$set']
+    const $set_once = redactValue(event.$set_once, new WeakMap()) as CaptureResult['$set_once']
     if (properties === event.properties && $set === event.$set && $set_once === event.$set_once) {
         return event
     }

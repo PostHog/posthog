@@ -235,4 +235,23 @@ describe('redactSensitiveUrls', () => {
 
         expect(redactSensitiveUrls(event)).toBe(event)
     })
+
+    it('redacts an object each time it appears', () => {
+        const shared = { href: INVITE_URL }
+        const event = redactSensitiveUrls(capture({ properties: { first: shared, second: [shared] } }))
+
+        expect(event?.properties).toEqual({
+            first: { href: 'https://us.posthog.com/signup/:id' },
+            second: [{ href: 'https://us.posthog.com/signup/:id' }],
+        })
+    })
+
+    it('redacts an object that refers to itself', () => {
+        const looped: Record<string, unknown> = { href: INVITE_URL }
+        looped.self = looped
+
+        const event = redactSensitiveUrls(capture({ properties: { looped } }))
+
+        expect(event?.properties.looped.href).toBe('https://us.posthog.com/signup/:id')
+    })
 })
