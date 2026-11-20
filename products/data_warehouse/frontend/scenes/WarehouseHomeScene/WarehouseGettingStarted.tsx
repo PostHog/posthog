@@ -1,83 +1,13 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { IconCheckCircle } from '@posthog/icons'
-import {
-    Button,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemGroup,
-    ItemMedia,
-    ItemTitle,
-    Skeleton,
-    Text,
-} from '@posthog/quill'
+import { Heading, ItemGroup } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { warehouseHomeLogic, WarehouseStepState } from './warehouseHomeLogic'
+import { WarehouseGettingStartedStep } from './WarehouseGettingStartedStep'
+import { warehouseHomeLogic } from './warehouseHomeLogic'
 
-type WarehouseStep = 'connect_source' | 'create_view'
-
-interface StepAction {
-    label: string
-    to: string
-    dataAttr: string
-}
-
-interface StepRowProps {
-    step: WarehouseStep
-    index: number
-    state: WarehouseStepState
-    title: string
-    description: string
-    actions: StepAction[]
-}
-
-// pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
-
-function StepRow({ step, index, state, title, description, actions }: StepRowProps): JSX.Element {
-    const done = state === 'done'
-    return (
-        <Item variant="outline">
-            <ItemMedia variant="icon">
-                {state === 'loading' ? (
-                    <Skeleton className="size-4" />
-                ) : done ? (
-                    <IconCheckCircle />
-                ) : (
-                    <Text size="sm" weight="medium" render={<span />}>
-                        {index}
-                    </Text>
-                )}
-            </ItemMedia>
-            <ItemContent>
-                <ItemTitle>{title}</ItemTitle>
-                <ItemDescription>{description}</ItemDescription>
-            </ItemContent>
-            <ItemActions className="flex-wrap">
-                {actions.map((action) => (
-                    <Button
-                        key={action.dataAttr}
-                        variant={done ? 'default' : 'primary'}
-                        nativeButton={false}
-                        render={<LinkPrimitive to={action.to} />}
-                        data-attr={action.dataAttr}
-                        onClick={() => {
-                            posthog.capture('warehouse getting started clicked', { step, done })
-                        }}
-                    >
-                        {action.label}
-                    </Button>
-                ))}
-            </ItemActions>
-        </Item>
-    )
-}
+// pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 
 export function WarehouseGettingStarted(): JSX.Element {
     const { sourceStep, viewStep } = useValues(warehouseHomeLogic)
@@ -88,7 +18,7 @@ export function WarehouseGettingStarted(): JSX.Element {
                 Getting started
             </Heading>
             <ItemGroup className="gap-2">
-                <StepRow
+                <WarehouseGettingStartedStep
                     step="connect_source"
                     index={1}
                     state={sourceStep}
@@ -102,7 +32,7 @@ export function WarehouseGettingStarted(): JSX.Element {
                         },
                     ]}
                 />
-                <StepRow
+                <WarehouseGettingStartedStep
                     step="create_view"
                     index={2}
                     state={viewStep}
