@@ -828,7 +828,10 @@ describe('process all snapshots', () => {
                         timestamp: 2000,
                         data: {
                             source: 0,
-                            updates: [{ wireframe: { ...screenshot, base64: 'data:image/webp;base64,second' } }],
+                            // a new wireframe id keeps the synthetic full instead of a src swap
+                            updates: [
+                                { wireframe: { ...screenshot, id: 54321, base64: 'data:image/webp;base64,second' } },
+                            ],
                         },
                     },
                     {
@@ -1463,6 +1466,21 @@ describe('process all snapshots', () => {
             )
 
             expect(results).toEqual(snapshots)
+        })
+
+        it('keeps a full snapshot with a null child node instead of throwing', async () => {
+            const body = { type: 2, tagName: 'body', id: 3, attributes: {}, childNodes: [null] }
+            const html = { type: 2, tagName: 'html', id: 2, attributes: {}, childNodes: [body] }
+            const results = await process([
+                { type: 4, timestamp: 1000, data: { width: 400, height: 800, href: 'https://example.com' } },
+                {
+                    type: 2,
+                    timestamp: 1000,
+                    data: { node: { type: 0, id: 1, childNodes: [html] }, initialOffset: { top: 0, left: 0 } },
+                },
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2])
         })
 
         it('leaves wireframe mode mobile recordings untouched', async () => {

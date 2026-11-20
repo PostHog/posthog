@@ -74,31 +74,38 @@ function isScreenshotOnlyUpdate(snapshot: RecordingSnapshot): boolean {
         data.adds.length === 1 &&
         !data.texts?.length &&
         !data.attributes?.length &&
-        (data.removes || []).every((removal: any) => removal.id === data.adds[0].node.id)
+        (data.removes || []).every((removal: any) => isObject(removal) && removal.id === data.adds[0].node.id)
     )
 }
 
 // Flutter and iOS send every screenshot as a full snapshot. After transformEventToWeb its body holds the
-// screenshot img and the empty keyboard, navigation bar and status bar containers; the synthetic Android
-// full above holds only the img. Any other node, or one of those containers with content, means the frame
-// is not just a screenshot.
+// screenshot img and the empty keyboard, navigation bar and status bar containers, as does the synthetic
+// Android full. Any other node, or one of those containers with content, means the frame is not just a
+// screenshot.
 function extractImgNodeFromScreenshotOnlyFull(fullSnapshot: fullSnapshotEvent): any | undefined {
-    const htmlNode = (fullSnapshot.data.node as any).childNodes?.find(
-        (node: any) => node.type === 2 && node.tagName === 'html'
-    )
-    const bodyNode = htmlNode?.childNodes?.find((node: any) => node.type === 2 && node.tagName === 'body')
-    if (!bodyNode?.childNodes) {
+    // this runs on every full snapshot, web ones included, so a malformed node must not throw
+    const isElement = (node: unknown, tagName: string): boolean =>
+        isObject(node) && node.type === 2 && node.tagName === tagName
+    const htmlNode = (fullSnapshot.data.node as any)?.childNodes?.find((node: unknown) => isElement(node, 'html'))
+    const bodyNode = htmlNode?.childNodes?.find((node: unknown) => isElement(node, 'body'))
+    if (!Array.isArray(bodyNode?.childNodes)) {
         return undefined
     }
 
     let imgNode: any
     for (const child of bodyNode.childNodes) {
-        if (child.attributes?.[SCREENSHOT_ATTRIBUTE]) {
+        if (!isObject(child)) {
+            return undefined
+        }
+        if (isObject(child.attributes) && child.attributes[SCREENSHOT_ATTRIBUTE]) {
             if (imgNode) {
                 return undefined
             }
             imgNode = child
-        } else if (!SCREEN_CHROME_PARENT_IDS.has(child.id) || child.childNodes?.length) {
+        } else if (
+            !SCREEN_CHROME_PARENT_IDS.has(child.id as number) ||
+            (child.childNodes as unknown[] | undefined)?.length
+        ) {
             return undefined
         }
     }
