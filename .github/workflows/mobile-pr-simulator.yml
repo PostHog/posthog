@@ -1,24 +1,41 @@
 name: Test mobile PR on iOS
-run-name: iOS simulator for PR ${{ inputs.pr }} at ${{ inputs.revision }}
+run-name: iOS simulator for PR ${{ github.event.client_payload.pr }} at ${{ github.event.client_payload.revision }}
 
 on:
-    workflow_dispatch:
-        inputs:
-            pr:
-                description: Pull request number
-                required: true
-                type: string
-            revision:
-                description: Full commit SHA at the head of the pull request
-                required: true
-                type: string
+    repository_dispatch:
+        types: [mobile-pr-simulator]
 
 permissions: {}
 cache-mode: none
 
 jobs:
+    authorize:
+        if: >-
+            github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' &&
+            github.run_attempt == 1 && github.event.sender.type == 'User' &&
+            github.event.sender.id == github.actor_id && github.actor == github.triggering_actor
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: members
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  permission-members: read
+
+            - name: Verify the requester belongs to the mobile team
+              id: membership
+              env:
+                  GH_TOKEN: ${{ steps.members.outputs.token }}
+                  REQUESTER: ${{ github.actor }}
+              run: |
+                  state=$(gh api "orgs/PostHog/teams/team-mobile-app/memberships/$REQUESTER" --jq .state)
+                  [[ "$state" == active ]]
+
     simulator:
-        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        needs: authorize
+        if: github.run_attempt == 1 && github.actor == github.triggering_actor
         runs-on: macos-26
         timeout-minutes: 75
         env:
@@ -29,9 +46,11 @@ jobs:
         steps:
             - name: Fetch the public PR revision
               env:
-                  PR: ${{ inputs.pr }}
-                  REVISION: ${{ inputs.revision }}
+                  PR: ${{ github.event.client_payload.pr }}
+                  REVISION: ${{ github.event.client_payload.revision }}
               run: |
+                  # A partial rerun can reuse a successful authorization job.
+                  [[ "$GITHUB_RUN_ATTEMPT" == 1 ]] || { echo "::error::Submit a fresh simulator request."; exit 1; }
                   [[ "$PR" =~ ^[1-9][0-9]*$ && "$REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
                   git init --quiet
                   git remote add origin https://github.com/PostHog/posthog.git
@@ -76,7 +95,7 @@ jobs:
               if: ${{ !cancelled() }}
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: ios-pr-${{ inputs.pr }}-${{ inputs.revision }}
+                  name: ios-pr-${{ github.event.client_payload.pr }}-${{ github.event.client_payload.revision }}
                   path: |
                       ${{ runner.temp }}/results/*.json
                       ${{ runner.temp }}/results/**/*.png

@@ -1056,6 +1056,49 @@ describe('CI workflow run plans', () => {
 
     it.each([
         {
+            name: 'active mobile team member',
+            membership: 'success',
+            attempt: '1',
+            triggeringActor: 'operator',
+            runs: true,
+        },
+        { name: 'membership denied', membership: 'failure', attempt: '1', triggeringActor: 'operator', runs: false },
+        {
+            name: 'rerun by another user',
+            membership: 'success',
+            attempt: '2',
+            triggeringActor: 'other-user',
+            runs: false,
+        },
+        {
+            name: 'rerun by the requester',
+            membership: 'success',
+            attempt: '2',
+            triggeringActor: 'operator',
+            runs: false,
+        },
+    ] as const)('mobile simulator allocation for $name', ({ name, membership, attempt, triggeringActor, runs }) => {
+        const wf = workflow('mobile-pr-simulator.yml')
+        expect(wf.on).toEqual({ repository_dispatch: { types: ['mobile-pr-simulator'] } })
+        const plan = planWorkflow(wf, {
+            name,
+            github: {
+                ...workflowDispatch(),
+                event_name: 'repository_dispatch',
+                event: { sender: { type: 'User', id: 123 }, client_payload: { pr: '42', revision: 'a'.repeat(40) } },
+                actor: 'operator',
+                actor_id: '123',
+                triggering_actor: triggeringActor,
+                run_attempt: attempt,
+            },
+            steps: { authorize: { membership: { outcome: membership } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.simulator?.outcome).toBe(runs ? 'success' : 'skipped')
+    })
+
+    it.each([
+        {
             name: 'mobile PR',
             github: pullRequest(),
             mobile: true,
