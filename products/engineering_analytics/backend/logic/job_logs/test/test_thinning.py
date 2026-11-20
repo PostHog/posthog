@@ -87,9 +87,6 @@ class TestThinLog:
         assert len(content) <= _CAP
 
     def test_thin_log_lines_anchors_kept_lines_to_original_positions(self):
-        # Each kept line keeps its 1-based original position (the only durable anchor once the full
-        # log expires); omission markers carry None. A regression here makes a thinned line
-        # unlocatable in the real log.
         noise = [f"downloading package {i}" for i in range(2000)]
         lines = thin_log_lines("\n".join([*noise, "##[error]Process completed with exit code 1."]))
 

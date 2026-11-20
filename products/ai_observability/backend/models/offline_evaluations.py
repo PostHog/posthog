@@ -178,6 +178,7 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
     error_code = models.CharField(max_length=128, null=True, blank=True)
     evaluator_trace_id = models.CharField(max_length=255, null=True, blank=True)
     evaluated_at = models.DateTimeField(null=True, blank=True)
+    input_result_ids = ArrayField(models.UUIDField(), null=True, blank=True)
 
     class Meta:
         db_table = "llm_analytics_offlineevaluationresult"

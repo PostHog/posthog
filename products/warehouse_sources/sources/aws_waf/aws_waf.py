@@ -41,6 +41,7 @@ from products.warehouse_sources.sources.aws_waf.settings import (
 from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     parse_datetime_value,
@@ -107,10 +108,7 @@ def utc_now() -> datetime:
 
 
 def snake_keys(data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", key).lower(): value
-        for key, value in data.items()
-    }
+    return {camel_to_snake(key): value for key, value in data.items()}
 
 
 def from_epoch(value: Any) -> datetime | None:

@@ -157,6 +157,100 @@ class TestGetRows:
             "https://api.tailscale.com/api/v2/tailnet/example.com/services/svc:idle/devices",
         ]
 
+    def test_user_invites_reads_bare_list_and_drops_invite_link(self):
+        result = _driver().run(
+            "user_invites",
+            [
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": "inv-1",
+                            "role": "member",
+                            "email": "a@example.com",
+                            "inviteUrl": "https://example.com/i/1",
+                        },
+                        {"id": "inv-2", "role": "admin", "inviteUrl": "https://example.com/i/2"},
+                    ]
+                )
+            ],
+        )
+
+        assert result.rows == [
+            {"id": "inv-1", "role": "member", "email": "a@example.com"},
+            {"id": "inv-2", "role": "admin"},
+        ]
+        assert [request.path for request in result.requests] == ["/api/v2/tailnet/example.com/user-invites"]
+
+    @pytest.mark.parametrize(
+        "endpoint, path_suffix, first_device_body, last_device_body, expected_rows",
+        [
+            (
+                "device_invites",
+                "device-invites",
+                [
+                    {"id": "di-1", "deviceId": 101, "accepted": False, "inviteUrl": "https://example.com/d/1"},
+                    {"id": "di-2", "deviceId": 101, "accepted": True, "acceptedBy": {"id": 7}},
+                ],
+                [],
+                [
+                    {"id": "di-1", "deviceId": 101, "accepted": False},
+                    {"id": "di-2", "deviceId": 101, "accepted": True, "acceptedBy": {"id": 7}},
+                ],
+            ),
+            (
+                "device_posture_attributes",
+                "attributes",
+                {
+                    "attributes": {"node:os": "linux", "custom:score": 80},
+                    "expiries": {"custom:score": "2026-02-01T00:00:00Z"},
+                },
+                {"attributes": {}},
+                [
+                    {
+                        "attributes": {"node:os": "linux", "custom:score": 80},
+                        "expiries": {"custom:score": "2026-02-01T00:00:00Z"},
+                        "deviceId": "101",
+                        "nodeId": "nA",
+                    },
+                    {"attributes": {}, "deviceId": "104", "nodeId": None},
+                ],
+            ),
+        ],
+    )
+    def test_device_fan_out(self, endpoint, path_suffix, first_device_body, last_device_body, expected_rows):
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(
+                    json={
+                        "devices": [
+                            {"id": "101", "nodeId": "nA"},
+                            {"id": "102", "nodeId": "nShared", "isExternal": True},
+                            {"id": "103", "nodeId": "nGone"},
+                            {"id": "104"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json=first_device_body),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json=last_device_body),
+            ],
+        )
+
+        # Invite links are dropped, and a device deleted mid-sync (404) yields nothing.
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.response is not None and result.response.primary_keys is not None
+        assert all(set(result.response.primary_keys) <= row.keys() for row in result.rows)
+        # The device list uses the default field set. Shared-in devices belong to another
+        # tailnet and are skipped; the preferred nodeId addresses each device when present.
+        assert dict(result.requests[0].query) == {}
+        assert [request.path for request in result.requests[1:]] == [
+            f"/api/v2/device/nA/{path_suffix}",
+            f"/api/v2/device/nGone/{path_suffix}",
+            f"/api/v2/device/104/{path_suffix}",
+        ]
+
 
 class TestAuditLogRows:
     @pytest.fixture(autouse=True)
@@ -308,6 +402,9 @@ class TestValidateCredentials:
             ("network_flow_logs", "/api/v2/tailnet/-/logging/network", timedelta(minutes=1)),
             # A hosts call needs a service name, so the probe lists services instead.
             ("service_devices", "/api/v2/tailnet/-/services", None),
+            # A per-device call needs a device id, so the probe lists devices instead.
+            ("device_invites", "/api/v2/tailnet/-/devices", None),
+            ("device_posture_attributes", "/api/v2/tailnet/-/devices", None),
         ],
     )
     def test_schema_probe_request(self, schema_name, expected_path, expected_window):

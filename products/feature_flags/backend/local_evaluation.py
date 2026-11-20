@@ -53,7 +53,9 @@ from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_int
 
 from products.cohorts.backend.models.cohort import Cohort, is_cohort_recalculation_only_save
-from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.experiments.backend.facade.change_signals import connect_experiment_changed
+from products.experiments.backend.facade.contracts import ExperimentChanged
+from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
@@ -640,9 +642,11 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=live_experiment_exists(),
         )
         .order_by("team_id", "key")
+    )
+    live_experiment_flag_ids = flag_ids_with_live_experiment(
+        [flag.pk for flag in all_flags], using=DATABASE_FOR_LOCAL_EVALUATION
     )
 
     direct_cohort_ids: set[int] = set()
@@ -653,7 +657,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
             excluded_by_team[flag.team_id][str(flag.pk)] = flag.key
             continue
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
-        flag._has_experiment = flag.has_experiment_agg
+        flag._has_experiment = flag.pk in live_experiment_flag_ids
         direct_cohort_ids.update(referenced_cohort_ids(flag.filters))
         dependency_references.update(str(prop["key"]) for prop in flag_dependency_properties(flag.filters))
         eligible_flags.append(flag)
@@ -998,9 +1002,7 @@ def team_deleted(sender, instance: Team, **kwargs) -> None:
     transaction.on_commit(lambda: clear_team_definitions_cache.delay(team_id))
 
 
-@receiver(post_save, sender=Experiment)
-@receiver(post_delete, sender=Experiment)
-def experiment_changed(sender, instance: "Experiment", **kwargs):
+def experiment_changed(sender: Any, change: ExperimentChanged, **kwargs: Any) -> None:
     # A flag's local-eval `has_experiment` depends on whether it has any non-deleted
     # linked experiment, so experiment changes must refresh the linked flag's team cache.
     # Fires on every save by design, mirroring feature_flag_changed: Experiment rows are
@@ -1008,7 +1010,11 @@ def experiment_changed(sender, instance: "Experiment", **kwargs):
     # touches them), so an update_fields gate isn't warranted here.
     from products.feature_flags.backend.tasks import update_team_flags_cache
 
-    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
+    team_id = change.team_id
+    transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
+
+
+connect_experiment_changed(experiment_changed, dispatch_uid="feature_flags.local_evaluation.experiment_changed")
 
 
 @receiver(post_save, sender=Cohort)

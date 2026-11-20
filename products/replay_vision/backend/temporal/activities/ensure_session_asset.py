@@ -43,6 +43,10 @@ def analysis_assets(team_id: int, session_id: str) -> "QuerySet[ExportedAsset]":
 @activity.defn
 @track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
+    return await ensure_session_asset(inputs)
+
+
+async def ensure_session_asset(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
     existing_id = (
         await analysis_assets(inputs.team_id, inputs.session_id).order_by("id").values_list("id", flat=True).afirst()

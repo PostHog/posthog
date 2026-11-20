@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -382,29 +385,23 @@ describe('todayLogic', () => {
         })
     })
 
-    it('asks for the personalized order with the personalized sort flag, and keeps its ranking for later pages', async () => {
+    it('keeps the ranking of the top reports for later pages', async () => {
         jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-            [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-        })
         listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5, ranking_id: 'ranking-1' }]
         const logic = todayLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(listParams!.get('sort')).toBe('personal')
 
         listResponse = [200, { results: [makeReport({ id: 'b' })], count: 5, ranking_id: 'ranking-1' }]
         await expectLogic(logic, () => {
             logic.actions.loadMoreReports()
         }).toDispatchActions(['loadMoreReportsSuccess'])
         expect(Object.fromEntries(listParams!.entries())).toMatchObject({
-            sort: 'personal',
+            sort: 'recommended',
             ranking_id: 'ranking-1',
             exclude: 'a',
         })
-        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
@@ -548,6 +545,63 @@ describe('todayLogic', () => {
         } finally {
             window.POSTHOG_APP_CONTEXT = appContext
         }
+    })
+
+    it.each([
+        ['the product push as a row', true, false, false, 'session_replay', null],
+        ['a broadcast as a banner in place of the product push', true, true, false, null, 'broadcast'],
+        ['the MCP card as a banner between campaigns', false, false, false, null, 'mcp_connect'],
+        ['no banner over sample reports', false, true, true, null, null],
+    ])('shows %s', async (_, hasCampaign, hasBroadcast, sampleData, pushedProduct, bannerType) => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/product_push_campaign/active/': () =>
+                    hasCampaign
+                        ? [200, { id: 'campaign-1', product_key: 'session_replay', product_path: 'Session replay' }]
+                        : [204],
+            },
+        })
+        jest.mocked(posthog.getFeatureFlagResult).mockReturnValue(
+            hasBroadcast
+                ? ({
+                      payload: {
+                          broadcast: 'beta',
+                          title: 'Beta',
+                          text: 'Try it.',
+                          emoji: '🧪',
+                          emojiLabel: 'test tube',
+                      },
+                  } as any)
+                : undefined
+        )
+        try {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+
+            const logic = todayLogic()
+            logic.mount()
+            await expectLogic(navPanelProductPushLogic).toDispatchActions(['loadActiveCampaignSuccess'])
+            if (sampleData) {
+                logic.actions.setUseSampleData(true)
+            }
+
+            expect(logic.values.forYouProductPush?.campaign.product_key ?? null).toBe(pushedProduct)
+            expect(logic.values.promoBanner?.type ?? null).toBe(bannerType)
+        } finally {
+            jest.mocked(posthog.getFeatureFlagResult).mockReset()
+        }
+    })
+
+    it('keeps jump back pins separate for each person', () => {
+        const logic = todayLogic()
+        logic.mount()
+        const pin = { id: 'dash', path: 'Dashboards/Private', type: 'dashboard', ref: '1' }
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'first-person' })
+        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin, 'picker')
+        expect(logic.values.pinnedObjects.map((entry) => entry.id)).toEqual(['dash'])
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'second-person' })
+        expect(logic.values.pinnedObjects).toEqual([])
     })
 
     test.each([

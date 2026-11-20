@@ -94,9 +94,17 @@ class VisionQuotaSerializer(serializers.Serializer):
     )
     free_monthly_credits = serializers.IntegerField(
         read_only=True,
+        allow_null=True,
         help_text=(
             "Credits per period included for free. Already counted inside `credit_limit`; "
-            "only credits beyond this number are billed."
+            "only credits beyond this number are billed. Null when every credit is free."
+        ),
+    )
+    awaiting_billing_sync = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while billing has not yet synced this organization's limit and free credits. Nothing can run "
+            "until it does, which usually takes seconds; poll this endpoint until it turns false."
         ),
     )
 

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 75 enabled ops
+ * PostHog API - MCP 76 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -301,6 +301,25 @@ export const AccountsCustomPropertyValuesCreateBody = () => zod.object({
         .union([zod.string(), zod.number(), zod.boolean(), zod.null()])
         .describe(
             "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history."
+        ),
+})
+
+export const AccountsCustomPropertyValuesHistoryRetrieveParams = () => zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesHistoryRetrieveQueryParams = () => zod.object({
+    definition: zod.string().describe('ID of the custom property definition to read the history of.'),
+    since: zod.iso
+        .date()
+        .optional()
+        .describe(
+            'Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.'
         ),
 })
 

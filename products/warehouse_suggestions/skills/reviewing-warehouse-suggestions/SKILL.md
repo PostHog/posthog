@@ -43,6 +43,8 @@ Do not invent a score or a confidence level.
   - A view that is not stored is computed on every read, and again on every refresh of each materialized view that reads it. `recomputed_by_views` counts those materialized views. When it is above 0, the saving comes mostly from their refreshes, not from people's reads.
   - `saves_seconds_per_month` and `saves_bytes_per_month` are what those computations stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
+  - A negative `saves_bytes_per_month` means its refreshes scan more than its reads do today. Name that cost to the user.
+  - When `measurement_capped` is true, measuring the view hit the time limit. Every cost and saving is a lower bound, so say "at least", not "about".
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
   - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often), `consumer_refresh` (the materialized views that read it refresh no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.

@@ -1,10 +1,9 @@
 import './DateDisplay.scss'
 
-import { dayjs } from 'lib/dayjs'
-import { getConstrainedWeekRange } from 'lib/utils/datetime'
-
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
+
+import { formatDateDisplay } from './formatDateDisplay'
 
 interface DateDisplayProps {
     date: string
@@ -14,40 +13,8 @@ interface DateDisplayProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     timezone?: string
     weekStartDay?: number
-}
-
-const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
-    second: 'HH:mm:ss',
-    minute: 'HH:mm:00',
-    hour: 'HH:00',
-    day: 'D MMM',
-    week: 'D MMM',
-    month: 'MMM',
-    quarter: '[Q]Q',
-    year: 'YYYY',
-}
-
-const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
-    switch (interval) {
-        case 'second':
-            return parsedDate.format('MMM D')
-        case 'minute':
-            return parsedDate.format('MMM D')
-        case 'hour':
-            return parsedDate.format('MMM D')
-        case 'day':
-            return parsedDate.format('dd')
-        case 'week':
-            return parsedDate.format('dd')
-        case 'month':
-            return parsedDate.format('YYYY')
-        case 'quarter':
-            return parsedDate.format('YYYY')
-        case 'year':
-            return ''
-        default:
-            return parsedDate.format('dd')
-    }
+    /** Show a three-letter weekday, and the year when it is not the current year in the project timezone. */
+    showFullDate?: boolean
 }
 
 /* Returns a single line standardized component to display the date depending on context.
@@ -61,34 +28,30 @@ export function DateDisplay({
     resolvedDateRange,
     timezone,
     weekStartDay,
+    showFullDate,
 }: DateDisplayProps): JSX.Element {
-    let parsedDate = dayjs.tz(date, timezone)
-    let weekEnd = null
-
-    if (interval === 'week' && resolvedDateRange) {
-        const dateFrom = dayjs.tz(resolvedDateRange.date_from, timezone)
-        const dateTo = dayjs.tz(resolvedDateRange.date_to, timezone)
-        const weekBoundaries = getConstrainedWeekRange(parsedDate, { start: dateFrom, end: dateTo }, weekStartDay || 0)
-        parsedDate = weekBoundaries.start
-        weekEnd = weekBoundaries.end
-    }
+    const { highlight, primary, secondary, weekEnd } = formatDateDisplay({
+        date,
+        interval,
+        secondaryDate,
+        resolvedDateRange,
+        timezone,
+        weekStartDay,
+        showFullDate,
+    })
 
     return (
         <>
-            <span className="dated-highlight">{dateHighlight(parsedDate, interval)}</span>
-            {secondaryDate && <br />}
+            <span className="dated-highlight">{highlight}</span>
+            {secondary !== null && <br />}
             <span className="date-display-dates">
-                {parsedDate.format(DISPLAY_DATE_FORMAT[interval])}
-                {secondaryDate && (
-                    <span className="secondary-date">
-                        ({dayjs(secondaryDate).format(DISPLAY_DATE_FORMAT[interval])})
-                    </span>
-                )}
+                {primary}
+                {secondary !== null && <span className="secondary-date">({secondary})</span>}
             </span>
             {interval === 'week' && !hideWeekRange && weekEnd && (
                 <>
                     {' – '}
-                    <DateDisplay interval="day" date={weekEnd.toJSON()} timezone={timezone} />
+                    <DateDisplay interval="day" date={weekEnd} timezone={timezone} showFullDate={showFullDate} />
                 </>
             )}
         </>

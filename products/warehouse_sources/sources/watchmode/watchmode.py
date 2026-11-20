@@ -5,6 +5,7 @@ from typing import Any, Optional
 from requests import RequestException, Response
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
@@ -12,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
@@ -26,7 +28,9 @@ VALIDATE_CREDENTIALS_TIMEOUT_SECONDS = 15
 
 @dataclasses.dataclass(frozen=False)
 class WatchmodeResumeConfig:
-    page: int
+    page: Optional[int] = None
+    # Per-title tables: the state `build_dependent_resource` checkpoints over the titles listing.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class WatchmodePaginator(PageNumberPaginator):
@@ -87,6 +91,70 @@ def get_resource(name: str) -> EndpointResource:
     }
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": WATCHMODE_BASE_URL,
+        "auth": {
+            # Watchmode accepts the key as an `apiKey` query param or an `X-API-Key`
+            # header. Use the header so the secret never lands in request URLs (and
+            # from there into access/proxy logs).
+            "type": "api_key",
+            "name": "X-API-Key",
+            "api_key": api_key,
+            "location": "header",
+        },
+        # `requests` replays custom headers like `X-API-Key` across a cross-host
+        # redirect, so a 3xx from upstream could forward the key off-host. Pin
+        # redirects off to keep the credential on the validated host.
+        "allow_redirects": False,
+    }
+
+
+def _title_fanout_resource(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WatchmodeResumeConfig],
+    resume_config: Optional[WatchmodeResumeConfig],
+) -> Any:
+    endpoint_config = WATCHMODE_ENDPOINTS[endpoint]
+    assert endpoint_config.fanout is not None
+    parent_config = WATCHMODE_ENDPOINTS[endpoint_config.fanout.parent_name]
+
+    def save_fanout_state(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WatchmodeResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=WATCHMODE_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=endpoint_config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # The per-title endpoints take no page size, so the titles `limit` is in the parent params.
+        page_size_param=None,
+        parent_endpoint_extra={
+            "data_selector": parent_config.data_selector,
+            "data_selector_required": True,
+            "paginator": WatchmodePaginator(),
+        },
+        child_endpoint_extra={
+            # Without a selector, a required body must be a list; a single-object body is the row.
+            "data_selector_required": not endpoint_config.single_object,
+            "paginator": SinglePagePaginator(),
+        },
+        resume_hook=save_fanout_state,
+        initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        # The titles listing can save its page, so a resume starts there instead of keeping
+        # every finished title in the state.
+        resume_parent_pagination=True,
+    )
+
+
 def watchmode_source(
     api_key: str,
     endpoint: str,
@@ -95,24 +163,18 @@ def watchmode_source(
     resumable_source_manager: ResumableSourceManager[WatchmodeResumeConfig],
 ) -> SourceResponse:
     endpoint_config = WATCHMODE_ENDPOINTS[endpoint]
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if endpoint_config.fanout is not None:
+        child = _title_fanout_resource(api_key, endpoint, team_id, job_id, resumable_source_manager, resume_config)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=list(endpoint_config.primary_keys),
+        )
 
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": WATCHMODE_BASE_URL,
-            "auth": {
-                # Watchmode accepts the key as an `apiKey` query param or an `X-API-Key`
-                # header. Use the header so the secret never lands in request URLs (and
-                # from there into access/proxy logs).
-                "type": "api_key",
-                "name": "X-API-Key",
-                "api_key": api_key,
-                "location": "header",
-            },
-            # `requests` replays custom headers like `X-API-Key` across a cross-host
-            # redirect, so a 3xx from upstream could forward the key off-host. Pin
-            # redirects off to keep the credential on the validated host.
-            "allow_redirects": False,
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {
             "write_disposition": "replace",
         },
@@ -120,10 +182,8 @@ def watchmode_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"page": resume_config.page}
+    if resume_config is not None and resume_config.page is not None:
+        initial_paginator_state = {"page": resume_config.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's a next page to resume to; the Redis TTL

@@ -53,6 +53,22 @@ describe('domainConnectLogic', () => {
         expect(window.location.assign).not.toHaveBeenCalled()
     })
 
+    it('closes the provider tab and uses the current tab when the browser refuses to reset its opener', async () => {
+        Object.defineProperty(providerTab, 'opener', {
+            get: () => window,
+            set: () => {
+                throw new DOMException('Blocked a frame from accessing a cross-origin frame.', 'SecurityError')
+            },
+        })
+
+        logic.actions.openDomainConnect()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(providerTab.close).toHaveBeenCalled()
+        expect(providerTab.location.href).toEqual('')
+        expect(window.location.assign).toHaveBeenCalledWith(APPLY_URL)
+    })
+
     it('falls back to the current tab when the browser refuses to open a new one', async () => {
         jest.mocked(window.open).mockReturnValue(null)
 

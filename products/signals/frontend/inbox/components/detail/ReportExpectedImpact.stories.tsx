@@ -184,6 +184,7 @@ export const MonitoringFixedTarget: Story = {
 }
 
 export const MetricCheck: Story = {}
+export const Approved: Story = { parameters: { check: { ...check, approved_at: '2026-08-29T00:00:00Z' } } }
 export const MonitoringWindowEnded: Story = {
     args: MonitoringDefinition.args,
     parameters: {

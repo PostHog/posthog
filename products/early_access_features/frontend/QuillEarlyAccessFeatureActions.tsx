@@ -57,7 +57,7 @@ export function QuillEarlyAccessFeatureActions({
     accessControlDisabledReason,
     onCancel,
 }: QuillEarlyAccessFeatureActionsProps): JSX.Element | null {
-    const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting } =
+    const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, saveDisabledReason } =
         useValues(earlyAccessFeatureLogic)
     const { editFeature, updateStage, submitEarlyAccessFeature } = useActions(earlyAccessFeatureLogic)
 
@@ -86,6 +86,7 @@ export function QuillEarlyAccessFeatureActions({
                         onClick={submitEarlyAccessFeature}
                         data-attr="save-feature"
                         loading={isEarlyAccessFeatureSubmitting}
+                        disabledReason={saveDisabledReason}
                     >
                         {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                     </Button>

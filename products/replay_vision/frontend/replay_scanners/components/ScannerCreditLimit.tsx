@@ -59,9 +59,8 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                         <div className="space-y-1">
                             <LemonLabel htmlFor="vision-scanner-free-only">Free credits only</LemonLabel>
                             <div className="text-xs text-muted">
-                                Scan only while your organization has free monthly credits left, so this scanner never
-                                adds to your bill. It pauses when they run out and starts again when the billing period
-                                resets.
+                                Scan only on your organization's free monthly credits, so this scanner never adds to
+                                your bill. It stops when they run out.
                             </div>
                         </div>
                         <LemonSwitch

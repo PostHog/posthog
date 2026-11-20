@@ -209,30 +209,8 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 False,
                 _JOB_IDS,
             ),
-            (
-                "custom_channel_rules_with_channel_breakdown",
-                _runner(
-                    True,
-                    custom_channel_rules=_CUSTOM_CHANNEL_RULES,
-                    breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-                ),
-                False,
-                _JOB_IDS,
-            ),
-            (
-                "custom_channel_rules_with_channel_filter",
-                _runner(True, custom_channel_rules=_CUSTOM_CHANNEL_RULES, properties=[_CHANNEL_FILTER]),
-                False,
-                _JOB_IDS,
-            ),
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
-            (
-                "overview_pathname_filter",
-                _runner(True, kind="WebOverviewQuery", properties=[_event_filter("$pathname", "/pricing")]),
-                False,
-                _JOB_IDS,
-            ),
             (
                 "event_referring_domain_filter",
                 _runner(True, properties=[_event_filter("$referring_domain", "example.com")]),
@@ -296,16 +274,22 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 True,
             ),
             (
+                "overview_pathname_filter",
+                _runner(True, kind="WebOverviewQuery", properties=[_event_filter("$pathname", "/pricing")]),
+                None,
+                True,
+            ),
+            (
                 "compare_period_crosses_retention",
                 _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)),
                 1,
                 False,
             ),
             (
-                "custom_channel_rules_without_channel_dependency",
+                "custom_channel_rules_differ_from_the_build",
                 _runner(True, custom_channel_rules=_CUSTOM_CHANNEL_RULES),
                 None,
-                True,
+                False,
             ),
             ("sessions_v3_after_the_floor", _runner(True), None, True, SessionTableVersion.V3),
             (

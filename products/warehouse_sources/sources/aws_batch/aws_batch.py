@@ -23,12 +23,12 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     sign_aws_request,
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"(?:af|ap|ca|cn|eu|il|me|mx|sa|us)-(?:gov-)?[a-z]+-\d+")
 # A name wildcard includes every status without seven separate status walks.
 ALL_JOBS_FILTER = [{"name": "JOB_NAME", "values": ["*"]}]
@@ -136,7 +136,7 @@ class AwsBatchClient:
 
 
 def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", name).lower(): value for name, value in item.items()}
+    row = {camel_to_snake(name): value for name, value in item.items()}
     row["region"] = region
     for column in ("created_at", "started_at", "stopped_at", "scheduled_at"):
         if column in row and isinstance(row[column], int | float) and not isinstance(row[column], bool):
@@ -261,6 +261,36 @@ def get_child_rows(
     manager.safe_point()
 
 
+def snapshot_row(queue: str, body: dict[str, Any], region: str) -> dict[str, Any]:
+    front = body.get("frontOfQueue") or {}
+    updated = front.get("lastUpdatedAt")
+    row = normalize_row({name: value for name, value in body.items() if name != "frontOfQueue"}, region)
+    row["job_queue_arn"] = queue
+    row["front_of_queue_jobs"] = front.get("jobs") or []
+    row["last_updated_at"] = dt.datetime.fromtimestamp(updated / 1000, tz=dt.UTC) if updated else None
+    return row
+
+
+def get_snapshot_rows(
+    client: AwsBatchClient,
+    region: str,
+    manager: ResumableSourceManager[AwsBatchResumeConfig],
+    state: AwsBatchResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    if state.queue_arns is None:
+        state = replace(state, queue_arns=discover_queues(client, manager))
+    queues = state.queue_arns or []
+    while state.queue_index < len(queues):
+        queue = queues[state.queue_index]
+        body = client.request("GetJobQueueSnapshot", {"jobQueue": queue})
+        state = replace(state, queue_index=state.queue_index + 1)
+        manager.save_state(state)
+        yield [snapshot_row(queue, body, region)]
+        manager.safe_point()
+    manager.save_state(replace(state, complete=True))
+    manager.safe_point()
+
+
 def describe_page(
     client: AwsBatchClient,
     endpoint: str,
@@ -309,6 +339,9 @@ def get_rows(
     try:
         if endpoint == "job_children":
             yield from get_child_rows(client, config.region, manager, state)
+            return
+        if endpoint == "job_queue_snapshots":
+            yield from get_snapshot_rows(client, config.region, manager, state)
             return
         queued = endpoint in QUEUED_ENDPOINTS
         if queued and state.queue_arns is None:
@@ -390,6 +423,10 @@ def validate_credentials(
             queue = first_queue(client, is_service_queue)
             if queue:
                 client.request(operation, {"jobQueue": queue, "maxResults": 1, "filters": ALL_JOBS_FILTER})
+        elif schema_name == "job_queue_snapshots":
+            queue = first_queue(client, lambda queue: True)
+            if queue:
+                client.request(operation, {"jobQueue": queue})
         elif schema_name in ("scheduling_policies", "consumable_resources"):
             items = client.request(operation, {"maxResults": 1}).get(AWS_BATCH_ENDPOINTS[schema_name].result_key, [])
             describe_page(client, schema_name, items[:1])

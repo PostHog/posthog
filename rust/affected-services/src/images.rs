@@ -12,6 +12,7 @@ pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
         "rust/cyclotron-node-migrations/",
         "rust/flags_read_store_migrations/",
         "rust/bin/migrate-",
+        "rust/bin/deploy-requirements-check",
         "rust/Dockerfile.sqlx-migrate",
     ],
 )];
@@ -199,6 +200,12 @@ mod tests {
     #[test]
     fn non_crate_migration_trigger() {
         let affected = non_crate_images_affected(&["rust/persons_migrations/new.sql".into()]);
+        assert_eq!(affected, vec!["sqlx-migrate"]);
+    }
+
+    #[test]
+    fn non_crate_schema_check_trigger() {
+        let affected = non_crate_images_affected(&["rust/bin/deploy-requirements-check".into()]);
         assert_eq!(affected, vec!["sqlx-migrate"]);
     }
 

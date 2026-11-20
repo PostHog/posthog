@@ -18,7 +18,17 @@ export interface ShareBarRow<T> {
 
 type ShareMeta<T> = T & { share: number }
 
-const SHARE_BAR_CONFIG: BarListConfig = { labelPosition: 'top', scale: 'total', valueDisplay: 'both', barHeight: 10 }
+const SHARE_ROW_HEIGHT_PX = 40
+// Matches the scroller's pt-2, so that the visible height ends just above the next row's label.
+const SHARE_LIST_TOP_PADDING_PX = 8
+
+const SHARE_BAR_CONFIG: BarListConfig = {
+    labelPosition: 'top',
+    scale: 'total',
+    valueDisplay: 'both',
+    barHeight: 10,
+    rowHeight: SHARE_ROW_HEIGHT_PX,
+}
 
 function formatCalls(value: number): string {
     return `${formatNumber(value)} ${value === 1 ? 'call' : 'calls'}`
@@ -30,6 +40,7 @@ export function ShareBarChart<T>({
     theme,
     tooltip,
     fillHeight = false,
+    maxVisibleRows,
     label,
 }: {
     rows: ShareBarRow<T>[]
@@ -38,6 +49,8 @@ export function ShareBarChart<T>({
     tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
     /** Fill the parent's height and scroll the rows. The parent must be a flex column. */
     fillHeight?: boolean
+    /** Show this many rows and scroll the rest. A shorter list keeps its natural height. */
+    maxVisibleRows?: number
     label?: string
 }): JSX.Element {
     const series = useMemo<Series<ShareMeta<T>>[]>(
@@ -81,6 +94,20 @@ export function ShareBarChart<T>({
             tooltip={tooltip}
         />
     )
+    if (maxVisibleRows !== undefined) {
+        return (
+            <div
+                className="overflow-y-auto pt-2"
+                style={{ maxHeight: SHARE_LIST_TOP_PADDING_PX + maxVisibleRows * SHARE_ROW_HEIGHT_PX }}
+                translate="no"
+                tabIndex={0}
+                role="region"
+                aria-label={label}
+            >
+                {barList}
+            </div>
+        )
+    }
     if (!fillHeight) {
         return (
             <div translate="no" className="pt-2">

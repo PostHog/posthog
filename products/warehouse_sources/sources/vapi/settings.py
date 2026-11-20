@@ -138,6 +138,24 @@ VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
         path="/campaign",
         pagination="page",
     ),
+    # Scorecard and eval definitions are small config tables edited in place, so full refresh only.
+    "scorecards": VapiEndpointConfig(
+        name="scorecards",
+        path="/observability/scorecard",
+        pagination="page",
+    ),
+    "evals": VapiEndpointConfig(
+        name="evals",
+        path="/eval",
+        pagination="page",
+    ),
+    # Eval run status, results and costs change until the run ends, and the API sorts only by
+    # createdAt, so a createdAt watermark would freeze in-flight runs; full refresh only.
+    "eval_runs": VapiEndpointConfig(
+        name="eval_runs",
+        path="/eval/run",
+        pagination="page",
+    ),
 }
 
 ENDPOINTS = tuple(VAPI_ENDPOINTS.keys())

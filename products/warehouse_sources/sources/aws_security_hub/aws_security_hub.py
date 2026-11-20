@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     sign_aws_request,
@@ -43,7 +44,6 @@ TRANSPORT_RETRY = BoundedRetry(
     allowed_methods=frozenset({"GET", "POST"}),
     raise_on_status=False,
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _UNORDERED_INCREMENTAL = frozenset({"finding_history", "findings_v2"})
 # CreatedAt never changes, so a finding keeps its position while the walk pages through findings.
 _FINDING_HISTORY_PARENT_SORT = [{"Field": "CreatedAt", "SortOrder": "asc"}]
@@ -134,7 +134,7 @@ class AwsSecurityHubClient:
 
 
 def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    row = {camel_to_snake(key): value for key, value in item.items()}
     for key in (
         "created_at",
         "updated_at",

@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "api_key": {
+            "description": "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.",
+            "maxLength": 512,
+            "type": "string"
+        },
+        "provider": {
+            "description": "The provider to import from.\n\n* `customerio` - Customer.io\n* `resend` - Resend\n* `postmark` - Postmark\n* `sendgrid` - SendGrid",
+            "enum": ["customerio", "resend", "postmark", "sendgrid"],
+            "type": "string"
+        },
+        "settings": {
+            "additionalProperties": {
+                "maxLength": 64,
+                "type": "string"
+            },
+            "description": "Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "steps": {
+            "description": "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.",
+            "items": {
+                "maxLength": 64,
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["provider", "steps"],
+    "type": "object"
+}

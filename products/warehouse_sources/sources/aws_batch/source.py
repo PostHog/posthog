@@ -124,6 +124,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
                 "Grant `batch:DescribeComputeEnvironments` and `batch:DescribeJobDefinitions` to read those tables. "
                 "Grant `batch:ListSchedulingPolicies` and `batch:DescribeSchedulingPolicies` to read scheduling policies. "
                 "Grant `batch:ListConsumableResources` and `batch:DescribeConsumableResource` to read consumable resources. "
+                "Grant `batch:DescribeJobQueues` and `batch:GetJobQueueSnapshot` to read job queue snapshots. "
                 "Connect with an IAM role, or with an access key ID and secret access key. Add a session token for temporary credentials. "
                 "All tables use full refresh so later job status changes remain visible. "
                 "The jobs and service jobs tables include jobs that AWS still retains in existing queues. "

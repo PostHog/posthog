@@ -23,6 +23,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    cn,
 } from '@posthog/quill-primitives'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -32,18 +33,21 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { formatPercentage } from 'lib/utils/numbers'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
-import { SceneExport } from '~/scenes/sceneTypes'
+import { Scene, SceneExport } from '~/scenes/sceneTypes'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { dimWhileLoading } from './components/loadingFeedback'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
+import { TableLoadingBar } from './components/TableLoadingBar'
 import { ChartSkeleton } from './dashboard/ChartSkeleton'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
@@ -158,65 +162,78 @@ function ResultTable({
                     {action}
                 </CardHeader>
             )}
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        {columns.map((col, i) => (
-                            <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
-                                {col.header}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                {loading && rows.length === 0 ? (
-                    <TableBody aria-busy>
-                        {SKELETON_ROW_WIDTHS.map((width, i) => (
-                            <TableRow key={i}>
-                                {columns.map((col, j) => (
-                                    <TableCell key={j} align={col.align} expand={col.expand} className={col.className}>
-                                        <SkeletonLine
-                                            className={col.align === 'right' ? 'ml-auto w-10' : undefined}
-                                            style={col.align === 'right' ? undefined : { width }}
-                                        />
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                ) : rows.length === 0 ? (
-                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
-                ) : (
-                    <TableBody>
-                        {rows.map((row, i) => (
-                            <TableRow
-                                key={i}
-                                className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
-                                onClick={onRowClick ? () => onRowClick(i) : undefined}
-                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
-                                // pattern so the drill-down opens on Enter/Space too.
-                                role={onRowClick ? 'button' : undefined}
-                                tabIndex={onRowClick ? 0 : undefined}
-                                onKeyDown={
-                                    onRowClick
-                                        ? (e: React.KeyboardEvent) => {
-                                              if (e.key === 'Enter' || e.key === ' ') {
-                                                  e.preventDefault()
-                                                  onRowClick(i)
+            <div className="relative">
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            {columns.map((col, i) => (
+                                <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
+                                    {col.header}
+                                </TableHead>
+                            ))}
+                        </TableRow>
+                    </TableHeader>
+                    {loading && rows.length === 0 ? (
+                        <TableBody aria-busy>
+                            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                                <TableRow key={i}>
+                                    {columns.map((col, j) => (
+                                        <TableCell
+                                            key={j}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            <SkeletonLine
+                                                className={col.align === 'right' ? 'ml-auto w-10' : undefined}
+                                                style={col.align === 'right' ? undefined : { width }}
+                                            />
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    ) : rows.length === 0 ? (
+                        <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                    ) : (
+                        <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
+                            {rows.map((row, i) => (
+                                <TableRow
+                                    key={i}
+                                    className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
+                                    onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                    // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                    // pattern so the drill-down opens on Enter/Space too.
+                                    role={onRowClick ? 'button' : undefined}
+                                    tabIndex={onRowClick ? 0 : undefined}
+                                    onKeyDown={
+                                        onRowClick
+                                            ? (e: React.KeyboardEvent) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                      e.preventDefault()
+                                                      onRowClick(i)
+                                                  }
                                               }
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {columns.map((col, ci) => (
-                                    <TableCell key={ci} align={col.align} expand={col.expand} className={col.className}>
-                                        {col.render(row)}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                )}
-            </Table>
+                                            : undefined
+                                    }
+                                >
+                                    {columns.map((col, ci) => (
+                                        <TableCell
+                                            key={ci}
+                                            align={col.align}
+                                            expand={col.expand}
+                                            className={col.className}
+                                        >
+                                            {col.render(row)}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    )}
+                </Table>
+                <TableLoadingBar loading={loading && rows.length > 0} />
+            </div>
         </Card>
     )
 }
@@ -353,6 +370,7 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
+                    hasValue={summary !== null}
                     labels={daily.labels}
                     interval={interval}
                     theme={theme}
@@ -365,6 +383,16 @@ function StatTiles({
     )
 }
 
+const INTENT_SOURCE_LABELS: Record<string, string> = {
+    context_parameter: 'Agent',
+    inferred: 'Inferred',
+}
+
+function intentSourceLabel(source: unknown): string {
+    const value = String(source ?? '')
+    return INTENT_SOURCE_LABELS[value] ?? value
+}
+
 function IntentCoverageTag({
     coverage,
     loading,
@@ -372,7 +400,7 @@ function IntentCoverageTag({
     coverage: IntentCoverage | null
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !coverage) {
         return <LemonSkeleton className="h-4 w-32" />
     }
     if (!coverage || !coverage.total) {
@@ -380,8 +408,8 @@ function IntentCoverageTag({
     }
     const pct = Math.round((coverage.with_intent / coverage.total) * 100)
     return (
-        <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
-            <span className="text-[11px] text-secondary">
+        <Tooltip title="Share of calls that recorded why the agent made them. Agent intents come from the agent itself. Inferred intents are a fallback your server derived when the agent gave none.">
+            <span aria-busy={loading} className={cn('text-[11px] text-secondary', dimWhileLoading(loading))}>
                 {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
         </Tooltip>
@@ -395,7 +423,7 @@ function DescriptionBlock({
     descriptions: { description: string; last_seen: string }[]
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !descriptions.length) {
         return <LemonSkeleton className="h-8 w-2/3 mt-2" />
     }
     if (!descriptions.length) {
@@ -403,7 +431,7 @@ function DescriptionBlock({
     }
     const [latest, ...older] = descriptions
     return (
-        <div className="flex flex-col gap-1 max-w-3xl">
+        <div aria-busy={loading} className={cn('flex flex-col gap-1 max-w-3xl', dimWhileLoading(loading))}>
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
             <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
@@ -498,13 +526,15 @@ function TrendChart({
                         No data for the selected date range.
                     </div>
                 ) : (
-                    <TimeSeriesLineChart
-                        series={series}
-                        labels={labels}
-                        config={config}
-                        theme={theme}
-                        dataAttr={dataAttr}
-                    />
+                    <div aria-busy={loading} className={cn('flex min-h-0 flex-1 flex-col', dimWhileLoading(loading))}>
+                        <TimeSeriesLineChart
+                            series={series}
+                            labels={labels}
+                            config={config}
+                            theme={theme}
+                            dataAttr={dataAttr}
+                        />
+                    </div>
                 )}
             </div>
         </div>
@@ -567,7 +597,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
-                    name: 'Tool quality',
+                    name: sceneConfigurations[Scene.MCPAnalytics].name,
                     path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
@@ -695,7 +725,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
-                            { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
+                            { header: 'Intent source', render: (r) => <span>{intentSourceLabel(r[2])}</span> },
                             { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
                         ]}
                     />
@@ -884,7 +914,7 @@ function FailureOccurrencesModal(): JSX.Element {
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                <Tooltip title="No error message was captured for this call. Check that your MCP server sends one on failed tool calls.">
                                     <span className="text-muted text-xs whitespace-nowrap">
                                         Not captured <IconInfo />
                                     </span>

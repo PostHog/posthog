@@ -1,6 +1,7 @@
 import json
 import contextlib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import redis
@@ -56,6 +57,10 @@ def _append_lock(object_storage_key: str, attempts: int) -> Iterator[None]:
             logger.warning("task_log_append_lock_release_failed", object_storage_key=object_storage_key, exc_info=True)
 
 
+def _json_lines(entries: list[dict[str, Any]]) -> str:
+    return "\n".join(json.dumps(entry) for entry in entries)
+
+
 def append_jsonl_object(
     object_storage_key: str, entries: list[dict[str, Any]], *, lock_attempts: int = 1, batch_id: str | None = None
 ) -> bool:
@@ -66,15 +71,41 @@ def append_jsonl_object(
     then failed before recording it, can retry without writing the lines twice.
     """
     with _append_lock(object_storage_key, lock_attempts):
+        if batch_id is None:
+            return object_storage.append(object_storage_key, _json_lines(entries).encode(), separator=b"\n")
         existing_content = object_storage.read(object_storage_key, missing_ok=True) or ""
-        is_new_object = not existing_content
-        if batch_id is not None:
-            if f'"batch": {json.dumps(batch_id)}' in existing_content:
-                return False
-            entries = [{**entry, "batch": batch_id} for entry in entries]
-        new_lines = "\n".join(json.dumps(entry) for entry in entries)
-        content = existing_content + ("\n" if existing_content else "") + new_lines
+        if f'"batch": {json.dumps(batch_id)}' in existing_content:
+            return False
+        batch_lines = _json_lines([{**entry, "batch": batch_id} for entry in entries])
+        content = existing_content + ("\n" if existing_content else "") + batch_lines
 
         object_storage.write(object_storage_key, content)
 
-        return is_new_object
+        return not existing_content
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRunLog:
+    key: str
+
+
+def read_run_log(log: TaskRunLog) -> str:
+    return object_storage.read(log.key, missing_ok=True) or ""
+
+
+def read_run_log_bytes(log: TaskRunLog) -> bytes:
+    return object_storage.read_bytes(log.key, missing_ok=True) or b""
+
+
+def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
+    if strict:
+        head = object_storage.head_object_strict(log.key)
+    else:
+        head = object_storage.head_object(log.key)
+    if not head:
+        return 0
+    return int(head.get("ContentLength") or 0)
+
+
+def copy_run_log(log: TaskRunLog, target_key: str) -> None:
+    object_storage.copy(log.key, target_key)

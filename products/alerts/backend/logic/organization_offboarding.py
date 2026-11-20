@@ -1,8 +1,7 @@
-from django.db.models import QuerySet
-
+from posthog.models.team import Team
 from posthog.organization_offboarding_types import OffboardingResource
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.facade.api import enabled_alerts_created_by
 
 
 class AlertOffboarding:
@@ -10,25 +9,18 @@ class AlertOffboarding:
         self.organization_id = organization_id
         self.user_id = user_id
 
-    def _alerts(self) -> QuerySet[AlertConfiguration]:
-        return AlertConfiguration.objects.filter(
-            team__organization_id=self.organization_id,
-            created_by_id=self.user_id,
-            enabled=True,
-            insight__deleted=False,
-        )
-
     def resources(self) -> list[OffboardingResource]:
+        project_names = dict(Team.objects.filter(organization_id=self.organization_id).values_list("id", "name"))
         return [
             OffboardingResource(
-                id=f"alert:{alert.pk}",
-                resource_id=str(alert.pk),
+                id=f"alert:{alert.id}",
+                resource_id=str(alert.id),
                 kind="alert",
                 name=alert.name or "Untitled alert",
                 team_id=alert.team_id,
-                project_name=alert.team.name,
+                project_name=project_names[alert.team_id],
                 created_at=alert.created_at,
-                url=f"/project/{alert.team_id}/alerts?alert_type=insights&alert_id={alert.pk}",
+                url=f"/project/{alert.team_id}/alerts?alert_type=insights&alert_id={alert.id}",
             )
-            for alert in self._alerts().select_related("team")
+            for alert in enabled_alerts_created_by(team_ids=list(project_names), user_id=self.user_id)
         ]

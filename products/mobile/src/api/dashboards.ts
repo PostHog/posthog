@@ -3,7 +3,7 @@ import type { InsightApi } from './insights'
 import type { PaginatedApi } from './reports'
 
 // Shapes follow `DashboardBasicSerializer`, `DashboardSerializer` and `DashboardTileSerializer` in
-// `products/dashboards/backend/api/dashboard.py`, keeping the fields the app reads.
+// `products/dashboards/backend/presentation/views/dashboard.py`, keeping the fields the app reads.
 
 export interface DashboardBasicApi {
     id: number

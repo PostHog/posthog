@@ -291,7 +291,8 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 
 - The part of the boundary day the processor received before it loaded the leaf.
 - History older than the seeder's lookback cap.
-  Longer windows are truncated and the run records a warning.
+  Django keeps a cohort with a longer window off realtime at save.
+  A run that still truncates and records a warning means `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above the seeder's cap, or an absolute start date passed the limit after the cohort's criteria were last saved.
 - History for `performed_event` leaves with an hour or minute window.
   Only live events fill them.
 - Leaves the pipeline cannot represent at all, such as count windows under a day.

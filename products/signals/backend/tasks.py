@@ -5,7 +5,8 @@ from decimal import Decimal
 
 from django.core.cache import cache
 from django.db import OperationalError, connections
-from django.db.models import Q
+from django.db.models import F, Q, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -36,6 +37,7 @@ from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.claim_takeover_notification import (
     send_claim_takeover_notification as send_claim_takeover_notification,
 )
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
@@ -48,6 +50,9 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
+from products.signals.backend.implementation_pr_notification_tasks import (
+    deliver_implementation_pr_notifications as deliver_implementation_pr_notifications,
+)
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
@@ -59,6 +64,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
 )
 from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
@@ -76,6 +82,10 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
 from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
+from products.signals.backend.report_note_mentions import (
+    send_report_note_mention_notifications as send_report_note_mention_notifications,
+    send_report_note_mention_slack as send_report_note_mention_slack,
+)
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -113,6 +123,22 @@ from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
 logger = structlog.get_logger(__name__)
 
 
+@shared_task(ignore_result=True)
+def emit_report_ready_event_task(team_id: int, report_id: str, known_source_products: list[str] | None = None) -> None:
+    """Produce `$signals_report_ready` off the request path. Its ClickHouse lookup must not hold the request that
+    moved the report, and a bulk state change commits its reports one at a time. No retry: a produce is not
+    idempotent, and a duplicate nudge costs a consumer more than a missed one."""
+    from products.signals.backend.receivers import _is_safety_suppressed  # noqa: PLC0415
+    from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
+
+    emit_report_ready_event(
+        team_id=team_id,
+        report_id=report_id,
+        is_safety_suppressed=_is_safety_suppressed,
+        known_source_products=known_source_products,
+    )
+
+
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
 def refresh_report_implementation_pr_cache(
@@ -146,6 +172,43 @@ def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: s
         return
     signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
     post_pull_request_to_tickets(team, report_id, pr_url, signals)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> None:
+    """Read a just-linked pull request from GitHub again and store any state it moved to.
+
+    A webhook that lands between the link's GitHub lookup and its commit finds no stored pull request,
+    so without this re-read the link keeps the stale state until the next webhook, which may never come.
+    """
+    try:
+        details = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if details.state == SignalReportPullRequest.State.UNKNOWN:
+        return
+    stored = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=details.repository, number=details.number)
+        .values_list("state", flat=True)
+        .first()
+    )
+    if stored is None or stored == details.state:
+        return
+    update_pull_request_state(
+        team_id=team_id,
+        repository=details.repository,
+        number=details.number,
+        state=details.state,
+        merged_at=details.merged_at,
+    )
 
 
 @shared_task(
@@ -361,6 +424,16 @@ def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@skip_team_scope_audit
+def sweep_stuck_research_reports() -> None:
+    from products.signals.backend.research_recovery import (
+        recover_stuck_research_reports,  # noqa: PLC0415 — keeps the temporal deps off the import path
+    )
+
+    recover_stuck_research_reports()
+
+
 @shared_task(
     name="products.signals.backend.tasks.link_report_tracker_issues",
     ignore_result=True,
@@ -397,6 +470,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                         SignalReportTrackerIssue.Status.PENDING,
                     ),
                     pr_linked_at__isnull=True,
+                    closed_at__isnull=True,
                 )
                 .exists()
             )
@@ -1342,6 +1416,8 @@ def pause_inactive_signal_scouts() -> None:
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+# Some keys are rewritten on every run, so revisions are capped per key as well as by age.
+SCRATCHPAD_REVISION_RETENTION_DAYS = 14
 
 
 def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
@@ -1359,6 +1435,31 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
     return deleted
 
 
+def prune_scratchpad_revisions(
+    retention_days: int = SCRATCHPAD_REVISION_RETENTION_DAYS, per_key: int = SCRATCHPAD_REVISIONS_PER_KEY
+) -> int:
+    """Hard-delete scratchpad revisions older than `retention_days`, and those past the newest `per_key` of a key.
+
+    Cross-team janitor sweep, like `prune_expired_scratchpad_entries`. Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    revisions = SignalScratchpadRevision.objects.unscoped()
+    past_cap = (
+        revisions.annotate(
+            position=Window(
+                RowNumber(),
+                partition_by=[F("team_id"), F("key")],
+                order_by=[F("changed_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(position__gt=per_key)
+        .values("id")
+    )
+    deleted, _ = revisions.filter(Q(changed_at__lt=cutoff) | Q(id__in=past_cap)).delete()
+    return deleted
+
+
 @shared_task(
     name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
     ignore_result=True,
@@ -1368,15 +1469,17 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
 )
 @skip_team_scope_audit
 def prune_expired_scratchpad_entries_task() -> None:
-    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+    """Daily janitor: hard-delete scratchpad entries long past their expiry, and old revisions.
 
     A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
     rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
     one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
     """
     deleted = 0
+    revisions_deleted = 0
     try:
         deleted = prune_expired_scratchpad_entries()
+        revisions_deleted = prune_scratchpad_revisions()
     except SoftTimeLimitExceeded:
         raise
     except OperationalError as exc:
@@ -1390,7 +1493,7 @@ def prune_expired_scratchpad_entries_task() -> None:
         else:
             capture_exception(exc)
             logger.exception("signals_scout.scratchpad_prune_failed")
-    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted, revisions_deleted=revisions_deleted)
 
 
 @shared_task(

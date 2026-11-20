@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconChevronRight } from '@posthog/icons'
 
-import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from './paneClasses'
+import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from 'lib/components/RepositoryList/paneClasses'
+
 import { FLASH_FOR_OPTIONS, describeResult, describeSource } from './repositoryChoices'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { FoldSummary, reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'

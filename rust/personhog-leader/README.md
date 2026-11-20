@@ -133,7 +133,11 @@ the writer (produce an unapplyable record).
 
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
-pipeline's limiter. They go through a dedicated fire-and-forget producer,
+pipeline's limiter. Properties nested past the parser's 128 levels emit
+`person_properties_depth_violation` the same way: once when an update is
+refused for it, and once when a stored person cannot be read because of it.
+Such a person can still be deleted: a delete seals from the row's version
+and creation time and never parses the properties. They go through a dedicated fire-and-forget producer,
 not the changelog producer, because the warnings topic can live on a
 different cluster from the changelog. `INGESTION_WARNINGS_ENABLED`
 (default `false`) turns it on, and `INGESTION_WARNINGS_KAFKA_HOSTS`,
@@ -199,6 +203,15 @@ and warming can consume to a known endpoint without racing producers.
 The synchronous rdkafka calls (`committed_offsets`, `fetch_watermarks`)
 run on the blocking pool via `tokio::task::spawn_blocking` so a slow
 broker can't park the runtime thread.
+
+#### Cache fill after a warm
+
+With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition
+refills its cache in the background from the changelog below the warm's
+start offset, newest records first (`fill_source` in `src/warming.rs`).
+It inserts only a person the partition has not put since the warm began,
+and stops at the lookback bound, at 90% of the cache budget, or when the
+partition is released.
 
 #### vNode ownership
 

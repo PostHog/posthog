@@ -24,6 +24,12 @@ pub struct AnyEvent {
 }
 
 impl AnyEvent {
+    pub fn drop_adaptive_ingestion_properties(&mut self) {
+        if let Some(properties) = self.properties.as_object_mut() {
+            properties.retain(|key, _| !key.starts_with("$adaptive_ingestion_"));
+        }
+    }
+
     pub fn drop_code_variables(&mut self) {
         self.for_each_frame(|frame| {
             frame.remove("code_variables");

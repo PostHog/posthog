@@ -69,11 +69,12 @@ class RepoAdmin(admin.ModelAdmin):
         "team_link",
         "enable_pr_comments",
         "debt_digest_enabled",
+        "auto_quarantine_mode",
         "created_at",
         "updated_at",
     )
     list_display_links = ("id", "repo_full_name")
-    list_filter = ("enable_pr_comments", "debt_digest_enabled", "created_at")
+    list_filter = ("enable_pr_comments", "debt_digest_enabled", "auto_quarantine_mode", "created_at")
     search_fields = ("id", "repo_full_name", "repo_external_id", "team_id")
     ordering = ("-created_at",)
     show_full_result_count = False
@@ -85,12 +86,25 @@ class RepoAdmin(admin.ModelAdmin):
         "repo_full_name",
         "created_at",
         "updated_at",
+        # The visual_review_baseline_ledger command changes it, because it checks that a ledger exists.
+        "baseline_mode",
         # signing_keys are secret material — never display in admin.
         "signing_keys_summary",
     )
     fieldsets = (
         (None, {"fields": ("id", "team_id", "repo_external_id", "repo_full_name")}),
-        ("Configuration", {"fields": ("baseline_file_paths", "enable_pr_comments", "debt_digest_enabled")}),
+        (
+            "Configuration",
+            {
+                "fields": (
+                    "baseline_file_paths",
+                    "baseline_mode",
+                    "enable_pr_comments",
+                    "debt_digest_enabled",
+                    "auto_quarantine_mode",
+                )
+            },
+        ),
         ("Security", {"fields": ("signing_keys_summary",)}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )

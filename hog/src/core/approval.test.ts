@@ -6,6 +6,7 @@ import { fakeRuntime } from '@/testing'
 import {
     PendingApprovalSchema,
     resumeApproval,
+    waitIdentity,
     type ApprovalFlow,
     type PendingApproval,
     type PollOutcome,
@@ -36,13 +37,13 @@ describe('resumeApproval', () => {
         const ctx = new Context(
             runtime,
             {} as GlobalOptions,
-            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined, ci: false },
+            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined, isCI: false },
             COMMANDS
         )
         const remaining: PollOutcome<string>[] = [...outcomes]
         const polledAt: number[] = []
         const flow: ApprovalFlow<PendingApproval, string> = {
-            command: 'hog thing start',
+            ...waitIdentity('hog thing start'),
             noun: 'thing',
             pending: PendingApprovalSchema,
             start: async () => PENDING,
@@ -52,8 +53,9 @@ describe('resumeApproval', () => {
             },
         }
 
-        const outcome = await resumeApproval(ctx, flow).catch((error: unknown) =>
-            error instanceof HogError ? error.code : error
+        const outcome = await resumeApproval(ctx, flow).then(
+            ({ value }) => value,
+            (error: unknown) => (error instanceof HogError ? error.code : error)
         )
 
         expect(outcome).toBe(expected)

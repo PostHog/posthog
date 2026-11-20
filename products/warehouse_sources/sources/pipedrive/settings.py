@@ -11,6 +11,8 @@ CustomRead = Literal["mail_threads", "mail_messages", "project_phases"]
 
 # Pipedrive caps list pages at 500 items (default 100).
 PAGE_SIZE = 500
+# `/callLogs` caps its pages at 50 items.
+CALL_LOGS_PAGE_SIZE = 50
 # `/api/v2/deals/products` accepts at most 100 deal ids per request.
 DEAL_IDS_PER_REQUEST = 100
 # `/api/v2/deals` leaves out archived deals, so deal fan-outs read both lists to keep the line
@@ -40,11 +42,13 @@ class PipedriveEndpointConfig:
     # Set for endpoints read for every deal in `DEAL_PARENT_PATHS`.
     deal_fan_out: Optional[DealFanOut] = None
     custom_read: Optional[CustomRead] = None
+    page_size: int = PAGE_SIZE
+    data_selector: str = "data"
 
 
 # Endpoints whose path and pagination are identical across every supported source version.
 # Their v1 collection endpoints have no v2 replacement (notes, leads, users, *_fields, lookups,
-# the deal changelog, the mailbox, project boards, phases and tasks) or were already on v2 (deals, persons, organizations, products,
+# call logs, goals, the deal changelog, the mailbox, project boards, phases and tasks) or were already on v2 (deals, persons, organizations, products,
 # pipelines, stages, deal products, projects), so they don't change between our `v1` and `v2` labels.
 _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     "deals": PipedriveEndpointConfig(name="deals", path="/api/v2/deals", pagination="cursor"),
@@ -73,6 +77,21 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     ),
     "activity_types": PipedriveEndpointConfig(
         name="activity_types", path="/api/v1/activityTypes", pagination="none", partition_key=None
+    ),
+    "currencies": PipedriveEndpointConfig(
+        name="currencies", path="/api/v1/currencies", pagination="none", partition_key=None
+    ),
+    # Call logs have no add_time; the call start time never changes after the log is created.
+    "call_logs": PipedriveEndpointConfig(
+        name="call_logs",
+        path="/api/v1/callLogs",
+        pagination="offset",
+        partition_key="start_time",
+        page_size=CALL_LOGS_PAGE_SIZE,
+    ),
+    # `/goals/find` with no search criteria returns every goal, under `data.goals`.
+    "goals": PipedriveEndpointConfig(
+        name="goals", path="/api/v1/goals/find", pagination="none", partition_key=None, data_selector="data.goals"
     ),
     "deal_products": PipedriveEndpointConfig(
         name="deal_products",

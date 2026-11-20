@@ -3,7 +3,7 @@
 Each user can pin up to 50 account custom properties, relationships, and account fields in their project.
 You can pin any account field that the Accounts list offers as a column, such as the Stripe customer ID or the external ID.
 Account fields show the account's value read-only. Use the account editor to change them.
-When `customer-analytics-account-scene` is enabled, the Accounts list also shows these pins in expanded rows.
+The Accounts list also shows these pins in expanded rows.
 The left arrow expands or collapses the row. The account name opens account details.
 Expanded pins use the same Properties section and editable fields as the account sidebar.
 They follow the saved order and wrap horizontally within the table container.
@@ -77,7 +77,7 @@ role-assignment events retain the existing role metadata and internal-user ident
 
 ## Properties in account views
 
-With `customer-analytics-account-views` enabled, the view component picker offers Properties.
+The view component picker offers Properties.
 Each tile stores its own ordered selection in the view document under `config.properties`.
 The tile's Edit action changes its selection and title through the existing view save flow.
 Adding a tile starts with an empty selection.

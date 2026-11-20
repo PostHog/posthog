@@ -57,7 +57,6 @@ CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 # The ws2 suffix keeps this group distinct from the retired hand-managed pipeline.
 CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS = "clickhouse_raw_sessions_v3_events_json_ws2"
-CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
 # WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK
 # groups during the cut-over so both Kafka tables can run in parallel until the MSK side is
@@ -67,6 +66,7 @@ CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
     "clickhouse_error_tracking_issue_fingerprint_overrides_ws"
 )
 CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
+CONSUMER_GROUP_ERROR_TRACKING_ISSUE_TAGS = "clickhouse_error_tracking_issue_tags"
 CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
 CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP = "clickhouse_person_group_membership"
 

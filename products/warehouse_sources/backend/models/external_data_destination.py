@@ -27,6 +27,8 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         DATABRICKS = "Databricks", "Databricks"
         AZURE_BLOB = "AzureBlob", "Azure Blob"
         S3 = "S3", "S3"
+        # No batch exports counterpart: only warehouse syncs write to MotherDuck.
+        MOTHERDUCK = "MotherDuck", "MotherDuck"
 
     class Status(models.TextChoices):
         HEALTHY = "healthy", "Healthy"

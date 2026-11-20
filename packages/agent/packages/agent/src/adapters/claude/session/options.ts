@@ -22,6 +22,7 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/agent-contracts/posthog-property-headers";
+import { isGitlabRun } from "@posthog/git/gitlab";
 import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
 import {
   applyContextWikiEnv,
@@ -413,7 +414,8 @@ function buildHooks(
     createPreToolUseHook(settingsManager, logger, posthogExecPermissionRegex),
     createSubagentRewriteHook(logger, getCurrentModelId),
   ];
-  if (cloudMode) {
+  // GitLab runs commit and push with plain git, so only GitHub runs need the guard.
+  if (cloudMode && !isGitlabRun()) {
     preToolUseHooks.push(
       createSignedCommitGuardHook(logger, onEnsureLocalToolsConnected),
     );
