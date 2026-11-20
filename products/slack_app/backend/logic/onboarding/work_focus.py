@@ -7,9 +7,10 @@ Only the suggestions and their links leave it.
 
 import json
 import asyncio
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -35,13 +36,19 @@ from products.slack_app.backend.logic.daily_focus import (
     daily_focus_footer_block,
     mark_daily_focus_sending,
     person_zone,
+    previous_run_before,
     reschedule_daily_focus,
     resolve_daily_focus,
     turn_on_daily_focus,
 )
 from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
 from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
-from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread, summary_threads, wants_summary
+from products.slack_app.backend.logic.onboarding.daily_summary import (
+    SummaryThread,
+    summary_threads,
+    thread_text,
+    wants_summary,
+)
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
@@ -61,7 +68,6 @@ SUGGESTION_CLICKED_EVENT = "slack app work focus suggestion clicked"
 SUGGESTION_STARTED_EVENT = "slack app work focus suggestion started"
 WORK_FOCUS_SUGGESTION_BLOCK_PREFIX = "work_focus_suggestion_"
 
-SEARCH_LOOKBACK = timedelta(days=30)
 # Slack returns at most 20 results a page and allows a person about 10 search calls a minute. Three pages for each
 # of the two searches stay at six calls, the most one person's run may take.
 SEARCH_LIMIT = 20
@@ -73,9 +79,8 @@ DAILY_SEARCH_PAGES = 1
 DAILY_SEARCH_CALLS = 2 * DAILY_SEARCH_PAGES
 # Daily runs in one workspace start this far apart, so together they stay within its search budget.
 DAILY_RUN_SPACING_SECONDS = 3600 * DAILY_SEARCH_CALLS // SEARCH_BUDGET.per_hour
-MIN_MESSAGES = 5
-# One workday can bring a single message worth acting on.
-DAILY_MIN_MESSAGES = 1
+# A run reads one workday, and one workday can bring a single message worth acting on.
+MIN_MESSAGES = 1
 MAX_MESSAGE_CHARS = 500
 
 # The model calls spend the team's PostHog AI credits, the same as the other Slack app calls.
@@ -101,6 +106,15 @@ RANK_INSTRUCTIONS = (
 )
 RANK_TRUE = "The message asks for, reports or plans work of that kind."
 RANK_FALSE = "The message is chat, a greeting, a status note or work that PostHog cannot help with."
+# The thread of each message Jev kept, so work that the thread already finished is not offered again.
+THREAD_REPLIES_LIMIT = 20
+RESOLVE_MIN_PROBABILITY = 0.5
+RESOLVE_INSTRUCTIONS = (
+    "`threads` holds Slack threads in which a person asked for, reported or planned some work. For the thread this "
+    "question names, decide whether that work is still open."
+)
+RESOLVE_TRUE = "Nobody answered, or the thread still asks for the work."
+RESOLVE_FALSE = "The thread answered it, says it is done, fixed or merged, or a pull request is open for it."
 
 WRITE_MODEL = "gpt-6-luna"
 WRITE_TIMEOUT_SECONDS = 30.0
@@ -197,9 +211,15 @@ class WorkFocusRateLimited(Exception):
 @frozen
 class _FoundMessage:
     content: str
+    channel_id: str
+    message_ts: str
     channel_name: str | None
     permalink: str | None
     author_id: str | None
+    # The thread the message replies in, which the search only names in the permalink.
+    thread_ts: str | None = None
+    # The thread read in full, when the bot could read it and it holds more than the message.
+    thread: str | None = None
 
 
 @frozen
@@ -275,7 +295,7 @@ def find_and_send_daily_focus(
         slack_user_id,
         token,
         after=since,
-        min_messages=DAILY_MIN_MESSAGES,
+        min_messages=MIN_MESSAGES,
         pages=DAILY_SEARCH_PAGES,
         flow="slack_app_daily_focus",
         threads=threads,
@@ -355,19 +375,24 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
     token = _search_token(integration, slack_user_id)
     if token is None:
         return "no_search_scope"
+    since = _previous_workday(integration, slack_user_id)
+    threads = _daily_summary_threads(integration, slack_user_id, since=since)
     found = _find(
         integration,
         slack_user_id,
         token,
-        after=timezone.now() - SEARCH_LOOKBACK,
+        after=since,
         min_messages=MIN_MESSAGES,
         flow="slack_app_onboarding",
+        threads=threads,
     )
     # Turned on before the quiet outcomes return and before the DM, so a retry after a failed write still finds it on.
     footer = _daily_focus_footer(integration, slack_user_id)
     if isinstance(found, str):
         return found
-    blocks = work_focus_blocks(integration, found.focus, slack_user_id)
+    blocks = work_focus_blocks(
+        integration, found.focus, slack_user_id, privacy=_onboarding_privacy_line(channels=bool(threads))
+    )
     if footer is not None:
         blocks.append(footer)
     _ready_to_send(integration, slack_user_id)
@@ -405,7 +430,7 @@ def _find(
     candidates: list[_FoundMessage] = []
     if len(messages) >= min_messages:
         try:
-            candidates = _rank(integration, messages, flow=flow)
+            candidates = _still_open(integration, _rank(integration, messages, flow=flow), flow=flow)
         except Exception as error:
             logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
             raise WorkFocusTransientError("rank failed") from error
@@ -458,6 +483,77 @@ def _daily_summary_threads(
     integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime
 ) -> list[SummaryThread]:
     return summary_threads(integration, slack_user_id, since=since) if wants_summary(integration, slack_user_id) else []
+
+
+def _previous_workday(integration: WorkspaceIntegration, slack_user_id: str) -> datetime:
+    """The same time on the previous workday in the person's timezone, so a Monday run reads back to Friday."""
+    now = timezone.now()
+    zone = person_zone(integration, slack_user_id)
+    return previous_run_before(now, zone, now.astimezone(zone).time())
+
+
+def _onboarding_privacy_line(*, channels: bool) -> str:
+    if not channels:
+        return ONBOARDING_PRIVACY_LINE
+    return (
+        "I read your recent messages and the channels we share once and kept nothing. Each one starts its own thread."
+    )
+
+
+def _thread_ts_in(permalink: object) -> str | None:
+    if not isinstance(permalink, str):
+        return None
+    values = parse_qs(urlsplit(permalink).query).get("thread_ts") or []
+    return values[0] if values and values[0] else None
+
+
+def _still_open(
+    integration: WorkspaceIntegration, candidates: list[_FoundMessage], *, flow: WorkFocusFlow
+) -> list[_FoundMessage]:
+    """The candidates whose work the thread has not finished. Jev reads each thread the bot can read; a thread the
+    bot cannot read, or a message with no replies, keeps its candidate."""
+    slack = SlackIntegration(integration)
+    read = [replace(candidate, thread=_candidate_thread(slack, candidate)) for candidate in candidates]
+    keys = {f"t{index}": index for index, candidate in enumerate(read) if candidate.thread}
+    if not keys:
+        return read
+    client = build_system_one_client(
+        model=RANK_MODEL,
+        ai_product=WORK_FOCUS_AI_PRODUCT,
+        team_id=integration.team_id,
+        properties={"slack_app_classifier": "work_focus_still_open", WORK_FOCUS_FLOW_PROPERTY: flow},
+        timeout=RANK_TIMEOUT_SECONDS,
+        privacy_mode=True,
+    )
+    result = client.decide(
+        state={"threads": {key: read[index].thread for key, index in keys.items()}},
+        questions={
+            key: NoulQuestion(
+                instructions=f"{RESOLVE_INSTRUCTIONS} This question names `threads.{key}`.",
+                criteria_true=RESOLVE_TRUE,
+                criteria_false=RESOLVE_FALSE,
+            )
+            for key in keys
+        },
+    )
+    finished = {
+        keys[key]
+        for key, answer in result.answers.items()
+        if key in keys and isinstance(answer, NoulAnswer) and answer.probability < RESOLVE_MIN_PROBABILITY
+    }
+    return [candidate for index, candidate in enumerate(read) if index not in finished]
+
+
+def _candidate_thread(slack: SlackIntegration, candidate: _FoundMessage) -> str | None:
+    try:
+        response = slack.client.conversations_replies(
+            channel=candidate.channel_id, ts=candidate.thread_ts or candidate.message_ts, limit=THREAD_REPLIES_LIMIT
+        )
+    except (SlackApiError, SlackClientError, OSError):
+        return None
+    messages = [m for m in response.get("messages") or [] if str(m.get("text") or "").strip()]
+    # A lone root is the message itself, which Jev already read.
+    return thread_text(messages) if len(messages) > 1 else None
 
 
 def _search_messages(
@@ -528,6 +624,9 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
     author_id = message.get("author_user_id")
     found[key] = _FoundMessage(
         content=content[:MAX_MESSAGE_CHARS],
+        channel_id=key[0],
+        message_ts=key[1],
+        thread_ts=_thread_ts_in(permalink),
         # A DM has no channel name worth showing, so only channels keep theirs.
         channel_name=channel_name
         if isinstance(channel_name, str) and channel_name and key[0][:1] in ("C", "G")
@@ -591,7 +690,7 @@ def _write(
         },
     ).with_options(timeout=WRITE_TIMEOUT_SECONDS, max_retries=0)
     numbered = "\n".join(
-        f"[{index}]{f' in #{message.channel_name}' if message.channel_name else ''}: {message.content}"
+        f"[{index}]{f' in #{message.channel_name}' if message.channel_name else ''}: {message.thread or message.content}"
         for index, message in enumerate(candidates, start=1)
     )
     numbered_threads = "\n\n".join(
@@ -684,15 +783,17 @@ def work_focus_blocks(
         if focus.suggestions:
             blocks.append(section_block("Here's where I can jump in:"))
     for index, suggestion in enumerate(focus.suggestions):
-        # The DM posts with unfurling off, so the link shows no preview.
+        # The DM posts with unfurling off, so the link shows no preview. The source line waits for the review thread.
         line = source_line(suggestion, slack_user_id)
         value: dict[str, Any] = {"integration_id": integration.id, "request": suggestion.request}
         if line:
             value["source"] = suggestion.source_permalink
             value["source_line"] = line
+        number = len(focus.summary) + index + 1
+        link = f" <{suggestion.source_permalink}|[{number}]>" if suggestion.source_permalink else ""
         blocks.append(
             {
-                **section_block(f"• {suggestion.offer}" + (f"\n      ◦ {line}" if line else "")),
+                **section_block(f"• {suggestion.offer}{link}"),
                 "block_id": f"{WORK_FOCUS_SUGGESTION_BLOCK_PREFIX}{index}",
                 "accessory": {
                     "type": "button",

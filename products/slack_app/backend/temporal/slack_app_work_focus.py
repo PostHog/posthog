@@ -52,6 +52,24 @@ class SlackAppWorkFocusWorkflow(PostHogWorkflow):
     async def run(self, inputs: SlackAppWorkFocusInputs) -> None:
         if inputs.start_delay_seconds > 0:
             await workflow.sleep(timedelta(seconds=inputs.start_delay_seconds))
+        if inputs.since is None:
+            # The first run after the link has no sweep before it, so it indexes the workspace's channels itself.
+            try:
+                await workflow.execute_activity(
+                    index_slack_app_daily_summary_activity,
+                    SlackAppDailySummaryIndexInputs(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        slack_user_ids=[inputs.slack_user_id],
+                    ),
+                    start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
+                    retry_policy=_INDEX_RETRY,
+                    summary="index the channels",
+                )
+            except ActivityError:
+                workflow.logger.warning(
+                    "slack_app_daily_summary_index_failed", extra={"slack_team_id": inputs.slack_team_id}
+                )
         outcome = await workflow.execute_activity(
             find_slack_app_work_focus_activity,
             inputs,

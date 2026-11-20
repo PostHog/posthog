@@ -48,6 +48,8 @@ SECRET_MESSAGE = "the churn numbers for the enterprise plan look wrong again"
 SIGNUP_MESSAGE = "can someone check why signups dropped after the release"
 CHATTER = "lunch at noon?"
 ASKED_THE_APP = "<@U_BOT> can you check why signups dropped after the release"
+RESOLVED_MESSAGE = "the nightly export job is failing again"
+MONDAY = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
 REQUEST = "Find out why churn by plan looks wrong for the enterprise plan, and fix the query."
 
 
@@ -62,14 +64,17 @@ def _install(team) -> WorkspaceIntegration:
     return require_workspace_integration(row.id, SLACK_TEAM_ID)
 
 
-def _messages(contents: list[str], *, prefix: str, author: str = SLACK_USER_ID) -> list[dict[str, Any]]:
+def _messages(
+    contents: list[str], *, prefix: str, author: str = SLACK_USER_ID, thread_ts: str | None = None
+) -> list[dict[str, Any]]:
+    query = f"?thread_ts={thread_ts}" if thread_ts else ""
     return [
         {
             "channel_id": "C1",
             "channel_name": "product",
             "message_ts": f"{prefix}.{index}",
             "content": content,
-            "permalink": f"https://example.slack.com/archives/C1/p{prefix}{index}",
+            "permalink": f"https://example.slack.com/archives/C1/p{prefix}{index}{query}",
             "author_user_id": author,
             "is_author_bot": False,
         }
@@ -95,6 +100,11 @@ def _search(found: int) -> Any:
                 "results": {
                     "messages": [
                         *_messages(first, prefix=query_key, author=SLACK_USER_ID if query_key == "mine" else "U_ANDY"),
+                        *(
+                            _messages([RESOLVED_MESSAGE], prefix="resolved", thread_ts="1700.5")
+                            if query_key == "mine"
+                            else []
+                        ),
                         *bots,
                     ]
                 },
@@ -107,8 +117,17 @@ def _search(found: int) -> Any:
 
 def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> SystemOneResult:
     def probability(content: str) -> float:
-        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7, ASKED_THE_APP: 0.95}.get(content, 0.1)
+        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7, ASKED_THE_APP: 0.95, RESOLVED_MESSAGE: 0.8}.get(content, 0.1)
 
+    if "threads" in state:
+        # The second pass reads the thread: one that says "merged" is finished work.
+        return SystemOneResult(
+            model="jev",
+            answers={
+                key: NoulAnswer(probability=0.1 if "merged" in state["threads"][key] else 0.9) for key in questions
+            },
+            input_tokens=None,
+        )
     messages = state["messages"]
     return SystemOneResult(
         model="jev",
@@ -142,6 +161,11 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
     ):
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
+        bot_client.return_value.conversations_replies.side_effect = lambda **kwargs: {
+            "messages": [{"user": SLACK_USER_ID, "text": RESOLVED_MESSAGE}, {"user": "U_ANDY", "text": "fixed, merged"}]
+            if kwargs.get("ts") == "1700.5"
+            else []
+        }
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
             [
                 {"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1},
@@ -171,11 +195,14 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     integration = _install(team)
     link_user(user, user_scopes="search:read.public search:read.im users:read")
 
-    assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
-    assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
+    with time_machine.travel(MONDAY, tick=False):
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
 
     searches = slack["search"].return_value.api_call.call_args_list
     assert len(searches) == 4
+    # A Monday run reads back to Friday, the same time of day.
+    assert {call.kwargs["params"]["after"] for call in searches} == {int((MONDAY - timedelta(days=3)).timestamp())}
     # All six calls are reserved at once, and the two the search did not need go back.
     assert slack["bucket"].call_args.kwargs["cost"] == 6
     assert slack["refund"].call_args.args[2] == 2
@@ -194,6 +221,8 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert CHATTER not in written_from and "bot noise" not in written_from
     # A message that tagged the app was answered in its thread, so it is never ranked or offered again.
     assert ASKED_THE_APP not in written_from
+    # Jev read the thread of each kept message, and the one whose thread says it is merged is finished work.
+    assert RESOLVED_MESSAGE not in written_from
     assert all(
         ASKED_THE_APP not in json.dumps(call.kwargs["state"])
         for call in slack["ranker"].return_value.decide.call_args_list
@@ -207,10 +236,10 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     # The DM stays short: no message previews, and the full request rides in the button.
     assert dm["unfurl_links"] is False and dm["unfurl_media"] is False
     assert REQUEST not in shown and REQUEST in json.dumps(dm["blocks"])
-    # The suggestion links the message Jev ranked first, which the writer named as its source.
-    # Each suggestion links its message as a nested line: the person's own message, or the thread with the author.
-    assert "◦ <https://example.slack.com/archives/C1/pmine0|Your message> in #product" in shown
-    assert "◦ <https://example.slack.com/archives/C1/pmentions0|Here's the thread> with <@U_ANDY> in #product" in shown
+    # Each offer ends in a small numbered link to the message the writer named as its source, nothing more.
+    assert "Want me to dig in? <https://example.slack.com/archives/C1/pmine0|[1]>" in shown
+    assert "Want me to check? <https://example.slack.com/archives/C1/pmentions0|[2]>" in shown
+    assert "◦" not in shown and "Your message" not in shown
     stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID).onboarding
     assert isinstance(stored, dict) and stored["work_focus_outcome"] == "sent"
     assert SECRET_MESSAGE not in json.dumps(stored)
@@ -221,7 +250,7 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     "outcome, scopes, found, writer_fails",
     [
         ("no_search_scope", "users:read", 6, False),
-        ("not_enough_messages", "search:read.public", 3, False),
+        ("not_enough_messages", "search:read.public", 0, False),
         ("nothing_actionable", "search:read.public", 5, False),
     ],
 )
@@ -551,6 +580,37 @@ def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
     assert "• <@U_LEAD> rolled back the release in <#C1>. <https://example.slack.com/archives/C1/p17001|[1]>" in text
     assert ("Here's where I can jump in" in text) is not quiet_inbox
     assert "I read your messages and the channels we share since Friday" in text
+
+
+@pytest.mark.django_db
+def test_the_first_run_opens_with_the_channels_and_numbers_the_offers_after_them(
+    org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+    thread = SummaryThread(
+        channel_id="C1", ts="1700.1", text="<@U_LEAD>: rolling back", involves_person=False, permalink="https://x/p1"
+    )
+    written = _written([{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}])
+    written.choices[0].message.content = json.dumps(
+        {**json.loads(written.choices[0].message.content), "summary": [{"text": "<@U_LEAD> rolled back.", "source": 1}]}
+    )
+    slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
+
+    with (
+        patch(f"{WORK_FOCUS}.wants_summary", return_value=True),
+        patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
+        time_machine.travel(MONDAY, tick=False),
+    ):
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
+
+    assert threads.call_args.kwargs["since"] == MONDAY - timedelta(days=3)
+    text = all_block_text(slack["bot"].chat_postMessage.call_args.kwargs["blocks"])
+    assert "• <@U_LEAD> rolled back in <#C1>. <https://x/p1|[1]>" in text
+    # The offers continue the numbering, so every link in the DM has its own number.
+    assert "Want me to dig in? <https://example.slack.com/archives/C1/pmine0|[2]>" in text
+    assert "I read your recent messages and the channels we share once" in text
 
 
 @pytest.mark.django_db
