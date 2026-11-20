@@ -42,6 +42,16 @@ class TestWrapClickhouseQueryError:
                 assert "private" not in wrapped.message, code
                 assert wrapped.nested is None, code
 
+    def test_argument_type_error_names_both_operand_types(self) -> None:
+        raw = ServerException(
+            "DB::Exception: Illegal types DateTime64(6, 'UTC') and String of arguments of function plus. "
+            "While processing private expression",
+            code=43,
+        )
+        assert str(wrap_clickhouse_query_error(raw)) == (
+            "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
+        )
+
     def test_unknown_code_preserves_only_its_driver_number(self) -> None:
         error = InternalCHQueryError("private diagnostic", code=999999, code_name="caller_supplied")
         assert error_code_from_type(error) == "clickhouse_999999"

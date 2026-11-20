@@ -160,7 +160,12 @@ def _argument_type_message(message: str, fallback: str) -> str:
 
         if find_hogql_function(match[1]) or find_hogql_aggregation(match[1]):
             subject = f"`{match[1]}`"
-    if actual := re.search(r"\bIllegal types? ([A-Za-z][A-Za-z0-9]+)\b", message):
+    pair = re.search(r"\bIllegal types ([A-Za-z0-9]+)(?:\([^()\n]{0,128}\))? and ([A-Za-z0-9]+)\b", message)
+    if pair and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in pair.groups()):
+        return (
+            f"{subject} cannot combine {pair[1]} and {pair[2]} here. Check the types on both sides of the expression."
+        )
+    if actual := re.search(r"\bIllegal type ([A-Za-z][A-Za-z0-9]+)\b", message):
         if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(actual[1]):
             return f"{subject} cannot use an argument of type {actual[1]} here. Check the argument order and cast it to a supported type."
     if subject != "The function":

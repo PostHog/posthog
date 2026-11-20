@@ -621,7 +621,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response["code"], "illegal_type_of_argument")
             self.assertEqual(response["attr"], None)
             self.assertIn(
-                "`plus` cannot use an argument of type DateTime64",
+                "`plus` cannot combine DateTime64 and String",
                 response["detail"],
             )
 
