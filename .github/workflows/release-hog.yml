@@ -102,8 +102,9 @@ env:
         if ! git rev-parse -q --verify refs/remotes/origin/master >/dev/null; then
             git fetch --quiet --filter=blob:none origin +refs/heads/master:refs/remotes/origin/master
         fi
-        if ! git log --format= --raw --no-abbrev --no-renames origin/master -- hog/release/check-approvers.sh \
-            | awk '{ print $4 }' | grep -qx "$COMPILED_OWNERS_CHECKER_BLOB"; then
+        # Collected first: grep -q exiting early would end awk with SIGPIPE, which pipefail reports as a failure.
+        blobs=$(git log --format= --raw --no-abbrev --no-renames origin/master -- hog/release/check-approvers.sh | awk '{ print $4 }')
+        if ! grep -qxF "$COMPILED_OWNERS_CHECKER_BLOB" <<<"$blobs"; then
             echo "::error::Blob $COMPILED_OWNERS_CHECKER_BLOB was never hog/release/check-approvers.sh on master, so it can't stand in for the approver check. Set COMPILED_OWNERS_CHECKER_BLOB to a checker master has."
             exit 1
         fi
@@ -283,6 +284,23 @@ jobs:
                   if [ -n "$outside" ]; then
                       echo "::error::The release builds from paths that HOG_SOURCE_PATHS in .github/workflows/release-hog.yml leaves out, so their authors could approve the release. Add each to HOG_SOURCE_PATHS:"
                       echo "$outside"
+                      exit 1
+                  fi
+
+            # The late check passes these paths to the checker after the release pull request merges, and the
+            # checker stops on a path it can't match literally, which would block publishing. Running the
+            # checker on them here fails before approval and names the path.
+            - name: Check the approver check accepts every build path
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  extra_paths="$RUNNER_TEMP/extra-paths.txt"
+                  { tr ' ' '\n' <<<"$HOG_SOURCE_PATHS"; bun release/catalog-gap.ts --list-compiled; } | sed '/^$/d' >"$extra_paths"
+                  if ! GITHUB_OUTPUT=/dev/null bash "$RUNNER_TEMP/check-approvers.sh" --report --extra-paths "$extra_paths" "$BASE" "$BASE"; then
+                      echo "::error::The approver check can't take a path the release builds from, so the late check would stop publishing. Rename the path above."
                       exit 1
                   fi
 
