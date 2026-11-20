@@ -105,7 +105,8 @@ function recountToonArrays(lines: string[]): string[] {
         }
         const itemIndent = indentOf(next)
         let items = 0
-        for (const child of lines.slice(index + 1)) {
+        for (let childIndex = index + 1; childIndex < lines.length; childIndex++) {
+            const child = lines[childIndex]!
             const indent = indentOf(child)
             if (indent < itemIndent) {
                 break
@@ -206,12 +207,22 @@ function projectArray(value: unknown[], budget: number, path: string, cuts: stri
     return kept
 }
 
-function commonPrefixLength(a: string, b: string): number {
+/** Paging offsets count code points, as the API's Python strings do, not UTF-16 units. */
+function codePointLength(text: string): number {
+    let length = 0
+    for (const _ of text) {
+        length++
+    }
+    return length
+}
+
+function commonPrefixCodePoints(a: string, b: string): number {
     let length = 0
     while (length < a.length && length < b.length && a[length] === b[length]) {
         length++
     }
-    return length
+    const splitsPair = length > 0 && /[\uD800-\uDBFF]/.test(a[length - 1]!)
+    return codePointLength(a.slice(0, splitsPair ? length - 1 : length))
 }
 
 /**
@@ -231,12 +242,12 @@ function realignPagedText(
     }
     const next = value[nextKey]
     const total = value[`${key}_total_length`]
-    const start =
-        typeof next === 'number' ? next - full.length : typeof total === 'number' ? total - full.length : undefined
-    if (start === undefined) {
+    const end = typeof next === 'number' ? next : typeof total === 'number' ? total : undefined
+    if (end === undefined) {
         return
     }
-    kept.set(nextKey, start + (typeof shortened === 'string' ? commonPrefixLength(full, shortened) : 0))
+    const start = end - codePointLength(full)
+    kept.set(nextKey, start + (typeof shortened === 'string' ? commonPrefixCodePoints(full, shortened) : 0))
 }
 
 function projectRecord(
