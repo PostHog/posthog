@@ -239,6 +239,11 @@ export interface SendEmailApi {
     capture_engagement?: boolean
     /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
     tracking?: SendEmailApiTracking
+    /**
+     * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
+     * @nullable
+     */
+    scheduled_at?: string | null
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
@@ -258,7 +263,7 @@ export const SendWarningCodeEnumApi = {
 } as const
 
 export interface SendWarningApi {
-    /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
+    /** What the warning is about. `sandbox_sender`: the email goes out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
      *
      * * `sandbox_sender` - Sent from the PostHog test sender */
     code: SendWarningCodeEnumApi
@@ -270,6 +275,17 @@ export interface SendWarningApi {
     agent_action: string
 }
 
+/**
+ * * `queued` - Queued
+ * * `scheduled` - Scheduled
+ */
+export type QueuedEmailStatusEnumApi = (typeof QueuedEmailStatusEnumApi)[keyof typeof QueuedEmailStatusEnumApi]
+
+export const QueuedEmailStatusEnumApi = {
+    Queued: 'queued',
+    Scheduled: 'scheduled',
+} as const
+
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
@@ -277,6 +293,16 @@ export interface SendTransactionalEmailResponseApi {
     replayed: boolean
     /** Things the caller should act on although the email was queued. Left out when there are none. */
     warnings?: SendWarningApi[]
+    /** Only in the answer to a request with `scheduled_at`. `scheduled`: the email waits for `scheduled_at`. `queued`: the time had passed, so the email goes out now.
+     *
+     * * `queued` - Queued
+     * * `scheduled` - Scheduled */
+    status?: QueuedEmailStatusEnumApi
+    /**
+     * Only in the answer to a request with `scheduled_at`. The time the email waits for, to the millisecond, or null when the time had passed and the email goes out now. A retry with the same `Idempotency-Key` answers the first request's time.
+     * @nullable
+     */
+    scheduled_at?: string | null
 }
 
 /**

@@ -56902,6 +56902,44 @@
             "validators": []
         }
     },
+    "workflows-enable": {
+        "name": "workflows-enable",
+        "kind": "http",
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
+        "uiApp": "workflow",
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/hog_flows/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [],
+            "injectBody": {
+                "status": "active"
+            },
+            "softDelete": null,
+            "transformBody": true
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "omit",
+                "fields": ["actions.*.config.inputs", "draft.actions.*.config.inputs"],
+                "expandable": []
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "workflows-get": {
         "name": "workflows-get",
         "kind": "http",
@@ -57704,8 +57742,8 @@
     "workflows-publish": {
         "name": "workflows-publish",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -57725,7 +57763,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
@@ -57736,7 +57774,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": null,
+            "agentNote": "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
             "informational": null,
             "textInclude": []
         },
