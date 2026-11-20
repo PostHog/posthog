@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { SettingsSection } from '../tabs/SettingsSection'
 import { SelfDrivingSection } from './SelfDrivingSection'
 
 // The Autonomy settings. They read the team-wide config (`signals/config`) and the current user's
@@ -97,18 +96,13 @@ function Card(state: CardState): JSX.Element {
     )
 }
 
-/** The Settings tab: the section inside its card, at the tab's `max-w-4xl` or pinned narrow. */
+/** The Self-driving settings page: the section at the page's content width, or pinned narrow. */
 function SettingsCard({ width, ...state }: CardState & { width: 'wide' | 'narrow' }): JSX.Element {
     useAutonomyMocks(state)
-    // 32rem is about what a 1280px window leaves the scene with the side panel open.
+    // 32rem is about what a 1280px window leaves the settings content with the side panel open.
     return (
         <div className={width === 'wide' ? 'w-[56rem] px-6 py-6' : 'w-[32rem] px-6 py-6'}>
-            <SettingsSection
-                title="Autonomy"
-                description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
-            >
-                <SelfDrivingSection />
-            </SettingsSection>
+            <SelfDrivingSection />
         </div>
     )
 }
@@ -126,12 +120,12 @@ export default meta
 
 type Story = StoryObj
 
-// The Settings tab at full width: controls sit right of their labels.
+// The settings page at full width: controls sit right of their labels.
 export const SettingsTab: Story = {
     render: () => <SettingsCard width="wide" dailyLimit={10} reportsToday={3} />,
 }
 
-// The Settings tab in a narrow scene: wide controls wrap below their labels, nothing clips.
+// The settings page in a narrow window: wide controls wrap below their labels, nothing clips.
 export const SettingsTabNarrow: Story = {
     render: () => <SettingsCard width="narrow" dailyLimit={10} reportsToday={3} />,
 }
@@ -182,7 +176,7 @@ export const SettingsTabPullRequestLabel: Story = {
     render: () => <SettingsCard width="wide" prLabelEnabled prLabel="agent-pr" />,
 }
 
-// Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.
+// Master switch off on the settings page: the project threshold hides. Base branches and your own threshold stay.
 export const SettingsTabDisabled: Story = {
     render: () => <SettingsCard width="wide" enabled={false} />,
 }

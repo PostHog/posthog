@@ -347,7 +347,7 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'monitoring', 'scouts', 'sources', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'monitoring', 'scouts', 'sources']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
@@ -440,12 +440,6 @@ export const INBOX_STAFF_ONLY_REPORT_SECTION_KEYS: InboxReportSectionKey[] = ['n
 export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'Staff'>> = {
     'not-actionable': 'Staff',
 }
-
-/**
- * The old Configuration tab segment. Links that still carry it redirect to the Settings tab (see
- * `inboxTabRedirectPath`).
- */
-export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
 /**
  * `for-you` (suggested-reviewer reports), `needs-you` (reports waiting on the user's input or claimed by them),

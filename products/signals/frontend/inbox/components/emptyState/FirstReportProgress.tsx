@@ -97,7 +97,11 @@ export function FirstReportProgress({ result, notificationEmail }: FirstReportPr
                     ) : null}
                     {result.status === 'incomplete' ? (
                         <div className="flex flex-wrap gap-2">
-                            <LemonButton type="secondary" size="small" to={urls.inbox('settings')}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={urls.settings('environment-self-driving', 'self-driving-code-access')}
+                            >
                                 Review connections
                             </LemonButton>
                         </div>

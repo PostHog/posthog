@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 /**
- * One block of the Settings tab: heading, one-line context, and the section's controls, together on
+ * One block of the Sources tab: heading, one-line context, and the section's controls, together on
  * a bordered card. The card is the only frame on the page — controls inside it separate with rules
  * rather than nesting further boxes.
  */

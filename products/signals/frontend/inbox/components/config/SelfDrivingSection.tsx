@@ -11,6 +11,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -20,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
+import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { DEFAULT_PULL_REQUEST_LABEL, GITHUB_LABEL_NAME_MAX_LENGTH, SignalReportPriority } from '../../types'
@@ -918,6 +920,8 @@ function PullRequestGenerationRow(): JSX.Element {
  */
 export function SelfDrivingSection(): JSX.Element {
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    // pinned: `config` keeps the panel breakdown continuous from when this lived in the inbox.
+    useOnMountEffect(() => captureInboxPanelViewed({ panel: 'config' }))
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />

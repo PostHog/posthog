@@ -40,7 +40,7 @@ export function inboxSetupUrl(scope: ProjectScope | null, kind: InboxEmptyKind |
                   ? 'settings/organization-details'
                   : kind === 'unavailable'
                     ? 'inbox'
-                    : 'inbox/settings'
+                    : 'settings/environment-self-driving'
         const url = new URL(`/project/${scope.projectId}/${path}`, host.origin)
         if (path === 'inbox/activate') url.searchParams.set('mobile_return', appScheme)
         url.searchParams.set('utm_source', 'posthog_mobile')

@@ -61,7 +61,7 @@ function Block({ rules = RULES, withGithub = true }: { rules?: typeof RULES; wit
             },
         },
     })
-    // Mimic the Settings tab card width so wrapping matches the scene.
+    // Mimic a narrow settings column so wrapping matches the page.
     return (
         <div className="w-[40rem] max-w-full rounded border border-primary bg-surface-primary p-4">
             <RepoRoutingRules />

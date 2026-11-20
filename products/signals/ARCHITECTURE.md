@@ -1481,7 +1481,7 @@ A pull request that already has an assignee is left alone, and so is one that so
 Without the flag the older rule stands: every suggested reviewer who opted in is added as an assignee, and there is no DRI.
 
 > [!WARNING]
-> Keep the `signals-pr-dri-assignee` flag on the PostHog organization only until a team-level off switch exists in the inbox settings. Assigning people on a customer's GitHub is that team's decision, and today a team cannot turn the rule off: removing `owners.yaml` only changes who gets picked.
+> Keep the `signals-pr-dri-assignee` flag on the PostHog organization only until a team-level off switch exists in the Self-driving settings. Assigning people on a customer's GitHub is that team's decision, and today a team cannot turn the rule off: removing `owners.yaml` only changes who gets picked.
 
 The ownership lookup reads the files through `posthog.ownership`, with the GitHub integration the team already connected, so a private repository resolves wherever that installation covers it. A repository no installation covers is still read anonymously, which answers for a public repository only. The lookup reads `owners.yaml` and nothing else, so a repository declaring ownership in CODEOWNERS alone falls back to the suggested reviewers. CODEOWNERS as a second format behind the same resolver interface is still open.
 
