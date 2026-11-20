@@ -195,14 +195,14 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                 }
             }
         },
-        pollDeviceLogin: async (_, breakpoint) => {
+        pollDeviceLogin: async () => {
             const loginId = values.login?.login_id
-            if (!loginId) {
+            if (!loginId || cache.pollingLoginId === loginId) {
                 return
             }
+            cache.pollingLoginId = loginId
             try {
                 const login = await usersIntegrationsCodexLoginRetrieve('@me', loginId)
-                breakpoint()
                 if (cache.disposables.isDisposed || values.login?.login_id !== loginId) {
                     return
                 }
@@ -218,10 +218,13 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                     )
                 }
             } catch {
-                breakpoint()
                 if (!cache.disposables.isDisposed && values.login?.login_id === loginId) {
                     cache.disposables.dispose('codexLogin')
                     actions.setConnectError('Could not check the ChatGPT login. Try again.')
+                }
+            } finally {
+                if (cache.pollingLoginId === loginId) {
+                    cache.pollingLoginId = null
                 }
             }
         },

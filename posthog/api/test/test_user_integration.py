@@ -2092,6 +2092,7 @@ for line in sys.stdin:
         def spawn(_args, **kwargs):
             homes.append(kwargs["cwd"])
             assert set(kwargs["env"]) == {"PATH", "CODEX_HOME"}
+            kwargs["env"]["LD_LIBRARY_PATH"] = os.environ.get("LD_LIBRARY_PATH", "")
             return real_popen([sys.executable, "-u", "-c", fake_codex], **kwargs)
 
         def update(user_id, attempt_id, state, user_code=None):
