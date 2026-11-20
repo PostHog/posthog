@@ -18,6 +18,7 @@ from products.tasks.backend.storage import (
     append_jsonl_object,
     append_run_log_chunk,
     read_run_log,
+    read_run_log_size,
     read_run_log_version,
 )
 from products.tasks.backend.storage_errors import TaskRunLogChunkMissing
@@ -263,6 +264,31 @@ class TestChunkedRunLog(SimpleTestCase):
 
         self.assertEqual(content, b"".join(_line(index) for index in range(70)).decode())
         self.assertEqual(bucket["read_bytes"].call_count, expected_reads)
+
+    @parameterized.expand(
+        [
+            ("every_fold_present", None, 0),
+            ("top_fold_missing", "folds/3/0000000000.jsonl", 1),
+        ]
+    )
+    @patch("products.tasks.backend.storage.FOLD_FANOUT", 4)
+    @patch("products.tasks.backend.storage.get_client")
+    def test_size_reads_one_head_per_fold_and_lists_chunks_when_one_is_missing(
+        self, _name: str, removed_key: str | None, expected_lists: int, _mock_get_client: MagicMock
+    ) -> None:
+        bucket, stored = self._bucket(0)
+
+        with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
+            self._append(70)
+            if removed_key is not None:
+                del stored[f"{_LOG_PREFIX}{removed_key}"]
+            bucket["head_object_strict"].reset_mock()
+            bucket["list_object_summaries"].reset_mock()
+            size = read_run_log_size(_chunked_log(70), strict=True)
+
+        self.assertEqual(size, sum(len(_line(index)) for index in range(70)))
+        self.assertEqual(bucket["head_object_strict"].call_count, 5)
+        self.assertEqual(bucket["list_object_summaries"].call_count, expected_lists)
 
     @patch("products.tasks.backend.storage.FOLD_FANOUT", 4)
     @patch("products.tasks.backend.storage.FOLD_BYTES_MAX", 20)

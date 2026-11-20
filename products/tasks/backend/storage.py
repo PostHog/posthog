@@ -4,14 +4,14 @@ import contextlib
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 import redis
 import structlog
 
 from posthog.redis import get_client
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
+from posthog.storage.object_storage import ObjectStorageError, StoredObjectSummary
 
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
 from products.tasks.backend.storage_errors import (
@@ -190,6 +190,15 @@ def _log_plan(log: TaskRunLog, start: int, stop: int) -> list[_LogUnit]:
     return _fold_units(start, stop, FOLD_LEVEL_MAX)
 
 
+def _list_chunks(log: TaskRunLog) -> list[StoredObjectSummary]:
+    chunks: list[StoredObjectSummary] = []
+    for summary in object_storage.list_object_summaries(_chunk_prefix(log)):
+        if summary.key != run_log_chunk_key(log, len(chunks)):
+            break
+        chunks.append(summary)
+    return chunks
+
+
 def _fetch_keys(fetch: Callable[[str], T | None], keys: list[str]) -> list[T | None]:
     if len(keys) <= 1:
         return [fetch(key) for key in keys]
@@ -257,6 +266,22 @@ def _content_length(key: str) -> int | None:
     return int(head.get("ContentLength") or 0)
 
 
+def _planned_size(log: TaskRunLog) -> int | None:
+    assert log.chunked
+    assert 0 <= log.chunk_count < CHUNK_COUNT_MAX, log.chunk_count
+    units = _log_plan(log, 0, log.chunk_count)
+    sizes = _fetch_keys(
+        _content_length, [_unit_key(log, unit) for unit in units] + [run_log_chunk_key(log, log.chunk_count)]
+    )
+    if any(size is None for size in sizes[:-1]):
+        return None
+    tail_size = sizes[-1]
+    if tail_size is None:
+        return sum(cast(list[int], sizes[:-1]))
+    tail = [tail_size, *_fetch_chunks_from(log, _content_length, log.chunk_count + 1)]
+    return sum(cast(list[int], sizes[:-1])) + sum(tail)
+
+
 def _write_seal(log: TaskRunLog, body: bytes) -> None:
     assert log.finished
     assert log.chunk_count > 0, log.chunk_count
@@ -302,12 +327,14 @@ def read_run_log_bytes(log: TaskRunLog) -> bytes:
 def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
     if log.chunked:
         try:
-            fetched = _fetch_log(log, _content_length, 0)
+            size = _planned_size(log)
+            if size is None:
+                return sum(chunk.size for chunk in _list_chunks(log))
+            return size
         except ObjectStorageError:
             if strict:
                 raise
             return 0
-        return sum(fetched.parts) + sum(fetched.tail)
     if strict:
         head = object_storage.head_object_strict(log.key)
     else:
