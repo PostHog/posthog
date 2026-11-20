@@ -451,6 +451,8 @@ class UsageReportCounters:
     unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
+    rust_ffi_events_count_in_period: int
+    electron_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
 
@@ -1186,6 +1188,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
+        ("posthog-rs-ffi", None, "rust_ffi_events"),
+        ("posthog-electron", None, "electron_events"),
     )
     tracked_libs = tuple(
         dict.fromkeys(
@@ -1275,6 +1279,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
+            "rust_ffi_events": {},
+            "electron_events": {},
         }
 
         # Process each result set
@@ -3408,6 +3414,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
+        "teams_with_rust_ffi_events_count_in_period": all_metrics["rust_ffi_events"],
+        "teams_with_electron_events_count_in_period": all_metrics["electron_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
             period_start, period_end
@@ -3817,6 +3825,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
+        rust_ffi_events_count_in_period=all_data["teams_with_rust_ffi_events_count_in_period"].get(team.id, 0),
+        electron_events_count_in_period=all_data["teams_with_electron_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_overage_bytes_in_period=ai_overage_bytes_in_period,

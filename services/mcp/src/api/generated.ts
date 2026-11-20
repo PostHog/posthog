@@ -69741,6 +69741,8 @@ export namespace Schemas {
      * * `posthog-aspnetcore` - posthog-aspnetcore
      * * `posthog-rs` - posthog-rs
      * * `posthog-rs-mcp` - posthog-rs-mcp
+     * * `posthog-rs-ffi` - posthog-rs-ffi
+     * * `posthog-electron` - posthog-electron
      * * `posthog-godot` - posthog-godot
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
@@ -69777,6 +69779,8 @@ export namespace Schemas {
       PosthogAspnetcore: 'posthog-aspnetcore',
       PosthogRs: 'posthog-rs',
       PosthogRsMcp: 'posthog-rs-mcp',
+      PosthogRsFfi: 'posthog-rs-ffi',
+      PosthogElectron: 'posthog-electron',
       PosthogGodot: 'posthog-godot',
       PosthogUnreal: 'posthog-unreal',
       PosthogGoMcp: 'posthog-go-mcp',
@@ -117703,6 +117707,8 @@ export namespace Schemas {
        * * `posthog-aspnetcore` - posthog-aspnetcore
        * * `posthog-rs` - posthog-rs
        * * `posthog-rs-mcp` - posthog-rs-mcp
+       * * `posthog-rs-ffi` - posthog-rs-ffi
+       * * `posthog-electron` - posthog-electron
        * * `posthog-godot` - posthog-godot
        * * `posthog-unreal` - posthog-unreal
        * * `posthog-go-mcp` - posthog-go-mcp
