@@ -48,6 +48,8 @@ _MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
 # What a run may spend on the gateway's decision route when the setting is unreadable.
 _DEFAULT_DECISION_CAP_USD = Decimal("0.25")
+# The smallest decision cap the gateway takes, sent to turn a token's decisions off.
+_OFF_DECISION_CAP_USD = _CAP_QUANTUM
 
 WIZARD_PRODUCT = "wizard"
 
@@ -601,9 +603,10 @@ def mint_wizard_gateway_token(
         # The gateway stores the text on the token and injects it into every chat call.
         # A decision takes no prompt, so the gateway holds it under the decision cap instead.
         body["system_prompt"] = policy.prompt.text
+    # Always sent: the gateway serves decisions from a token with neither a prompt
+    # nor a decision cap against the run's whole cap.
     decision_cap = _decision_cap_usd(cap)
-    if decision_cap is not None:
-        body["decision_cap_usd"] = decision_cap
+    body["decision_cap_usd"] = decision_cap
     try:
         response = requests.post(
             f"{base_url}/v1/tokens",
@@ -649,7 +652,7 @@ def mint_wizard_gateway_token(
         WIZARD_GATEWAY_MINTS.labels(outcome="malformed").inc()
         raise WizardGatewayMintError("mint response missing token or expires_at")
     WIZARD_GATEWAY_MINTS.labels(outcome="ok").inc()
-    if decision_cap is not None and not minted.get("decision_cap_usd"):
+    if not minted.get("decision_cap_usd"):
         # The gateway echoes a decision cap it stored, so no echo means it predates the field.
         logger.warning(
             "wizard_gateway_token: the gateway did not store the decision cap", decision_cap_usd=decision_cap
@@ -702,20 +705,20 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
     return f"{cap.quantize(_CAP_QUANTUM):f}"
 
 
-def _decision_cap_usd(cap_usd: str) -> str | None:
+def _decision_cap_usd(cap_usd: str) -> str:
     """How much of the run's cap its token may spend on the gateway's decision
     route, as a fixed-point string no higher than cap_usd, which the gateway
-    requires. None sends no field: a setting of zero leaves the token with no
-    decision cap, and the gateway then refuses its decisions. Zero is the only
-    off value, since get_from_env reads an empty variable as the default.
+    requires. Every mint carries one, with or without a prompt. A setting of zero
+    sends the smallest cap, so the gateway refuses the token's decisions. Zero is
+    the only off value, since get_from_env reads an empty variable as the default.
     """
     raw = str(settings.WIZARD_GATEWAY_DECISION_CAP_USD).strip()
+    decision_cap = _parse_cap(raw)
     try:
         if Decimal(raw) == 0:
-            return None
+            decision_cap = _OFF_DECISION_CAP_USD
     except InvalidOperation:
         pass
-    decision_cap = _parse_cap(raw)
     if decision_cap is None:
         logger.warning("wizard_gateway_token: decision_cap_usd out of contract, using the default", cap=raw)
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="decision_cap_usd").inc()

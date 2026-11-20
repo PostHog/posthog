@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
@@ -147,19 +148,38 @@ class TestWizardMintRequest:
             ("-1", None, "0.250000"),
             # Blank is not an off value: get_from_env reads an empty variable as the default.
             (" ", None, "0.250000"),
-            # Zero is the one value that turns the decision cap off.
-            ("0", None, None),
-            ("0.00", None, None),
+            # Zero turns decisions off with the smallest cap the gateway takes, not with none:
+            # a token with no decision cap and no prompt would spend the run's whole cap on them.
+            ("0", None, "0.000001"),
+            ("0.00", None, "0.000001"),
         ],
     )
     def test_the_decision_cap_is_sent_inside_the_cap(self, configured, cap, expected):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        rejects = WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="decision_cap_usd")
+        before = rejects._value.get()
         with (
             override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
         ):
             mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, cap_usd=cap)
-        assert post.call_args.kwargs["json"].get("decision_cap_usd") == expected
+        assert post.call_args.kwargs["json"]["decision_cap_usd"] == expected
+        # Only an unreadable value counts as a reject; zero is a choice.
+        unreadable = configured in ("a quarter", "-1", " ")
+        assert rejects._value.get() - before == (1 if unreadable else 0)
+
+    @pytest.mark.parametrize("configured", ["0.3", "0"])
+    def test_a_token_with_no_prompt_still_carries_a_decision_cap(self, configured):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        unpinned = dataclasses.replace(POLICY, prompt=None)
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+        sent = post.call_args.kwargs["json"]
+        assert "system_prompt" not in sent
+        assert Decimal(sent["decision_cap_usd"]) > 0
 
     @pytest.mark.parametrize(
         "configured,echoed,warns",
@@ -167,8 +187,8 @@ class TestWizardMintRequest:
             # A gateway that predates the field mints without it and echoes nothing.
             ("0.3", None, True),
             ("0.3", "0.3", False),
-            # Nothing was sent, so there is nothing to miss.
-            ("0", None, False),
+            # Zero sends a cap too, so a missing echo is still a cap the gateway dropped.
+            ("0", None, True),
         ],
     )
     def test_a_decision_cap_the_gateway_did_not_store_is_logged(self, configured, echoed, warns):
