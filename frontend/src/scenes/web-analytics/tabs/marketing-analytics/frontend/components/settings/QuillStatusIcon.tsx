@@ -17,6 +17,8 @@ export function QuillStatusIcon({ status, message }: { status: SourceStatus; mes
             <TooltipTrigger render={<span tabIndex={0} className="inline-flex items-center justify-center" />}>
                 {icon && <span className="text-lg">{icon}</span>}
                 {tagType && <Badge variant={BADGE_VARIANT[tagType]}>{status}</Badge>}
+                {/* Screen readers don't announce the tooltip, so the trigger carries its message too. */}
+                <span className="sr-only">{tagType ? message : `${status}: ${message}`}</span>
             </TooltipTrigger>
             <TooltipContent>{message}</TooltipContent>
         </Tooltip>

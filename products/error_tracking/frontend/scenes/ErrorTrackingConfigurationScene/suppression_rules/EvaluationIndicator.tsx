@@ -2,7 +2,7 @@ import { IconInfo, IconLaptop, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { Badge, Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
@@ -71,7 +71,7 @@ function Pill({
     label: string
     tooltip: string
 }): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (todayRailNav) {
         return (
@@ -153,7 +153,7 @@ function DonutChart({
 }
 
 export function SamplingRateIndicator({ samplingRate }: { samplingRate: number }): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
     const percentage = Math.round(samplingRate * 100)
     const tooltip = `${percentage}% of matching exceptions will be suppressed. The remaining ${100 - percentage}% will be captured normally.`
 
@@ -193,7 +193,7 @@ export function EvaluationIndicator({
     mode: EvalMode
     samplingRate?: number
 }): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
     const clientActive = mode === 'client' || mode === 'partial'
 
     if (todayRailNav) {

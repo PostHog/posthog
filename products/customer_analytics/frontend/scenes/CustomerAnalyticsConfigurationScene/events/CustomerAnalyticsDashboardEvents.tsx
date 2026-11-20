@@ -8,10 +8,10 @@ import { Button, Heading, Text } from '@posthog/quill'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -49,7 +49,7 @@ function EventSelector({ series, setSeries, title, caption, prompt }: EventSelec
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const shouldShowAIButton = !series?.[0] || isPageviewWithoutFilters(series[0])
 
@@ -154,7 +154,7 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleSave = (): void => {
         saveEvents()

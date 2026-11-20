@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { LogsAlertCreateModal } from './LogsAlertCreateModal'
 import { LogsAlertEditModal } from './LogsAlertEditModal'
@@ -26,7 +26,7 @@ export function LogsAlertingSection(): JSX.Element {
 function LogsAlertingSectionContent(): JSX.Element {
     const { isCreateAlertModalOpen, editingAlert } = useValues(logsAlertingLogic)
     const { closeCreateAlertModal, closeEditAlertModal } = useActions(logsAlertingLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (todayRailNav) {
         return (

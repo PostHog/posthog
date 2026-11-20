@@ -96,6 +96,7 @@ export function Settings({
         toggleGroupCollapse,
         navigateToSetting,
     } = useActions(settingsLogic(props))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Tailwind `md` breakpoint (768px). Matches `screens.md` in common/tailwind/tailwind.config.js.
     const [isViewportCompact, setIsViewportCompact] = React.useState(() => {
@@ -373,16 +374,19 @@ export function Settings({
                     isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
                 )}
             >
-                <AuthenticationAreaComponent>
-                    <div className="space-y-2">
-                        {headerSlot}
-                        {sectionAccessDeniedReason ? (
-                            <AccessDenied reason={sectionAccessDeniedReason} />
-                        ) : (
-                            <SettingsRenderer {...props} handleLocally={handleLocally} />
-                        )}
-                    </div>
-                </AuthenticationAreaComponent>
+                {/* The organization re-authentication card wraps the settings, so it sits inside the quill surface too. */}
+                <QuillSurfaceContext.Provider value={todayRailNav}>
+                    <AuthenticationAreaComponent>
+                        <div className="space-y-2">
+                            {headerSlot}
+                            {sectionAccessDeniedReason ? (
+                                <AccessDenied reason={sectionAccessDeniedReason} />
+                            ) : (
+                                <SettingsRenderer {...props} handleLocally={handleLocally} />
+                            )}
+                        </div>
+                    </AuthenticationAreaComponent>
+                </QuillSurfaceContext.Provider>
             </div>
         </div>
     )
@@ -469,21 +473,19 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
 
     const payGate = selectedSection?.payGate
     if (!payGate) {
-        return <QuillSurfaceContext.Provider value={todayRailNav}>{content}</QuillSurfaceContext.Provider>
+        return content
     }
 
     // One gate for the whole section, so the upsell appears once however many settings the
     // section holds.
     return (
-        <QuillSurfaceContext.Provider value={todayRailNav}>
-            <PayGateMini
-                feature={payGate.feature}
-                featureDetail={payGate.featureDetail}
-                overrideShouldShowGate={payGate.bypassForImpersonation && user?.is_impersonated}
-            >
-                {content}
-            </PayGateMini>
-        </QuillSurfaceContext.Provider>
+        <PayGateMini
+            feature={payGate.feature}
+            featureDetail={payGate.featureDetail}
+            overrideShouldShowGate={payGate.bypassForImpersonation && user?.is_impersonated}
+        >
+            {content}
+        </PayGateMini>
     )
 }
 

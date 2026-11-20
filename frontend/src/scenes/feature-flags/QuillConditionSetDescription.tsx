@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Field, Textarea } from '@posthog/quill'
 
@@ -14,6 +14,9 @@ export function QuillConditionSetDescription({
     onSave: (description: string) => void
 }): JSX.Element {
     const [draft, setDraft] = useState(description)
+
+    // Discarding changes resets `description`, and a stale draft would be saved back on the next blur.
+    useEffect(() => setDraft(description), [description])
 
     function handleBlur(): void {
         if (draft !== description) {

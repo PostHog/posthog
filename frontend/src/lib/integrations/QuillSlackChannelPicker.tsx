@@ -86,11 +86,6 @@ export function QuillSlackChannelPicker({
                 setInputValue(next)
                 onInputChange(next)
             }}
-            onOpenChange={(open, eventDetails) => {
-                if (!open && (eventDetails.reason === 'focus-out' || eventDetails.reason === 'outside-press')) {
-                    onBlur()
-                }
-            }}
             onValueChange={(next: Item[]) => {
                 if (next.includes(REFRESH_ITEM)) {
                     onRefresh()
@@ -118,6 +113,8 @@ export function QuillSlackChannelPicker({
                                           : 'Select a channel...'
                                 }
                                 onFocus={onFocus}
+                                // The input's own blur also fires after Escape closed the list, unlike the popup's close.
+                                onBlur={onBlur}
                                 data-attr="select-slack-channel"
                             />
                         </>

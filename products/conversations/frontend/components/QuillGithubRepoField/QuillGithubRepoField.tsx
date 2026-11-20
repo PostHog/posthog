@@ -44,7 +44,14 @@ export function QuillGithubRepoField({
                 multiple
                 items={repoNames}
                 value={value}
-                onValueChange={(next) => onChange(next ?? [])}
+                onValueChange={(next, eventDetails) => {
+                    // Escape with the list closed would otherwise clear every selection.
+                    if (eventDetails.reason === 'escape-key') {
+                        eventDetails.allowPropagation()
+                        return
+                    }
+                    onChange(next ?? [])
+                }}
                 onOpenChange={(open) => {
                     if (open) {
                         onOpen()

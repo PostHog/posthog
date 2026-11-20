@@ -6,7 +6,7 @@ import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot } from '@posthog/qu
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
@@ -22,7 +22,7 @@ export function DefaultSequentialTuningParameter(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const savedValue = experimentsConfig?.default_sequential_tuning_parameter ?? null
     const displayValue = savedValue ?? DEFAULT_SEQUENTIAL_TUNING_PARAMETER

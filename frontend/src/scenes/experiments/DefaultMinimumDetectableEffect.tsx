@@ -5,9 +5,10 @@ import { useDebouncedCallback } from 'use-debounce'
 import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot, Skeleton, Slider, Text } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
 import { RestrictionScope, useRestrictedArea } from '~/lib/components/RestrictedArea'
 import { TeamMembershipLevel } from '~/lib/constants'
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { LemonSlider } from '~/lib/lemon-ui/LemonSlider'
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 
@@ -22,7 +23,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     })
 
     const [localValue, setLocalValue] = useState<number | null>(null)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const debouncedUpdate = useDebouncedCallback((value: number) => {
         updateExperimentsConfig({ default_minimum_detectable_effect: value })

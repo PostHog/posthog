@@ -30,10 +30,13 @@ export function QuillMappingCombobox({
     const [inputValue, setInputValue] = useState('')
     const customPrefix = `__custom__${useId()}:`
     const labels = useMemo(() => new Map(options.map((option) => [option.key, option.label])), [options])
+    const optionLabels = useMemo(() => new Set(options.map((option) => option.label)), [options])
 
     const trimmed = inputValue.trim()
     const customSentinel = `${customPrefix}${trimmed}`
-    const showCustomItem = !loading && trimmed.length > 0 && !labels.has(trimmed) && trimmed !== value
+    // After a pick the input shows the option's label, which must not be offered back as a custom value.
+    const showCustomItem =
+        !loading && trimmed.length > 0 && !labels.has(trimmed) && !optionLabels.has(trimmed) && trimmed !== value
 
     const items = options.map((option) => option.key)
     if (value && !labels.has(value)) {

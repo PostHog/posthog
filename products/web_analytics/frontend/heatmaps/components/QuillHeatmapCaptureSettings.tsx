@@ -62,6 +62,7 @@ export function QuillHeatmapCaptureSettings({
 }): JSX.Element {
     const isAllowlist = captureMode === 'url_allowlist'
     const emptyAllowlist = isAllowlist && urlAllowlist.length === 0
+    const atUrlLimit = captureUrlLimit != null && urlAllowlist.length >= captureUrlLimit
 
     return (
         <div className="flex max-w-160 flex-col gap-4">
@@ -148,7 +149,11 @@ export function QuillHeatmapCaptureSettings({
                         onChange={onUrlAllowlistChange}
                         customValueNoun="URL"
                         dataAttr="heatmap-capture-url-allowlist"
-                        placeholder="https://example.com/pricing"
+                        // Past the plan limit a new URL would be dropped silently, so creating one turns off.
+                        allowCustomValues={!atUrlLimit}
+                        placeholder={
+                            atUrlLimit ? `Limit of ${captureUrlLimit} URLs reached` : 'https://example.com/pricing'
+                        }
                         disabled={settingsLoading}
                         disabledReason={restrictedReason}
                         className="w-full"

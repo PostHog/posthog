@@ -54,7 +54,7 @@ export function QuillDefaultReleaseConditions({
                         id="default-release-conditions"
                         filters={filtersForEditor}
                         onChange={onFiltersChange}
-                        isDisabled={!!restrictedReason}
+                        restrictedReason={restrictedReason}
                     />
                 </div>
             )}

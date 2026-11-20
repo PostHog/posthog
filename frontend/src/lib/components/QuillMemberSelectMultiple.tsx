@@ -36,7 +36,14 @@ export function QuillMemberSelectMultiple({
             limit={MAX_MEMBER_RESULTS}
             itemToStringLabel={(key: string) => labelsByKey[key] ?? key}
             value={value}
-            onValueChange={(next: string[]) => onChange(next ?? [])}
+            onValueChange={(next: string[], eventDetails) => {
+                // Escape with the list closed would clear every member, and some callers save on change.
+                if (eventDetails.reason === 'escape-key') {
+                    eventDetails.allowPropagation()
+                    return
+                }
+                onChange(next ?? [])
+            }}
         >
             <QuillMemberChips labelsByKey={labelsByKey} loading={loading} />
         </Combobox>
