@@ -31,8 +31,6 @@ import {
 } from './types'
 
 const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
-// One parse call joins its decompressed blocks into one string, so a whole large session would pass the browser's string length limit.
-const RAW_EXPORT_BLOCKS_PER_PARSE = 50
 
 export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
     bytes.byteLength >= RAW_EXPORT_MAGIC.byteLength && RAW_EXPORT_MAGIC.every((byte, i) => bytes[i] === byte)
@@ -49,32 +47,21 @@ export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promi
         throw new Error(`Unsupported export version ${header.version}`)
     }
 
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    const registerWindowId = createWindowIdRegistry()
-    const snapshots: RecordingSnapshot[] = []
-    let offset = headerEnd + 1
+    // The shared parser stops quietly at a truncated block, so check the framing here first.
+    const blocks = bytes.subarray(headerEnd + 1)
+    const view = new DataView(blocks.buffer, blocks.byteOffset, blocks.byteLength)
     let blockCount = 0
-    while (offset < bytes.byteLength) {
-        const groupStart = offset
-        for (let i = 0; i < RAW_EXPORT_BLOCKS_PER_PARSE && offset < bytes.byteLength; i++) {
-            if (offset + 4 > bytes.byteLength || offset + 4 + view.getUint32(offset) > bytes.byteLength) {
-                throw new Error('File is truncated')
-            }
-            offset += 4 + view.getUint32(offset)
-            blockCount++
+    for (let offset = 0; offset < blocks.byteLength; blockCount++) {
+        const blockEnd = offset + 4 > blocks.byteLength ? Infinity : offset + 4 + view.getUint32(offset)
+        if (blockEnd > blocks.byteLength) {
+            throw new Error('File is truncated')
         }
-        snapshots.push(
-            ...(await parseEncodedSnapshots(
-                bytes.subarray(groupStart, offset),
-                header.session_id,
-                undefined,
-                registerWindowId
-            ))
-        )
+        offset = blockEnd
     }
     if (blockCount !== header.block_count) {
         throw new Error(`File has ${blockCount} blocks but its header lists ${header.block_count}`)
     }
+    const snapshots = await parseEncodedSnapshots(blocks, header.session_id)
     if (!snapshots.length) {
         throw new Error('File contains no snapshots')
     }

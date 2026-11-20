@@ -25,16 +25,12 @@ export type ExportedSessionRecordingFileV2 = {
 export type ExportedViewport = ViewportResolution & { timestamp: number }
 
 // Header line of a raw export: `PHREC1\n`, this JSON on one line, then the stored blocks, each as [u32 BE length][snappy block].
+// The header also carries team_id, distinct_id, start_time, end_time and exported_at, which playback does not read.
 export type ExportedSessionRecordingFileRawHeader = {
     version: '2026-11-raw'
     session_id: string
-    team_id: number
-    distinct_id: string
-    start_time: string
-    end_time: string
     person: SessionRecordingType['person']
     viewports: ExportedViewport[]
-    exported_at: string
     block_count: number
 }
 

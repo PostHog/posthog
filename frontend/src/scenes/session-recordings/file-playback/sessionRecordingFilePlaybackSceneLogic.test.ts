@@ -107,18 +107,19 @@ describe('sessionRecordingFilePlaybackLogic', () => {
     })
 
     describe('parseRawExportedSessionRecording', () => {
-        it('keeps window ids stable across parse groups and returns the header viewports', async () => {
-            const blocks = Array.from({ length: 120 }, (_, i) =>
-                rawBlock(i, i >= 50 && i % 2 === 0 ? 'window-b' : 'window-a')
+        it('parses every block with integer window ids and returns the header viewports', async () => {
+            const windows = ['window-a', 'window-b', 'window-a']
+
+            const parsed = await parseRawExportedSessionRecording(
+                encodeRawExport(windows.map((windowId, i) => rawBlock(i, windowId)))
             )
 
-            const parsed = await parseRawExportedSessionRecording(encodeRawExport(blocks))
-
             expect(parsed.id).toEqual('session-1')
-            expect(parsed.snapshots).toHaveLength(120)
-            const windowB = (s: { timestamp: number }): boolean => s.timestamp >= 1050 && s.timestamp % 2 === 0
-            expect(new Set(parsed.snapshots.filter((s) => !windowB(s)).map((s) => s.windowId))).toEqual(new Set([1]))
-            expect(new Set(parsed.snapshots.filter(windowB).map((s) => s.windowId))).toEqual(new Set([2]))
+            expect(parsed.snapshots.map((s) => [s.timestamp, s.windowId])).toEqual([
+                [1000, 1],
+                [1001, 2],
+                [1002, 1],
+            ])
             expect(parsed.viewports).toEqual([
                 { timestamp: 1000, width: '1280', height: '720', href: 'https://example.com' },
             ])

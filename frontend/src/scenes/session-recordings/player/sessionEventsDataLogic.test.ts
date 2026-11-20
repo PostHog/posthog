@@ -102,10 +102,6 @@ describe('sessionEventsDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // Regression test: a second loadFullEventData call supersedes the first via kea's
-    // breakpoint mechanism, which throws 'kea-listeners breakpoint broke'. Without an
-    // isBreakpoint guard, the superseded call's catch block ran anyway and marked its
-    // events fullyLoaded, so their properties were never fetched again.
     it('resolves viewports from a loaded file that has no events', () => {
         sessionRecordingMetaLogic({ sessionRecordingId: 'test-session' }).actions.loadRecordingFromFile({
             id: 'test-session',
@@ -124,6 +120,10 @@ describe('sessionEventsDataLogic', () => {
         })
     })
 
+    // Regression test: a second loadFullEventData call supersedes the first via kea's
+    // breakpoint mechanism, which throws 'kea-listeners breakpoint broke'. Without an
+    // isBreakpoint guard, the superseded call's catch block ran anyway and marked its
+    // events fullyLoaded, so their properties were never fetched again.
     it('does not mark a superseded loadFullEventData call as fully loaded, nor report it as an error', async () => {
         const eventOne = makeEvent('event-1')
         const eventTwo = makeEvent('event-2')

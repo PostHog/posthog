@@ -43,33 +43,38 @@ function extractLengthPrefixedBlocks(uint8Data: Uint8Array): Uint8Array[] {
             break
         }
 
-        blocks.push(uint8Data.slice(offset, offset + length))
+        blocks.push(uint8Data.subarray(offset, offset + length))
         offset += length
     }
 
     return blocks
 }
 
+function splitLines(text: string): string[] {
+    return text.split('\n').filter((line) => line.trim().length > 0)
+}
+
 const DECOMPRESSION_BATCH_SIZE = 10
 
-async function decompressBlocks(blocks: Uint8Array[], decompressor: SnappyDecompressor): Promise<string> {
-    const decompressedBlocks: Uint8Array[] = []
+// Splits each block on its own, so a large source never builds one string past the browser's length limit.
+async function decompressBlockLines(blocks: Uint8Array[], decompressor: SnappyDecompressor): Promise<string[]> {
+    const textDecoder = new TextDecoder('utf-8')
+    const lines: string[] = []
 
     for (let i = 0; i < blocks.length; i += DECOMPRESSION_BATCH_SIZE) {
         const batch = blocks.slice(i, i + DECOMPRESSION_BATCH_SIZE)
         const results = await Promise.all(batch.map((block) => decompressor(block)))
-        decompressedBlocks.push(...results)
+        for (const data of results) {
+            for (const line of splitLines(textDecoder.decode(data))) {
+                lines.push(line)
+            }
+        }
         if (i + DECOMPRESSION_BATCH_SIZE < blocks.length) {
             await new Promise<void>((r) => setTimeout(r, 0))
         }
     }
 
-    const textDecoder = new TextDecoder('utf-8')
-    return decompressedBlocks.map((data) => textDecoder.decode(data)).join('\n')
-}
-
-function splitLines(text: string): string[] {
-    return text.split('\n').filter((line) => line.trim().length > 0)
+    return lines
 }
 
 export const parseEncodedSnapshots = async (
@@ -94,8 +99,7 @@ export const parseEncodedSnapshots = async (
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
                 const blocks = extractLengthPrefixedBlocks(uint8Data)
-                const text = await decompressBlocks(blocks, decompressor)
-                const lines = splitLines(text)
+                const lines = await decompressBlockLines(blocks, decompressor)
                 const snapshots = await parseEncodedSnapshots(lines, sessionId, telemetry, registerFn)
                 telemetry.capture('replay_parse_timing', {
                     snapshot_count: snapshots.length,
