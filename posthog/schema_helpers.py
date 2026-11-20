@@ -1,6 +1,6 @@
 from typing import Any, Literal, assert_never, get_origin
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, RootModel, ValidationError
 
 from posthog.schema import (
     BaseMathType,
@@ -34,24 +34,28 @@ def strip_version_recursive(d):
     return d
 
 
-def strip_null_modifiers(value: Any) -> Any:
-    """The serialized query without modifiers that are set to None, at every depth.
+def strip_null_defaults(model: object, dumped: Any) -> Any:
+    """`dumped`, the `model_dump()` of `model`, without the None values of fields whose default is None, at every depth.
 
-    HogQLQueryModifiers forbids unknown keys and every field defaults to None, so a null key carries no data. During a
-    rolling deploy, a worker on an older schema rejects the whole query when it sees a null modifier it does not know.
+    The schema models forbid unknown keys, so during a rolling deploy a worker on an older schema rejects the whole
+    query when it sees a field it does not know, even one set to None. A None value on a field that defaults to None
+    carries no data, so the worker rebuilds the same query without it. A None value on a field with another default
+    stays, because dropping it would change the query.
     """
-    if isinstance(value, dict):
+    if isinstance(model, RootModel):
+        return strip_null_defaults(model.root, dumped)
+    if isinstance(model, BaseModel) and isinstance(dumped, dict):
+        fields = type(model).model_fields
         return {
-            key: (
-                {k: v for k, v in item.items() if v is not None}
-                if key == "modifiers" and isinstance(item, dict)
-                else strip_null_modifiers(item)
-            )
-            for key, item in value.items()
+            key: strip_null_defaults(getattr(model, key), item) if key in fields else item
+            for key, item in dumped.items()
+            if not (item is None and key in fields and fields[key].default is None)
         }
-    if isinstance(value, list):
-        return [strip_null_modifiers(item) for item in value]
-    return value
+    if isinstance(model, list | tuple) and isinstance(dumped, list) and len(model) == len(dumped):
+        return [strip_null_defaults(m, d) for m, d in zip(model, dumped)]
+    if isinstance(model, dict) and isinstance(dumped, dict):
+        return {key: strip_null_defaults(model.get(key), item) for key, item in dumped.items()}
+    return dumped
 
 
 def to_dict(query: BaseModel) -> dict:

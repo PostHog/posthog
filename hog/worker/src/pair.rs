@@ -1,6 +1,5 @@
-// A JavaScript bundle and its sourcemap, and the chunk ID injection hog runs on them. Copied from
-// posthog-cli's `sourcemaps/content.rs`, `source_pairs.rs` and `inject.rs`, so the bytes written
-// here are the bytes posthog-cli writes. The rules only hog has are marked where they apply.
+// Copied from posthog-cli's `sourcemaps/content.rs`, `source_pairs.rs` and `inject.rs`, so both
+// write the same bytes. The rules only hog has are marked where they apply.
 
 use anyhow::{anyhow, Result};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
@@ -144,7 +143,6 @@ pub struct SourcePair {
     pub map: SourceMapContent,
 }
 
-// Why a bundle hog found has no pair to work on. hog shows the reason next to the bundle's path.
 pub enum Unreadable {
     NoSourcemap,
     Skipped(String),
@@ -230,7 +228,6 @@ pub fn is_sourcemap(map: &SourceMapContent) -> bool {
     map.fields.contains_key("mappings") || map.fields.contains_key("sections")
 }
 
-// Whether discovery counts the file as a bundle: it is readable text and its sourcemap exists.
 pub fn has_sourcemap(path: &Path, public_path_prefix: Option<&str>) -> bool {
     let Ok(source) = node::read_text(path) else {
         return false;
@@ -344,8 +341,6 @@ pub enum Action {
     Unchanged,
 }
 
-// A bundler debug id becomes the chunk id when it parses as a UUID. The source comment wins over
-// the map's `debugId` when both exist.
 fn adopted_debug_id(pair: &SourcePair, warnings: &mut Vec<String>) -> Option<String> {
     let display = pair.source_path.display();
     let source_id = pair.source_debug_id();
@@ -373,8 +368,6 @@ fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a string serializes")
 }
 
-// Event mode: chunk ids derive from the bundle's content, so they stay the same across rebuilds.
-// A resolved release goes into the snippet, and a changed release swaps only the snippet.
 pub fn inject_event_mode(
     pair: &mut SourcePair,
     release_id: Option<&str>,
@@ -398,8 +391,8 @@ pub fn inject_event_mode(
     Ok((Action::ReleaseUpdated, existing))
 }
 
-// Symbol-set mode: the release is stamped into the map, and a pair whose release changed gets a
-// fresh random chunk id, because PostHog binds a symbol set to one release.
+// A pair whose release changed gets a new chunk id, because PostHog binds a symbol set to one
+// release.
 pub fn needs_new_chunk_id(pair: &SourcePair, release_id: Option<&str>) -> bool {
     pair.map.release_id.as_deref() != release_id || pair.chunk_id().is_none()
 }

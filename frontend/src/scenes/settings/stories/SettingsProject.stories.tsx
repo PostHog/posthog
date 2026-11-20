@@ -13,6 +13,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -120,6 +121,8 @@ export const SettingsProjectLogs: Story = {
         }),
     ],
 }
+
+export const SettingsProjectLogsQuill: Story = withTodayRailNav(SettingsProjectLogs)
 
 export const SettingsProjectLogsReadOnly: Story = {
     ...SettingsProjectLogs,

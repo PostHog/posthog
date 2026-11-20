@@ -130,6 +130,7 @@ impl UserAgentInfo {
             "unity" => ("posthog-unity", RuntimeType::Client),
             "godot" => ("posthog-godot", RuntimeType::Client),
             "unreal" => ("posthog-unreal", RuntimeType::Client),
+            "electron" => ("posthog-electron", RuntimeType::Client),
             // Unknown SDK - don't set sdk_name for unrecognized SDKs
             _ => return Self::unknown(),
         };
@@ -407,6 +408,12 @@ mod tests {
         RuntimeType::Client
     )]
     #[case(
+        "posthog-electron/0.1.0",
+        Some("posthog-electron"),
+        Some("0.1.0"),
+        RuntimeType::Client
+    )]
+    #[case(
         "posthog-unity/4.5.0",
         Some("posthog-unity"),
         Some("4.5.0"),
@@ -492,6 +499,7 @@ mod tests {
     #[case(Some("posthog-ruby-mcp/1.0.0"), "posthog-ruby-mcp")]
     #[case(Some("posthog-godot/1.0.0"), "posthog-godot")]
     #[case(Some("posthog-unreal/1.0.0"), "posthog-unreal")]
+    #[case(Some("posthog-electron/0.1.0"), "posthog-electron")]
     #[case(Some("posthog-unity/4.5.0"), "posthog-unity")]
     #[case(Some("posthog-python/1.4.0"), "posthog-python")]
     #[case(Some("posthog-python-mcp/0.1.0"), "posthog-python-mcp")]
@@ -550,6 +558,7 @@ mod tests {
     #[case("posthog-ruby-mcp/1.0.0", Some("posthog-ruby-mcp"))]
     #[case("posthog-godot/1.0.0", Some("posthog-godot"))]
     #[case("posthog-unreal/1.0.0", Some("posthog-unreal"))]
+    #[case("posthog-electron/0.1.0", Some("posthog-electron"))]
     #[case("posthog-unity/4.5.0", Some("posthog-unity"))]
     #[case("posthog-server/1.0.0", Some("posthog-server"))]
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Some("web"))]

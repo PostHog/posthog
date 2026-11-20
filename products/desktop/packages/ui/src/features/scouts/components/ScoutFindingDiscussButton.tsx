@@ -1,8 +1,8 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import type { ScoutEmission } from "@posthog/api-client/posthog-client";
-import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { buildScoutFindingDiscussPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
+import { prettifyScoutSkillName } from "@posthog/shared/scout-names";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Flex, Popover, Text, TextArea } from "@radix-ui/themes";
 import { useCallback, useMemo, useState } from "react";
@@ -26,16 +26,12 @@ export function ScoutFindingDiscussButton({
   const [question, setQuestion] = useState("");
   const [open, setOpen] = useState(false);
 
-  const displayName = useMemo(
-    () => prettifyScoutSkillName(skillName),
-    [skillName],
-  );
-
+  // Any config writer can set a display name to free text, so the agent prompt uses the validated slug.
   const prompt = useMemo(
     () =>
       buildScoutFindingDiscussPrompt({
         skillName,
-        displayName,
+        displayName: prettifyScoutSkillName(skillName),
         runId: emission.run_id,
         findingId: emission.finding_id,
         description: emission.description,
@@ -44,7 +40,6 @@ export function ScoutFindingDiscussButton({
       }),
     [
       skillName,
-      displayName,
       emission.run_id,
       emission.finding_id,
       emission.description,

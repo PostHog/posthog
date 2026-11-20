@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,12 +14,14 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { QuillConfigureSCIMModal } from './QuillConfigureSCIMModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureSCIMModal(): JSX.Element {
     const { configureSCIMModalId, scimConfig, scimConfigLoading } = useValues(verifiedDomainsLogic)
     const { setConfigureSCIMModalId, enableScim, disableScim, regenerateScimToken } = useActions(verifiedDomainsLogic)
     const [tokenJustRevealed, setTokenJustRevealed] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleClose = (): void => {
         setConfigureSCIMModalId(null)
@@ -76,6 +79,17 @@ export function ConfigureSCIMModal(): JSX.Element {
     }
 
     const showToken = tokenJustRevealed && scimConfig.scim_bearer_token
+
+    if (todayRailNav) {
+        return (
+            <QuillConfigureSCIMModal
+                showToken={!!showToken}
+                onClose={handleClose}
+                onToggleScim={() => void handleToggleScim()}
+                onRegenerateToken={() => void handleRegenerateToken()}
+            />
+        )
+    }
 
     return (
         <LemonModal onClose={handleClose} isOpen={!!configureSCIMModalId} title="" simple>
