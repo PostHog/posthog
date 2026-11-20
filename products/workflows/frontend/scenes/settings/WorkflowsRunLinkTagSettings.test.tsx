@@ -5,7 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -58,21 +58,18 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
     })
 
-    it('keeps the switch off for a member without project admin, whose save the project API would refuse, and says why in text', async () => {
-        initKeaTests(true, {
+    it('is disabled with the reason for a member below project admin', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: OrganizationMembershipLevel.Member,
-            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+            effective_membership_level: TeamMembershipLevel.Member,
         })
-        teamLogic.mount()
         render(<WorkflowsRunLinkTagSettings />)
         const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
-
-        await userEvent.click(toggle)
-
         expect(toggle).toBeDisabled()
-        expect(toggle).toHaveAttribute('aria-checked', 'false')
-        expect(patchBodies).toEqual([])
-        expect(screen.getByText(/^This area is restricted to project admins and up/)).toBeVisible()
+
+        await userEvent.hover(toggle.parentElement as HTMLElement)
+
+        expect(await screen.findByText(/restricted to project admins and up/)).toBeInTheDocument()
+        expect(patchBodies).toHaveLength(0)
     })
 })

@@ -46,7 +46,6 @@ describe('CodeEmailTabs', () => {
 
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/organizations/:organization_id/projects/:id/': TAGGING_OFF_TEAM,
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
             '/api/projects/:team_id/transactional_email_log/impact/': {

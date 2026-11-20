@@ -3,7 +3,6 @@ import {
     actions,
     afterMount,
     connect,
-    getContext,
     kea,
     key,
     listeners,
@@ -19,7 +18,6 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { organizationsProjectsRetrieve } from '~/generated/core/api'
 import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
@@ -64,7 +62,6 @@ export interface emailImpactLogicValues {
     linkTagging: LinkTagging
     replayEnabled: boolean
     steps: ImpactStep[] | null
-    storedLinkTagging: boolean | null
     untrackedNote: string | null
 }
 
@@ -92,9 +89,6 @@ export interface emailImpactLogicActions {
         impact: TransactionalEmailImpactApi | null
         payload?: void
     }
-    loadStoredLinkTagging: () => {
-        value: true
-    }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
         alwaysSensitive: boolean
     }
@@ -103,9 +97,6 @@ export interface emailImpactLogicActions {
     }
     setEvent: (event: string | null) => {
         event: string | null
-    }
-    setStoredLinkTagging: (enabled: boolean) => {
-        enabled: boolean
     }
 }
 
@@ -118,11 +109,7 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        linkTagging: (
-            storedLinkTagging: boolean | null,
-            currentTeam: TeamPublicType | TeamType | null,
-            alwaysSensitive: boolean
-        ) => LinkTagging
+        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
         steps: (
             impact: TransactionalEmailImpactApi | null,
             event: string | null,
@@ -183,8 +170,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
-        loadStoredLinkTagging: true,
-        setStoredLinkTagging: (enabled: boolean) => ({ enabled }),
     }),
     reducers(({ props }) => ({
         // A selector that reads props keeps its result while the store is unchanged, so a template's new
@@ -192,7 +177,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
-        storedLinkTagging: [null as boolean | null, { setStoredLinkTagging: (_, { enabled }) => enabled }],
         impactError: [
             null as string | null,
             {
@@ -251,15 +235,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         linkTagging: [
-            (s) => [s.storedLinkTagging, s.currentTeam, s.alwaysSensitive],
-            (
-                storedLinkTagging: boolean | null,
-                currentTeam: TeamPublicType | TeamType | null,
-                alwaysSensitive: boolean
-            ): LinkTagging =>
+            (s) => [s.currentTeam, s.alwaysSensitive],
+            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
                 alwaysSensitive
                     ? 'sensitive-email'
-                    : (storedLinkTagging ?? currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
                       ? 'on'
                       : 'off',
         ],
@@ -288,42 +268,8 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             (currentTeam: TeamType | TeamPublicType | null): boolean => !!currentTeam?.session_recording_opt_in,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         setEvent: () => actions.loadImpact(),
-        setAlwaysSensitive: ({ alwaysSensitive }) => {
-            if (!alwaysSensitive) {
-                actions.loadStoredLinkTagging()
-            }
-        },
-        loadStoredLinkTagging: async () => {
-            const { organization, project_id } = values.currentTeam ?? {}
-            if (!organization || !project_id || values.alwaysSensitive) {
-                return
-            }
-            // Reads are numbered instead of using a breakpoint, because a breakpoint drops an older read as soon as a
-            // newer one starts. When the newer read then fails, the older read's answer is the freshest one there is.
-            cache.linkTaggingReadsStarted = (cache.linkTaggingReadsStarted ?? 0) + 1
-            const read: number = cache.linkTaggingReadsStarted
-            const context = getContext()
-            let enabled: boolean | null | undefined
-            try {
-                const project = await organizationsProjectsRetrieve(organization, project_id)
-                enabled = project.workflows_config?.email_workflow_run_link_tag_enabled
-            } catch {
-                return
-            }
-            // A project response without the field says nothing about the setting, so the last known value stays.
-            if (
-                cache.disposables.isDisposed ||
-                getContext() !== context ||
-                typeof enabled !== 'boolean' ||
-                read < (cache.linkTaggingReadApplied ?? 0)
-            ) {
-                return
-            }
-            cache.linkTaggingReadApplied = read
-            actions.setStoredLinkTagging(enabled)
-        },
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
@@ -346,18 +292,5 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setAlwaysSensitive(!!props.alwaysSensitive)
         }
     }),
-    afterMount(({ actions, cache }) => {
-        actions.loadImpact()
-        // The link tagging setting can change in another tab or window, including the one this tab's settings link
-        // opens. kea-disposables runs this setup on mount and again each time the page is shown, and a settings window
-        // beside this one hands focus back without a show, so the step reads the setting on all three. A read that
-        // ran before a save committed, or that failed, is repaired by the next show or focus. The read stays out of
-        // teamLogic, because a slow response there would replace a newer shared team.
-        cache.disposables.add(() => {
-            const refresh = (): void => actions.loadStoredLinkTagging()
-            refresh()
-            window.addEventListener('focus', refresh)
-            return () => window.removeEventListener('focus', refresh)
-        }, 'refreshLinkTagging')
-    }),
+    afterMount(({ actions }) => actions.loadImpact()),
 ])
