@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _FLAG_KEY_PROPERTY = "$feature_flag"
+_FEATURE_PROPERTY_PREFIX = "$feature/"
 
 _Predicate = Callable[[ast.Expr], bool]
 
@@ -540,6 +541,20 @@ class EventsScan:
             if isinstance(item, ast.ColumnsExpr) or (isinstance(item, ast.Field) and item.chain[-1:] == ["*"]):
                 return "it selects * or COLUMNS(...)"
         return None
+
+    def unkeyed_feature_property(self, node: ast.SelectQuery, conjuncts: list[ast.Expr]) -> str | None:
+        """The first `$feature/<key>` property that `node` reads from this scan while the swap would add no
+        `flag_key` predicate, or None. A key that the predicate cannot carry, such as a non-ASCII key, counts as
+        no key.
+
+        `flag_evaluations` sorts by `flag_key`, and holds `properties` as one JSON string per row. Without a key
+        filter, ClickHouse reads and parses that string for every flag call the team has.
+        """
+        if flag_key_predicate(self.alias, self.flag_keys(conjuncts)) is not None:
+            return None
+        finder = _FeaturePropertyFinder(self, node)
+        finder.visit(node)
+        return finder.found
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. With `needs_flag_key`, a pin of `event` counts only where
@@ -1109,6 +1124,50 @@ class ScanVisitor(SyntaxVisitor):
         raise NotImplementedError
 
 
+def _unkeyed_feature_refusal(scan: EventsScan, node: ast.SelectQuery, conjuncts: list[ast.Expr]) -> str | None:
+    name = scan.unkeyed_feature_property(node, conjuncts)
+    if name is None:
+        return None
+    return (
+        f"it reads {name} without a $feature_flag filter that names the flag, which would read every flag call "
+        "the project has. Filter on $feature_flag and $feature_flag_response to find calls that returned a value"
+    )
+
+
+class _FeaturePropertyFinder(SyntaxVisitor):
+    """Finds a read of `properties.$feature/<key>` from `scan` in its own SELECT, not in a subquery."""
+
+    def __init__(self, scan: EventsScan, root: ast.SelectQuery) -> None:
+        super().__init__()
+        self.scan = scan
+        self.root = root
+        self.found: str | None = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is self.root:
+            super().visit_select_query(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        column = self.scan.column(node)
+        if column is not None and len(column) > 1 and column[0] == "properties":
+            self._note(column[1])
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        if self.scan.column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
+            self._note(node.property.value)
+        super().visit_array_access(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.startswith("JSONExtract") and len(node.args) >= 2:
+            if self.scan.column(node.args[0]) == ["properties"] and isinstance(node.args[1], ast.Constant):
+                self._note(node.args[1].value)
+        super().visit_call(node)
+
+    def _note(self, name: object) -> None:
+        if self.found is None and isinstance(name, str) and name.startswith(_FEATURE_PROPERTY_PREFIX):
+            self.found = name
+
+
 class _EventsScanSwapper(ScanVisitor):
     def __init__(
         self,
@@ -1139,6 +1198,9 @@ class _EventsScanSwapper(ScanVisitor):
         if _qualifies(
             scan, node, conjuncts, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
         ):
+            if self.only_in_flag_evaluations and (name := _unkeyed_feature_refusal(scan, node, conjuncts)):
+                self.refusals.append(name)
+                return
             self._swap(node, scan, conjuncts)
         else:
             # On mode 2 the union reads a scan with a ratio SAMPLE, so this refuses only the other shapes.
@@ -1200,7 +1262,10 @@ class _EventsScanSwapper(ScanVisitor):
         refusal = events_scan.shape_refusal(clone.select)
         if refusal is not None:
             return refusal
-        self._swap(clone.select, events_scan, filter_conjuncts(clone.select))
+        conjuncts = filter_conjuncts(clone.select)
+        if refusal := _unkeyed_feature_refusal(events_scan, clone.select, conjuncts):
+            return refusal
+        self._swap(clone.select, events_scan, conjuncts)
         return None
 
 
