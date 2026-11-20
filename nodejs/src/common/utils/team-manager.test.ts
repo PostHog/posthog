@@ -78,6 +78,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": "<TEAM_ID>",
                   "ingested_event": true,
+                  "keep_writing_flag_calls_to_events": false,
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
                   "name": "TEST PROJECT",
