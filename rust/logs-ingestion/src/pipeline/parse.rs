@@ -26,7 +26,7 @@ async fn parse(
     message: Arc<KafkaMessage>,
 ) -> anyhow::Result<PipelineResult<LogsIngestionMessage>> {
     let header = |name: &str| kafka_header(&message, name);
-    let sent_token = match header("token").as_deref() {
+    let mut token = match header("token").as_deref() {
         Some(t) if !t.is_empty() => t.to_string(),
         _ => {
             tracing::warn!("missing_token");
@@ -37,21 +37,17 @@ async fn parse(
 
     // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
     // every team whose token is not cached yet. Only an outage past the backoff drops.
-    let sent_secret_key = is_secret_key(&sent_token);
+    let sent_secret_key = is_secret_key(&token);
     let team: Option<Team> = match context
         .retry(|| async {
             if sent_secret_key {
                 context
                     .deps
                     .team_manager
-                    .get_team_by_secret_key(&sent_token)
+                    .get_team_by_secret_key(&token)
                     .await
             } else {
-                context
-                    .deps
-                    .team_manager
-                    .get_team_by_token(&sent_token)
-                    .await
+                context.deps.team_manager.get_team_by_token(&token).await
             }
         })
         .await
@@ -68,18 +64,16 @@ async fn parse(
         let logged_token = if sent_secret_key {
             SECRET_KEY_PREFIX
         } else {
-            sent_token.as_str()
+            token.as_str()
         };
         tracing::warn!(token_with_no_team = %logged_token, "team_not_found");
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
     };
     // Everything after this step sees the public token, so the secret key stays out of the outputs.
-    let token = if sent_secret_key {
-        team.api_token.clone()
-    } else {
-        sent_token
-    };
+    if sent_secret_key {
+        token = team.api_token.clone();
+    }
 
     let bytes_uncompressed = parse_size_header(header("bytes_uncompressed").as_deref());
     let bytes_uncompressed_records =

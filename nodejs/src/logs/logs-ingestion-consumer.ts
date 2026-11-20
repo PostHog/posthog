@@ -1530,26 +1530,26 @@ export class LogsIngestionConsumer {
             messages.map(async (message) => {
                 try {
                     const headers = parseKafkaHeaders(message.headers)
-                    const sentToken = headers.token
+                    let token = headers.token
 
-                    if (!sentToken) {
+                    if (!token) {
                         logger.warn('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
                     }
-                    const sentSecretKey = isSecretKey(sentToken)
+                    const sentSecretKey = isSecretKey(token)
 
                     let team
                     try {
                         // phc_local is a special token used in dev to refer to team 1. A Postgres blip is
                         // retried in place, so it cannot drop good data; only an outage past the backoff drops.
                         team = await this.retryOnDependencyUnavailable(() =>
-                            isDevEnv() && sentToken === 'phc_local'
+                            isDevEnv() && token === 'phc_local'
                                 ? this.deps.teamManager.getTeam(1)
                                 : sentSecretKey
-                                  ? (this.deps.secretKeyTeams?.getTeam(sentToken) ?? Promise.resolve(null))
-                                  : this.deps.teamManager.getTeamByToken(sentToken)
+                                  ? (this.deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                                  : this.deps.teamManager.getTeamByToken(token)
                         )
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
@@ -1565,17 +1565,19 @@ export class LogsIngestionConsumer {
                         // dropped message for a bad token. Already tracked via the metrics below.
                         // A secret key is never logged or recorded, because a real key without the scope also lands here.
                         logger.warn('team_not_found', {
-                            token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : sentToken,
+                            token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : token,
                         })
                         if (!sentSecretKey) {
-                            this.unknownTokens.record(sentToken)
+                            this.unknownTokens.record(token)
                         }
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
                     }
                     // Everything after this point sees the public token, so the secret key stays out of the outputs.
-                    const token = sentSecretKey ? team.api_token : sentToken
+                    if (sentSecretKey) {
+                        token = team.api_token
+                    }
 
                     const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
                     const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)

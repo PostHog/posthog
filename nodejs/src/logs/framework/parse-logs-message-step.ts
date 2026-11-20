@@ -35,25 +35,25 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
         const message = input.message
         try {
             const headers = parseKafkaHeaders(message.headers)
-            const sentToken = headers.token
+            let token = headers.token
 
-            if (!sentToken) {
+            if (!token) {
                 logger.warn('missing_token')
                 countDropped('missing_token')
                 return drop('missing_token')
             }
-            const sentSecretKey = isSecretKey(sentToken)
+            const sentSecretKey = isSecretKey(token)
 
             let team: Team | null
             try {
                 // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data
                 // for every team whose token is not cached yet. Only an outage past the backoff drops.
                 team = await retryOnDependencyUnavailable(context, () =>
-                    isDevEnv() && sentToken === 'phc_local'
+                    isDevEnv() && token === 'phc_local'
                         ? deps.teamManager.getTeam(1)
                         : sentSecretKey
-                          ? (deps.secretKeyTeams?.getTeam(sentToken) ?? Promise.resolve(null))
-                          : deps.teamManager.getTeamByToken(sentToken)
+                          ? (deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                          : deps.teamManager.getTeamByToken(token)
                 )
             } catch (e) {
                 logger.error('team_lookup_error', { error: e })
@@ -64,15 +64,17 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
                 // A secret key is never logged or recorded, because a real key without the scope also lands here.
-                logger.warn('team_not_found', { token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : sentToken })
+                logger.warn('team_not_found', { token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : token })
                 if (!sentSecretKey) {
-                    context.unknownTokens?.record(sentToken)
+                    context.unknownTokens?.record(token)
                 }
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }
             // Everything after this step sees the public token, so the secret key stays out of the outputs.
-            const token = sentSecretKey ? team.api_token : sentToken
+            if (sentSecretKey) {
+                token = team.api_token
+            }
 
             const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
             const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)

@@ -8,7 +8,6 @@ import type { Team } from '~/types'
 export const SECRET_KEY_PREFIX = 'phs_'
 export const AUTH_TYPE_HEADER = 'auth-type'
 export const AUTH_TYPE_SECRET_KEY = 'secret_key'
-// A key without this scope resolves to no team, so a key made for another product cannot send logs.
 export const SECRET_KEY_SCOPE = 'logs:write'
 
 export function isSecretKey(token: string): boolean {
