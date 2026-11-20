@@ -1,0 +1,78 @@
+from typing import Literal
+
+from posthog.dataclasses import frozen
+
+SessionStatus = Literal["exported", "deleted", "expired", "missing"]
+
+
+@frozen
+class ExportTotals:
+    exported: int = 0
+    deleted: int = 0
+    expired: int = 0
+    missing: int = 0
+    bytes: int = 0
+
+    def add(self, other: "ExportTotals") -> "ExportTotals":
+        return ExportTotals(
+            exported=self.exported + other.exported,
+            deleted=self.deleted + other.deleted,
+            expired=self.expired + other.expired,
+            missing=self.missing + other.missing,
+            bytes=self.bytes + other.bytes,
+        )
+
+
+@frozen
+class ExportDestination:
+    integration_id: int
+    bucket: str
+    region: str
+    prefix: str
+
+
+@frozen
+class ExportRecordingsInput:
+    team_id: int
+    destination: ExportDestination
+    quote_id: str
+    run_id: str
+    # Inclusive UTC days, YYYY-MM-DD. A session belongs to the day it started on.
+    date_from: str
+    date_to: str
+    # Sessions not listed in the quote's session ID file are skipped. None exports every session.
+    session_ids_key: str | None
+    # Sessions that expired before the quote are left out, so the run exports what the quote priced.
+    quoted_at: str
+    shards_per_day: int = 16
+    max_parallel_shards: int = 32
+    # Carried across continue-as-new.
+    next_shard: int = 0
+    totals: ExportTotals = ExportTotals()
+    started_at: str | None = None
+
+
+@frozen
+class ExportShardInput:
+    team_id: int
+    destination: ExportDestination
+    run_id: str
+    day: str
+    shard: int
+    shards_per_day: int
+    session_ids_key: str | None
+    quoted_at: str
+
+
+@frozen
+class WriteSummaryInput:
+    team_id: int
+    destination: ExportDestination
+    quote_id: str
+    run_id: str
+    workflow_id: str
+    date_from: str
+    date_to: str
+    shards_per_day: int
+    started_at: str
+    totals: ExportTotals
