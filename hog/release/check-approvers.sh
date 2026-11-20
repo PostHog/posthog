@@ -1,34 +1,36 @@
 #!/usr/bin/env bash
-# Usage: check-approvers.sh [--files <list>] <first commit> <last commit> <approver>...
-#        check-approvers.sh --report [--files <list>] <first commit> <last commit>
+# Usage: check-approvers.sh <first commit> <last commit> <approver>...
+#        check-approvers.sh --report <first commit> <last commit>
 #
 # The owners of a release are the people who opened, merged or wrote commits in a pull request that
-# added, renamed or edited a hog changeset between the two commits. With --files, a pull request that
-# changed one of the paths listed in that file, one per line, also counts: the release workflow lists the
-# files compiled into hog, because their changes ship whether or not a changeset names them. The check
-# fails when an approver is one of the owners, and writes `violations=<who (#pull requests)>` to
-# GITHUB_OUTPUT. --report checks nobody and writes the pull requests and their owners as Slack mrkdwn
-# instead, as `prs_mrkdwn` and `owners_mrkdwn`. Every lookup that fails stops the script, because a check
-# that can't run can't clear anyone.
+# changed anything under RELEASE_PATHS between the two commits: the hog changesets, and the trees hog
+# compiles in, whose changes ship whether or not a changeset names them. The check fails when an
+# approver is one of the owners, and writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT.
+# --report checks nobody and writes the pull requests and their owners as Slack mrkdwn instead, as
+# `prs_mrkdwn` and `owners_mrkdwn`. Every lookup that fails stops the script, because a check that can't
+# run can't clear anyone.
 #
 # Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
 set -euo pipefail
 
+# Every tree the hog and CLI library builds compile in, and more: all of hog/, which holds the changesets,
+# this script and catalog-gap.ts, and all of services/mcp/. The list lives here rather than coming from a
+# build, because the release workflow runs this script as the last release tag has it, so a pull request
+# can't narrow it for its own release. Counting too much only blocks more approvers.
+RELEASE_PATHS=(
+    'hog'
+    'services/mcp'
+    ':(glob)products/*/mcp/**'
+    'products/notebooks'
+    'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
+    'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+)
+
 report=false
-files=""
-while [ "$#" -gt 0 ]; do
-    case $1 in
-        --report)
-            report=true
-            shift
-            ;;
-        --files)
-            files=$2
-            shift 2
-            ;;
-        *) break ;;
-    esac
-done
+if [ "${1:-}" = --report ]; then
+    report=true
+    shift
+fi
 base=$1
 head=$2
 shift 2
@@ -37,22 +39,7 @@ if [ "$report" = false ] && [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-# Without rename detection, a rename is an add, so a pull request that renames a changeset to change
-# when it releases, or edits its text, owns the release too.
-commits=$(git log --no-renames --diff-filter=AM --format=%H "$base..$head" -- 'hog/.sampo/changesets/*.md')
-if [ -n "$files" ]; then
-    # :(literal) keeps a path that holds a glob character from matching other files.
-    pathspecs=()
-    while IFS= read -r path || [ -n "$path" ]; do
-        [ -n "$path" ] && pathspecs+=(":(literal)$path")
-    done <"$files"
-    if [ "${#pathspecs[@]}" -eq 0 ]; then
-        echo "::error::$files lists no files"
-        exit 1
-    fi
-    commits+=$'\n'$(git log --format=%H "$base..$head" -- "${pathspecs[@]}")
-fi
-commits=$(sed '/^$/d' <<<"$commits" | sort -u)
+commits=$(git log --format=%H "$base..$head" -- "${RELEASE_PATHS[@]}")
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
