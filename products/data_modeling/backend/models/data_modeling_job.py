@@ -62,9 +62,44 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     query_count = models.IntegerField(
         null=True, blank=True, help_text="Number of ClickHouse queries measured for this run."
     )
+    result_bytes = models.BigIntegerField(
+        null=True, blank=True, help_text="Uncompressed bytes of query results that ClickHouse returned to the worker."
+    )
+    s3_read_bytes = models.BigIntegerField(
+        null=True, blank=True, help_text="Bytes ClickHouse read from S3 to answer this run's queries."
+    )
+    s3_get_requests = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="S3 GetObject and HeadObject requests ClickHouse made to answer this run's queries.",
+    )
+    s3_list_requests = models.BigIntegerField(
+        null=True, blank=True, help_text="S3 ListObjects requests ClickHouse made to answer this run's queries."
+    )
     usage_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When usage was last measured. Null means unmeasured."
     )
+    attempts = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Attempts of the materialize activity that this run started, including killed ones.",
+    )
+    worker_seconds = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Wall-clock seconds a worker spent in this run's activities, over all attempts. "
+        "A killed attempt adds nothing.",
+    )
+    written_files = models.IntegerField(
+        null=True, blank=True, help_text="Parquet files this run added to the Delta table that were live when it ended."
+    )
+    written_bytes = models.BigIntegerField(null=True, blank=True, help_text="Total size of written_files.")
+    table_files = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Live parquet files in the Delta table when this run ended. Publishing copies every one of them.",
+    )
+    table_bytes = models.BigIntegerField(null=True, blank=True, help_text="Total size of table_files.")
 
     class Meta:
         db_table = "posthog_datamodelingjob"

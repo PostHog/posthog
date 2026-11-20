@@ -138,6 +138,12 @@ async def _run(
         )
 
 
+def _live_object_sizes(table_uri: str) -> dict[str, int]:
+    live = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).file_uris()
+    s3 = get_s3_client()
+    return {uri: s3.info(uri)["size"] for uri in live}
+
+
 async def _configure(asaved_query, config: dict | None = None) -> None:
     asaved_query.incremental_config = config if config is not None else CONFIG
     await database_sync_to_async(asaved_query.save)(update_fields=["incremental_config"])
@@ -627,6 +633,32 @@ class TestIncrementalMaterialization:
 
         assert result.row_count == 2
         assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 20), (DAY3, 30)]
+
+    async def test_the_job_records_the_files_a_run_wrote_and_the_table_it_left(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [1]))
+            await database_sync_to_async(ajob.refresh_from_db)()
+            after_rebuild = (ajob.table_files, ajob.table_bytes, ajob.written_files, ajob.written_bytes)
+            rebuilt = _live_object_sizes(first.table_uri)
+
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY3], [30]))
+            await database_sync_to_async(ajob.refresh_from_db)()
+            updated = _live_object_sizes(first.table_uri)
+
+        assert after_rebuild == (len(rebuilt), sum(rebuilt.values()), len(rebuilt), sum(rebuilt.values()))
+        added = [size for uri, size in updated.items() if uri not in rebuilt]
+        assert (ajob.table_files, ajob.table_bytes, ajob.written_files, ajob.written_bytes) == (
+            len(updated),
+            sum(updated.values()),
+            len(added),
+            sum(added),
+        )
+        assert ajob.attempts == 1
+        assert ajob.worker_seconds > 0
 
     async def test_a_duplicate_key_across_batches_fails_the_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

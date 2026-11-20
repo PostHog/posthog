@@ -17,7 +17,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_modeling.backend.temporal.activities.materialize_view import get_aws_storage_options
-from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context
+from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context, record_worker_time
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.api import discard_backing_table, record_table_row_count
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -153,9 +153,10 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
-    saved_query = await _get_saved_query_with_table(inputs)
-    folder_path = await _stage_files(inputs, saved_query, logger)
-    return await _publish_table(inputs, saved_query, folder_path, logger)
+    async with record_worker_time(inputs.team_id, inputs.job_id):
+        saved_query = await _get_saved_query_with_table(inputs)
+        folder_path = await _stage_files(inputs, saved_query, logger)
+        return await _publish_table(inputs, saved_query, folder_path, logger)
 
 
 @activity.defn
@@ -164,9 +165,10 @@ async def stage_queryable_files_activity(inputs: PrepareQueryableTableInputs) ->
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
-    saved_query = await _get_saved_query_with_table(inputs)
-    folder_path = await _stage_files(inputs, saved_query, logger)
-    return StageQueryableFilesResult(staged_folder_path=folder_path)
+    async with record_worker_time(inputs.team_id, inputs.job_id):
+        saved_query = await _get_saved_query_with_table(inputs)
+        folder_path = await _stage_files(inputs, saved_query, logger)
+        return StageQueryableFilesResult(staged_folder_path=folder_path)
 
 
 @activity.defn
@@ -175,5 +177,6 @@ async def publish_queryable_table_activity(inputs: PublishQueryableTableInputs) 
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
-    saved_query = await _get_saved_query_with_table(inputs)
-    return await _publish_table(inputs, saved_query, inputs.staged_folder_path, logger)
+    async with record_worker_time(inputs.team_id, inputs.job_id):
+        saved_query = await _get_saved_query_with_table(inputs)
+        return await _publish_table(inputs, saved_query, inputs.staged_folder_path, logger)

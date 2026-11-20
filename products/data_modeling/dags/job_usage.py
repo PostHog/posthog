@@ -16,14 +16,28 @@ from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJobStatus,
 )
 
-USAGE_FIELDS = ["read_bytes", "read_rows", "cpu_microseconds", "query_count", "usage_updated_at"]
 BATCH_SIZE = 500
+
+# Job field -> the archive aggregate that fills it. The SELECT list and the row unpacking are both
+# built from this mapping, so a new measure cannot shift the positions of the others.
+MEASURES = {
+    "read_bytes": "sum(read_bytes)",
+    "read_rows": "sum(read_rows)",
+    "cpu_microseconds": "sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)",
+    "query_count": "count()",
+    "result_bytes": "sum(result_bytes)",
+    "s3_read_bytes": "sum(ProfileEvents_ReadBufferFromS3Bytes)",
+    # S3 bills GetObject and HeadObject at one rate, and ListObjects at a higher one.
+    "s3_get_requests": "sum(ProfileEvents_S3GetObject + ProfileEvents_S3HeadObject)",
+    "s3_list_requests": "sum(ProfileEvents_S3ListObjects)",
+}
+USAGE_FIELDS = [*MEASURES, "usage_updated_at"]
 
 # FINAL folds archive fragments for the same query before counting it. The v3 archive
 # already rolls leaf CPU and reads into the root, so summing leaf rows again doubles cost.
-USAGE_SQL = """
+USAGE_SQL = f"""
 SELECT team_id, lc_temporal__workflow_id, lc_temporal__workflow_run_id,
-       sum(read_bytes), sum(read_rows), sum(ProfileEvents_OSCPUVirtualTimeMicroseconds), count()
+       {", ".join(MEASURES.values())}
 FROM query_log_archive FINAL
 WHERE initial_query_start_time >= %(start)s AND initial_query_start_time < %(end)s
   AND is_initial_query
@@ -87,14 +101,10 @@ class JobUsageCollector:
         ).result()
         updated: list[DataModelingJob] = []
         measured_at = datetime.now(UTC)
-        for team_id, workflow_id, workflow_run_id, read_bytes, read_rows, cpu, query_count in rows:
+        for team_id, workflow_id, workflow_run_id, *measured in rows:
             job = unique[(team_id, workflow_id, workflow_run_id)]
-            job.read_bytes, job.read_rows, job.cpu_microseconds, job.query_count = (
-                read_bytes,
-                read_rows,
-                cpu,
-                query_count,
-            )
+            for field, value in zip(MEASURES, measured, strict=True):
+                setattr(job, field, value)
             # bulk_update skips auto_now, and the warehouse mirror syncs rows by updated_at.
             job.usage_updated_at = job.updated_at = measured_at
             updated.append(job)
