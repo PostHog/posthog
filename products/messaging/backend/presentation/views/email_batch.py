@@ -159,14 +159,15 @@ class EmailBatchResultStatus(LabeledStrEnum):
 class EmailBatchErrorSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="Why this recipient's email wasn't queued: `invalid_recipient`, `invalid_request`, "
-        "`content_too_large`, `idempotency_key_reused`, `sandbox_recipient_not_member`, or `delivery_unavailable` "
-        "when the email pipeline didn't confirm it, so it may still go out."
+        "`content_too_large`, `idempotency_key_reused`, `recipient_suppressed`, `recipient_unreachable`, "
+        "`sandbox_recipient_not_member`, or `delivery_unavailable` when the email pipeline didn't confirm it, so it "
+        "may still go out."
     )
     detail = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
     status = serializers.IntegerField(
-        help_text="The HTTP status that goes with `code`: 422 for `idempotency_key_reused` and "
-        "`sandbox_recipient_not_member`, 503 for `delivery_unavailable`, and 400 for the others. The batch itself "
-        "answers 200."
+        help_text="The HTTP status that goes with `code`: 422 for `idempotency_key_reused`, `recipient_suppressed`, "
+        "`recipient_unreachable` and `sandbox_recipient_not_member`, 503 for `delivery_unavailable`, and 400 for the "
+        "others. The batch itself answers 200."
     )
     retryable = serializers.BooleanField(
         help_text="True when sending it again with the same `idempotency_key` can succeed. Only "
@@ -182,9 +183,8 @@ class EmailBatchResultSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=EmailBatchResultStatus.choices,
         required=False,
-        help_text="`queued` when PostHog accepted the email. The email can still be skipped later, for example "
-        "when the address is on the suppression list, so read its status to see whether it went out. Absent with "
-        "`error`.",
+        help_text="`queued` when PostHog accepted the email. The email can still be skipped later, so read its "
+        "status to see whether it went out. Absent with `error`.",
     )
     replayed = serializers.BooleanField(
         required=False,
@@ -213,7 +213,8 @@ class SendEmailBatchResponseSerializer(serializers.Serializer):
 EMAIL_BATCH_RESPONSES: dict[int, ResponseDeclaration] = {
     200: OpenApiResponse(
         response=SendEmailBatchResponseSerializer,
-        description="The batch was read. Each result says whether that recipient's email was queued.",
+        description="The batch was read. Each result says whether that recipient's email was queued, or why not, "
+        "for example a suppressed or unreachable address.",
     ),
     400: OpenApiResponse(
         description="The shared email is invalid or can't be sent, its workflow isn't active, a recipient has no valid `idempotency_key` or "
