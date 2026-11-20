@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -26,7 +26,7 @@ import {
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { isMissingContentError } from './broadcastContentErrors'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
-import { BroadcastTrackingSwitch } from './BroadcastTrackingSwitch'
+import { BroadcastTrackingSettings } from './BroadcastTrackingSettings'
 
 export function BroadcastContentStep(): JSX.Element {
     const {
@@ -184,16 +184,10 @@ export function BroadcastContentStep(): JSX.Element {
                     <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
                 </span>
             ) : null}
-            <BroadcastTrackingSwitch
-                checked={emailSettings.trackingEnabled}
-                onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
-            />
-            <LemonSwitch
-                label="Add UTM tags to links"
-                checked={emailSettings.utmTagsEnabled}
-                onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
-                bordered
-                data-attr="broadcast-utm-tags-toggle"
+            <BroadcastTrackingSettings
+                trackingEnabled={emailSettings.trackingEnabled}
+                utmTagsEnabled={emailSettings.utmTagsEnabled}
+                onChange={setEmailSettings}
             />
             {emailSettings.utmTagsEnabled && (
                 <>
