@@ -1,5 +1,5 @@
 import time
-from typing import Any, cast
+from typing import Any
 
 from django.conf import settings
 from django.urls import reverse
@@ -9,7 +9,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,8 +19,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_team_action, report_user_action
-from posthog.models import Team, User
-from posthog.permissions import get_authenticator_client, posthog_feature_flag_enabled
+from posthog.models import Team
 
 from products.messaging.backend.facade.contracts import TransactionalEmailError
 from products.messaging.backend.facade.supabase_auth_emails import (
@@ -42,9 +41,6 @@ from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
 
-# pinned: feature flag key, a rename makes a new flag
-SUPABASE_AUTH_EMAILS_FLAG = "workflows-supabase-auth-emails"
-
 # Every hook call is counted here rather than as an analytics event, because calls scale with the sign-ups and
 # log-ins of each customer's own app.
 HOOK_CALLS = Counter(
@@ -62,19 +58,6 @@ HOOK_DURATION = Histogram(
 # Current Supabase sends email sign-in codes as `magiclink`, so `email` only comes from older self-hosted versions.
 # The hook still accepts it and an existing mapping still saves, but the mapping table doesn't offer it.
 HIDDEN_EMAIL_TYPES = frozenset({SupabaseEmailActionType.EMAIL})
-
-
-def supabase_auth_emails_enabled(team: Team, distinct_id: str, caller_properties: dict[str, str]) -> bool:
-    # Per person so an early access opt-in counts. The person's stored organization_id is the one they
-    # last used, so pass this team's.
-    return posthog_feature_flag_enabled(
-        SUPABASE_AUTH_EMAILS_FLAG,
-        distinct_id,
-        organization_id=team.organization_id,
-        team_id=team.id,
-        person_properties={"organization_id": str(team.organization_id)},
-        caller_properties=caller_properties,
-    )
 
 
 class SupabaseEmailTypeSerializer(serializers.Serializer):
@@ -143,14 +126,6 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["update_settings", "disconnect", "starter_templates"]
     serializer_class = _FallbackSerializer
 
-    def _require_flag(self) -> None:
-        if not supabase_auth_emails_enabled(
-            self.team,
-            str(cast(User, self.request.user).distinct_id),
-            get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
-        ):
-            raise NotFound()
-
     def _require_editor(self) -> None:
         # Team-wide settings with no per-workflow object, so a grant on one workflow is not enough.
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
@@ -195,7 +170,6 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["GET"], url_path="settings")
     def get_settings(self, request: Request, **kwargs: Any) -> Response:
-        self._require_flag()
         return self._response(get_settings(self.team_id))
 
     @validated_request(
@@ -208,7 +182,6 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @get_settings.mapping.patch
     def update_settings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        self._require_flag()
         self._require_editor()
         self._require_workflow_editor(request.validated_data.get("templates", get_settings(self.team_id).templates))
         try:
@@ -243,7 +216,6 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @get_settings.mapping.delete
     def disconnect(self, request: Request, **kwargs: Any) -> Response:
-        self._require_flag()
         self._require_editor()
         cleared = delete_settings(self.team_id)
         try:
@@ -265,7 +237,6 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["POST"])
     def starter_templates(self, request: Request, **kwargs: Any) -> Response:
-        self._require_flag()
         self._require_editor()
         mapped_before = len(get_settings(self.team_id).templates)
         try:

@@ -17,7 +17,6 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models import MessageTemplate, SupabaseAuthEmailConfig
-from products.messaging.backend.presentation.views.supabase_auth_emails import SUPABASE_AUTH_EMAILS_FLAG
 from products.messaging.backend.services.design_validation import validate_design
 from products.messaging.backend.services.supabase_auth_emails import SEND_BUDGET_SECONDS
 from products.messaging.backend.services.transactional_email import make_transactional
@@ -319,18 +318,6 @@ class TestSupabaseAuthEmails(APIBaseTest):
 
         assert denied_mapping.status_code == status.HTTP_403_FORBIDDEN, denied_mapping.json()
         assert denied_secret.status_code == status.HTTP_403_FORBIDDEN, denied_secret.json()
-
-    def test_hides_the_settings_but_keeps_sending_while_the_flag_is_off(self, mock_post, flag, _capture):
-        flag.return_value = False
-        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
-
-        assert self.client.get(self.settings_url).status_code == status.HTTP_404_NOT_FOUND
-        flag_calls = [c for c in flag.call_args_list if c.args[0] == SUPABASE_AUTH_EMAILS_FLAG]
-        assert [c.args[1] for c in flag_calls] == [str(self.user.distinct_id)]
-        assert flag_calls[0].kwargs["person_properties"]["organization_id"] == str(self.team.organization_id)
-        # A connected project's sign-ups must not break when the flag rolls back.
-        assert self._post_hook(_payload("signup")).json() == {}
-        assert mock_post.called
 
     def test_disconnect_clears_the_settings_so_the_hook_refuses_calls(self, mock_post, _flag, _capture):
         response = self.client.delete(self.settings_url)
