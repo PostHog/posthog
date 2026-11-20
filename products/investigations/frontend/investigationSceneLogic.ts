@@ -223,10 +223,12 @@ export const investigationSceneLogic = kea<investigationSceneLogicType>([
                 router.actions.push(urls.investigations())
             } catch (error) {
                 breakpoint()
+                const conflict = error instanceof ApiError && error.status === 409
                 actions.setError(
-                    error instanceof ApiError && error.status === 409
+                    conflict
                         ? 'Someone saved a newer version. Reload it before archiving.'
-                        : 'Could not archive this investigation. Try again.'
+                        : 'Could not archive this investigation. Try again.',
+                    conflict
                 )
             } finally {
                 actions.setBusy(false)

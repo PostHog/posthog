@@ -21,6 +21,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps): JSX.Elem
     const queryCount = document.evidence.filter((item) => item.kind === 'query' && item.sql.trim()).length
     const panelProps = { document, onChange: changeDocument, editable: props.editable }
     const { isMaxAvailable, isPhaiSandboxFlagOn } = useValues(aiShellLogic)
+    const canUseAssistant = props.editable && isMaxAvailable && isPhaiSandboxFlagOn
     const assistantProps = {
         scope: props.scope,
         ...panelProps,
@@ -88,7 +89,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps): JSX.Elem
             )}
             <div
                 className={
-                    props.editable && isMaxAvailable && isPhaiSandboxFlagOn
+                    canUseAssistant
                         ? 'grid gap-6 @min-[64rem]/investigation:grid-cols-[minmax(0,1fr)_20rem]'
                         : 'min-w-0'
                 }
@@ -108,7 +109,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps): JSX.Elem
                                         selectedId={selectedEvidenceId}
                                         onSelect={setSelectedEvidenceId}
                                         onAskAI={
-                                            props.editable && isMaxAvailable && isPhaiSandboxFlagOn
+                                            canUseAssistant
                                                 ? (task, id) => {
                                                       setTask(task)
                                                       setTargetId(id)
@@ -134,7 +135,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps): JSX.Elem
                         ]}
                     />
                 </div>
-                {props.editable && isMaxAvailable && isPhaiSandboxFlagOn && (
+                {canUseAssistant && (
                     <aside className="min-w-0 pt-4" aria-label="Query assistance">
                         <LemonCollapse
                             defaultActiveKey="assistant"

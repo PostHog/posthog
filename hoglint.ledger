@@ -2057,6 +2057,7 @@ level:isolated	demo	1
 level:isolated	endpoints	1
 level:isolated	engineering_analytics	1
 level:isolated	groups	1
+level:isolated	investigations	1
 level:isolated	knowledge_writer	1
 level:isolated	ml_inference	1
 level:isolated	release	1

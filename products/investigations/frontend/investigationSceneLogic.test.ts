@@ -55,13 +55,13 @@ describe('investigation persistence', () => {
         expect(logic.values.record?.revision).toBe(2)
     })
 
-    it('keeps the local document after a conflicting save', async () => {
+    it.each(['save', 'archive'] as const)('keeps the local document after a conflicting %s', async (action) => {
         useMocks({
             patch: { '/api/projects/:team_id/investigations/:id/': [409, { detail: 'Newer revision exists' }] },
         })
         const edited = { ...record.document, conclusion: 'Keep this evidence' }
         logic.actions.changeDocument(edited)
-        await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions[action]()).toFinishAllListeners()
         expect(logic.values.document).toEqual(edited)
         expect(logic.values.dirty).toBe(true)
         expect(logic.values.conflict).toBe(true)
