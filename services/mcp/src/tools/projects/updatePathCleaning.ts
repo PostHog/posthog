@@ -64,7 +64,6 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
 const MAX_REPEAT_COUNT = 100
 const MAX_PROGRAM_SIZE = 1000
 
-/** Compiles a path cleaning regex with RE2, the engine the backend uses. Throws on invalid or too costly patterns. */
 function compilePathCleaningRegex(regex: string): RE2JS {
     for (const [repeat, min, max] of regex.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) {
         if (Math.max(Number(min), Number(max ?? 0)) > MAX_REPEAT_COUNT) {
@@ -236,9 +235,9 @@ function applyChain(path: string, rules: PathCleaningRule[]): string {
             continue
         }
         out = re.matcher(out).replaceAll((match: string, ...rest: unknown[]): string => {
-            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?) as in
-            // String.prototype.replace. A group the pattern didn't fill arrives as undefined, so the
-            // first number is the offset and marks where the capture values stop.
+            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
+            // the pattern didn't fill arrives as undefined, so the first number is the offset and
+            // marks where the capture values stop.
             const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
             const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
             return expandAlias(rule.alias, [match, ...captures])
