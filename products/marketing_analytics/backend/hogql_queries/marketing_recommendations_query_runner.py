@@ -36,6 +36,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     CampaignStats,
     ExcludedSearch,
     FlaggedAd,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
     PolicyAds,
@@ -197,6 +198,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        keywords=tuple(self._keywords(source, organic_queries)),
                         excluded_searches=self._excluded_searches(source),
                         policy_ads=tuple(self._policy_ads(source)),
                         flagged_ads=tuple(self._flagged_ads(source)),
@@ -605,6 +607,23 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if row[2]
         ]
 
+    def _keywords(
+        self, source: MarketingAnalyticsRecommendationsSource, organic_queries: tuple[OrganicQueryStats, ...]
+    ) -> list[Keyword]:
+        # Only organic queries can become a keyword gap, so the account's other keywords are not read.
+        if not organic_queries or not source.keywordTable or not self._readable(source.keywordTable):
+            return []
+        rows = self._select(
+            """
+            SELECT DISTINCT lower(trim(ad_group_criterion_keyword_text)) AS text, toString(campaign_id)
+            FROM {table}
+            WHERE toString(ad_group_criterion_status) = 'ENABLED' AND has({queries}, text)
+            """,
+            source.keywordTable,
+            queries=ast.Constant(value=sorted({query.query for query in organic_queries})),
+        )
+        return [Keyword(text=row[0], campaign_id=row[1]) for row in rows]
+
     def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:
         table = source.searchTermTable
         if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
@@ -797,6 +816,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             adTable=tables.get("ad"),
+            keywordTable=tables.get("keyword"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
             campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
             searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),

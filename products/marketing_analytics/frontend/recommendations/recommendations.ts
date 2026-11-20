@@ -185,6 +185,8 @@ export function reconcileResolutionOverrides(
 
 export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
     negative_keyword: 'Google Ads lists this search as a negative keyword.',
+    brand_negative: 'Google Ads lists your brand as a negative keyword.',
+    keyword_added: 'Google Ads lists this search as a keyword in an active Search campaign.',
 }
 
 export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {

@@ -40667,8 +40667,8 @@
             "type": "string"
         },
         "MarketingAnalyticsRecommendationDetectedChange": {
-            "const": "negative_keyword",
-            "description": "`negative_keyword`: the search is now excluded by a negative keyword.",
+            "description": "`negative_keyword`: the search is now excluded by a negative keyword. `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords. `keyword_added`: the search is now a keyword in an active Search campaign.",
+            "enum": ["negative_keyword", "brand_negative", "keyword_added"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationIdentity": {
@@ -40953,6 +40953,10 @@
                 },
                 "customerTable": {
                     "description": "Google Ads customer table, used for the account currency.",
+                    "type": "string"
+                },
+                "keywordTable": {
+                    "description": "Google Ads keyword table, used to tell which searches are already keywords.",
                     "type": "string"
                 },
                 "performanceMaxSearchTermTable": {
