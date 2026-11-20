@@ -647,6 +647,19 @@ class PlatformAlertsFlagPermission(BasePermission):
         return bool(view.open_source_kinds)
 
 
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "schedule_restriction",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "check_interval_minutes",
+    }
+)
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
     scope_object_read_actions = ["list", "retrieve", "destinations", "events"]
@@ -777,12 +790,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
     ) -> PlatformAlertConfigurationEdit:
         edited = replace(stored, **fields)
-        # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
-        # An edit form can send the stored config back unchanged, so compare values, not keys.
-        # Routing labels pick who gets the alert's notifications, as a destination does.
-        if edited.enabled and (
-            edited.source_config != stored.source_config or not stored.enabled or edited.labels != stored.labels
-        ):
+        # Only a rename or a change to when the alert fires leaves what it reads and who it tells as they were.
+        # An edit form sends unchanged settings back, so compare values, not keys.
+        changed = {name for name, value in fields.items() if getattr(stored, name) != value}
+        if edited.enabled and (not stored.enabled or changed - _TIMING_AND_NAME_FIELDS):
             self._require_pipeline_log_access(source_kind, edited.source_config)
         return edited
 

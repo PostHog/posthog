@@ -290,7 +290,13 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    @parameterized.expand([("rename", {"name": "Renamed"}, 200), ("route", {"labels": {"team": "payments"}}, 403)])
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Renamed"}, 200),
+            ("route", {"labels": {"team": "payments"}}, 403),
+            ("group", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
+        ]
+    )
     def test_restricted_member_edits_a_pipeline_platform_alert_with_its_config_unchanged(
         self, _name: str, change: dict, expected: int
     ) -> None:
