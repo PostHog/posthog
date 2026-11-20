@@ -751,7 +751,9 @@ class PendingReviewCountsSerializer(serializers.Serializer):
 
 class CatalogAttentionSerializer(serializers.Serializer):
     pending_review = PendingReviewCountsSerializer(
-        help_text="Items that wait in each review queue. Every count is 0 without data catalog access."
+        allow_null=True,
+        help_text="Items that wait in each review queue. Every count is 0 without data catalog access. "
+        "Null when the counts could not be read, so the badge keeps its last counts.",
     )
     failing_models = serializers.IntegerField(
         help_text="Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access."

@@ -38,9 +38,13 @@ function isAccessDenied(reason: unknown): boolean {
     return reason instanceof ApiError && reason.status === ACCESS_DENIED_STATUS
 }
 
-function settledCount<T>(result: PromiseSettledResult<T>, read: (value: T) => number, previous: number): number {
+function settledCount<T>(
+    result: PromiseSettledResult<T>,
+    read: (value: T) => number | undefined,
+    previous: number
+): number {
     if (result.status === 'fulfilled') {
-        return read(result.value)
+        return read(result.value) ?? previous
     }
     return isAccessDenied(result.reason) ? 0 : previous
 }
@@ -55,15 +59,19 @@ async function fetchAttentionCounts(projectId: string, previous: AttentionCounts
         dataQualityChecksFailingCountRetrieve(projectId, withTimeout()),
     ])
     return {
-        proposedMetrics: settledCount(attention, (catalog) => catalog.pending_review.metrics, previous.proposedMetrics),
+        proposedMetrics: settledCount(
+            attention,
+            (catalog) => catalog.pending_review?.metrics,
+            previous.proposedMetrics
+        ),
         proposedRelationships: settledCount(
             attention,
-            (catalog) => catalog.pending_review.relationships,
+            (catalog) => catalog.pending_review?.relationships,
             previous.proposedRelationships
         ),
         proposedCertifications: settledCount(
             attention,
-            (catalog) => catalog.pending_review.certifications,
+            (catalog) => catalog.pending_review?.certifications,
             previous.proposedCertifications
         ),
         failingModels: settledCount(attention, (catalog) => catalog.failing_models, previous.failingModels),

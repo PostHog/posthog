@@ -87,4 +87,22 @@ describe('dataCatalogAttentionLogic', () => {
         expect(logic.values.attention.failingModels).toEqual(expectedFailingModels)
         expect(logic.values.attention.failingChecks).toEqual(2)
     })
+
+    it('keeps the last review counts when the server could not read them', async () => {
+        mountWithFlags(RESTRUCTURE_FLAGS)
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+        ;(dataCatalogAttentionRetrieve as jest.Mock).mockResolvedValue({ pending_review: null, failing_models: 5 })
+
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+
+        expect(logic.values.tabCounts).toEqual({
+            overview: 5,
+            tables: 1,
+            metrics: 3,
+            relationships: 0,
+            'data-quality': 2,
+        })
+    })
 })

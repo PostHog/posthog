@@ -27234,8 +27234,8 @@ export namespace Schemas {
     }
 
     export interface CatalogAttention {
-      /** Items that wait in each review queue. Every count is 0 without data catalog access. */
-      pending_review: PendingReviewCounts;
+      /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+      pending_review: PendingReviewCounts | null;
       /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
       failing_models: number;
     }

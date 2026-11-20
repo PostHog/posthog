@@ -342,6 +342,18 @@ class TestCatalogAttentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"pending_review": pending_review, "failing_models": failing_models}
 
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for", side_effect=ValueError("broken view"))
+    def test_counts_failing_models_when_the_review_counts_fail(self, _create_database: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        _metric(self.team, "on_source", referenced_table_names=["orders_source"])
+        self._failing_model()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/attention/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"pending_review": None, "failing_models": 1}
+
     def test_personal_api_key_cannot_read_it(self) -> None:
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw_key), scopes=["*"])
