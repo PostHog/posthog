@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
-from datetime import datetime
+from datetime import UTC, datetime, tzinfo
 from functools import partial
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread
@@ -52,7 +52,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
-from products.dashboards.backend.v2.telemetry import TelemetryTargetError, promql_interval, run_logql
+from products.dashboards.backend.v2.telemetry import (
+    TelemetryTargetError,
+    assert_can_read_logs,
+    promql_interval,
+    run_logql,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -149,13 +154,17 @@ def to_posthog_date(expression: str) -> Optional[str]:
     return expression
 
 
-def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
+def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
     if target.language == QueryBatchLanguage.PROMQL:
         try:
             interval = promql_interval(
-                item.date_from, item.date_to, max_data_points=item.max_data_points, min_interval=item.interval
+                item.date_from,
+                item.date_to,
+                max_data_points=item.max_data_points,
+                min_interval=item.interval,
+                tz=tz,
             )
         except TelemetryTargetError as e:
             raise InvalidTarget(str(e))
@@ -356,10 +365,17 @@ class QueryBatch:
             if item.target.language == QueryBatchLanguage.LOGQL:
                 continue
             try:
-                resolved[index] = resolve_query(item)
+                resolved[index] = resolve_query(item, tz=self._team.timezone_info)
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
         user_access_control = UserAccessControl(user=self._user, team=self._team)
+        if logql:
+            try:
+                assert_can_read_logs(self._team, self._user, user_access_control)
+            except Exception as e:
+                for index in logql:
+                    self._add_ready(_error_line(index, e, team=self._team))
+                logql = []
 
         def plan(index: int) -> PlannedQuery | None:
             query = resolved[index]
@@ -548,7 +564,6 @@ class QueryBatch:
         try:
             response = run_logql(
                 team=self._team,
-                user=self._user,
                 logql=item.target.query,
                 date_from=item.date_from,
                 date_to=item.date_to,

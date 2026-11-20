@@ -2,6 +2,7 @@ import json
 import datetime as dt
 from collections.abc import Iterator
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -26,7 +27,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.query_batch import InvalidTarget, resolve_query, to_posthog_date
-from products.dashboards.backend.v2.telemetry import Step, pick_step
+from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
 
 _LAST_7_DAYS = {"from": "now-7d", "to": "now"}
@@ -229,6 +230,7 @@ def _snuffle(status_code: int, payload: dict) -> MagicMock:
     response = MagicMock(spec=requests.Response)
     response.status_code = status_code
     response.json.return_value = payload
+    response.iter_content.return_value = [json.dumps(payload).encode()]
     response.headers = {}
     return response
 
@@ -301,6 +303,20 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(sent_ends[1] - sent_ends[0], 300)
 
+    def test_an_oversized_logql_response_is_an_error_line_not_a_buffered_body(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.telemetry.MAX_LOGQL_RESPONSE_BYTES", 10),
+            patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))),
+        ):
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertIn("too much data", lines[0]["error"])
+
+    def test_a_huge_relative_date_fails_only_its_own_panel(self) -> None:
+        lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
+
+        self.assertEqual(lines, [{"i": 0, "error": "Unsupported time expression: 'now-99999999y'."}])
+
     @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])
     def test_flag_off_runs_nothing(self, language: str, query: str) -> None:
         self.flag_on_for_project = self.team.pk + 1
@@ -362,6 +378,57 @@ class TestResolveQuery(SimpleTestCase):
 
         self.assertEqual(resolved.query["dateRange"], {"date_from": to_posthog_date(date_from), "date_to": None})
         self.assertEqual(resolved.query["interval"], expected)
+
+    def test_months_are_calendar_months_and_naive_dates_are_in_the_project_timezone(self) -> None:
+        at = dt.datetime(2026, 11, 20, 12, tzinfo=dt.UTC)
+        berlin = ZoneInfo("Europe/Berlin")
+
+        self.assertEqual(time_range("now-1M", "now", at=at).start, dt.datetime(2026, 10, 20, 12, tzinfo=dt.UTC))
+        self.assertEqual(
+            time_range("2026-11-01T00:00:00", "now", tz=berlin, at=at).start,
+            dt.datetime(2026, 11, 1, tzinfo=berlin),
+        )
+
+    @parameterized.expand(
+        [
+            ("a_min_interval_past_the_ladder", "now-30d", "2w", None),
+            ("a_range_too_long_for_the_points", "now-30d", None, 1),
+        ]
+    )
+    def test_promql_rejects_a_step_past_a_week(
+        self, _name: str, date_from: str, interval: str | None, max_points: int | None
+    ) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        with self.assertRaises(InvalidTarget):
+            resolve_query(
+                QueryBatchInput(
+                    target=target, date_from=date_from, date_to="now", interval=interval, max_data_points=max_points
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("a_min_interval_past_the_ladder", dt.timedelta(days=30), "2w", None, 1209600),
+            ("a_range_too_long_for_the_points", dt.timedelta(days=30), None, 1, 2592000),
+        ]
+    )
+    def test_logql_keeps_both_step_constraints_past_the_ladder(
+        self, _name: str, span: dt.timedelta, interval: str | None, max_points: int | None, expected: int
+    ) -> None:
+        step = pick_step(span, max_data_points=max_points, min_interval=interval, is_promql=False)
+
+        self.assertEqual(step.seconds, expected)
+
+    @parameterized.expand(
+        [
+            ("a_filter_quoting_a_function_name", '{service_name="api"} |= "rate("', True),
+            ("a_backtick_filter", '{service_name="api"} |~ `count_over_time(`', True),
+            ("a_metric_query", 'sum(rate({service_name="api"} |= "x" [1m]))', False),
+        ]
+    )
+    def test_classifies_logql_by_its_functions_not_its_strings(self, _name: str, logql: str, expected: bool) -> None:
+        self.assertEqual(returns_log_lines(logql), expected)
 
     def test_logql_has_no_scrape_interval_floor(self) -> None:
         self.assertEqual(
