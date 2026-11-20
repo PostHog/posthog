@@ -1751,8 +1751,12 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
             response = self.client.get(self._list_url())
+            needs_attention = self.client.get(self._list_url(needs_attention="true"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in needs_attention.json()["results"]] == (
+            [str(report.id)] if state == "not_on_track" else []
+        )
         [row] = [row for row in response.json()["results"] if row["id"] == str(report.id)]
         summary = row["monitoring_summary"]
         if state is None:
@@ -1867,8 +1871,13 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             response = self.client.get(self._list_url(view="monitoring_recent"))
+            needs_attention = self.client.get(self._list_url(view="monitoring_recent", needs_attention="true"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in needs_attention.json()["results"]} == {
+            str(closed.id),
+            str(closed_into_suppressed.id),
+        }
         rows = {row["id"]: row for row in response.json()["results"]}
         expected_kinds = {
             monitoring.id: None,

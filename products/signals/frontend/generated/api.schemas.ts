@@ -13871,6 +13871,10 @@ export type SignalsReportsListParams = {
      */
     limit?: number
     /**
+     * 'true' keeps only the reports whose fix has evidence that it is not working: reports in Monitoring whose interim readings are not on track, and closed reports. 'false' leaves those out. Off-track readings the requesting user may not read do not count. Requires Monitoring to be enabled.
+     */
+    needs_attention?: boolean
+    /**
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
     needs_you?: boolean

@@ -245,6 +245,7 @@ from products.signals.backend.report_monitoring_aggregation import MonitoringAgg
 from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
 from products.signals.backend.report_monitoring_summary import (
     MONITORING_RECENT_WINDOW,
+    MonitoringSummaryState,
     ReportMonitoringOutcome,
     ReportMonitoringSummary,
     monitoring_outcomes,
@@ -2071,13 +2072,24 @@ _REPORT_LIST_PARAMETERS = [
             "'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
         ),
     ),
+    OpenApiParameter(
+        name="needs_attention",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "'true' keeps only the reports whose fix has evidence that it is not working: reports in Monitoring "
+            "whose interim readings are not on track, and closed reports. 'false' leaves those out. Off-track "
+            "readings the requesting user may not read do not count. Requires Monitoring to be enabled."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
 _SECTION_COUNTS_PARAMETERS = [
     parameter
     for parameter in _REPORT_LIST_PARAMETERS
-    if parameter.name not in _SECTION_DEFINING_PARAMETERS | {"sort", "ordering"}
+    if parameter.name not in _SECTION_DEFINING_PARAMETERS | {"sort", "ordering", "needs_attention"}
 ]
 
 
@@ -2441,6 +2453,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
+        qs = self._apply_signal_report_needs_attention_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         if self._needs_priority_annotation():
             priority_rank = F("priority_sort_rank") if self._inbox_sort_cache else latest_priority_rank()
@@ -2979,6 +2992,28 @@ class SignalReportViewSet(
         # `=False`, not `exclude(=True)`: a report with no parseable judgment holds NULL, and
         # "not already addressed" has never covered reports nobody judged.
         return queryset.filter(latest_already_addressed=already_addressed)
+
+    def _apply_signal_report_needs_attention_filter(self, queryset):
+        wants_needs_attention = self._bool_query_param("needs_attention")
+        if wants_needs_attention is None:
+            return queryset
+        if not self._report_monitoring_enabled:
+            return queryset.none() if wants_needs_attention else queryset
+        # Interim state is derived from check observations, not stored on the report, so the off-track
+        # reports are summarized here, before pagination, to keep every page and the count consistent.
+        summaries = monitoring_summaries(
+            list(queryset.filter(status=SignalReport.Status.MONITORING)),
+            team_id=self.team_id,
+            now=timezone.now(),
+            may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+        )
+        off_track_ids = [
+            report_id
+            for report_id, summary in summaries.items()
+            if summary.state == MonitoringSummaryState.NOT_ON_TRACK
+        ]
+        needs_attention = Q(status=SignalReport.Status.CLOSED) | Q(id__in=off_track_ids)
+        return queryset.filter(needs_attention) if wants_needs_attention else queryset.exclude(needs_attention)
 
     def _apply_signal_report_inbox_view_filter(self, queryset):
         inbox_view = self.request.query_params.get("view")
