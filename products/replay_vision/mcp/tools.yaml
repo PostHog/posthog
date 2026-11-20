@@ -813,8 +813,8 @@ tools:
             already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than
             being charged twice. Scans cost credits per session at the same rate a scanner does; check
             `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as
-            `skipped_quota` instead of failing the call. If the question would also apply to future recordings,
-            offer a scanner after answering (see the creating-replay-vision-scanners skill).
+            `skipped_quota` instead of failing the call. If the question would also apply to future recordings, offer a
+            scanner after answering (see the creating-replay-vision-scanners skill).
         ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:
@@ -975,8 +975,8 @@ tools:
             batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner
             already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`,
             polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a
-            one-off question without a scanner use `vision-scanners-inline-scan`. If the scanner has no schedule,
-            offer to turn it on after reporting (see the creating-replay-vision-scanners skill).
+            one-off question without a scanner use `vision-scanners-inline-scan`. If the scanner has no schedule, offer
+            to turn it on after reporting (see the creating-replay-vision-scanners skill).
         requires_ai_consent: true
     vision-scanners-scout-reports-get:
         operation: vision_scanners_scout_reports_retrieve
