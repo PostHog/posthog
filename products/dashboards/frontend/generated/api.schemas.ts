@@ -10968,6 +10968,13 @@ export interface DashboardStreamCachedTileApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `frames` - Frames
+     * * `result` - Result */
+    format?: CachedTileFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */
     stale?: boolean
 }
