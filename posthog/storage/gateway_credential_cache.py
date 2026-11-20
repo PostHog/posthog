@@ -123,7 +123,6 @@ class _RefreshMemo:
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
         self._org_roots: dict[Any, int | None] = {}
-        self._deactivated_orgs: dict[Any, bool] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -146,11 +145,6 @@ class _RefreshMemo:
         if organization_id not in self._org_roots:
             self._org_roots[organization_id] = load()
         return self._org_roots[organization_id]
-
-    def organization_deactivated(self, organization_id: Any, load: Callable[[], bool]) -> bool:
-        if organization_id not in self._deactivated_orgs:
-            self._deactivated_orgs[organization_id] = load()
-        return self._deactivated_orgs[organization_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -216,11 +210,8 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
     return _team_by_id(team_id, memo)
 
 
-def _organization_deactivated(organization_id: Any, memo: "_RefreshMemo | None") -> bool:
-    def load() -> bool:
-        return Organization.objects.filter(pk=organization_id, is_active=False).exists()
-
-    return memo.organization_deactivated(organization_id, load) if memo else load()
+def _organization_deactivated(organization_id: Any) -> bool:
+    return Organization.objects.filter(pk=organization_id, is_active=False).exists()
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -304,7 +295,7 @@ def _policy_for_credential(
     if team is None:
         return HyperCacheStoreMissing()
 
-    if _organization_deactivated(team.organization_id, memo):
+    if _organization_deactivated(team.organization_id):
         return HyperCacheStoreMissing()
 
     project_token = team.api_token

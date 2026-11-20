@@ -17,7 +17,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -514,6 +514,20 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         self.assertIsNotNone(self._read_blob(credential_hash(secret_key)))
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
         self.assertIsNone(self._read_blob(credential_hash(ignored)))
+
+    def test_refresh_stops_projecting_an_org_deactivated_during_the_run(self):
+        keys = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(2)]
+        real_write = hypercache.set_cache_value_redis_only
+
+        def write_then_deactivate(*args, **kwargs):
+            real_write(*args, **kwargs)
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=write_then_deactivate):
+            refresh_all_gateway_credentials()
+
+        written = [key for key in keys if self._read_blob(credential_hash(key)) is not None]
+        self.assertEqual(len(written), 1)
 
     @contextmanager
     def _failing_blob_writes(
