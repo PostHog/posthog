@@ -237,11 +237,14 @@ describe('boundText', () => {
         expect(JSON.parse(bounded)).toContain('line of schema\nline of schema')
     })
 
-    it('re-serializes TOON text so each array header counts the rows it keeps', () => {
-        const bounded = boundText(formatResponse({ results: rows(1_000) }), BUDGET)
+    it.each([
+        ['tabular rows', rows(1_000), /^ {2}\d+,row-\d+,x+$/],
+        ['list items', rows(1_000).map((row) => ({ ...row, tags: ['a', 'b'] })), /^ {2}- id: \d+$/],
+    ])('makes each TOON array header it cuts count the %s it keeps', (_, results, item) => {
+        const bounded = boundText(formatResponse({ results }), BUDGET)
 
         const declared = Number(/results\[(\d+)\]/.exec(bounded)![1])
-        expect(bounded.split('\n').filter((line) => /^ {2}\d+,row-\d+,x+$/.test(line))).toHaveLength(declared)
+        expect(bounded.split('\n').filter((line) => item.test(line))).toHaveLength(declared)
     })
 })
 
