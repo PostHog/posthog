@@ -6,8 +6,8 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ConnectedAppApi } from '~/generated/core/api.schemas'
@@ -45,7 +45,7 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
 export function ConnectedApps({ apps }: { apps?: ConnectedAppApi[] }): JSX.Element {
     const { connectedApps, connectedAppsLoading } = useValues(connectedAppsLogic)
     const { revokeApp } = useActions(connectedAppsLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleRevoke = (app: ConnectedAppApi): void => {
         // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).

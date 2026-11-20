@@ -21,7 +21,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -529,7 +528,7 @@ export function PersonalAPIKeys(): JSX.Element {
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
     const { user } = useValues(userLogic)
     const keysLimit = user?.personal_api_keys_limit ?? DEFAULT_MAX_API_KEYS_PER_USER
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const createDisabledReason = !canUsePersonalApiKeys
         ? 'Your organization does not allow members using personal API keys.'
