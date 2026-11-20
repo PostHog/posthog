@@ -11,8 +11,9 @@
 # paths only add owners, so the caller can't use them to clear anyone. The check fails when an
 # approver is one of the owners, and writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT.
 # --report checks nobody and writes the pull requests and their owners as Slack mrkdwn instead, as
-# `prs_mrkdwn` and `owners_mrkdwn`. --list-paths prints RELEASE_PATHS, one per line, so the release
-# workflow can check that they still cover what the release builds. Every lookup that fails stops the
+# `prs_mrkdwn` and `owners_mrkdwn`. --list-paths prints RELEASE_PATHS, one per line, and changes nothing:
+# the release workflow only warns when they miss something the release builds, because the extra paths
+# it passes already make those pull requests owners. Every lookup that fails stops the
 # script, because a check that can't run can't clear anyone.
 #
 # Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
