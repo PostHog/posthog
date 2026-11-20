@@ -33,7 +33,10 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    route_to_events_table_cluster,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
@@ -286,7 +289,7 @@ async def _get_backfill_info_for_events(
         query_id=query_id,
         query_type="backfill_info:events",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with route_to_events_table_cluster(reads_native_events), get_client(team_id=team_id) as client:
             result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
 
     min_timestamp_str = result[0]["min_timestamp"]

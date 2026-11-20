@@ -18,7 +18,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    route_to_events_table_cluster,
+)
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
@@ -212,30 +215,31 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
+    model = migrate_batch_export_model(inputs.batch_export_model)
+    if isinstance(model, BatchExportEventsCustomModel):
+        raise NotImplementedError("HTTP export does not support schemas")
+    if not isinstance(model, BatchExportEventsModel):
+        raise NotImplementedError("HTTP export only supports the events model")
+
+    use_native_schema = batch_exports_read_new_events_table()
+
+    interval_start = await maybe_resume_from_heartbeat(inputs)
+
+    is_backfill = inputs.get_is_backfill()
+
+    native_source = reads_native_events_table(
+        team_id=inputs.team_id,
+        interval_start=interval_start,
+        interval_end=inputs.data_interval_end,
+        use_new_events_schema=use_native_schema,
+        is_backfill=is_backfill,
+        backfill_details=inputs.backfill_details,
+    )
+
+    async with route_to_events_table_cluster(native_source), get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        model = migrate_batch_export_model(inputs.batch_export_model)
-        if isinstance(model, BatchExportEventsCustomModel):
-            raise NotImplementedError("HTTP export does not support schemas")
-        if not isinstance(model, BatchExportEventsModel):
-            raise NotImplementedError("HTTP export only supports the events model")
-
-        use_native_schema = batch_exports_read_new_events_table()
-
-        interval_start = await maybe_resume_from_heartbeat(inputs)
-
-        is_backfill = inputs.get_is_backfill()
-
-        native_source = reads_native_events_table(
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            use_new_events_schema=use_native_schema,
-            is_backfill=is_backfill,
-            backfill_details=inputs.backfill_details,
-        )
         fields = http_default_fields(reads_native_events=native_source)
         columns = [field["alias"] for field in fields]
 
