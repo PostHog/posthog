@@ -172,8 +172,11 @@ const TOOL_RESULT_INDICATORS = [
     'function_call_output',
     'custom_tool_call_output',
     'function_call_result',
+    'computer_call_output',
     'functionResponse',
     '"tool"',
+    // Legacy OpenAI results use role "function".
+    '"function"',
 ]
 
 type Parsed = { value: unknown } | { skipped: 'too_large' | 'no_indicators' | 'invalid_json' }
@@ -197,6 +200,8 @@ function parseIfString(value: unknown, maxLength: number, indicators?: string[])
 
 const isSet = (value: unknown): boolean => value !== undefined && value !== null
 
+const RESULT_PROPERTIES = ['$ai_tool_result_count', '$ai_tool_error_count', '$ai_tool_results', '$ai_tool_errors']
+
 // Runs after processAiToolCallExtraction, because unknown tools and intent read $ai_tools_called.
 export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T {
     if (!event.properties || event.event !== '$ai_generation') {
@@ -204,7 +209,8 @@ export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T
     }
     const properties = event.properties
 
-    if (!isSet(properties['$ai_tool_result_count']) && isSet(properties['$ai_input'])) {
+    // Any client-sent result property means the client describes its own results, so none are inferred.
+    if (!RESULT_PROPERTIES.some((key) => isSet(properties[key])) && isSet(properties['$ai_input'])) {
         try {
             const input = parseIfString(properties['$ai_input'], MAX_INPUT_LENGTH, TOOL_RESULT_INDICATORS)
             if ('skipped' in input) {

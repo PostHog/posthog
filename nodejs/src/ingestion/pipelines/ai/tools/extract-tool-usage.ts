@@ -292,14 +292,15 @@ export function extractDefinedToolNames(tools: unknown): Set<string> | null {
     return names.size > 0 ? names : null
 }
 
+// Clients can send $ai_tools_called themselves, so the list is capped like extracted calls are.
 export function findUnknownTools(called: string[], defined: Set<string>): string[] {
-    const unknown: string[] = []
-    for (const name of called) {
-        if (!defined.has(name) && !unknown.includes(name)) {
-            unknown.push(name)
+    const unknown = new Set<string>()
+    for (const name of called.slice(0, MAX_TOOLS_PER_EVENT)) {
+        if (!defined.has(name)) {
+            unknown.add(name)
         }
     }
-    return unknown
+    return [...unknown]
 }
 
 const TEXT_PART_TYPES = new Set(['text', 'output_text'])

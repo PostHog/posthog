@@ -133,12 +133,24 @@ describe('processAiToolUsageExtraction', () => {
             })
         })
 
-        it('reads a JSON-stringified input', () => {
-            const input = JSON.stringify([
-                { role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 'calc', input: {} }] },
-                { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', is_error: true }] },
-            ])
-            expect(resultProperties({ $ai_input: input })).toEqual({
+        it.each([
+            [
+                'Anthropic tool_result',
+                [
+                    { role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 'calc', input: {} }] },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', is_error: true }] },
+                ],
+            ],
+            ['legacy OpenAI role function', [{ role: 'function', name: 'calc', content: 'Error: x' }]],
+            [
+                'OpenAI Responses computer_call_output',
+                [
+                    { type: 'computer_call', call_id: 'c', name: 'calc' },
+                    { type: 'computer_call_output', call_id: 'c', status: 'error' },
+                ],
+            ],
+        ])('reads a JSON-stringified input: %s', (_, items) => {
+            expect(resultProperties({ $ai_input: JSON.stringify(items) })).toEqual({
                 count: 1,
                 errorCount: 1,
                 results: 'calc',
@@ -146,15 +158,22 @@ describe('processAiToolUsageExtraction', () => {
             })
         })
 
-        it('keeps a result count the client sent', () => {
+        it.each([
+            ['$ai_tool_result_count', 5],
+            ['$ai_tool_error_count', 2],
+            ['$ai_tool_results', 'search'],
+            ['$ai_tool_errors', 'search'],
+        ])('infers nothing when the client sent %s', (key, value) => {
             const out = processAiToolUsageExtraction(
                 generation({
-                    $ai_tool_result_count: 5,
+                    [key]: value,
                     $ai_input: [{ role: 'tool', tool_call_id: 'a', name: 'calc', content: 'Error: x' }],
                 })
             ).properties!
-            expect(out['$ai_tool_result_count']).toBe(5)
-            expect(out['$ai_tool_errors']).toBeUndefined()
+            const resultKeys = ['$ai_tool_result_count', '$ai_tool_error_count', '$ai_tool_results', '$ai_tool_errors']
+            expect(Object.fromEntries(resultKeys.map((k) => [k, out[k]]))).toEqual(
+                Object.fromEntries(resultKeys.map((k) => [k, k === key ? value : undefined]))
+            )
         })
     })
 
