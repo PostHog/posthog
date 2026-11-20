@@ -186,6 +186,47 @@ class TestSerializeEventsQuerySchema(BaseTest):
 
         assert "mat_$browser" in schema["fields"][0]["expression"]
 
+    @parameterized.expand(
+        [
+            (
+                "event_properties",
+                "SELECT properties AS props FROM events",
+                PropertyDefinition.Type.EVENT,
+                "secret",
+                ["secret"],
+            ),
+            (
+                "person_properties",
+                "SELECT person.properties AS props FROM events",
+                PropertyDefinition.Type.PERSON,
+                "email",
+                ["email"],
+            ),
+            (
+                "set_container",
+                "SELECT properties.$set AS props FROM events",
+                PropertyDefinition.Type.PERSON,
+                "email",
+                ["$set.email", "$set_once.email"],
+            ),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_legacy_fields_drop_restricted_keys_from_a_selected_properties_object(
+        self, _name: str, query: str, property_type: int, restricted: str, expected_dropped_keys: list[str]
+    ):
+        with patch(
+            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+            return_value={RestrictedProperty(name=restricted, property_type=property_type)},
+        ):
+            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+
+        expression = schema["fields"][0]["expression"]
+        assert "JSONDropKeysPool(" in expression, expression
+        assert [value for key, value in schema["values"].items() if key.endswith("_sensitive")] == [
+            expected_dropped_keys
+        ]
+
     @parameterized.expand([("legacy_schema", False), ("new_schema", True)])
     def test_native_recompile_hides_the_properties_the_saving_user_could_not_read(self, _name: str, new_schema: bool):
         PropertyDefinition.objects.create(

@@ -127,6 +127,8 @@ def serialize_batch_export_query(
             enable_select_queries=True,
             limit_top_select=False,
             use_new_events_schema=False,
+            # The printer, not prepare, drops restricted keys from a selected properties object or container.
+            restricted_properties=context.restricted_properties,
         )
         stack = []
         hogql = print_prepared_ast(query, context=context, dialect="hogql")
