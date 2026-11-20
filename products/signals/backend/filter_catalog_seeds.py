@@ -96,11 +96,8 @@ LINEAR_ISSUE_SEED = CatalogSeed(
 )
 
 
-# Bindings follow the issue rows of the GitHub warehouse import, which stores nested objects and
-# arrays as JSON strings (products/warehouse_sources/backend/temporal/data_imports/sources/github/).
-# Each repository has its own table, and a field whose column a table lacks fails that table's filter.
-# So bind only to keys that every supported GitHub API version returns. Version 2026-03-10 removed
-# `assignee`, so assignments bind to `assignees`.
+# Each repository imports to its own table, and a field whose column a table lacks fails that table's
+# filter. So bind only to keys that every GitHub API version returns: version 2026-03-10 removed `assignee`.
 GITHUB_ISSUE_SEED = CatalogSeed(
     source_product=SignalSourceProduct.GITHUB,
     source_type=SignalSourceType.ISSUE,
