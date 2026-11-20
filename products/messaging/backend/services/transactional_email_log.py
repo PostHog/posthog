@@ -6,8 +6,6 @@ queued one, and the log reads it as a queued row. The delivery status of a send 
 an open never hides a bounce.
 """
 
-import re
-from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
@@ -66,7 +64,7 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
 _DISTINCT_ID_COPIES_IN_QUERY = 3
-_SINCE_MICROS_LITERAL_BYTES = len("1700000000000000, ")
+_SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
@@ -585,25 +583,13 @@ def transactional_email_results(
     # The same person can be reached under several distinct ids, so the send and the conversion meet on the person.
     person_by_distinct_id = _persons_for_distinct_ids(team, user, list(sends))
     first_send: dict[str, datetime] = {}
-    distinct_ids_of: defaultdict[str, list[str]] = defaultdict(list)
     for distinct_id, sent_at in sends.items():
         person = person_by_distinct_id.get(distinct_id, f"distinct:{distinct_id}")
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
-        distinct_ids_of[person].append(distinct_id)
 
-    conversions: dict[str, _Conversion] = {}
-    recipients = list(distinct_ids_of.items())
-    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes):
-        batch_first_send = {recipient: first_send[recipient] for recipient, _ in batch}
-        conversions |= _conversions(
-            team,
-            user,
-            event,
-            revenue_property,
-            [distinct_id for _, distinct_ids in batch for distinct_id in distinct_ids],
-            batch_first_send,
-            window,
-        )
+    conversions = _conversions(
+        team, user, event, revenue_property, list(sends), first_send, window, start, end + window
+    )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
 
@@ -709,7 +695,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
           AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
-        ORDER BY queued_at DESC, toString(message_id) DESC
+        ORDER BY queued_at DESC
         LIMIT %(limit)s BY was_clicked
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
@@ -742,28 +728,14 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
     return converted
 
 
-_CLICKHOUSE_SIZE_SETTING = re.compile(r"\+?(\d+)(?:([kKMGT])(i?))?")
-_SIZE_SUFFIX_POWER = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4}
-
-
 def _max_query_size(team_id: int) -> int:
-    team_limit = _clickhouse_size_in_bytes(
-        CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
-    )
-    return team_limit or default_settings()["max_query_size"]
-
-
-def _clickhouse_size_in_bytes(setting: object) -> int:
-    size = _CLICKHOUSE_SIZE_SETTING.fullmatch(str(setting)) if isinstance(setting, int | str) else None
-    if not size:
-        return 0
-    number, suffix, binary = size.groups()
-    power = _SIZE_SUFFIX_POWER.get(suffix, 0)
-    return int(number) * (1024**power if binary else 1000**power)
+    team_limit = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    return team_limit if isinstance(team_limit, int) else default_settings()["max_query_size"]
 
 
 def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
-    budget = _max_query_size(team_id) // 2
+    # The batched values take at most a quarter of the query, which leaves the rest for the query text around them.
+    budget = _max_query_size(team_id) // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
@@ -782,16 +754,7 @@ def _query_bytes_of(send: _FollowedSend) -> int:
         _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
         + _escaped_literal_bytes(send.recipient)
         + _escaped_literal_bytes(send.message_id)
-        + _SINCE_MICROS_LITERAL_BYTES
-    )
-
-
-def _recipient_query_bytes(recipient_distinct_ids: tuple[str, list[str]]) -> int:
-    recipient, distinct_ids = recipient_distinct_ids
-    return (
-        _DISTINCT_ID_COPIES_IN_QUERY * sum(_escaped_literal_bytes(distinct_id) for distinct_id in distinct_ids)
-        + _escaped_literal_bytes(recipient)
-        + _SINCE_MICROS_LITERAL_BYTES
+        + _SINCE_MS_LITERAL_BYTES
     )
 
 
@@ -801,6 +764,8 @@ def _escaped_literal_bytes(value: str) -> int:
 
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
+    start = min(send.since for send in sends)
+    end = max(send.since for send in sends) + window + timedelta(seconds=1)
     response = execute_hogql_query(
         """
         SELECT DISTINCT sends.message_id
@@ -811,11 +776,11 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
             SELECT
                 tupleElement(send, 1) AS message_id,
                 tupleElement(send, 2) AS recipient,
-                tupleElement(send, 3) AS since_micros
-            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_micros})) AS send)
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
         ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.micros >= sends.since_micros
-          AND conversions.micros <= sends.since_micros + {window_micros}
+        WHERE conversions.timestamp >= sends.since
+          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
         LIMIT {limit}
         """,
         team=team,
@@ -823,12 +788,13 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         placeholders={
             "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
-            **_events_range_placeholders([send.since for send in sends], window),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
             "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
             "message_ids": ast.Constant(value=[send.message_id for send in sends]),
             "recipients": ast.Constant(value=[send.recipient for send in sends]),
-            "since_micros": ast.Constant(value=[_epoch_micros(send.since) for send in sends]),
-            "window_micros": ast.Constant(value=window // timedelta(microseconds=1)),
+            "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
+            "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(sends)),
         },
         query_type="transactional_email_impact_conversions",
@@ -866,34 +832,18 @@ def _persons_in_batch(team: Team, user: User | None, distinct_ids: list[str]) ->
     return dict(response.results or [])
 
 
-# HogQL anchors a bare range bound to the team timezone. A Distributed table on ClickHouse 26.6 sends that constant to
-# its shards as local wall time, so a bound in a repeated daylight-saving hour lands an hour early and drops events.
-# Bounds that are already UTC keep their instant.
 _RECIPIENT_EVENTS = """
     SELECT
         if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
            toString(person_id), concat('distinct:', distinct_id)) AS recipient,
         timestamp,
-        dateDiff('microsecond', fromUnixTimestamp64Milli(0), timestamp) AS micros,
         {revenue} AS value
     FROM events
     WHERE event = {event}
-      AND timestamp >= toDateTime64(fromUnixTimestamp64Milli({start_ms}), 6, 'UTC')
-      AND timestamp <= toDateTime64(fromUnixTimestamp64Milli({end_ms}), 6, 'UTC')
+      AND timestamp >= {start} AND timestamp < {end}
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
-
-
-def _epoch_micros(value: datetime) -> int:
-    return (value - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
-
-
-def _events_range_placeholders(sent_at: list[datetime], window: timedelta) -> dict[str, ast.Expr]:
-    return {
-        "start_ms": ast.Constant(value=_epoch_micros(min(sent_at)) // 1000),
-        "end_ms": ast.Constant(value=-(-_epoch_micros(max(sent_at) + window) // 1000)),
-    }
 
 
 @frozen
@@ -910,6 +860,8 @@ def _conversions(
     distinct_ids: list[str],
     first_send: dict[str, datetime],
     window: timedelta,
+    start: datetime,
+    end: datetime,
 ) -> dict[str, _Conversion]:
     """Each recipient's first conversion within `window` of their first send, and the revenue of those conversions.
 
@@ -932,11 +884,11 @@ def _conversions(
         + _RECIPIENT_EVENTS
         + """) AS conversions
         INNER JOIN (
-            SELECT tupleElement(send, 1) AS recipient, tupleElement(send, 2) AS sent_at_micros
-            FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_micros})) AS send)
+            SELECT tupleElement(send, 1) AS recipient, fromUnixTimestamp64Milli(tupleElement(send, 2)) AS sent_at
+            FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_ms})) AS send)
         ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.micros >= sends.sent_at_micros
-          AND conversions.micros <= sends.sent_at_micros + {window_micros}
+        WHERE conversions.timestamp >= sends.sent_at
+          AND conversions.timestamp <= sends.sent_at + toIntervalSecond({window_seconds})
         GROUP BY conversions.recipient
         LIMIT {limit}
         """,
@@ -945,11 +897,14 @@ def _conversions(
         placeholders={
             "revenue": revenue,
             "event": ast.Constant(value=event),
-            **_events_range_placeholders(list(first_send.values()), window),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
             "distinct_ids": ast.Constant(value=distinct_ids),
             "recipients": ast.Constant(value=recipients),
-            "sent_at_micros": ast.Constant(value=[_epoch_micros(first_send[recipient]) for recipient in recipients]),
-            "window_micros": ast.Constant(value=window // timedelta(microseconds=1)),
+            "sent_at_ms": ast.Constant(
+                value=[int(first_send[recipient].timestamp() * 1000) for recipient in recipients]
+            ),
+            "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(recipients)),
         },
         query_type="transactional_email_results_conversions",

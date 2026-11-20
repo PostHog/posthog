@@ -253,14 +253,14 @@ def fetch_first_email_sends(
               AND sent_at >= toDateTime64(%(after)s, 6) AND sent_at < toDateTime64(%(before)s, 6)
               AND distinct_id != ''
             GROUP BY distinct_id
-            ORDER BY first_sent_at DESC, distinct_id DESC
+            ORDER BY first_sent_at DESC
             LIMIT %(limit)s
             """,
             {
                 "team_id": team_id,
                 "function_id": function_id,
-                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
-                "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
                 "limit": limit,
             },
             workload=Workload.ONLINE,
