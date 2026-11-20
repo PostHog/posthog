@@ -41,6 +41,9 @@
 //         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
 //         kill switch.
 //         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+//         FULL_RUN_ALREADY_PASSED ("true"/"false") — a full run passed on an earlier head of
+//         this PR (backend-full-run-state.js), so a product cascade or a selector full-run
+//         request runs the selected subset. QUEUE_KICK_REARMED only reaches telemetry.
 //         .github/new-events-schema-targets.txt — the test paths of the events_json leg,
 //         which runs them against the native-JSON events table.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
@@ -349,6 +352,16 @@ function dropProducts(products, allProducts, names, label) {
     const remaining = products.filter((p) => !names.has(p))
     console.error(`${label}: ${[...names].join(',')} — dropped ${products.length - remaining.length} product(s)`)
     return remaining
+}
+
+// A product whose backend:test only echoes a message runs no test, yet a matrix
+// entry for it still pays the whole Docker stack and dependency setup.
+function testlessProducts(testTasks) {
+    return new Set(
+        testTasks
+            .filter((t) => isProductPackage(t.package) && /^echo[ \t][^;&|`$()<>\n\r]*$/.test(t.command.trim()))
+            .map((t) => packageToProduct(t.package))
+    )
 }
 
 // --- Dependent cascade (tach map) ---
@@ -1244,7 +1257,14 @@ function emptySegments() {
 // and skipping is the cheaper of the two mistakes.
 function fallbackSelection(fallbackMode, reason, selection) {
     console.error(`Backend test selection not used (${reason}) — Django matrix mode=${fallbackMode}`)
-    return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
+    return {
+        mode: fallbackMode,
+        narrowed: false,
+        skip_reason: reason,
+        waived_full_run_reason: '',
+        ...emptySegments(),
+        ...selectionMetrics(selection),
+    }
 }
 
 // Whether every legacy edit in the diff is Dagster Python under posthog/dags/. ci-dagster.yml runs
@@ -1266,6 +1286,10 @@ function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
     )
 }
 
+// The runLegacyReason values of a diff that edited products only. A schema or lib change
+// reaches core directly, so the events_json leg keeps the whole list for those.
+const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
+
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
@@ -1276,6 +1300,8 @@ function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
 //   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
 //   selection      the selector's parsed output, null when it did not produce one
+//   fullRunAlreadyPassed  a full run passed on an earlier head of this ready PR, see
+//                  backend-full-run-state.js
 function decideSelection({
     applies,
     disabled,
@@ -1285,11 +1311,19 @@ function decideSelection({
     runLegacy,
     runLegacyReason,
     selection,
+    fullRunAlreadyPassed = false,
 }) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
         // skipped outright. An empty mode leaves every consumer on its own default.
-        return { mode: '', narrowed: null, skip_reason: '', ...emptySegments(), ...selectionMetrics(null) }
+        return {
+            mode: '',
+            narrowed: null,
+            skip_reason: '',
+            waived_full_run_reason: '',
+            ...emptySegments(),
+            ...selectionMetrics(null),
+        }
     }
     const fallbackMode = draft ? 'skip' : 'full'
     if (disabled) {
@@ -1297,13 +1331,24 @@ function decideSelection({
         // distinguishable from a genuine cascade in the selection telemetry.
         return fallbackSelection(fallbackMode, 'disabled', selection)
     }
+    // Once a full run passed on this PR, the full matrices already covered what the trust
+    // rules and the selector's full-run patterns guard against, and the merge queue runs
+    // them again before anything lands. A missing selection, a schema or lib cascade, and
+    // an empty selection stay full: there the subset is absent, or blind to what changed.
+    const waivesFullRun = fullRunAlreadyPassed && !draft
+    let waivedFullRunReason = ''
     if (runLegacy && runLegacyReason !== 'legacy_changed') {
         // Legacy impact was inferred from a product, contract, or schema change rather
         // than seen as a direct edit. The diff-based selector cannot see that cascade, so
         // its subset would be incomplete. A direct legacy edit is the selector's home
         // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
         // legacy change is too broad to narrow.
-        return fallbackSelection(fallbackMode, 'untrusted', selection)
+        // The selector runs on legacy diffs only, so a product-only cascade usually has no
+        // subset to fall back to and stays full.
+        if (!(waivesFullRun && PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection)) {
+            return fallbackSelection(fallbackMode, 'untrusted', selection)
+        }
+        waivedFullRunReason = 'untrusted'
     }
     if (!selection) {
         return fallbackSelection(fallbackMode, 'selector_error', selection)
@@ -1311,7 +1356,10 @@ function decideSelection({
     const fullRunReasons = selection.ast?.full_run_reasons ?? []
     if (fullRunReasons.length > 0) {
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
-        return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+        if (!waivesFullRun) {
+            return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+        }
+        waivedFullRunReason = waivedFullRunReason || 'full_run_requested'
     }
     if (!(Number(selection.durations?.total_seconds) > 0)) {
         return fallbackSelection(fallbackMode, 'no_durations', selection)
@@ -1335,10 +1383,14 @@ function decideSelection({
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
+    if (waivedFullRunReason) {
+        console.error(`A full run already passed on this PR, so the ${waivedFullRunReason} fallback is waived`)
+    }
     return {
         mode: 'selected',
         narrowed: true,
         skip_reason: '',
+        waived_full_run_reason: waivedFullRunReason,
         core_files: core.join(' '),
         poe_files: poe.join(' '),
         temporal_files: temporal.join(' '),
@@ -1359,10 +1411,6 @@ function isUnderProduct(target, products) {
 function fullRunJsonTargets(targets, skippedProducts) {
     return targets.filter((target) => !isUnderProduct(target, skippedProducts))
 }
-
-// The runLegacyReason values of a diff that edited products only. A schema or lib change
-// reaches core directly, so the events_json leg keeps the whole list for those.
-const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
 
 // Which events_json paths this run executes. The leg follows the legacy tests. Null means
 // the whole list at the full-run shard count. An array is the list to run, and an empty
@@ -1608,6 +1656,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
+    testlessProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
@@ -1886,6 +1935,7 @@ const selectionDecision = decideSelection({
     runLegacy,
     runLegacyReason,
     selection,
+    fullRunAlreadyPassed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
 })
 
 // Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
@@ -1897,6 +1947,17 @@ if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
+} else if (diffProducts !== null && selectionDecision.waived_full_run_reason === 'untrusted') {
+    // A waived product cascade keeps the products the diff reached, not every product.
+    const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run after a waived product cascade: ${JSON.stringify(mustRun)}`)
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
+}
+
+const testless = testlessProducts(allTestTasks)
+if (products.some((p) => testless.has(p))) {
+    products = dropProducts(products, allProducts, testless, 'Products whose backend:test runs no tests')
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
@@ -1969,6 +2030,8 @@ const result = {
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
         undeclared_input_products: undeclaredInputProductsAdded,
+        full_run_already_passed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
+        rearmed_by_queue_kick: process.env.QUEUE_KICK_REARMED === 'true',
         dependent_cascade: dependentCascade,
         ...runContext(),
     },

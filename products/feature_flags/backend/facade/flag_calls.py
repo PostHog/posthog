@@ -28,8 +28,7 @@ class FlagCalls:
     @classmethod
     def of(cls, team: "Team") -> "FlagCalls":
         # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY, and the
-        # native JSON events table holds none. The flag_evaluations swap can't move such a scan, because there
-        # `person_id` applies person merges. So the scan reads `flag_evaluations` by name. Otherwise events holds every
+        # native JSON events table holds none. So the scan reads `flag_evaluations` by name. Otherwise events holds every
         # flag call, and flag_evaluations only those of the teams that ingestion writes there.
         if not flag_calls_only_in_flag_evaluations(team):
             return cls(

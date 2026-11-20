@@ -73,19 +73,12 @@ def docs_result(finished: FinishedDocsCheck, follow_up: FollowUp) -> str:
         return f"The docs check couldn't finish on {subject}. Try `docs` again in a few minutes."
     if finished.failure_reason is not None:
         return f"The docs check couldn't run on {subject} because the knowledge writer isn't fully set up."
-    docs_pull_request = (
-        f"[its docs pull request]({finished.pull_request_url})"
-        if finished.pull_request_url
-        else "its docs pull request"
-    )
     message_by_status = {
         "started": f"The docs check found docs to change for {subject}. The knowledge writer will open a docs pull request.",
-        "joined": f"The docs check found docs to change for {subject}. The knowledge writer will add them to {docs_pull_request}.",
-        "duplicate": f"The knowledge writer is already writing docs for {subject}.",
+        "duplicate": f"The knowledge writer already picked up {subject}, so it won't run on it again.",
         "no_docs": f"The docs check found nothing in {subject} that changes the docs, so the knowledge writer won't run.",
         "shadow": f"The docs check finished on {subject}, but the knowledge writer isn't starting runs yet.",
         "capped": f"The docs check finished on {subject}, but the knowledge writer hit its run limit. Try `docs` again tomorrow.",
-        "section_busy": f"The knowledge writer is already updating the docs section {subject} changes. It will write these docs once that update finishes.",
         "docs_in_source_repo": f"The docs pages {subject} changes live in its own repository, so update them there.",
         "unconfigured": f"The knowledge writer isn't set up, so it won't write docs for {subject}.",
     }

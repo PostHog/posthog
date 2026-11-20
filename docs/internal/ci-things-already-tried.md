@@ -252,6 +252,9 @@ The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
+In `ci-backend.yml` a ready PR takes that full matrix once.
+After a full run passes, a selector full-run request or a product cascade that has a selection runs the subset, until a failed merge queue attempt re-arms full runs.
+`.github/scripts/backend-full-run-state.js` reads that state from the gate's `Test results` check on the PR's earlier heads.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
 
@@ -573,6 +576,8 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
 Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+Its lint checkout must include shared fixtures outside `rust/` because `clippy --all-targets` compiles tests that embed those files.
+Map those fixtures in the Rust path filter and crate determinator rules too, so fixture-only changes run the compatibility tests.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.

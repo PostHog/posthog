@@ -241,6 +241,7 @@ export const FEATURE_FLAGS = {
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
     SIGNALS_REPORT_NOTE_MENTIONS: 'signals-report-note-mentions', // owner: #team-self-driving, gates @mentions of people and roles in report notes and the notifications they send
     SIGNALS_REPORT_NOTES: 'signals-report-notes', // owner: #team-self-driving, gates the notes list and composer at the end of an inbox report, and the quoted notes in its activity
+    SIGNALS_SOURCE_FILTERS: 'signals-source-filters', // owner: #team-self-driving, gates the source filter editor while a source's filter rollout is internal (also checked server-side)
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -258,7 +259,6 @@ export const FEATURE_FLAGS = {
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_OBSERVABILITY_NAV_REDESIGN: 'ai-observability-nav-redesign', // owner: #team-ai-observability, gates the regrouped AI observability tabs
-    AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag, the edit notice, and Customize and Reset on logs and insight alert destinations
@@ -312,6 +312,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
     DASHBOARD_V2: 'dashboard-v2', // owner: @DanielVisca, aggregated by project. Loads and refreshes only the dashboard tiles on screen, and queues metrics tiles apart from analytics tiles
     DASHBOARD_V2_USERS: 'dashboard-v2-users', // owner: @DanielVisca, aggregated by person. Who sees dashboard-v2 behaviour in the UI; it applies only together with DASHBOARD_V2
+    DASHBOARDS_V2: 'dashboards-v2', // owner: #team-product-analytics, gates the dashboards v2 scene with nested layout containers
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
@@ -332,7 +333,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_BUILT_IN_FILTERS: 'error-tracking-built-in-filters', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
-    ERROR_TRACKING_ISSUE_SUMMARIES: 'error-tracking-issue-summaries', // owner: #team-error-tracking, the backend gates issue summaries on it and the settings page shows the AI features section
     ERROR_TRACKING_ISSUE_TAGS: 'error-tracking-issue-tags', // owner: #team-error-tracking, shows issue tags on the issue page and the tag filter on the issue list
     ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
@@ -373,17 +373,18 @@ export const FEATURE_FLAGS = {
     HOGQL_QUERY_SHARING: 'hogql-query-sharing',
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
+    INBOX_CARDS_LINK_RELATED_REPORTS: 'inbox-cards-link-related-reports', // owner: #team-self-driving, gates the link strip on inbox report cards, the collapse of plan layers into one card, and the list's link_summary field (also checked server-side)
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
     INBOX_NEEDS_YOU_SCOPE: 'inbox-needs-you-scope', // owner: #team-self-driving, gates the Needs you scope on the inbox report list
-    INBOX_PERSONALIZED_SORT: 'inbox-personalized-sort', // owner: #team-self-driving, gates the Personalized sort on the inbox report list
     INBOX_REPORT_EDITABLE_DECISIONS: 'inbox-report-editable-decisions', // owner: #team-self-driving, gates the editable agent decision rows (repository, priority) in the report Status section
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_REPORT_IMPLEMENT_BUTTON_POSITION: 'inbox-report-implement-button-position', // owner: #team-self-driving
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
+    INBOX_TAG_FILTER: 'inbox-tag-filter', // owner: #team-self-driving, gates the report tag chips and the Tags filter on the inbox report list
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
     INBOX_TRIAGE_BUTTON_COLOR: 'inbox-triage-button-color', // owner: #team-self-driving multivariate=control,test, shows the inbox Triage button as a secondary button instead of a primary one; gate on === 'test'
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
@@ -411,7 +412,6 @@ export const FEATURE_FLAGS = {
     LOGS_NATURAL_LANGUAGE_SEARCH: 'logs-natural-language-search', // owner: @jonmcwest #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
-    LOGS_SESSION_ERROR_BADGES: 'logs-session-error-badges', // owner: #team-logs
     LOGS_SETTINGS_CUSTOM_RETENTION: 'logs-settings-custom-retention', // owner: #team-logs
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_PII_SCRUB: 'logs-settings-pii-scrub', // owner: #team-logs
@@ -465,6 +465,7 @@ export const FEATURE_FLAGS = {
     NEW_EVENTS_TABLE_SELF_SERVE: 'new-events-table-self-serve', // owner: @aspicer #team-query-performance, the backend evaluates the same key per project in `new_events_schema.py`
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
+    NOTEBOOK_APP_BUILDER: 'notebook-app-builder', // owner: #team-data-tools
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
     OPEN_INBOX_BUTTON: 'open-inbox-button', // owner: #team-growth multivariate=control,test, shows a "Check your Gmail inbox"-style link on the verify email page and the login code step; gate on === 'test'
@@ -492,7 +493,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
-    POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD: 'posthog-code-codex-own-subscription-cloud', // owner: #team-desktop, gates the Codex subscription settings and the composer billing row
     POSTHOG_CODE_TASK_ANALYSIS: 'posthog-code-task-analysis', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
@@ -510,7 +510,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_INTERCOM_IMPORT: 'product-support-intercom-import', // owner: @veryayskiy #team-conversations, Intercom import in Support settings
     PRODUCT_SUPPORT_PYLON_IMPORT: 'product-support-pylon-import', // owner: @veryayskiy #team-conversations, Pylon import in Support settings
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
@@ -525,7 +524,8 @@ export const FEATURE_FLAGS = {
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature. When it is on for a member, each project they open joins the realtime cohorts beta
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
-    RELEASES_AREA: 'releases-area', // owner: #team-feature-flags, gates the release calendar, list and pages, the Releases rail entry and the releases API; the backend reads the same key
+    RELEASE_OBJECTS: 'release-objects',
+    RELEASES_AREA: 'releases-area',
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_DEBUG_WITH_AI: 'replay-debug-with-ai', // owner: @clr182 #team-replay, player button that sends the recording JSON to PostHog AI
     REPLAY_EVENT_MATCH_SCOPE: 'replay-event-match-scope', // owner: @pauldambra #team-replay, shows the "Match the whole session / only during recording" filter select
@@ -587,7 +587,6 @@ export const FEATURE_FLAGS = {
     TRACING_SCENE_TABS: 'tracing-scene-tabs', // owner: #team-apm — gates the Viewer and SQL tabs in the tracing scene
     TRACING_SETTINGS_RETENTION: 'tracing-settings-retention', // owner: #team-apm — gates the traces retention setting; mirrored by `TRACES_RETENTION_FLAG` in posthog/api/team.py
     TRACING_SETTINGS_RETENTION_RULES: 'tracing-settings-retention-rules', // owner: #team-apm — gates the span retention rules in tracing settings
-    TRACING_SPAN_ERROR_BADGES: 'tracing-span-error-badges', // owner: #team-apm, badges span rows whose session hit errors and adds the Errors tab to the trace drawer
     TRACING_TRACE_DIALOG: 'tracing-trace-dialog', // owner: #team-apm — opens traces in a dialog over the current page instead of navigating to tracing
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
@@ -605,7 +604,6 @@ export const FEATURE_FLAGS = {
     WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
     WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
-    WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_OBJECT_STORAGE_ADD_TABLE: 'warehouse-object-storage-add-table', // owner: #team-warehouse-sources, adds tables to an object storage source by path
@@ -653,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_CONDITION_FILTER_GROUPS: 'workflows-condition-filter-groups', // owner: @meikelmosby #team-workflows, AND/OR filter groups in conditional branch conditions
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
+    WORKFLOWS_EMAIL_ACTIVITY: 'workflows-email-activity', // owner: @dmarchuk #team-workflows, shows what a workflow email's recipient did around the send
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
     WORKFLOWS_EMAIL_DOCUMENT_EDITOR: 'workflows-email-document-editor', // owner: @dmarchuk #team-workflows, the TipTap email editor that replaces Unlayer
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key

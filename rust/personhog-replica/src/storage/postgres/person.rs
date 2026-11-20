@@ -48,8 +48,6 @@ impl PersonLookup for PostgresStorage {
             Person,
             r#"/* service='personhog-replica', operation='get_person_by_id' */
             SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -82,8 +80,6 @@ impl PersonLookup for PostgresStorage {
             Person,
             r#"/* service='personhog-replica', operation='get_person_by_uuid' */
             SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -139,8 +135,6 @@ impl PersonLookup for PostgresStorage {
                     r#"/* service='personhog-replica', operation='get_persons_by_ids' */
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -214,8 +208,6 @@ impl PersonLookup for PostgresStorage {
                     r#"/* service='personhog-replica', operation='get_persons_by_uuids' */
                     SELECT id, uuid, team_id::bigint as "team_id!",
                            CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
-                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -273,8 +265,6 @@ impl PersonLookup for PostgresStorage {
             Person,
             r#"/* service='personhog-replica', operation='get_person_by_distinct_id' */
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -352,8 +342,6 @@ impl PersonLookup for PostgresStorage {
                         r#"/* service='personhog-replica', operation='get_persons_by_distinct_ids_in_team' */
                         SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                                CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                                p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
@@ -380,8 +368,6 @@ impl PersonLookup for PostgresStorage {
                                     uuid: row.uuid,
                                     team_id: row.team_id,
                                     properties: row.properties,
-                                    properties_last_updated_at: row.properties_last_updated_at,
-                                    properties_last_operation: row.properties_last_operation,
                                     created_at: row.created_at,
                                     version: row.version,
                                     is_identified: row.is_identified,
@@ -901,8 +887,6 @@ impl PersonLookup for PostgresStorage {
             r#"/* service='personhog-replica', operation='get_persons_by_distinct_ids_cross_team' */
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
                    CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
-                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
-                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -942,8 +926,6 @@ impl PersonLookup for PostgresStorage {
                     uuid: row.uuid,
                     team_id: row.team_id,
                     properties: row.properties,
-                    properties_last_updated_at: row.properties_last_updated_at,
-                    properties_last_operation: row.properties_last_operation,
                     created_at: row.created_at,
                     version: row.version,
                     is_identified: row.is_identified,
@@ -1269,8 +1251,6 @@ impl PersonLookup for PostgresStorage {
                 RETURNING person_id
             )
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -1591,10 +1571,9 @@ async fn insert_person_tombstones(
     }
     let rows = sqlx::query!(
         r#"/* service='personhog-replica', operation='insert_person_tombstones' */
-        INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
-                                    properties_last_operation, created_at, version,
+        INSERT INTO posthog_person (uuid, team_id, properties, created_at, version,
                                     is_identified, is_deleted)
-        SELECT f.uuid, $1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), f.version, false, true
+        SELECT f.uuid, $1, '{}'::jsonb, NOW(), f.version, false, true
         FROM UNNEST($2::uuid[], $3::bigint[]) AS f(uuid, version)
         ON CONFLICT (team_id, uuid) DO NOTHING
         RETURNING id::bigint as "id!", uuid as "uuid!"
@@ -1921,9 +1900,7 @@ async fn tombstone_persons_by_ids_in_tx(
         UPDATE posthog_person
         SET is_deleted = true,
             version = COALESCE(version, 0) + 1,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb
+            properties = '{}'::jsonb
         WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
         RETURNING id as "id!", uuid as "uuid!", version as "version!"
         "#,

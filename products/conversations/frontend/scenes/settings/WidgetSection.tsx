@@ -16,6 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { WebAndApiAccessSummary } from '../../components/WebAndApiAccessSummary/WebAndApiAccessSummary'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function WidgetSection(): JSX.Element {
@@ -88,10 +89,7 @@ export function WidgetSection(): JSX.Element {
                 {currentTeam?.conversations_settings?.widget_enabled && (
                     <>
                         <LemonDivider />
-                        <LemonBanner type="info" className="my-2">
-                            Allowed domains for the widget are managed under the <strong>Direct API</strong> section —
-                            they apply to both the widget and direct API calls.
-                        </LemonBanner>
+                        <WebAndApiAccessSummary />
                         <SceneSection title="Visual settings" className="mt-8" titleSize="sm">
                             <LemonCard hoverEffect={false} className="px-4 py-3">
                                 <div className="flex items-center gap-4 py-2 justify-between">

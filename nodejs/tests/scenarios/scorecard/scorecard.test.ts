@@ -35,7 +35,7 @@ const RESULT: RunResult = {
     cardHash: SMOKE.cardHash,
     profileHash: SMOKE.profileHash,
     origin: 'local-agent',
-    units: { targetUnits: 60, offeredUnits: 58 },
+    units: { targetUnits: 60, offeredUnits: 58, steps: [] },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
     janitorResets: 2,
     invariants: [
@@ -58,8 +58,16 @@ const RESULT: RunResult = {
         {
             name: 'pickup_p99_under',
             unit: 's',
+            limit: 5,
             passed: false,
-            breakingPoint: { scale: 10, at: '2026-01-05T10:01:00.000Z', offeredPerSecond: 40, key: 'email', value: 10 },
+            breakingPoint: {
+                scale: 10,
+                at: '2026-01-05T10:01:00.000Z',
+                offeredPerSecond: 40,
+                key: 'email',
+                value: 10,
+                part: 'role:cdp-cyclotron-worker-email',
+            },
         },
     ],
     timeline: [],

@@ -389,7 +389,8 @@ def _error_result(detail: str, changed_files: list[str] | None = None, total_spe
 
 def changed_files_from_git(base_ref: str) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        # A rename lists only its new path by default, so a file moved into an ignored tree would drop the specs of its old path
+        ["git", "diff", "--name-only", "--no-renames", f"{base_ref}...HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

@@ -27,7 +27,6 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
@@ -141,30 +140,26 @@ def request_subject(request: Request) -> Optional[Subject]:
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
 
 
-def can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
+def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
     return authorization.check(
-        resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization.id)),
-        action=action,
-        subject=request_subject(request),
+        resource=Resource.organization(organization.id), action=action, subject=request_subject(request)
     )
 
 
-def can_in_required_organization(request: Request, organization: Organization, action: Action) -> bool:
-    """Like `can_in_organization`, but a non-member gets a 404, as `get_required_organization_membership` gives."""
-    if not can_in_organization(request, organization, Action.VIEW):
+def _can_in_required_organization(request: Request, organization: Organization, action: Action) -> bool:
+    """Like `_can_in_organization`, but a non-member gets a 404, as `get_required_organization_membership` gives."""
+    if not _can_in_organization(request, organization, Action.VIEW):
         raise NotFound("Organization not found.")
-    return can_in_organization(request, organization, action)
+    return _can_in_organization(request, organization, action)
 
 
-def can_in_project(request: Request, team: Team, action: Action, view: APIView | None = None) -> bool:
+def _can_in_project(request: Request, team: Team, action: Action, view: APIView | None = None) -> bool:
     # The view already loaded the team and the user's memberships, so the check reuses them instead of
     # loading them again.
     access = getattr(view, "user_access_control", None)
     if isinstance(access, UserAccessControl) and access.team is not None and access.team.pk == team.pk:
         authorization.reuse_current_rules(access, getattr(view, "user_permissions", None))
-    return authorization.check(
-        resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)), action=action, subject=request_subject(request)
-    )
+    return authorization.check(resource=Resource.project(team.pk), action=action, subject=request_subject(request))
 
 
 class CanCreateOrg(BasePermission):
@@ -199,10 +194,10 @@ class OrganizationMemberPermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
-        return can_in_organization(request, get_organization_from_view(view), Action.VIEW)
+        return _can_in_organization(request, get_organization_from_view(view), Action.VIEW)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        return can_in_organization(request, extract_organization(object, view), Action.VIEW)
+        return _can_in_organization(request, extract_organization(object, view), Action.VIEW)
 
 
 class UserNoOrgMembershipDeletePermission(BasePermission):
@@ -235,13 +230,13 @@ class OrganizationAdminWritePermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
-        return can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
+        return _can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
-        return can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
+        return _can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
 
 
 class OrganizationAdminReadPermissions(BasePermission):
@@ -255,10 +250,10 @@ class OrganizationAdminReadPermissions(BasePermission):
 
     # EDIT is the action that needs organization admin, so reads ask for it too.
     def has_permission(self, request: Request, view) -> bool:
-        return can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
+        return _can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        return can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
+        return _can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
 
 
 class TeamMemberAccessPermission(BasePermission):
@@ -274,15 +269,12 @@ class TeamMemberAccessPermission(BasePermission):
             except (AttributeError, KeyError, Team.DoesNotExist):
                 return False
 
-        if is_authenticated_via_team_secret_token(request):
-            return True
-
         try:
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
 
-        return can_in_project(request, team, Action.VIEW, view)
+        return _can_in_project(request, team, Action.VIEW, view)
 
 
 class VerifiedDomainEnforcementPermission(BasePermission):
@@ -509,28 +501,12 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
 
-def is_authenticated_via_team_secret_token(request: Request) -> bool:
-    return isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
-
-
 def is_authenticated_via_project_secret_api_key(request: Request) -> bool:
     return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
 
 
 def is_service_auth(request: Request) -> bool:
-    return is_authenticated_via_team_secret_token(request) or is_authenticated_via_project_secret_api_key(request)
-
-
-def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool:
-    return bool(
-        request.resolver_match
-        and request.resolver_match.view_name
-        in {
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        }
-    )
+    return is_authenticated_via_project_secret_api_key(request)
 
 
 class TeamMemberLightManagementPermission(BasePermission):
@@ -546,7 +522,7 @@ class TeamMemberLightManagementPermission(BasePermission):
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        return can_in_project(request, team, Action.DELETE if request.method == "DELETE" else Action.VIEW, view)
+        return _can_in_project(request, team, Action.DELETE if request.method == "DELETE" else Action.VIEW, view)
 
 
 class TeamMemberStrictManagementPermission(BasePermission):
@@ -558,7 +534,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        return can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT, view)
+        return _can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT, view)
 
 
 class TeamMemberAdminManagementPermission(BasePermission):
@@ -570,7 +546,7 @@ class TeamMemberAdminManagementPermission(BasePermission):
 
     # EDIT is the action that needs project admin, so reads ask for it too.
     def has_permission(self, request, view) -> bool:
-        return can_in_project(request, view.team, Action.EDIT, view)
+        return _can_in_project(request, view.team, Action.EDIT, view)
 
 
 class IsStaffUser(IsAdminUser):
@@ -969,7 +945,10 @@ def organization_refuses_personal_api_key(request: Request, organization: Organi
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
         return False
-    return not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN
+    return (
+        not organization.members_can_use_personal_api_keys
+        and membership.effective_level < OrganizationMembership.Level.ADMIN
+    )
 
 
 def check_team_within_credential_scope(request: Request, team_id: int) -> None:
@@ -1408,7 +1387,7 @@ class AccessControlPermission(ScopeBasePermission):
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
-        # Service credentials (TST, PSAK) are synthetic users UserAccessControl can't evaluate.
+        # Service credentials (PSAK) are synthetic users UserAccessControl can't evaluate.
         # They're gated by API scope + project membership, so scopes grant project-wide access
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):
@@ -1492,7 +1471,7 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: Does this means its okay because there is no team level thing?
             return True
 
-        if not can_in_project(request, team, Action.VIEW, view):
+        if not _can_in_project(request, team, Action.VIEW, view):
             self.message = f"You don't have access to the project."
             return False
 
@@ -1654,35 +1633,6 @@ class PostHogFeatureFlagPermission(BasePermission):
         return True
 
 
-class TeamSecretTokenPermission(BasePermission):
-    """
-    Controls access to the local_evaluation and remote_config endpoints when authenticated via
-    the legacy team-level Team.secret_api_token (see TeamSecretTokenAuthentication).
-
-    Also validates that the authenticated team matches the resolved team (analogous to
-    TeamMemberAccessPermission for personal keys).
-    """
-
-    def has_permission(self, request, view) -> bool:
-        if not isinstance(request.successful_authenticator, TeamSecretTokenAuthentication):
-            return True
-
-        # Check that the endpoint is allowed for team secret tokens
-        if not _is_request_for_team_secret_token_secured_endpoint(request):
-            return False
-
-        # Check team consistency: authenticated team must match resolved team
-        # This prevents cross-team access when project_api_key is provided in request body
-        authenticated_team = request.user.team  # From TeamSecretTokenUser
-        try:
-            resolved_team = view.team  # From routing logic (may use project_api_key override)
-        except (AttributeError, KeyError, Team.DoesNotExist):
-            # If team resolution fails, let it be handled as a 404 in the viewset
-            return True
-
-        return authenticated_team.id == resolved_team.id
-
-
 class UserCanInvitePermission(BasePermission):
     """
     Only allows Admins+, and Members if members_can_invite flag is True
@@ -1699,15 +1649,10 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
-        members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
-
-        if user_is_admin:
+        if _can_in_required_organization(request, organization, Action.EDIT):
             return True
 
-        return members_can_invite
+        return bool(organization.members_can_invite)
 
 
 class UserCanCreateProjectPermission(BasePermission):
@@ -1727,7 +1672,7 @@ class UserCanCreateProjectPermission(BasePermission):
 
         membership = get_required_organization_membership(request, organization)
 
-        if membership.level >= OrganizationMembership.Level.ADMIN:
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             return True
 
         # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
