@@ -103,6 +103,7 @@ AWS_SESSION_ACTIONS = (
     "batch:DescribeJobQueues",
     "batch:DescribeJobs",
     "batch:DescribeSchedulingPolicies",
+    "batch:GetJobQueueSnapshot",
     "batch:ListConsumableResources",
     "batch:ListJobs",
     "batch:ListSchedulingPolicies",
