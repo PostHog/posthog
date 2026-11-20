@@ -63,6 +63,8 @@ class Command(BaseCommand):
 
 
 def _destination(options: dict[str, Any]) -> AlertDestinationData:
+    if options["webhook_url"] and (options["slack_integration_id"] or options["slack_channel_id"]):
+        raise CommandError("Pass --webhook-url or the Slack flags, not both.")
     if options["webhook_url"]:
         return AlertDestinationData(type=DestinationType.WEBHOOK, webhook_url=options["webhook_url"])
     if options["slack_integration_id"] and options["slack_channel_id"]:

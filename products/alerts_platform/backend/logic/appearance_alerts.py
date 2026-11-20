@@ -5,10 +5,13 @@ from typing import Any
 
 from django.db import transaction
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_GROUPING,
+    AlertDestinationValidationError,
+    DestinationType,
     NewAlertDestination,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
@@ -37,6 +40,8 @@ def create_appearance_alert(
         datapoints_to_alarm=1,
         cooldown_minutes=0,
     )
+    for destination in destinations:
+        _check_slack_workspace(team_id, destination)
     with team_scope(team_id), transaction.atomic():
         view = platform_writes.create_configuration(
             team_id=team_id,
@@ -49,3 +54,15 @@ def create_appearance_alert(
             team_id=team_id, configuration_id=view.id, destinations=destinations
         )
     return view
+
+
+def _check_slack_workspace(team_id: int, destination: NewAlertDestination) -> None:
+    # The alert API checks this in its views, which a caller of this function never passes through.
+    if destination.data["type"] != DestinationType.SLACK:
+        return
+    try:
+        IntegrationManager.slack.oauth.get(team_id, destination.data["slack_workspace_id"])
+    except IntegrationNotFound:
+        raise AlertDestinationValidationError(
+            "Choose a Slack workspace connected to this project.", field="slack_workspace_id"
+        ) from None
