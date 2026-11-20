@@ -220,6 +220,28 @@ class TestRetentionSweep:
         assert sweep._delete_runs(candidates) == 0
         assert Run.objects.filter(id=quiet.id).exists()
 
+    def test_superseded_runs_of_a_pr_with_an_open_approval_do_not_block_the_batch(self, repo, now, monkeypatch):
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+        latest = self._run(repo, now, age_days=5, pr_number=7)
+        old_superseded = self._run(repo, now, age_days=50, pr_number=7, superseded_by=latest)
+        later_expired = self._run(repo, now, age_days=40, branch="feature/y", pr_number=8, superseded_by=latest)
+        monkeypatch.setattr(retention, "MAX_RUNS_PER_SWEEP", 1)
+
+        retention.sweep_repo_runs(repo, now=now)
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert not Run.objects.filter(id__in=[old_superseded.id, later_expired.id]).exists()
+        assert Run.objects.filter(id=latest.id).exists()
+
+    def test_newest_run_of_a_pr_with_an_open_approval_is_kept(self, repo, now):
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+        newest = self._run(repo, now, age_days=31)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=newest.id).exists()
+
     def test_quiet_branch_group_goes_in_one_sweep(self, repo, now):
         latest = self._run(repo, now, age_days=31)
         superseded = self._run(repo, now, age_days=100, superseded_by=latest)

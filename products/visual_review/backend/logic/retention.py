@@ -208,16 +208,39 @@ class RetentionSweep:
     def _verdict_open_to_approvals(self) -> Q:
         # A conflicting landing republishes the status from the newest run of each pull request that owns
         # or applies an open approval. Without that run the status stays green after the approval goes stale.
+        # Superseded runs own no status, so they stay out of the rule. Keeping them would also fill the
+        # bounded batch of the superseded pass with runs that the delete step skips.
         open_approvals = self._open_approvals()
-        keep = Q(Exists(open_approvals.filter(pr_number=OuterRef("pr_number"), run_type=OuterRef("run_type"))))
+        keep = Q(
+            Exists(open_approvals.filter(pr_number=OuterRef("pr_number"), run_type=OuterRef("run_type"))),
+            superseded_by__isnull=True,
+        )
         open_approval_ids = [str(approval_id) for approval_id in open_approvals.values_list("id", flat=True)]
         if open_approval_ids:
             # A subquery, because a negated JSON key lookup also matches rows without the key.
             applying_runs = self._runs().filter(
-                metadata__baseline__candidate_approval_ids__has_any_keys=open_approval_ids
+                metadata__baseline__candidate_approval_ids__has_any_keys=open_approval_ids,
+                superseded_by__isnull=True,
             )
             keep |= Q(id__in=applying_runs.values("id"))
         return keep
+
+    def _run_open_to_approvals(self, run_id: UUID) -> bool:
+        # The per-run form of _verdict_open_to_approvals. It looks at one run, so it does not
+        # read every open approval of the repo for each run in a sweep batch.
+        run = self._runs().filter(id=run_id).values("pr_number", "run_type", "superseded_by_id", "metadata").first()
+        if run is None or run["superseded_by_id"] is not None:
+            return False
+        open_approvals = self._open_approvals()
+        if (
+            run["pr_number"] is not None
+            and open_approvals.filter(pr_number=run["pr_number"], run_type=run["run_type"]).exists()
+        ):
+            return True
+        candidate_ids = ((run["metadata"] or {}).get("baseline") or {}).get("candidate_approval_ids")
+        if not candidate_ids:
+            return False
+        return open_approvals.filter(id__in=candidate_ids).exists()
 
     def _quiet_branch_run_ids(self, limit: int, *, quiet_days: int, branches: Q) -> list[UUID]:
         quiet_cutoff = self.now - timedelta(days=quiet_days)
@@ -288,8 +311,9 @@ class RetentionSweep:
                 # finalize locks the row before it writes approvals, so locking the row
                 # first makes the check and the delete see the same rows.
                 list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
-                keep = self._source_of_active_quarantine() | self._verdict_open_to_approvals()
-                if self._runs().filter(keep, id=run_id).exists():
+                if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
+                    continue
+                if self._run_open_to_approvals(run_id):
                     continue
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
