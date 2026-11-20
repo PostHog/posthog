@@ -105,7 +105,10 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if any(part.too_large for part in parts):
         notes.append("This template is too large to convert, so it appears as plain text. Rewrite it in Liquid.")
     if engine == "go":
-        notes.append("Mailgun renders this version with Go templates. Send a test and check any value that holds HTML.")
+        notes.append(
+            "Mailgun renders this version with Go templates. Send a test and check any value that holds HTML. Values "
+            "that are maps may print their keys in a different order."
+        )
     elif named_engine not in ("", "handlebars"):
         notes.append(f"Mailgun lists the engine {named_engine}. PostHog read it as Handlebars, so send a test.")
     if not subject_source:

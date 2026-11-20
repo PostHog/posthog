@@ -110,7 +110,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("tag_unsubscribe", {"template": "%tag_unsubscribe_url%"}, "message category"),
             ("list_unsubscribe", {"template": "%mailing_list_unsubscribe_url%"}, "imported from the list"),
             ("unknown_engine", {"template": "x", "engine": "mustache"}, "lists the engine mustache"),
-            ("go", {"template": "{{.x}}", "engine": "go"}, "Go templates"),
+            ("go", {"template": "{{.x}}", "engine": "go"}, "maps may print their keys in a different order"),
         ]
     )
     def test_notes_name_what_to_review(self, _name: str, version: dict, expected: str) -> None:
