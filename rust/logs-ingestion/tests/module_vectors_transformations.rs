@@ -100,7 +100,13 @@ fn hog_input_templates_match_node() {
         let name = string(get(&input, "name"));
         let record = record_from_js(get(&input, "record"));
         let f = function(&JsValue::Array(vec![]), get(&input, "inputs"));
-        let resolved = resolve_inputs(&f, &project, &build_record_globals(&record), 5_000.0);
+        let resolved = resolve_inputs(
+            &f,
+            &project,
+            &build_record_globals(&record),
+            5_000.0,
+            f64::INFINITY,
+        );
         match (resolved, common::try_get(&output, "inputs")) {
             (Ok((inputs, _)), Some(expected)) => assert_eq!(
                 json_stringify(&ordered_to_js(&inputs)),

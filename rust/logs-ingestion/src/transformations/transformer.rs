@@ -39,8 +39,7 @@ pub struct LogsTransformerConfig {
     pub max_error_logs_per_function_per_message: usize,
 }
 
-/// Each team spends its own share, so one team's slow functions cannot skip another team's transformations.
-/// The deadline is wall-clock from the start of the batch, so it also covers the shares of many teams and the wait for the VM.
+/// Each team spends its own share. The deadline is wall-clock from the start of the batch, so it covers every share and the wait for the VM.
 #[derive(Debug)]
 pub struct TransformationBatchBudget {
     team_ms: f64,
@@ -183,6 +182,7 @@ impl RecordContext<'_> {
                         &self.project,
                         record,
                         self.run.config.hog_timeout_ms,
+                        self.run.config.message_budget_ms,
                     )?;
                     self.inputs_cache
                         .insert(function.id.clone(), Some(resolved.0.clone()));
@@ -196,6 +196,7 @@ impl RecordContext<'_> {
             &self.project,
             record,
             self.run.config.hog_timeout_ms,
+            self.run.config.message_budget_ms,
         )
     }
 
@@ -219,15 +220,14 @@ impl RecordContext<'_> {
         for message in print_logs {
             agg.error_logs.push(entry("info", message));
         }
-        // The thrown text is customer-influenced like print output, so it is redacted too.
-        let started = Instant::now();
+        // The thrown text is customer-influenced like print output, so it is redacted too, after the VM's clock has stopped.
+        let started = clock();
         let message = sanitize_log_message(
             &[crate::js::JsValue::string(error)],
             &function.sensitive_values,
         );
         agg.error_logs.push(entry("error", message));
-        // This redaction runs after the VM's clock stops, and its time grows with the number of secrets.
-        self.add_vm_ms(started.elapsed().as_secs_f64() * 1000.0);
+        self.add_vm_ms((clock() - started).max(0.0));
     }
 
     fn unexpected_failure(&mut self, record: &mut LogRecord, function: &HogFunction) {

@@ -26,8 +26,7 @@ const TAG_SVC: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "attributes", 
 // return f'service = {record.service_name}'
 const SVC_TEMPLATE: &str =
     r#"["_H", 1, 32, "service = ", 32, "service_name", 32, "record", 1, 2, 2, "concat", 2, 38]"#;
-// print('token is', inputs.credentials.token, inputs.secret.a.b.c.d.e.f.g.token)
-// throw Error(f'failed for {inputs.credentials.token}')
+// print('token is', inputs.credentials.token, inputs.secret.a.b.c.d.e.f.g.token); throw Error(f'failed for {inputs.credentials.token}')
 const LEAK_SECRETS: &str = r#"["_H", 1, 32, "token is", 32, "token", 32, "credentials", 32, "inputs", 1, 3, 32, "token", 32, "g", 32, "f", 32, "e", 32, "d", 32, "c", 32, "b", 32, "a", 32, "secret", 32, "inputs", 1, 10, 2, "print", 3, 35, 32, "failed for ", 32, "token", 32, "credentials", 32, "inputs", 1, 3, 2, "concat", 2, 2, "Error", 1, 49]"#;
 const IDENTITY: &str = r#"["_H", 1, 32, "record", 1, 1, 38]"#;
 
@@ -93,8 +92,17 @@ fn service(
     functions: Arc<dyn HogFunctionSource>,
     hog_timeout_ms: f64,
 ) -> (LogsTransformerService, Arc<Captured>) {
-    let outputs = Arc::new(Captured::default());
     let clock: Clock = Arc::new(|| 1_736_944_633_250.0);
+    service_with(functions, hog_timeout_ms, 60_000.0, clock)
+}
+
+fn service_with(
+    functions: Arc<dyn HogFunctionSource>,
+    hog_timeout_ms: f64,
+    message_budget_ms: f64,
+    clock: Clock,
+) -> (LogsTransformerService, Arc<Captured>) {
+    let outputs = Arc::new(Captured::default());
     let monitoring = Arc::new(HogFunctionMonitoring::new(
         outputs.clone(),
         clock.clone(),
@@ -103,7 +111,7 @@ fn service(
     let config = LogsTransformerConfig {
         site_url: "http://localhost:8010".into(),
         hog_timeout_ms,
-        message_budget_ms: 60_000.0,
+        message_budget_ms,
         batch_budget_ms: 600_000.0,
         batch_deadline_ms: f64::INFINITY,
         max_error_logs_per_function_per_message: 3,
@@ -550,22 +558,85 @@ const THROW_BODY: &str = r#"["_H", 1, 32, "body", 32, "record", 1, 2, 2, "Error"
 
 #[tokio::test]
 async fn the_redaction_of_an_error_log_spends_the_budgets() {
-    let (service, _) = service(
+    let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let clock: Clock = Arc::new(move || {
+        600_000.0 * ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as f64
+    });
+    let (service, _) = service_with(
         Arc::new(StaticHogFunctions(vec![function(
             THROW_BODY,
             "{}",
-            Some(&secret_inputs(500)),
+            Some(&secret_inputs(1)),
         )])),
         60_000.0,
+        f64::INFINITY,
+        clock,
     );
-    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
-        r#"{{"uuid": "u", "body": "{}"}}"#,
-        "b".repeat(10_000)
-    ))));
     let budget = Arc::new(TransformationBatchBudget::new(f64::INFINITY, f64::INFINITY));
     service
-        .transform_records(TEAM_ID, &mut vec![staged], Some(budget.clone()))
+        .transform_records(TEAM_ID, &mut vec![record("api")], Some(budget.clone()))
         .await
         .unwrap();
-    assert!(budget.used_ms() > 5.0, "{}", budget.used_ms());
+    assert!(budget.used_ms() >= 600_000.0, "{}", budget.used_ms());
+}
+
+#[test]
+fn a_log_line_stops_at_the_bytes_that_long_secrets_compare() {
+    let secrets: Vec<String> = (0..200)
+        .map(|i| format!("{}{i}", "a".repeat(4096)))
+        .collect();
+    let redacted = redact_sensitive_values(&"a".repeat(20_000), &secrets, 10_000);
+    assert_eq!(redacted, "***REDACTED***");
+}
+
+#[tokio::test]
+async fn a_result_that_grows_under_redaction_counts_its_new_length() {
+    let stars = ["\"*\""; 7].join(",");
+    let others: Vec<String> = (0..2_000).map(|i| format!("\"z{i}\"")).collect();
+    // The leaves of an array are read from its end, so the stars are the first secrets.
+    let encrypted = format!(
+        r#"{{"many": {{"value": [{},{stars}], "order": 0}}}}"#,
+        others.join(",")
+    );
+    let staged = StagedRecord::fresh(record_from_js(&js(r#"{"uuid": "u", "body": "*"}"#)));
+    let records = run_one(function(IDENTITY, "{}", Some(&encrypted)), vec![staged]).await;
+    assert!(failed(&records[0]));
+}
+
+// return record.body
+const BODY_TEMPLATE: &str = r#"["_H", 1, 32, "body", 32, "record", 1, 2, 38]"#;
+
+fn body_inputs(count: usize) -> String {
+    let inputs: Vec<String> = (0..count)
+        .map(|i| format!(r#""in{i}": {{"value": "", "bytecode": {BODY_TEMPLATE}}}"#))
+        .collect();
+    format!("{{{}}}", inputs.join(","))
+}
+
+#[tokio::test]
+async fn input_templates_share_one_size_limit_and_one_time_budget() {
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}"}}"#,
+        "b".repeat(900 * 1024)
+    ))));
+    let records = run_one(function(IDENTITY, &body_inputs(80), None), vec![staged]).await;
+    assert!(failed(&records[0]));
+
+    let clock: Clock = Arc::new(|| 0.0);
+    let (service, _) = service_with(
+        Arc::new(StaticHogFunctions(vec![function(
+            IDENTITY,
+            &body_inputs(2),
+            None,
+        )])),
+        60_000.0,
+        1e-9,
+        clock,
+    );
+    let mut records = vec![record("api")];
+    service
+        .transform_records(TEAM_ID, &mut records, None)
+        .await
+        .unwrap();
+    assert!(failed(&records[0]));
 }

@@ -166,10 +166,14 @@ pub fn globals(project: &OrderedJson, record: &OrderedJson, inputs: OrderedJson)
     ])
 }
 
-/// A short secret in the marker, such as `*`, multiplies the length on every later pass, so `None` stops a result past the memory limit.
-pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
+/// A secret in the marker, such as `*`, multiplies the length on every pass, and no clock runs here. `None` stops a result past the memory limit or the `scanned` limit.
+pub fn redact_string(value: &str, sensitive: &[String], scanned: &mut usize) -> Option<String> {
     let mut out = value.to_string();
     for s in sensitive.iter().filter(|s| !s.is_empty()) {
+        *scanned = scanned.saturating_add(out.len() + s.len() + 16);
+        if *scanned > MAX_RESULT_REDACTION_BYTES {
+            return None;
+        }
         let count = out.matches(s.as_str()).count();
         if count == 0 {
             continue;
@@ -184,19 +188,16 @@ pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     Some(out)
 }
 
-/// The work of a redaction grows with the number of secrets, and no clock runs inside it.
 const MAX_LOG_REDACTION_CHECKS: usize = 1 << 24;
-const MAX_RESULT_REDACTION_BYTES: usize = 1 << 30;
-
-fn result_redaction_bytes(sensitive: &[String], text: &str) -> usize {
-    sensitive.len().saturating_mul(text.len() + 16)
-}
+const MAX_RESULT_REDACTION_BYTES: usize = 1 << 29;
+const MAX_RESOLVED_INPUT_BYTES: usize = 8 * LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES;
 
 pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: usize) -> String {
     if message.is_empty() || sensitive.is_empty() {
         return message.to_string();
     }
-    let checks = (sensitive.len() * 3).saturating_mul(utf16_len(message).min(max_units) + 64);
+    // The variants cost work to build, and the loop below counts what it compares.
+    let mut checks = sensitive.len().saturating_mul(3 * 64);
     if checks > MAX_LOG_REDACTION_CHECKS {
         return REDACTED.to_string();
     }
@@ -225,6 +226,13 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: u
     let mut rest = message;
     'outer: while !rest.is_empty() && units < max_units {
         for variant in &variants {
+            checks += 1;
+            if rest.as_bytes()[0] == variant.as_bytes()[0] {
+                checks = checks.saturating_add(variant.len().min(rest.len()));
+            }
+            if checks > MAX_LOG_REDACTION_CHECKS {
+                return REDACTED.to_string();
+            }
             if rest.starts_with(variant.as_str()) {
                 out.push_str(REDACTED);
                 units += REDACTED.len();
@@ -305,13 +313,8 @@ impl Converter<'_> {
         let out = if self.sensitive.is_empty() {
             s.to_string()
         } else {
-            self.redaction_bytes = self
-                .redaction_bytes
-                .saturating_add(result_redaction_bytes(self.sensitive, s));
-            if self.redaction_bytes > MAX_RESULT_REDACTION_BYTES {
-                return Err(ConvertError::TooLarge);
-            }
-            redact_string(s, self.sensitive).ok_or(ConvertError::TooLarge)?
+            redact_string(s, self.sensitive, &mut self.redaction_bytes)
+                .ok_or(ConvertError::TooLarge)?
         };
         self.charge(out.len())?;
         Ok(JsString::from(out))
@@ -673,13 +676,11 @@ fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue 
                 let key = if sensitive.is_empty() {
                     Some(key.clone())
                 } else {
-                    redaction_bytes =
-                        redaction_bytes.saturating_add(result_redaction_bytes(sensitive, key));
-                    if redaction_bytes > MAX_RESULT_REDACTION_BYTES {
-                        return invalid;
-                    }
-                    redact_string(key, sensitive)
+                    redact_string(key, sensitive, &mut redaction_bytes)
                 };
+                if redaction_bytes > MAX_RESULT_REDACTION_BYTES {
+                    return invalid;
+                }
                 let Some(key) = key.filter(|k| {
                     ["body", "severity_text", "attributes", "resource_attributes"]
                         .contains(&k.as_str())
@@ -764,9 +765,11 @@ pub fn resolve_inputs(
     project: &OrderedJson,
     record: &OrderedJson,
     timeout_ms: f64,
+    budget_ms: f64,
 ) -> Result<(OrderedJson, f64), InputsError> {
     let mut inputs: Vec<(String, OrderedJson)> = Vec::with_capacity(function.inputs.len());
     let mut duration_ms = 0.0;
+    let mut resolved_bytes = 0usize;
     for input in &function.inputs {
         let value = match &input.template {
             Some(template) => {
@@ -784,6 +787,14 @@ pub fn resolve_inputs(
                 );
                 duration_ms += run.duration_ms;
                 let value = run.result.map_err(|e| failed(&e, duration_ms))?;
+                // Each template has its own limits, so the number of templates multiplies both.
+                resolved_bytes = resolved_bytes.saturating_add(json_stringify(&value).len());
+                if resolved_bytes > MAX_RESOLVED_INPUT_BYTES {
+                    return Err(failed(&"the inputs are too large".to_string(), duration_ms));
+                }
+                if duration_ms > budget_ms {
+                    return Err(failed(&"the inputs took too long".to_string(), duration_ms));
+                }
                 js_to_ordered(&value)
             }
             None => input
