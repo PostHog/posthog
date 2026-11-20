@@ -493,6 +493,92 @@ describe('dashboardLogic', () => {
                 expect(loadedShortIds().includes(analyticsTile.insight!.short_id)).toBe(analyticsTileStarts)
             }
         )
+
+        describe('pacing automatic refreshes by each tile time window', () => {
+            const windowTile = (shortId: string, id: number, dateFrom: string): DashboardTile =>
+                tileFromInsight(
+                    {
+                        ...insightOnDashboard(175, [21]),
+                        id,
+                        short_id: shortId as InsightShortId,
+                        cache_target_age: undefined,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.TrendsQuery, series: [], dateRange: { date_from: dateFrom } },
+                        } as any,
+                    },
+                    id + 100
+                )
+            const hourTile = windowTile('hour-tile', 801, '-1h')
+            const weekTile = windowTile('week-tile', 802, '-7d')
+            const refreshCounts = (): Record<string, number> =>
+                Object.fromEntries(
+                    ['hour-tile', 'week-tile'].map((shortId) => [
+                        shortId,
+                        loadedShortIds().filter((loaded) => loaded === shortId).length,
+                    ])
+                )
+
+            beforeEach(async () => {
+                refreshInsight.mockImplementation((_teamId, insight) =>
+                    Promise.resolve({ ...insight, last_refresh: now().toISOString() })
+                )
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/21/': () => [
+                            200,
+                            dashboardResult(21, [hourTile, weekTile]),
+                        ],
+                    },
+                })
+            })
+
+            afterEach(() => {
+                jest.useRealTimers()
+            })
+
+            const mountWithFifteenSecondTicks = async (dashboardV2: boolean): Promise<void> => {
+                setDashboardV2(dashboardV2)
+                logic = dashboardLogic({ id: 21 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                jest.useFakeTimers()
+                await expectLogic(logic, () => {
+                    logic.actions.setTileInView(hourTile.id, true)
+                    logic.actions.setTileInView(weekTile.id, true)
+                    logic.actions.setAutoRefresh(true, 15)
+                }).toFinishAllListeners()
+                refreshInsight.mockClear()
+            }
+
+            it.each([
+                { dashboardV2: true, expected: { 'hour-tile': 30, 'week-tile': 1 } },
+                { dashboardV2: false, expected: { 'hour-tile': 60, 'week-tile': 60 } },
+            ])(
+                'over 15 minutes of 15 second ticks with dashboard-v2 $dashboardV2, refreshes $expected',
+                async ({ dashboardV2, expected }) => {
+                    await mountWithFifteenSecondTicks(dashboardV2)
+
+                    for (let tick = 0; tick < 60; tick++) {
+                        await jest.advanceTimersByTimeAsync(15_000)
+                        await expectLogic(logic).toFinishAllListeners()
+                    }
+
+                    expect(refreshCounts()).toEqual(expected)
+                }
+            )
+
+            it('a manual refresh still refreshes a tile its window would hold back', async () => {
+                await mountWithFifteenSecondTicks(true)
+                await jest.advanceTimersByTimeAsync(30_000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(refreshCounts()).toEqual({ 'hour-tile': 1, 'week-tile': 0 })
+
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+
+                expect(refreshCounts()).toEqual({ 'hour-tile': 2, 'week-tile': 1 })
+            })
+        })
     })
 
     describe('tile group sections', () => {

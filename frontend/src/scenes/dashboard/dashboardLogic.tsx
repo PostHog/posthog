@@ -238,6 +238,7 @@ import {
     refreshThroughBoardStream,
     telemetryTileLoadQueue,
 } from './dashboardV2Logic'
+import { tilesDueForAutomaticRefresh } from './tileRefreshInterval'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
@@ -486,6 +487,11 @@ async function refreshInsightTile(
 function abortWidgetLoads(cache: Record<string, any>): void {
     cache.widgetAbortController?.abort()
     cache.widgetAbortController = undefined
+}
+
+/** When this page last started a refresh of each tile, so automatic refreshes can pace each tile by its window. */
+function tileRefreshedAt(cache: Record<string, any>): Map<number, Dayjs> {
+    return (cache.tileRefreshedAt ??= new Map<number, Dayjs>())
 }
 
 function abortGroupLoads(cache: Record<string, any>): void {
@@ -6045,7 +6051,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
             const openStaleTiles = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
-            const sortedTilesToRefresh = values.dashboardV2Enabled
+            const visibleTilesToRefresh = values.dashboardV2Enabled
                 ? deferOffscreenTiles(dashboardV2Logic(props), openStaleTiles, {
                       isInitialLoad,
                       forceRefresh: !!forceRefresh,
@@ -6054,6 +6060,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       settings: settingsToRefresh,
                   })
                 : openStaleTiles
+            // A tile on screen that its window says is still fresh sits out this tick, and isn't deferred either.
+            const sortedTilesToRefresh =
+                values.dashboardV2Enabled && isAutomatic
+                    ? tilesDueForAutomaticRefresh(visibleTilesToRefresh, {
+                          dashboardFilters: combineDashboardFilters(settingsToRefresh.filters, values.externalFilters),
+                          dashboardIntervalSeconds: values.autoRefresh.enabled ? values.autoRefresh.interval : 0,
+                          refreshedAt: tileRefreshedAt(cache),
+                          now: now(),
+                      })
+                    : visibleTilesToRefresh
+            const tilesNotDueCount = visibleTilesToRefresh.length - sortedTilesToRefresh.length
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
             const waiting = nextWaitingTileRefresh({
@@ -6149,6 +6166,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
+                const refreshedAt = tileRefreshedAt(cache)
+                const refreshStartedAt = now()
+                sortedTilesToRefresh.forEach((tile) => refreshedAt.set(tile.id, refreshStartedAt))
                 const settleTile = (
                     tile: DashboardTile & { insight: InsightModel },
                     outcome: InsightTileRefreshOutcome
@@ -6162,6 +6182,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tilesRefreshedCachedCount += outcome === 'cached' ? 1 : 0
                         filterChange?.remainingInsightIds.delete(tile.insight.short_id)
                     } else {
+                        // A tile that failed to refresh is due again on the next tick.
+                        refreshedAt.delete(tile.id)
                         filterChange?.remainingInsightIds.add(tile.insight.short_id)
                         tilesAbortedCount += outcome === 'aborted' ? 1 : 0
                         tilesErroredCount += outcome === 'errored' ? 1 : 0
@@ -6414,7 +6436,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard_v2_ui: values.dashboardV2Enabled,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
-                    tiles_deferred_count: staleTiles.length - tilesStaleCount,
+                    tiles_deferred_count: staleTiles.length - tilesStaleCount - tilesNotDueCount,
+                    tiles_not_due_count: tilesNotDueCount,
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
