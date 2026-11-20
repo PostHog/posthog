@@ -94,6 +94,30 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
     }
 })
 
+test('after a full run passed, a ready PR runs the subset unless the subset is absent or blind', () => {
+    const requested = selectionFixture({ ast: { full_run_reasons: ['conftest.py'] } })
+    const cascade = (runLegacyReason, extra) => ({ legacyChanged: false, runLegacyReason, ...extra })
+    const cases = [
+        [cascade('non_isolated_product'), 'selected', '', 'untrusted'],
+        [cascade('contract_cascade', { selection: requested }), 'selected', '', 'untrusted'],
+        [{ selection: requested }, 'selected', '', 'full_run_requested'],
+        [cascade('schema'), 'full', 'untrusted', ''],
+        [cascade('lib_cascade'), 'full', 'untrusted', ''],
+        [cascade('contract_cascade', { selection: null }), 'full', 'untrusted', ''],
+        [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'full', 'empty_selection', ''],
+        [{ disabled: true }, 'full', 'disabled', ''],
+        [cascade('contract_cascade', { draft: true }), 'skip', 'untrusted', ''],
+        [cascade('contract_cascade', { fullRunAlreadyPassed: false }), 'full', 'untrusted', ''],
+    ]
+    for (const [overrides, mode, skipReason, waivedReason] of cases) {
+        const decision = decide({ fullRunAlreadyPassed: true, ...overrides })
+        const label = JSON.stringify(overrides)
+        assert.equal(decision.mode, mode, label)
+        assert.equal(decision.skip_reason, skipReason, label)
+        assert.equal(decision.waived_full_run_reason, waivedReason, label)
+    }
+})
+
 test('the kill switch wins over a selection the selector was happy with', () => {
     // Ordered first on purpose: flipping it during an incident must not depend on why
     // the run would otherwise have been trusted.

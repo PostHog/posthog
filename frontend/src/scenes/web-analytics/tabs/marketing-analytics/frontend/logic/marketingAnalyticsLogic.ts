@@ -56,6 +56,7 @@ import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/compon
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { marketingAnalyticsSourceValidationRetrieve } from 'products/marketing_analytics/frontend/generated/api'
 import type { SourceValidationApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
+import type { SourceValidationApiErrorsBySource } from 'products/marketing_analytics/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
@@ -360,7 +361,7 @@ export interface marketingAnalyticsLogicValues {
     allAvailableSources: {
         id: string
         name: string
-        prefix?: string | undefined
+        prefix?: string
         source_type: string
         type: string
     }[]
@@ -383,7 +384,7 @@ export interface marketingAnalyticsLogicValues {
         id: string
         name: string
         schema_name: string
-        schema_status?: string | undefined
+        schema_status?: string
         source_map: SourceMap | null
         source_map_id: string
         source_prefix: string
@@ -703,16 +704,16 @@ export interface marketingAnalyticsLogicActions {
         tileColumnSelection?: string
     }) => {
         params: {
-            chartDisplayType?: ChartDisplayType | undefined
-            compare?: boolean | undefined
-            compare_to?: string | undefined
-            dateFrom?: string | null | undefined
-            dateTo?: string | null | undefined
-            drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
-            includeNonIntegrated?: boolean | undefined
-            integrationSourceIds?: string[] | undefined
-            interval?: IntervalType | undefined
-            tileColumnSelection?: string | undefined
+            chartDisplayType?: ChartDisplayType
+            compare?: boolean
+            compare_to?: string
+            dateFrom?: string | null
+            dateTo?: string | null
+            drillDownLevel?: MarketingAnalyticsDrillDownLevel
+            includeNonIntegrated?: boolean
+            integrationSourceIds?: string[]
+            interval?: IntervalType
+            tileColumnSelection?: string
         }
     }
 }
@@ -793,7 +794,7 @@ export interface marketingAnalyticsLogicMeta {
         ) => {
             id: string
             name: string
-            prefix?: string | undefined
+            prefix?: string
             source_type: string
             type: string
         }[]
@@ -809,7 +810,7 @@ export interface marketingAnalyticsLogicMeta {
                 id: string
                 name: string
                 schema_name: string
-                schema_status?: string | undefined
+                schema_status?: string
                 source_map: SourceMap | null
                 source_map_id: string
                 source_prefix: string
@@ -839,7 +840,7 @@ export interface marketingAnalyticsLogicMeta {
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
             nativeSources: ExternalDataSource[],
-            sourceValidationErrors: import('products/marketing_analytics/frontend/generated/api.schemas').SourceValidationApiErrorsBySource
+            sourceValidationErrors: SourceValidationApiErrorsBySource
         ) => {
             columns: {
                 name: string
@@ -850,7 +851,7 @@ export interface marketingAnalyticsLogicMeta {
             id: string
             name: string
             schema_name: string
-            schema_status?: string | undefined
+            schema_status?: string
             source_map: SourceMap | null
             source_map_id: string
             source_prefix: string

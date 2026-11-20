@@ -19,11 +19,11 @@ import policy  # noqa: E402
 
 from products.stamphog.backend.logic.engine_pregate import run_engine_attest, run_engine_pregate  # noqa: E402
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths  # noqa: E402
+from products.stamphog.backend.logic.policy_files import effective_policy_files  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     PullRequestHeadMovedError,
     _clone_pr,
-    _effective_policy_files,
     _prefetch_review_blobs,
     _review_payload_archive,
     _review_payload_command,
@@ -59,8 +59,8 @@ def test_shipped_default_policy_loads_through_engine_loader() -> None:
 
 
 def test_repo_files_pass_through_unmerged() -> None:
-    assert _effective_policy_files("acme/widgets", {}) == {}
-    effective = _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY})
+    assert effective_policy_files("acme/widgets", {}) == {}
+    effective = effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY})
     assert effective == {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY}
 
 
@@ -75,7 +75,7 @@ def test_repo_files_pass_through_unmerged() -> None:
 def test_overlay_unusable_repo_policy_fails_closed(repo_policy: str) -> None:
     # A repo that declared *something* must not silently review under pure defaults.
     with pytest.raises(RuntimeError):
-        _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: repo_policy})
+        effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: repo_policy})
 
 
 def _pregate_context(path: str) -> dict:
@@ -172,7 +172,7 @@ def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, e
 def test_an_issuer_manifest_rides_with_the_policy_that_names_it() -> None:
     files = {STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY, _ISSUER: "paths:\n  - tools/proof/\n", "other.yml": "x"}
 
-    assert _effective_policy_files("acme/widgets", files) == {
+    assert effective_policy_files("acme/widgets", files) == {
         STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY,
         _ISSUER: "paths:\n  - tools/proof/\n",
     }
@@ -183,7 +183,7 @@ def test_repo_guidance_and_steering_pass_through() -> None:
         STAMPHOG_REVIEW_GUIDANCE_PATH: "repo norms\n",
         STAMPHOG_STEERING_PATH: "steer this way\n",
     }
-    effective = _effective_policy_files("acme/widgets", files)
+    effective = effective_policy_files("acme/widgets", files)
     assert effective[STAMPHOG_REVIEW_GUIDANCE_PATH] == "repo norms\n"
     assert effective[STAMPHOG_STEERING_PATH] == "steer this way\n"
 
