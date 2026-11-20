@@ -67,6 +67,8 @@ RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
 MAX_SELECTED_SESSIONS = 100_000
+# Half of ClickHouse's 8 MiB query size limit, so the rest of the query and the quoting always fit.
+MAX_SELECTED_SESSION_BYTES = 4 * 1024 * 1024
 METADATA_BATCH_SIZE = 100
 VIEWPORT_ROW_LIMIT = 50000
 
@@ -231,7 +233,7 @@ def frame_block(block: bytes) -> bytes:
 
 
 def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
-    # The quote caps a session list at MAX_SELECTED_SESSIONS, which keeps it inside ClickHouse's query size limit.
+    # The quote caps a session list by count and by bytes, which keeps it inside ClickHouse's query size limit.
     selected = sorted(load_session_ids(input.session_ids_key)) if input.session_ids_key else None
     session_filter = "AND session_id IN %(session_ids)s" if selected is not None else ""
     rows = sync_execute(

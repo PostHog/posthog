@@ -2,7 +2,9 @@ import argparse
 
 import pytest
 
-from products.replay.backend.management.commands.export_recordings_to_s3 import _shard_list
+from django.core.management.base import CommandError
+
+from products.replay.backend.management.commands.export_recordings_to_s3 import _shard_list, check_session_list
 
 
 @pytest.mark.parametrize(
@@ -20,3 +22,19 @@ def test_shard_list_uses_the_spelling_the_workflow_compares(value: str, expected
 def test_shard_list_rejects_malformed_names(value: str) -> None:
     with pytest.raises(argparse.ArgumentTypeError):
         _shard_list(value)
+
+
+@pytest.mark.parametrize(
+    "session_ids,accepted",
+    [
+        (["a" * 36] * 1000, True),
+        (["a" * 36] * 100_001, False),
+        (["a" * 100_000] * 50, False),
+    ],
+)
+def test_session_list_must_fit_in_one_query(session_ids: list[str], accepted: bool) -> None:
+    if accepted:
+        check_session_list(session_ids)
+    else:
+        with pytest.raises(CommandError):
+            check_session_list(session_ids)

@@ -34,7 +34,11 @@ from posthog.integrations import IntegrationKind, IntegrationManager, Integratio
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
-from products.replay.backend.temporal.export_recordings.activities import MAX_SELECTED_SESSIONS, destination_error
+from products.replay.backend.temporal.export_recordings.activities import (
+    MAX_SELECTED_SESSION_BYTES,
+    MAX_SELECTED_SESSIONS,
+    destination_error,
+)
 from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, load_quote
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportRecordingsInput
 from products.replay.backend.temporal.export_recordings.workflow import shard_name
@@ -93,10 +97,7 @@ class Command(BaseCommand):
         session_ids = None
         if options["session_ids_file"]:
             session_ids = sorted({line.strip() for line in options["session_ids_file"].read_text().splitlines()} - {""})
-            if len(session_ids) > MAX_SELECTED_SESSIONS:
-                raise CommandError(
-                    f"The file lists {len(session_ids):,} sessions. Export at most {MAX_SELECTED_SESSIONS:,}, or a date range."
-                )
+            check_session_list(session_ids)
         quote = create_quote(
             team_id=team_id,
             date_from=date_from.isoformat(),
@@ -173,6 +174,16 @@ class Command(BaseCommand):
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
+
+
+def check_session_list(session_ids: list[str]) -> None:
+    if len(session_ids) > MAX_SELECTED_SESSIONS:
+        raise CommandError(
+            f"The file lists {len(session_ids):,} sessions. Export at most {MAX_SELECTED_SESSIONS:,}, or a date range."
+        )
+    # Each ID goes into the query quoted and comma-separated.
+    if sum(len(session_id.encode()) + 4 for session_id in session_ids) > MAX_SELECTED_SESSION_BYTES:
+        raise CommandError("The session IDs in the file are too long to send in one query. Split the list.")
 
 
 def _positive_int(value: str) -> int:
