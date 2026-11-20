@@ -55,6 +55,7 @@ export const INBOX_EVENTS = {
     // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
     REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
+    REPORT_LINK_STRIP_CLICKED: 'Inbox report link strip clicked',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     // Cloud-only for now.
@@ -333,7 +334,11 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+export function captureInboxEvent(
+    event: InboxEvent,
+    properties: Record<string, unknown>,
+    options?: CaptureOptions
+): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
@@ -394,7 +399,7 @@ interface BaseReportProperties {
  * own data. User-authored notes (a dismissal reason note, feedback note) are a different case: they
  * are the actionable signal we want, so the relevant capture calls attach them explicitly.
  */
-function baseReportProperties(report: SignalReport): BaseReportProperties {
+export function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {
         report_id: report.id,
         report_age_hours: reportAgeHours(report),
@@ -541,6 +546,10 @@ export function captureInboxReportsImpressed(params: {
     rankerId: string | null
     /** Whether the Recommended list showed score pills. */
     rankingPill: boolean
+    /** Whether the cards showed link strips. Each impression then carries its strip kind. */
+    linkStrips?: boolean
+    /** How many other reports each card stands for after plan layers collapse, parallel to `reports`. */
+    collapsedCounts?: number[]
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
     const personalSort = params.rankerId === 'personal'
@@ -575,6 +584,12 @@ export function captureInboxReportsImpressed(params: {
                 ? { personal_tier: report.personal_tier ?? null, personal_reason_shown: !!report.personal_reason }
                 : {}),
             ...rankingPillProperties(report, params.rankingPill),
+            ...(params.linkStrips
+                ? {
+                      link_strip_kind: report.link_summary?.kind ?? null,
+                      collapsed_report_count: params.collapsedCounts?.[index] ?? 0,
+                  }
+                : {}),
         })),
     })
 }
