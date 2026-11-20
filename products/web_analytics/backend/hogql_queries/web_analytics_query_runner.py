@@ -76,6 +76,7 @@ from products.web_analytics.backend.hogql_queries.metrics import (
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
+    compute_shape_key,
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
 )
@@ -785,6 +786,9 @@ WHERE and(
             return self.team.test_account_filters
         else:
             return []
+
+    def _runner_event_properties(self) -> dict[str, Any]:
+        return {"shape_key": compute_shape_key(self.query, self.team.timezone, self._test_account_filters)}
 
     @cached_property
     def _reads_only_posthog_tables(self) -> bool:
