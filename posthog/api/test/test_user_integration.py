@@ -9,12 +9,13 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -49,6 +50,7 @@ from posthog.models.user_integration import (
     UserIntegration,
     user_github_integration_from_installation,
 )
+from posthog.tasks.codex_login import complete_codex_login, get_login, login_key, update_login
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -2055,6 +2057,274 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
                 format="json",
             )
+
+    def _start_device_login(self) -> str:
+        login_id = str(uuid.uuid4())
+        with patch("posthog.tasks.codex_login.complete_codex_login.delay"), self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/login/", {"login_id": login_id}, format="json"
+            )
+        assert response.status_code == 200, response.json()
+        return login_id
+
+    @parameterized.expand(
+        [
+            ("success",),
+            ("cancel",),
+            ("disconnect",),
+            ("replace",),
+            ("failed",),
+            ("access_revoked",),
+            ("cancel_after_store",),
+            ("cancel_cache_get",),
+            ("cancel_cache_set",),
+            ("cancel_old_connection",),
+            ("poll_timeout",),
+            ("poll_503",),
+            ("poll_429",),
+            ("cancel_during_exchange",),
+            ("access_unavailable",),
+            ("access_revoked_during_exchange",),
+            ("access_unavailable_final",),
+            ("access_unavailable_final_persistent",),
+            ("cache_unavailable",),
+            ("cache_unavailable_after_exchange",),
+            ("cache_unavailable_after_store",),
+        ]
+    )
+    def test_device_login_lifecycle(self, outcome):
+        login_id = self._start_device_login()
+        now = time.time()
+        approved = False
+        requests_seen = []
+        events = []
+        fail_cache_read = outcome == "cache_unavailable"
+        cache_failure_seen = False
+        cache_get = caches["codex_login"].get
+
+        def read_cache(*args, **kwargs):
+            nonlocal fail_cache_read, cache_failure_seen
+            if outcome == "cache_unavailable_after_store" and not cache_failure_seen:
+                fail_cache_read = UserIntegration.objects.filter(
+                    user=self.user, kind="codex", config__device_login_id=login_id
+                ).exists()
+            if fail_cache_read:
+                fail_cache_read = False
+                cache_failure_seen = True
+                raise RedisError("Unavailable")
+            return cache_get(*args, **kwargs)
+
+        def provider(method, url, **kwargs):
+            nonlocal fail_cache_read
+            requests_seen.append(url)
+            if url.endswith("/usercode"):
+                assert kwargs["json"] == {"client_id": "app_EMoamEEZ73f0CkXaXp7hrann"}
+                return self._openai_response(
+                    200, {"device_auth_id": "private-device-id", "user_code": "TEST-CODE", "interval": "5"}
+                )
+            if url.endswith("/deviceauth/token"):
+                assert kwargs["json"] == {"device_auth_id": "private-device-id", "user_code": "TEST-CODE"}
+                if outcome == "failed":
+                    return self._openai_response(400, {})
+                if not approved and outcome == "poll_timeout":
+                    raise requests.Timeout()
+                if not approved and outcome in ("poll_503", "poll_429"):
+                    response = self._openai_response(int(outcome[-3:]), {})
+                    response.headers["Retry-After"] = "30"
+                    return response
+                return (
+                    self._openai_response(
+                        200, {"authorization_code": "private-code", "code_verifier": "private-verifier"}
+                    )
+                    if approved
+                    else self._openai_response(403, {})
+                )
+            if "data" in kwargs:
+                if outcome == "cache_unavailable_after_exchange":
+                    fail_cache_read = True
+                if outcome == "access_revoked_during_exchange":
+                    self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+                if outcome == "cancel_during_exchange":
+                    self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                assert kwargs["data"] == {
+                    "grant_type": "authorization_code",
+                    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+                    "redirect_uri": "https://auth.openai.com/deviceauth/callback",
+                    "code": "private-code",
+                    "code_verifier": "private-verifier",
+                }
+            if "data" in kwargs and outcome.startswith("access_unavailable_final"):
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+                self.desktop_access_decision.side_effect = [
+                    DesktopAccessResolutionError("Unavailable"),
+                    DesktopAccessDecision.ALLOWED
+                    if outcome == "access_unavailable_final"
+                    else DesktopAccessResolutionError("Unavailable"),
+                ]
+            return self._openai_response(200, _codex_refresh_body("rt_rotated"))
+
+        with (
+            patch(
+                "posthog.event_usage.posthoganalytics.capture",
+                side_effect=lambda *args, **kwargs: events.append(kwargs),
+            ),
+            patch.object(caches["codex_login"], "get", side_effect=read_cache),
+            patch("tenacity.nap.time.sleep"),
+            patch("requests.request", side_effect=provider),
+            patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as schedule,
+            patch("posthog.tasks.codex_login.time.time", return_value=now) as clock,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                assert complete_codex_login.apply(args=(self.user.id, login_id), throw=False).successful()
+            result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
+            assert result == {"login_id": login_id, "status": "pending", "user_code": "TEST-CODE"}
+            assert schedule.call_args.kwargs["countdown"] == 5
+            complete_codex_login(self.user.id, login_id)
+            assert len(requests_seen) == 1
+            clock.return_value = now + 5
+            if outcome == "access_unavailable":
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+                self.desktop_access_decision.side_effect = DesktopAccessResolutionError("Unavailable")
+            with self.captureOnCommitCallbacks(execute=True):
+                complete_codex_login(self.user.id, login_id)
+            if outcome != "failed":
+                assert get_login(self.user.id, login_id)["status"] == "pending"
+                assert schedule.call_count == 2
+            if outcome == "access_unavailable":
+                self.desktop_access_decision.side_effect = None
+                self.desktop_access_decision.return_value = DesktopAccessDecision.ALLOWED
+                assert schedule.call_args.kwargs["countdown"] == 10
+            approved = True
+            if outcome.startswith("poll_"):
+                assert schedule.call_args.kwargs["countdown"] == (10 if outcome == "poll_timeout" else 30)
+            clock.return_value = now + 60
+            if outcome == "cancel":
+                self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+            elif outcome == "disconnect":
+                self.client.delete("/api/users/@me/integrations/codex/")
+            elif outcome == "replace":
+                self._start_device_login()
+            elif outcome == "access_revoked":
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+            with self.captureOnCommitCallbacks(execute=True):
+                complete_codex_login(self.user.id, login_id)
+                if outcome in ("cancel_after_store", "cancel_old_connection", "cancel_cache_get", "cancel_cache_set"):
+                    assert get_login(self.user.id, login_id)["status"] == "pending"
+                    if outcome == "cancel_old_connection":
+                        self._connect()
+                    if outcome.startswith("cancel_cache_"):
+                        with patch.object(
+                            caches["codex_login"],
+                            outcome.removeprefix("cancel_cache_"),
+                            side_effect=RedisError("Unavailable"),
+                        ):
+                            failed_cancel = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                            assert failed_cancel.status_code == 500
+                        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+                        assert not any(url.endswith("/revoke") for url in requests_seen)
+                    response = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                    assert response.status_code == 204
+                    assert not any(event.get("event") == "codex subscription disconnected" for event in events)
+                    assert self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/").status_code == 204
+            complete_codex_login(self.user.id, login_id)
+
+        assert [
+            event["distinct_id"] for event in events if event.get("event") == "codex subscription disconnected"
+        ] == (
+            [self.user.distinct_id] if outcome in ("cancel_after_store", "cancel_cache_get", "cancel_cache_set") else []
+        )
+        connected = outcome in (
+            "success",
+            "cancel_old_connection",
+            "poll_timeout",
+            "poll_503",
+            "poll_429",
+            "access_unavailable",
+            "access_unavailable_final",
+            "cache_unavailable",
+            "cache_unavailable_after_exchange",
+            "cache_unavailable_after_store",
+        )
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
+        result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
+        assert result["user_code"] is None
+        assert (
+            result["status"]
+            == {
+                "success": "connected",
+                "cancel": "canceled",
+                "disconnect": "expired",
+                "replace": "expired",
+                "failed": "failed",
+                "access_revoked": "failed",
+                "cancel_after_store": "canceled",
+                "cancel_cache_get": "canceled",
+                "cancel_cache_set": "canceled",
+                "cancel_old_connection": "expired",
+                "poll_timeout": "connected",
+                "poll_503": "connected",
+                "poll_429": "connected",
+                "cancel_during_exchange": "canceled",
+                "access_unavailable": "connected",
+                "access_revoked_during_exchange": "failed",
+                "access_unavailable_final": "connected",
+                "access_unavailable_final_persistent": "failed",
+                "cache_unavailable": "connected",
+                "cache_unavailable_after_exchange": "connected",
+                "cache_unavailable_after_store": "connected",
+            }[outcome]
+        )
+        assert "private-" not in json.dumps(result)
+        assert "rt_" not in json.dumps(result)
+        if outcome in (
+            "success",
+            "cache_unavailable_after_exchange",
+            "cache_unavailable_after_store",
+            "access_unavailable_final",
+            "access_unavailable_final_persistent",
+        ):
+            assert requests_seen.count("https://auth.openai.com/oauth/token") == 1
+        if connected:
+            assert (
+                UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"]
+                == "rt_rotated"
+            )
+
+    def test_device_login_is_private_to_the_owner(self):
+        login_id = self._start_device_login()
+        update_login(self.user.id, login_id, "pending", "TEST-CODE")
+        other = User.objects.create_and_join(self.organization, "other-device@example.com", "test-password")
+        self.client.force_login(other)
+        response = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/")
+        assert response.json()["status"] == "expired"
+        self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+        assert get_login(self.user.id, login_id)["status"] == "pending"
+        assert self.client.get(f"/api/users/{self.user.uuid}/integrations/codex/login/{login_id}/").status_code == 403
+
+    @parameterized.expand(
+        [
+            ("post", ""),
+            ("get", "00000000-0000-0000-0000-000000000001/"),
+            ("delete", "00000000-0000-0000-0000-000000000001/"),
+        ]
+    )
+    def test_sandbox_cannot_use_device_login(self, method, suffix):
+        response = getattr(self._sandbox_client(), method)(
+            f"/api/users/@me/integrations/codex/login/{suffix}", {"login_id": str(uuid.uuid4())}, format="json"
+        )
+        assert response.status_code == 403
+        assert cache.get(login_key(self.user.id)) is None
+
+    def test_expired_or_missing_worker_does_not_connect(self):
+        login_id = self._start_device_login()
+        cache.delete(login_key(self.user.id))
+        complete_codex_login(self.user.id, login_id)
+        assert get_login(self.user.id, login_id)["status"] == "expired"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        login_id = self._start_device_login()
+        with patch("requests.request", side_effect=requests.ConnectionError):
+            complete_codex_login(self.user.id, login_id)
+        assert get_login(self.user.id, login_id)["status"] == "failed"
 
     def test_codex_status_is_not_connected_before_connect(self):
         response = self.client.get("/api/users/@me/integrations/codex/")

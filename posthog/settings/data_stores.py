@@ -825,6 +825,18 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+CACHES["codex_login"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "CONNECTION_FACTORY": "posthog.caching.codex_login_connection_factory.CodexLoginConnectionFactory",
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 1,
+        "SOCKET_TIMEOUT": 1,
+    },
+}
+
 # Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
 CACHES["survey_site_snapshot"] = {
     **CACHES["default"],
@@ -981,6 +993,7 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["codex_login"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]

@@ -12,9 +12,11 @@ import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { UserCodexLoginRequestApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import type { Mocks } from '~/mocks/utils'
 
 import { SettingSectionId } from '../types'
 
@@ -335,9 +337,24 @@ export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story 
     ],
 }
 
-const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
+const codexSubscriptionMocks = (codex: Record<string, unknown>): Mocks => ({
     get: {
         '/api/users/@me/integrations/codex/': codex,
+        '/api/users/@me/integrations/codex/login/:id/': ({ params }) => ({
+            login_id: params.id,
+            status: 'pending',
+            user_code: 'DEMO-12345',
+        }),
+    },
+    post: {
+        '/api/users/@me/integrations/codex/login/': async ({ request }) => ({
+            ...((await request.json()) as UserCodexLoginRequestApi),
+            status: 'pending',
+            user_code: 'DEMO-12345',
+        }),
+    },
+    delete: {
+        '/api/users/@me/integrations/codex/login/:id/': [204],
     },
 })
 
@@ -392,6 +409,7 @@ export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Connect Codex'))
+        await within(document.body).findByText('DEMO-12345')
     },
 }
 

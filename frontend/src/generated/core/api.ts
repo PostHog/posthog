@@ -128,6 +128,8 @@ import type {
     UserAuthSessionApi,
     UserCodexConnectRequestApi,
     UserCodexIntegrationApi,
+    UserCodexLoginApi,
+    UserCodexLoginRequestApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserGitHubPrepareCallbackRequestApi,
@@ -3584,6 +3586,65 @@ export const getUsersIntegrationsCodexDestroyUrl = (uuid: string) => {
  */
 export const usersIntegrationsCodexDestroy = async (uuid: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersIntegrationsCodexDestroyUrl(uuid), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersIntegrationsCodexLoginCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/login/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Start a server-side ChatGPT device login
+ */
+export const usersIntegrationsCodexLoginCreate = async (
+    uuid: string,
+    userCodexLoginRequestApi: UserCodexLoginRequestApi,
+    options?: RequestInit
+): Promise<UserCodexLoginApi> => {
+    return apiMutator<UserCodexLoginApi>(getUsersIntegrationsCodexLoginCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userCodexLoginRequestApi),
+    })
+}
+
+export const getUsersIntegrationsCodexLoginRetrieveUrl = (uuid: string, loginId: string) => {
+    return `/api/users/${uuid}/integrations/codex/login/${loginId}/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Read a ChatGPT device login attempt
+ */
+export const usersIntegrationsCodexLoginRetrieve = async (
+    uuid: string,
+    loginId: string,
+    options?: RequestInit
+): Promise<UserCodexLoginApi> => {
+    return apiMutator<UserCodexLoginApi>(getUsersIntegrationsCodexLoginRetrieveUrl(uuid, loginId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsCodexLoginDestroyUrl = (uuid: string, loginId: string) => {
+    return `/api/users/${uuid}/integrations/codex/login/${loginId}/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Cancel a ChatGPT device login attempt
+ */
+export const usersIntegrationsCodexLoginDestroy = async (
+    uuid: string,
+    loginId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsCodexLoginDestroyUrl(uuid, loginId), {
         ...options,
         method: 'DELETE',
     })

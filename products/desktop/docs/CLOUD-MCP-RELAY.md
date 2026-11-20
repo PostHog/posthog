@@ -339,6 +339,10 @@ It does not use the credential relay. PostHog stores the ChatGPT login server-si
 Desktop deletes the local credential file after PostHog accepts the tokens, if cleanup succeeds. A failed upload or cleanup can leave the file behind. Desktop is not needed while a run is active. Tasks continue when Desktop is closed.
 During connect, the tokens pass through the Desktop renderer process once: the host reads the file over tRPC and the renderer uploads it with the user's PostHog session. The renderer does not save the tokens. A cleanup warning identifies a local file that still needs deletion.
 
+On the web, connect starts a server-side device login. The dialog shows a code and a link to OpenAI. The user approves the code there; no credentials pass through the browser. Short Celery tasks request the code, check approval at the provider's interval, and exchange the approved code for tokens. No worker waits between requests. PostHog stores the tokens in the existing encrypted integration store. Each attempt expires after ten minutes. The worker checks access before each request. Cancel removes only the connection from that attempt, including when token storage finishes before cancellation. The dialog stays open if cancellation fails.
+
+This flow uses the HTTP protocol from the [Codex login source](https://github.com/openai/codex/blob/rust-v0.165.0/codex-rs/login/src/device_code_auth.rs). OpenAI does not document these device endpoints as a separate public API, so protocol changes need compatibility checks. The backend and local workers need no Codex installation. No model turn runs during login. The token upload API remains available for installed Desktop clients.
+
 Users log in once from Settings > Harness > ChatGPT subscription > Cloud tasks.
 Log in opens a dialog that runs `codex login --device-auth` in an embedded terminal, with `CODEX_HOME` set to `~/.codex-posthog`.
 The bundled codex binary runs the login, so the flow does not depend on a `codex` on the user's PATH.

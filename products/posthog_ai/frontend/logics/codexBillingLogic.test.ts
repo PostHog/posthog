@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { personalCodexIntegrationLogic } from 'scenes/settings/user/personalCodexIntegrationLogic'
 
+import type { UserCodexLoginRequestApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -17,19 +18,26 @@ import {
     pickedCodexModelAccess,
 } from './codexBillingLogic'
 
-const AUTH_FILE = JSON.stringify({
-    tokens: { access_token: 'fake-access', refresh_token: 'fake-refresh', id_token: 'fake-id' },
-})
-
 describe('codexBillingLogic', () => {
     let logic: ReturnType<typeof codexBillingLogic.build>
 
     beforeEach(() => {
         localStorage.clear()
         useMocks({
-            get: { '/api/users/@me/integrations/codex/': { status: 'not_connected' } },
-            post: {
+            get: {
                 '/api/users/@me/integrations/codex/': { status: 'connected', email: 'jane@example.com' },
+                '/api/users/@me/integrations/codex/login/:id/': ({ params }) => ({
+                    login_id: params.id,
+                    status: 'connected',
+                    user_code: null,
+                }),
+            },
+            post: {
+                '/api/users/@me/integrations/codex/login/': async ({ request }) => ({
+                    ...((await request.json()) as UserCodexLoginRequestApi),
+                    status: 'starting',
+                    user_code: null,
+                }),
             },
         })
         initKeaTests()
@@ -52,7 +60,6 @@ describe('codexBillingLogic', () => {
         } else {
             personalCodexIntegrationLogic.actions.openConnectModal('settings')
         }
-        personalCodexIntegrationLogic.actions.pasteAuthFile(AUTH_FILE)
 
         await expectLogic(logic).toDispatchActions(['connectCodexSuccess']).toFinishAllListeners()
 

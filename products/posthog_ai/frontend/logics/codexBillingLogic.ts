@@ -24,12 +24,8 @@ export interface codexBillingLogicActions {
     closeConnectModal: () => {
         value: true
     } // personalCodexIntegrationLogic
-    connectCodexSuccess: (
-        codexIntegration: UserCodexIntegrationApi,
-        payload?: import('~/generated/core/api.schemas').UserCodexAuthTokensApi | undefined
-    ) => {
+    connectCodexSuccess: (codexIntegration: UserCodexIntegrationApi) => {
         codexIntegration: UserCodexIntegrationApi
-        payload?: import('~/generated/core/api.schemas').UserCodexAuthTokensApi
     } // personalCodexIntegrationLogic
     openConnectModal: (opener: string) => {
         opener: string

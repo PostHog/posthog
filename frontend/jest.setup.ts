@@ -84,6 +84,23 @@ if (typeof AbortSignal.timeout !== 'function') {
     }
 }
 
+if (typeof AbortSignal.any !== 'function') {
+    AbortSignal.any = (signals: AbortSignal[]): AbortSignal => {
+        const controller = new AbortController()
+        for (const signal of signals) {
+            if (signal.aborted) {
+                controller.abort(signal.reason)
+                break
+            }
+            signal.addEventListener('abort', () => controller.abort(signal.reason), {
+                once: true,
+                signal: controller.signal,
+            })
+        }
+        return controller.signal
+    }
+}
+
 // Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
 if (typeof Element.prototype.getAnimations !== 'function') {
     Element.prototype.getAnimations = () => []

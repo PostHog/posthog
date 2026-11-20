@@ -1,3 +1,6 @@
+from django.core.cache import cache
+from django.db import models, transaction
+
 from rest_framework import exceptions, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,6 +17,7 @@ from posthog.models.integration.codex import (
 )
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.tasks.codex_login import login_key
 
 from products.tasks.backend.facade.access import (
     DesktopAccessResolutionError,
@@ -63,6 +67,27 @@ class UserCodexIntegrationSerializer(serializers.Serializer):
     )
     connected_at = serializers.DateTimeField(
         required=False, allow_null=True, help_text="When the account was connected."
+    )
+
+
+class CodexDeviceLoginStatus(models.TextChoices):
+    STARTING = "starting", "Starting"
+    PENDING = "pending", "Pending"
+    CONNECTED = "connected", "Connected"
+    CANCELED = "canceled", "Canceled"
+    EXPIRED = "expired", "Expired"
+    FAILED = "failed", "Failed"
+
+
+class UserCodexLoginRequestSerializer(serializers.Serializer):
+    login_id = serializers.UUIDField(help_text="A new UUID for this login attempt.")
+
+
+class UserCodexLoginSerializer(serializers.Serializer):
+    login_id = serializers.UUIDField(help_text="The ID of this login attempt.")
+    status = serializers.ChoiceField(choices=CodexDeviceLoginStatus.choices, help_text="The state of the device login.")
+    user_code = serializers.CharField(
+        allow_null=True, help_text="The code to enter at https://auth.openai.com/codex/device."
     )
 
 
@@ -117,7 +142,10 @@ def connect_codex_integration(user: User, data: object) -> Response:
     except CodexAuthError as error:
         raise exceptions.ValidationError({"tokens": str(error)})
     try:
-        integration = CodexUserIntegration.connect(user.id, tokens, source="user_integration_api")
+        with transaction.atomic():
+            CodexUserIntegration._lock_user(user.id)
+            cache.delete(login_key(user.id))
+            integration = CodexUserIntegration.connect(user.id, tokens, source="user_integration_api")
     except CodexReauthRequired as error:
         report_user_action(user, "codex subscription connect failed", {"reason": "rejected_by_openai"})
         raise exceptions.ValidationError({"tokens": str(error)})
@@ -130,8 +158,11 @@ def connect_codex_integration(user: User, data: object) -> Response:
 
 
 def disconnect_codex_integration(user: User) -> Response:
-    integration = CodexUserIntegration.for_user(user.id)
-    if integration is not None:
-        integration.disconnect(source="user_integration_api")
-        report_user_action(user, "codex subscription disconnected", {})
+    with transaction.atomic():
+        CodexUserIntegration._lock_user(user.id)
+        cache.delete(login_key(user.id))
+        integration = CodexUserIntegration.for_user(user.id)
+        if integration is not None:
+            integration.disconnect(source="user_integration_api")
+            report_user_action(user, "codex subscription disconnected", {})
     return Response(status=status.HTTP_204_NO_CONTENT)

@@ -81,7 +81,7 @@ function CodexAccountRow({ integration }: { integration: UserCodexIntegrationApi
 }
 
 export function PersonalCodexIntegration(): JSX.Element {
-    const { codexIntegration, codexIntegrationLoadFailed, connecting } = useValues(personalCodexIntegrationLogic)
+    const { codexIntegration, codexIntegrationLoadFailed } = useValues(personalCodexIntegrationLogic)
     const { openConnectModal } = useActions(personalCodexIntegrationLogic)
 
     if (codexIntegration === null) {
@@ -113,7 +113,6 @@ export function PersonalCodexIntegration(): JSX.Element {
                             size="small"
                             icon={<IconPlus />}
                             onClick={() => openConnectModal(SETTINGS_CODEX_CONNECT_OPENER)}
-                            disabledReason={connecting ? 'Connecting…' : undefined}
                             data-attr="codex-connect"
                         >
                             {reauthRequired ? 'Connect again' : 'Connect Codex'}
