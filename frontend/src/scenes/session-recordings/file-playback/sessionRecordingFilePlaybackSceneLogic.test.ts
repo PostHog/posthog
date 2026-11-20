@@ -11,7 +11,10 @@ import {
 
 jest.mock('../player/snapshot-processing/DecompressionWorkerManager')
 
-const encodeRawExport = (blocks: string[], headerOverrides: Record<string, unknown> = {}): Uint8Array => {
+const encodeRawExport = (
+    blocks: (string | Uint8Array)[],
+    headerOverrides: Record<string, unknown> = {}
+): Uint8Array => {
     const encoder = new TextEncoder()
     const header = {
         version: '2026-11-raw',
@@ -24,7 +27,7 @@ const encodeRawExport = (blocks: string[], headerOverrides: Record<string, unkno
     const parts = [encoder.encode('PHREC1\n' + JSON.stringify(header) + '\n')]
     for (const block of blocks) {
         // The mocked decompressor returns its input, so each block is its decompressed JSONL text.
-        const body = encoder.encode(block)
+        const body = typeof block === 'string' ? encoder.encode(block) : block
         const prefix = new Uint8Array(4)
         new DataView(prefix.buffer).setUint32(0, body.byteLength)
         parts.push(prefix, body)
@@ -159,6 +162,24 @@ describe('sessionRecordingFilePlaybackLogic', () => {
             ],
             ['a missing block count', encodeRawExport([rawBlock(0)], { block_count: undefined }), 'valid header'],
             ['an empty block', encodeRawExport(['']), 'empty block'],
+            [
+                'a block that would expand past the limit',
+                // The varint says 4 GiB.
+                encodeRawExport([new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x0f, 0x00])]),
+                'too large',
+            ],
+            [
+                'too many viewports',
+                encodeRawExport([rawBlock(0)], {
+                    viewports: Array.from({ length: 200_001 }, () => ({
+                        timestamp: 1,
+                        width: '1',
+                        height: '1',
+                        href: '',
+                    })),
+                }),
+                'valid header',
+            ],
         ])('rejects %s', async (_, bytes, message) => {
             await expect(parseRawExportedSessionRecording(bytes)).rejects.toThrow(message)
         })

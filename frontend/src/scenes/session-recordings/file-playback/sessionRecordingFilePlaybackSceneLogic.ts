@@ -31,6 +31,24 @@ import {
 
 const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
 
+// Limits for a file a person opens by hand, so a crafted file cannot exhaust the tab before anything renders.
+const MAX_RAW_HEADER_BYTES = 8 * 1024 * 1024
+const MAX_RAW_VIEWPORTS = 200_000
+const MAX_RAW_BLOCK_EXPANDED_BYTES = 256 * 1024 * 1024
+const MAX_RAW_EXPANDED_BYTES = 1024 * 1024 * 1024
+
+// A raw snappy block starts with its decompressed length as a little-endian base-128 varint.
+const snappyExpandedLength = (block: Uint8Array): number => {
+    let length = 0
+    for (let i = 0; i < Math.min(block.byteLength, 5); i++) {
+        length += (block[i] & 0x7f) * 2 ** (7 * i)
+        if ((block[i] & 0x80) === 0) {
+            return length
+        }
+    }
+    return Infinity
+}
+
 export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
     bytes.byteLength >= RAW_EXPORT_MAGIC.byteLength && RAW_EXPORT_MAGIC.every((byte, i) => bytes[i] === byte)
 
@@ -55,6 +73,7 @@ const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => 
         typeof header.session_id !== 'string' ||
         !Number.isInteger(header.block_count) ||
         !Array.isArray(header.viewports) ||
+        header.viewports.length > MAX_RAW_VIEWPORTS ||
         !header.viewports.every(isValidViewport)
     ) {
         throw new Error('File does not have a valid header')
@@ -69,7 +88,9 @@ export const parseRawExportedSessionRecording = async (
     bytes: Uint8Array,
     onUnreadableLines?: () => void
 ): Promise<LoadedSessionRecordingFile> => {
-    const headerEnd = bytes.indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
+    const headerEnd = bytes
+        .subarray(0, RAW_EXPORT_MAGIC.byteLength + MAX_RAW_HEADER_BYTES)
+        .indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
     if (headerEnd === -1) {
         throw new Error('File does not have a valid header')
     }
@@ -79,6 +100,7 @@ export const parseRawExportedSessionRecording = async (
     const blocks = bytes.subarray(headerEnd + 1)
     const view = new DataView(blocks.buffer, blocks.byteOffset, blocks.byteLength)
     let blockCount = 0
+    let expandedBytes = 0
     for (let offset = 0; offset < blocks.byteLength; blockCount++) {
         const blockEnd = offset + 4 > blocks.byteLength ? Infinity : offset + 4 + view.getUint32(offset)
         if (blockEnd > blocks.byteLength) {
@@ -87,6 +109,11 @@ export const parseRawExportedSessionRecording = async (
         // The shared parser reads a zero length at the start as unframed data.
         if (blockEnd === offset + 4) {
             throw new Error('File has an empty block')
+        }
+        const blockExpandedBytes = snappyExpandedLength(blocks.subarray(offset + 4, blockEnd))
+        expandedBytes += blockExpandedBytes
+        if (blockExpandedBytes > MAX_RAW_BLOCK_EXPANDED_BYTES || expandedBytes > MAX_RAW_EXPANDED_BYTES) {
+            throw new Error('File is too large to play back in the browser')
         }
         offset = blockEnd
     }
