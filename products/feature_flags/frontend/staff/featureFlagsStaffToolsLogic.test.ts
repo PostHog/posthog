@@ -499,6 +499,8 @@ describe('featureFlagsStaffToolsLogic', () => {
                 running_experiments_needing_flag_calls_in_events: experimentsNeedingFlagCalls,
                 current_mode: currentMode,
                 target_mode: 1,
+                current_keeps_events_writes: false,
+                target_keeps_events_writes: false,
                 changed,
                 left_above_mode: leftAboveMode,
             }))
