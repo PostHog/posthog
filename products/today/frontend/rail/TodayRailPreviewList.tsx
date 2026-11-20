@@ -26,12 +26,16 @@ export function TodayRailPreviewList({
     loading?: boolean
     failed?: boolean
     onAction: () => void
-}): JSX.Element {
+}): JSX.Element | null {
     const pinnedHrefs = new Set(pins.map((item) => item.href))
     const sections = [
-        { label: 'Pinned', items: pins },
         { label: 'Recents', items: recents.filter((item) => !pinnedHrefs.has(item.href)) },
+        { label: 'Pinned', items: pins },
     ].filter((section) => section.items.length > 0)
+
+    if (sections.length === 0 && !loading && !failed) {
+        return null
+    }
 
     return (
         <div
@@ -84,10 +88,6 @@ export function TodayRailPreviewList({
             ) : failed ? (
                 <Text size="xs" variant="muted" className="px-3 pt-1 pb-3">
                     Some items could not load. Open Chats to try again.
-                </Text>
-            ) : sections.length === 0 ? (
-                <Text size="xs" variant="muted" className="px-3 pt-1 pb-3">
-                    Items you pin or open show here.
                 </Text>
             ) : null}
         </div>

@@ -7,6 +7,7 @@ import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { TodayWorkItem } from '~/layout/today/todayWorkItems'
 
+import { RAIL_RECENTS_LIMIT } from './todayRailPreviewItems'
 import { TodayRailPreviewItem, TodayRailPreviewList } from './TodayRailPreviewList'
 
 function previewItem(item: TodayWorkItem): TodayRailPreviewItem {
@@ -29,7 +30,7 @@ export function TodayRailChatsHoverCard({ onAction }: { onAction: () => void }):
                 allRecentItems,
                 (item) => item.title || '',
                 (item) => item.id,
-                10
+                RAIL_RECENTS_LIMIT
             ).map(previewItem)}
             loading={pinnedTasksLoading || recentLoading}
             failed={recentTasksUnavailable}

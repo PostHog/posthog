@@ -10,7 +10,7 @@ const meta: Meta<typeof TodayRailPreviewList> = {
     component: TodayRailPreviewList,
     decorators: [
         (Story) => (
-            <Card size="sm" className="w-72 gap-0 py-0">
+            <Card size="sm" className="w-72 gap-0 py-0 empty:hidden">
                 <Story />
             </Card>
         ),
@@ -42,6 +42,8 @@ export const LongList: Story = {
                 href: '/notebooks/long-title',
                 icon: <IconNotebook />,
             },
+            { name: 'Weekly notes', href: '/notebooks/weekly', icon: <IconNotebook /> },
+            { name: 'Retention by plan', href: '/insights/retention', icon: <IconGraph /> },
         ],
     },
 }

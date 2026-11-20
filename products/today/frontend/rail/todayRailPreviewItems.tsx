@@ -12,6 +12,8 @@ import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-gen
 
 import type { TodayRailPreviewItem } from './TodayRailPreviewList'
 
+export const RAIL_RECENTS_LIMIT = 3
+
 const PEOPLE_ICONS: Record<string, JSX.Element> = {
     person: <IconPerson />,
     group: <IconBuilding />,
@@ -65,6 +67,6 @@ export function railRecentItems(items: TodayRailPreviewItem[], pins: TodayRailPr
         unique.filter((item) => !pinnedHrefs.has(item.href)),
         (item) => item.name,
         (item) => item.href,
-        10
+        RAIL_RECENTS_LIMIT
     )
 }

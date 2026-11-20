@@ -128,7 +128,7 @@ export function TodayPreviewCardProvider({
                                 <PreviewCard.Popup className="origin-[var(--transform-origin)] outline-none transition-[opacity,scale] duration-150 ease-out data-[ending-style]:scale-97 data-[ending-style]:opacity-0 data-[starting-style]:scale-97 data-[starting-style]:opacity-0 motion-reduce:transition-none">
                                     <Card
                                         size="sm"
-                                        className="w-72 max-w-[calc(100vw-2rem)] gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
+                                        className="w-72 max-w-[calc(100vw-2rem)] gap-0 border empty:hidden border-border py-0 shadow-[var(--shadow-md)]"
                                     >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
                                             {payload.kind === 'rail' ? (
