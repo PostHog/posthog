@@ -79,6 +79,11 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+# Turn on once billing sends the entitlements block in every region. A response without the block then leaves limits,
+# trust scores, never_drop_data and features alone instead of applying the legacy fields.
+BILLING_REQUIRE_ENTITLEMENTS_BLOCK = str_to_bool(
+    get_from_env("BILLING_REQUIRE_ENTITLEMENTS_BLOCK", "False", type_cast=str)
+)
 # Lifetime of the access token PostHog mints for the public billing API (ee/billing/access_token.py).
 BILLING_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("BILLING_ACCESS_TOKEN_TTL_SECONDS", 15 * 60, type_cast=int)
 

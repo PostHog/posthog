@@ -23,7 +23,7 @@ import structlog
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
-from posthog.billing.entitlements import apply_entitlements, contract_usage_keys
+from posthog.billing.entitlements import BILLING_SNAPSHOT_REJECTED, apply_entitlements, contract_usage_keys
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -44,7 +44,13 @@ from posthog.models.user import User
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import (
+    BILLING_STATUS_STAMP_KEYS,
+    INFORMATIONAL_USAGE_RESOURCES,
+    QuotaResource,
+    set_org_usage_summary,
+    update_org_billing_quotas,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -138,6 +144,11 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+USAGE_SUMMARY_KEYS = (*(resource.value for resource in QuotaResource), *INFORMATIONAL_USAGE_RESOURCES)
+# A summary without these is partial, and raising keeps it from replacing the stored usage.
+REQUIRED_USAGE_SUMMARY_KEYS = frozenset({QuotaResource.EVENTS.value, QuotaResource.RECORDINGS.value})
 
 
 def _keep_stored_contract_limits(usage_info: OrganizationUsageInfo, stored_usage: dict | None) -> None:
@@ -807,6 +818,7 @@ class BillingManager:
 
         data = billing_status["customer"]
         entitlements_block = data.get("entitlements")
+        entitlements_decide = entitlements_block is not None or settings.BILLING_REQUIRE_ENTITLEMENTS_BLOCK
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
@@ -820,38 +832,21 @@ class BillingManager:
 
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
-            usage_info = OrganizationUsageInfo(
-                events=usage_summary["events"],
-                exceptions=usage_summary.get("exceptions", {}),
-                recordings=usage_summary["recordings"],
-                survey_responses=usage_summary.get("survey_responses", {}),
-                rows_synced=usage_summary.get("rows_synced", {}),
-                cdp_trigger_events=usage_summary.get("cdp_trigger_events", {}),
-                rows_exported=usage_summary.get("rows_exported", {}),
-                feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
-                api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
-                llm_events=usage_summary.get("llm_events", {}),
-                mcp_events=usage_summary.get("mcp_events", {}),
-                ai_credits=usage_summary.get("ai_credits", {}),
-                signals_credits=usage_summary.get("signals_credits", {}),
-                signals_spend_credits=usage_summary.get("signals_spend_credits", {}),
-                posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
-                posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
-                sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
-                sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
-                sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
-                workflow_emails=usage_summary.get("workflow_emails", {}),
-                workflow_push=usage_summary.get("workflow_push", {}),
-                workflow_destinations=usage_summary.get("workflow_destinations", {}),
-                logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
-                replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
-                period=[
-                    data["billing_period"]["current_period_start"],
-                    data["billing_period"]["current_period_end"],
-                ],
+            usage_info = cast(
+                OrganizationUsageInfo,
+                {
+                    **{
+                        key: usage_summary[key] if key in REQUIRED_USAGE_SUMMARY_KEYS else usage_summary.get(key, {})
+                        for key in USAGE_SUMMARY_KEYS
+                    },
+                    "period": [
+                        data["billing_period"]["current_period_start"],
+                        data["billing_period"]["current_period_end"],
+                    ],
+                },
             )
-            if entitlements_block is not None:
-                # Only the block changes these limits, so a rejected block keeps the stored ones.
+            if entitlements_decide:
+                # Only the block changes these limits, so a rejected or missing block keeps the stored ones.
                 _keep_stored_contract_limits(usage_info, organization.usage)
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
@@ -877,6 +872,8 @@ class BillingManager:
                 # Features don't affect a quota decision.
                 if changed_entitlements - {"features"}:
                     should_update_org_billing_quotas = True
+        elif entitlements_decide:
+            BILLING_SNAPSHOT_REJECTED.labels(reason="missing_block").inc()
         elif self._apply_legacy_entitlements(organization, billing_status, timeout=timeout):
             org_modified = True
 

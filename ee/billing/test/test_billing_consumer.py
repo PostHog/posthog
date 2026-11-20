@@ -186,7 +186,7 @@ class TestBillingConsumerCustomerUpdate(BaseTest):
         }
         if sync_type is not None:
             body["sync_type"] = sync_type
-        drift = {"field": "features"}
+        drift = {"field": "features", "plan_state": "free"}
         before = REGISTRY.get_sample_value("billing_entitlement_drift_repaired_total", drift) or 0
 
         self._build_consumer()._process_billing_customer_update(body)

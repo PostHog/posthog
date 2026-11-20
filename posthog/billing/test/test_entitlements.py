@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -15,7 +17,7 @@ from posthog.redis import get_client
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import BillingStatus
-from ee.billing.quota_limiting import QuotaLimitingCaches
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
 from ee.models.license import License, LicenseManager
 
 PERIOD = ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"]
@@ -103,8 +105,8 @@ class TestApplyEntitlements(BaseTest):
 
     @parameterized.expand(
         [
-            ("missing_usage_limit", lambda b: b["usage_limits"].pop("workflow_destinations")),
             ("unsupported_schema_version", lambda b: b.update(schema_version=2)),
+            ("malformed", lambda b: b["usage_limits"].update(events=-1)),
             ("malformed", lambda b: b.update(usage_limits=["events"])),
             ("malformed", lambda b: b.update(features=None)),
             ("malformed", lambda b: b["trust_scores"].update(events="high")),
@@ -135,6 +137,30 @@ class TestApplyEntitlements(BaseTest):
         assert after == before
         assert _sample("billing_snapshot_rejected_total", {"reason": reason}) == rejected_before + 1
 
+    def test_a_billed_key_the_snapshot_leaves_out_keeps_its_limit_and_the_rest_applies(self) -> None:
+        block = _block(usage_limits={"rows_exported": 7}, trust_scores={"events": 3})
+        del block["usage_limits"]["events"]
+        missing_before = _sample("billing_snapshot_missing_usage_limit_total", {"usage_key": "events"})
+
+        changed = apply_entitlements(self.organization, block)
+
+        usage = cast(dict[str, Any], self.organization.usage)
+        assert changed is not None and "usage_limits" in changed
+        assert usage["events"]["limit"] == 1000
+        assert usage["rows_exported"]["limit"] == 7
+        assert self.organization.customer_trust_scores == block["trust_scores"]
+        assert _sample("billing_snapshot_missing_usage_limit_total", {"usage_key": "events"}) == missing_before + 1
+
+    def test_counts_a_billed_limit_with_no_usage_entry_to_store_it_in(self) -> None:
+        labels = {"usage_key": "signals_spend_credits"}
+        before = _sample("billing_entitlement_limit_skipped_total", labels)
+
+        apply_entitlements(self.organization, _block(usage_limits={"signals_spend_credits": 5, "mobile_recordings": 9}))
+
+        assert cast(dict[str, Any], self.organization.usage)["signals_spend_credits"] == {}
+        assert _sample("billing_entitlement_limit_skipped_total", labels) == before + 1
+        assert _sample("billing_entitlement_limit_skipped_total", {"usage_key": "mobile_recordings"}) == 0
+
     def test_a_different_contract_hash_marks_the_contract_stale_and_still_applies(self) -> None:
         apply_entitlements(self.organization, _block(contract_hash="something-else", trust_scores={"events": 3}))
 
@@ -149,7 +175,7 @@ class TestApplyEntitlements(BaseTest):
     @parameterized.expand([("batch", 1), ("on_demand", 0), (None, 0)])
     def test_counts_drift_only_when_a_batch_sync_changes_a_field(self, sync_type: str | None, expected: int) -> None:
         before = {
-            field: _sample("billing_entitlement_drift_repaired_total", {"field": field})
+            field: _sample("billing_entitlement_drift_repaired_total", {"field": field, "plan_state": "free"})
             for field in ("trust_scores", "features")
         }
 
@@ -161,10 +187,13 @@ class TestApplyEntitlements(BaseTest):
             sync_type=sync_type,
         )
 
-        assert _sample("billing_entitlement_drift_repaired_total", {"field": "trust_scores"}) == (
+        assert _sample("billing_entitlement_drift_repaired_total", {"field": "trust_scores", "plan_state": "free"}) == (
             before["trust_scores"] + expected
         )
-        assert _sample("billing_entitlement_drift_repaired_total", {"field": "features"}) == before["features"]
+        assert (
+            _sample("billing_entitlement_drift_repaired_total", {"field": "features", "plan_state": "free"})
+            == before["features"]
+        )
 
 
 class TestUpdateOrgDetailsWithEntitlements(BaseTest):
@@ -237,12 +266,18 @@ class TestUpdateOrgDetailsWithEntitlements(BaseTest):
             is not None
         )
 
+    @parameterized.expand(
+        [
+            ("rejected_block", {"entitlements": {**_block(), "schema_version": 2}}, False),
+            ("missing_block_when_required", {}, True),
+        ]
+    )
     @patch("ee.billing.billing_manager.update_org_billing_quotas")
-    def test_a_rejected_block_keeps_the_previous_entitlements(self, _update_quotas: Any) -> None:
-        block = _block()
-        del block["usage_limits"]["events"]
-
-        BillingManager(self.license).update_org_details(self.organization, self._status(entitlements=block))
+    def test_keeps_the_previous_entitlements(
+        self, _name: str, customer: dict[str, Any], require_block: bool, _update_quotas: Any
+    ) -> None:
+        with override_settings(BILLING_REQUIRE_ENTITLEMENTS_BLOCK=require_block):
+            BillingManager(self.license).update_org_details(self.organization, self._status(**customer))
 
         self.organization.refresh_from_db()
         usage = cast(dict[str, Any], self.organization.usage)
@@ -266,10 +301,25 @@ class TestUpdateOrgDetailsWithEntitlements(BaseTest):
 
     @patch("ee.billing.billing_manager.update_org_billing_quotas")
     def test_a_batch_sync_counts_the_fields_it_repaired(self, _update_quotas: Any) -> None:
-        before = _sample("billing_entitlement_drift_repaired_total", {"field": "features"})
+        labels = {"field": "features", "plan_state": "paid"}
+        before = _sample("billing_entitlement_drift_repaired_total", labels)
 
         BillingManager(self.license).update_org_details(
-            self.organization, self._status(entitlements=_block()), sync_type="batch"
+            self.organization, self._status(entitlements=_block(plan_state="paid")), sync_type="batch"
         )
 
-        assert _sample("billing_entitlement_drift_repaired_total", {"field": "features"}) == before + 1
+        assert _sample("billing_entitlement_drift_repaired_total", labels) == before + 1
+
+    @patch("ee.billing.billing_manager.update_org_billing_quotas")
+    def test_every_billed_quota_resource_gets_a_limit_from_the_block(self, _update_quotas: Any) -> None:
+        billed = [resource.value for resource in QuotaResource if resource.billed]
+        summary = {usage_key: {"usage": 1, "limit": 999} for usage_key in billed} | {"recordings": {"usage": 1}}
+        block = _block(usage_limits=dict.fromkeys(billed, 50))
+
+        BillingManager(self.license).update_org_details(
+            self.organization, self._status(usage_summary=summary, entitlements=block)
+        )
+
+        self.organization.refresh_from_db()
+        usage = cast(dict[str, Any], self.organization.usage)
+        assert {usage_key: usage[usage_key]["limit"] for usage_key in billed} == dict.fromkeys(billed, 50)

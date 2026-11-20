@@ -1,5 +1,5 @@
 {
-  "contract_hash": "62419d57b300d5356f343159b32560eb59ef3d3854c69c7df9dcb4a601d8bedf",
+  "contract_hash": "9e09baf6ed7c073803afac015f14bcba0e9f25a197a8ac9f043f7929753cf429",
   "limited_features": {
     "alerts": {
       "limit_enforcement": "create",
@@ -380,7 +380,7 @@
         }
       ],
       "quota_enforcement": "posthog",
-      "quota_enforcement_note": "PostHog reads this as workflow_destinations_dispatched until its rename ships, so it is not enforced before then."
+      "quota_enforcement_note": "PostHog enforces it under this key. A PostHog release that still reads workflow_destinations_dispatched does not."
     },
     "workflow_emails": {
       "products": [
