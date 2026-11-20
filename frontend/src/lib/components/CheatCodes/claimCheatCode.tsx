@@ -8,10 +8,12 @@ import { billingCouponsClaimCreate } from 'products/billing/frontend/generated/a
 
 import { HesoyamClaimedToast } from './HesoyamClaimedToast'
 
-export type CheatCodeSource = 'keyboard' | 'coupon_url' | 'coupon_code_field' | 'billing_code_field'
-export type CheatCodeClaimOutcome = 'claimed' | 'already_claimed' | 'failed' | 'in_flight'
+export type CheatCodeClaimOutcome = 'claimed' | 'already_claimed' | 'failed'
+
+const RECENT_ATTEMPT_WINDOW_MS = 60_000
 
 let claimInFlight = false
+let lastAttemptAt = 0
 
 function playRewardSound(): void {
     try {
@@ -21,21 +23,22 @@ function playRewardSound(): void {
     }
 }
 
+/** True for a minute after someone typed a cheat code, so a coupon field can tell typing from pasting. */
+export function cheatCodeTypedRecently(): boolean {
+    return Date.now() - lastAttemptAt < RECENT_ATTEMPT_WINDOW_MS
+}
+
 /**
- * Claims a cheat code campaign and plays the reward, from any surface that accepts the code.
- * The keyboard shortcut passes `announceFailure: false`, so typing the code by chance doesn't reveal that it exists.
- * Surfaces where the person entered a code on purpose pass `true`, so a failure isn't silent.
+ * Claims a cheat code campaign when someone types the code, the way cheats work in GTA: San Andreas.
+ * Errors other than "already claimed" stay silent, so typing the letters by chance doesn't reveal the code.
  */
-export async function claimCheatCode(
-    campaignSlug: string,
-    { source, announceFailure }: { source: CheatCodeSource; announceFailure: boolean }
-): Promise<CheatCodeClaimOutcome> {
+export async function claimCheatCode(campaignSlug: string): Promise<void> {
     if (claimInFlight) {
-        return 'in_flight'
+        return
     }
     claimInFlight = true
+    lastAttemptAt = Date.now()
     let outcome: CheatCodeClaimOutcome
-    let errorDetail: string | undefined
     try {
         await billingCouponsClaimCreate({ campaign_slug: campaignSlug })
         outcome = 'claimed'
@@ -43,25 +46,15 @@ export async function claimCheatCode(
         lemonToast.success(<HesoyamClaimedToast />)
     } catch (error: any) {
         const detail: string = (error?.detail ?? error?.data?.detail ?? '').toString()
-        errorDetail = detail
         if (detail.toLowerCase().includes('already claimed')) {
             outcome = 'already_claimed'
             lemonToast.info('Nice try. You already used this cheat code.')
         } else {
             outcome = 'failed'
-            if (announceFailure) {
-                lemonToast.error(detail || "Couldn't claim the cheat code. Try again later.")
-            }
         }
     } finally {
         claimInFlight = false
     }
-    // pinned: analytics event name and properties, used by the HESOYAM dashboard
-    posthog.capture('billing cheat code entered', {
-        campaign_slug: campaignSlug,
-        source,
-        outcome,
-        error: outcome === 'failed' ? errorDetail || 'Unknown error' : undefined,
-    })
-    return outcome
+    // pinned: analytics event name and properties, used by the HESOYAM dashboard. $current_url shows where it was typed.
+    posthog.capture('billing cheat code entered', { campaign_slug: campaignSlug, outcome })
 }

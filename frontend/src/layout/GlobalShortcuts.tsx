@@ -151,7 +151,7 @@ export function GlobalShortcuts(): null {
         matchInEditable: true,
         interaction: 'function',
         callback: () => {
-            void claimCheatCode(HESOYAM_CAMPAIGN_SLUG, { source: 'keyboard', announceFailure: false })
+            void claimCheatCode(HESOYAM_CAMPAIGN_SLUG)
         },
     })
 

@@ -15,7 +15,6 @@ describe('couponLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         claimBodies = []
-        jest.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue()
         useMocks({
             get: {
                 '/api/billing': () => [200, { ...billingJson, has_active_subscription: false }],
@@ -35,14 +34,14 @@ describe('couponLogic', () => {
     it.each([
         ['a campaign page', { campaign: 'every' }],
         ['the billing page', {}],
-    ])('claims a cheat code typed into the coupon field on %s without a paid plan', async (_, props) => {
+    ])('does not send a cheat code submitted on %s as a coupon code', async (_, props) => {
         const logic = couponLogic(props)
         logic.mount()
 
         logic.actions.setCouponValue('code', ' HESOYAM ')
         await expectLogic(logic, () => logic.actions.submitCoupon()).toFinishAllListeners()
 
-        expect(claimBodies).toEqual([{ campaign_slug: 'hesoyam' }])
+        expect(claimBodies).toEqual([])
         expect(logic.values.coupon.code).toEqual('')
     })
 })

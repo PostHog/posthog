@@ -8,7 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { cheatCodeCampaignSlug } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
-import { CheatCodeClaimOutcome, claimCheatCode } from 'lib/components/CheatCodes/claimCheatCode'
+import { cheatCodeTypedRecently } from 'lib/components/CheatCodes/claimCheatCode'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -34,8 +34,6 @@ export interface couponLogicValues {
     isAdminOrOwner: boolean | null // organizationLogic
     user: UserType | null // userLogic
     activeCoupons: ClaimedCouponInfo[]
-    cheatCodeClaim: CheatCodeClaimOutcome | null
-    cheatCodeClaimLoading: boolean
     claimed: boolean
     claimedDetails: any
     coupon: CouponFormValues
@@ -71,21 +69,6 @@ export interface couponLogicActions {
         currentOrganization: OrganizationType | null
         payload?: any
     } // organizationLogic
-    claimCheatCodeCampaign: (campaignSlug: string) => any
-    claimCheatCodeCampaignFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    claimCheatCodeCampaignSuccess: (
-        cheatCodeClaim: CheatCodeClaimOutcome | null,
-        payload?: string
-    ) => {
-        cheatCodeClaim: CheatCodeClaimOutcome | null
-        payload?: string
-    }
     loadCouponsOverview: () => any
     loadCouponsOverviewFailure: (
         error: string,
@@ -175,13 +158,6 @@ export const couponLogic = kea<couponLogicType>([
         setClaimedDetails: (details: any) => ({ details }),
     }),
     loaders(({ values }) => ({
-        cheatCodeClaim: [
-            null as CheatCodeClaimOutcome | null,
-            {
-                claimCheatCodeCampaign: async (campaignSlug: string) =>
-                    await claimCheatCode(campaignSlug, { source: 'coupon_url', announceFailure: true }),
-            },
-        ],
         couponsOverview: [
             null as CouponsOverview | null,
             {
@@ -237,14 +213,20 @@ export const couponLogic = kea<couponLogicType>([
             submit: async (formValues: CouponFormValues) => {
                 const cheatCodeSlug = cheatCodeCampaignSlug(formValues.code)
                 if (cheatCodeSlug) {
-                    const outcome = await claimCheatCode(cheatCodeSlug, {
-                        source: props.campaign ? 'coupon_code_field' : 'billing_code_field',
-                        announceFailure: true,
-                    })
-                    if (outcome === 'claimed' || outcome === 'already_claimed') {
-                        actions.setCouponValue('code', '')
-                        actions.loadCouponsOverview()
+                    // Typing the code claims it through the global shortcut, as in GTA: San Andreas, so the
+                    // form never sends it. A paste skips the shortcut, so that case gets a nudge to type it.
+                    const typed = cheatCodeTypedRecently()
+                    if (!typed) {
+                        lemonToast.info(
+                            `Type ${cheatCodeSlug.toUpperCase()} out letter by letter. Pasting it doesn't count.`
+                        )
                     }
+                    posthog.capture('billing cheat code submitted as coupon', {
+                        campaign: props.campaign,
+                        campaign_slug: cheatCodeSlug,
+                        typed,
+                    })
+                    actions.setCouponValue('code', '')
                     return
                 }
                 try {
@@ -277,11 +259,6 @@ export const couponLogic = kea<couponLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
-        claimCheatCodeCampaignSuccess: ({ cheatCodeClaim }) => {
-            if (cheatCodeClaim === 'claimed') {
-                actions.loadCouponsOverview()
-            }
-        },
         loadBillingSuccess: () => {
             // kea-forms errors() is a selector that only recalculates when form state changes.
             // Since we depend on external billing state, we force recalculation by re-setting a form value.
