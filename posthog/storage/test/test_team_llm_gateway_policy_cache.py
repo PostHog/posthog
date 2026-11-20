@@ -18,6 +18,7 @@ from posthog.storage.team_llm_gateway_policy_cache import (
     _serialize_team_to_llm_gateway_policy,
     clear_team_llm_gateway_policy_cache,
     get_team_llm_gateway_policy,
+    get_team_llm_gateway_policy_from_redis,
     update_team_llm_gateway_policy_cache,
 )
 from posthog.tasks.team_llm_gateway_policy import update_team_llm_gateway_policy_cache_task
@@ -91,10 +92,36 @@ class TestLLMGatewayPolicyCacheOps(BaseTest):
         policy = get_team_llm_gateway_policy(self.team)
         self.assertEqual(policy, mock_payload)
 
-    @patch("posthog.storage.team_llm_gateway_policy_cache.team_llm_gateway_policy_hypercache")
-    def test_clear(self, mock_hypercache):
-        clear_team_llm_gateway_policy_cache(self.team, kinds=["redis"])
-        mock_hypercache.clear_cache.assert_called_once_with(self.team, kinds=["redis"])
+
+@patch("posthog.storage.hypercache.object_storage")
+class TestLLMGatewayPolicyCacheIsRedisOnly(BaseTest):
+    def setUp(self):
+        super().setUp()
+        clear_team_llm_gateway_policy_cache(self.team)
+
+    def test_redis_miss_reads_revocation_from_db_not_a_stale_object_storage_copy(self, mock_object_storage):
+        enabled_at = datetime(2026, 5, 1, tzinfo=UTC)
+        revoked_at = datetime(2026, 5, 20, tzinfo=UTC)
+        self.team.llm_gateway_enabled_at = enabled_at
+        mock_object_storage.read.return_value = json.dumps(_serialize_team_to_llm_gateway_policy(self.team))
+        Team.objects.filter(id=self.team.id).update(
+            llm_gateway_enabled_at=enabled_at, llm_gateway_revoked_at=revoked_at
+        )
+
+        policy = get_team_llm_gateway_policy(self.team.api_token)
+
+        assert policy is not None
+        self.assertEqual(policy["llm_gateway_revoked_at"], revoked_at.isoformat())
+        mock_object_storage.read.assert_not_called()
+
+    def test_clear_removes_redis_entry_when_object_storage_is_down(self, mock_object_storage):
+        mock_object_storage.delete.side_effect = Exception("object storage unavailable")
+        update_team_llm_gateway_policy_cache(self.team)
+        assert get_team_llm_gateway_policy_from_redis(self.team)[1] == "redis_hit"
+
+        clear_team_llm_gateway_policy_cache(self.team)
+
+        self.assertEqual(get_team_llm_gateway_policy_from_redis(self.team)[1], "absent")
 
 
 class TestLLMGatewayPolicyTasks(BaseTest):
@@ -187,7 +214,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(old_token, kinds=["redis"])
+        mock_clear.assert_called_once_with(old_token)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -229,7 +256,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+        mock_clear.assert_called_once_with(self.team)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -252,7 +279,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+        mock_clear.assert_called_once_with(self.team)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -304,7 +331,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         partial.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(old_token, kinds=["redis"])
+        mock_clear.assert_called_once_with(old_token)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -328,7 +355,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+        mock_clear.assert_called_once_with(self.team)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -352,7 +379,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         partial.save()
 
         mock_delay.assert_called_with(self.team.id)
-        mock_clear.assert_called_once_with(partial, kinds=["redis"])
+        mock_clear.assert_called_once_with(partial)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")

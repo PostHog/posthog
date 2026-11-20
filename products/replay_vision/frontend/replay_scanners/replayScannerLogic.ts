@@ -744,10 +744,10 @@ export interface replayScannerLogicActions {
         minScore: number | null
         page: number
         sort: ObservationsSorting | null
-        status: ObservationStatusEnumApi[]
+        status: ObservationStatusValue[]
         subject: string
         tags: string[]
-        triggeredBy: ObservationTriggerEnumApi[]
+        triggeredBy: ObservationTriggeredByValue[]
         variant: string | null
         verdict: ObservationVerdictValue[]
         watchCategory: string | null

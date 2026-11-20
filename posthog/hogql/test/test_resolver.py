@@ -869,7 +869,7 @@ class TestResolver(BaseTest):
     ):
         scope = ast.SelectQueryType(tables=tables)
 
-        with self.assertRaises(ResolutionError) as context:
+        with self.assertRaises(QueryError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
         self.assertEqual(

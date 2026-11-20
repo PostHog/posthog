@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { UserType } from '~/types'
 
 import { CANVAS_EVENTS } from '../../canvasAnalytics'
+import type { CanvasSurface } from '../../canvasAnalytics'
 import {
     CanvasGenerationTask,
     CanvasTaskRun,
@@ -19,6 +20,7 @@ import {
 } from '../../canvasTasksApi'
 import { canvasesPartialUpdate } from '../../generated/api'
 import type { CanvasVersionApi, CanvasViewResponseApi } from '../../generated/api.schemas'
+import type { CanvasApi, CanvasFixRequestResultApi } from '../../generated/api.schemas'
 import { canvasHistoryLogic } from '../../history/canvasHistoryLogic'
 import { CanvasAgentTurn, canvasSceneLogic } from '../../scene/canvasSceneLogic'
 import { CanvasChatState, canvasChatState, canvasChatTaskId } from './canvasChatTask'
@@ -61,17 +63,17 @@ export interface canvasChatLogicActions {
         payload?: any
         versions: CanvasVersionApi[]
     } // canvasHistoryLogic
-    canvasUpdated: (canvas: import('../../generated/api.schemas').CanvasApi) => {
-        canvas: import('../../generated/api.schemas').CanvasApi
+    canvasUpdated: (canvas: CanvasApi) => {
+        canvas: CanvasApi
     } // canvasSceneLogic
     generateCanvas: (
         instruction: string,
         fromSuggestion: boolean,
-        surface?: import('../../canvasAnalytics').CanvasSurface | undefined
+        surface?: CanvasSurface | undefined
     ) => {
         fromSuggestion: boolean
         instruction: string
-        surface: import('../../canvasAnalytics').CanvasSurface
+        surface: CanvasSurface
     } // canvasSceneLogic
     generationFinished: () => {
         value: true
@@ -83,8 +85,8 @@ export interface canvasChatLogicActions {
         generationTask: CanvasGenerationTask | null
         payload?: any
     } // canvasSceneLogic
-    requestFixFinished: (result: null | import('../../generated/api.schemas').CanvasFixRequestResultApi) => {
-        result: null | import('../../generated/api.schemas').CanvasFixRequestResultApi
+    requestFixFinished: (result: CanvasFixRequestResultApi | null) => {
+        result: CanvasFixRequestResultApi | null
     } // canvasSceneLogic
     startPolling: () => {
         value: true

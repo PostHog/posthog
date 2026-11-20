@@ -8,54 +8,73 @@ import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { SavedInsightsTabs } from '~/types'
 
-import type { AnomalySearchResponseApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    AnomalyPointsResponseApi,
+    AnomalySearchResponseApi,
+    AnomalySeriesApi,
+    AnomalySeriesPointApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import insightsJson from '../savedInsights/__mocks__/insights.json'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
-const DAY_MS = 24 * 60 * 60 * 1000
-const RANGE_START = Date.UTC(2026, 10, 3)
+const POINTS_URL = '/api/projects/:team_id/signals/anomalies/points/'
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const NOW = Date.UTC(2026, 10, 17)
+const FLAG_FROM = NOW - 3 * DAY_MS
 
-function dayIso(index: number): string {
-    return new Date(RANGE_START + index * DAY_MS).toISOString().replace('.000Z', '+00:00')
+function iso(time: number): string {
+    return new Date(time).toISOString().replace('.000Z', '+00:00')
 }
 
+interface StorySeries {
+    row: AnomalySeriesApi
+    chartFrom: string
+    points: AnomalySeriesPointApi[]
+}
+
+// `values` and `flagged` count buckets back from the newest completed one, so the last value is the newest.
 function makeSeries(
     id: number,
     name: string,
     label: string,
+    interval: 'hour' | 'day',
     values: number[],
-    flagged: number[],
-    baselineRate: number | null
-): AnomalySeriesApi {
-    const flaggedDays = flagged.map(dayIso)
+    flaggedAgo: number[]
+): StorySeries {
+    const step = interval === 'hour' ? HOUR_MS : DAY_MS
+    const points = values.map((value, index) => {
+        const ago = values.length - index
+        return { bucket_start: iso(NOW - ago * step), value, flag: flaggedAgo.includes(ago) }
+    })
+    const inFlagWindow = points.filter((point) => Date.parse(point.bucket_start) >= FLAG_FROM)
+    const flagged = inFlagWindow.filter((point) => point.flag)
     return {
-        insight_id: id,
-        insight_name: name,
-        insight_url: `http://localhost:8000/project/997/insights/insight${id}`,
-        series_key: `${id}-${label}`,
-        series_label: label,
-        breakdown_value: null,
-        interval: 'day',
-        scored_buckets: values.length,
-        flagged_buckets: flagged.length,
-        anomaly_rate: flagged.length / values.length,
-        expected_buckets: 14,
-        coverage: values.length / 14,
-        scored_through: dayIso(values.length - 1),
-        baseline_rate: baselineRate,
-        dashboards: [{ id: 1, name: 'Growth' }],
-        first_flagged_bucket: flaggedDays[0] ?? null,
-        last_flagged_bucket: flaggedDays.at(-1) ?? null,
-        flagged_points: flagged
-            .slice()
-            .reverse()
-            .map((index) => ({ bucket_start: dayIso(index), value: values[index], score: 4.2 })),
-        points: values.map((value, index) => ({
-            bucket_start: dayIso(index),
-            value,
-            flag: flagged.includes(index),
-        })),
+        chartFrom: iso(NOW - (interval === 'hour' ? 7 : 14) * DAY_MS),
+        points,
+        row: {
+            insight_id: id,
+            insight_name: name,
+            insight_url: `http://localhost:8000/project/997/insights/insight${id}`,
+            series_key: `${id}-${label}`,
+            series_label: label,
+            breakdown_value: null,
+            interval,
+            scored_buckets: inFlagWindow.length,
+            flagged_buckets: flagged.length,
+            anomaly_rate: flagged.length / inFlagWindow.length,
+            expected_buckets: inFlagWindow.length,
+            coverage: 1,
+            scored_through: points[points.length - 1].bucket_start,
+            dashboards: [{ id: 1, name: 'Growth' }],
+            first_flagged_bucket: flagged[0]?.bucket_start ?? null,
+            last_flagged_bucket: flagged.at(-1)?.bucket_start ?? null,
+            flagged_points: flagged
+                .slice()
+                .reverse()
+                .map((point) => ({ bucket_start: point.bucket_start, value: point.value, score: 4.2 })),
+        },
     }
 }
 
@@ -66,14 +85,15 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         insights_scored_in_range: 120,
         scored_days: 28,
         scored_history_ready: true,
-        date_from: dayIso(0),
-        date_to: dayIso(14),
+        date_from: iso(FLAG_FROM),
+        date_to: iso(NOW),
         group_by: 'series',
         order: 'recent',
         series: [],
         insights: [],
         has_more: false,
         truncated: false,
+        series_capped: false,
         message: null,
         ...overrides,
     }
@@ -84,30 +104,53 @@ const FLAGGED_SERIES = [
         1,
         'Signups by referrer',
         'Organic search',
-        [42, 40, 45, 43, 41, 44, 46, 43, 42, 45, 88, 97, 71, 44],
-        [10, 11, 12],
-        0.04
+        'day',
+        [42, 40, 45, 43, 79, 44, 46, 43, 42, 45, 44, 88, 97, 46],
+        [10, 3, 2]
     ),
     makeSeries(
         1,
         'Signups by referrer',
         'Paid social',
-        [20, 22, 19, 21, 20, 23, 22, 21, 20, 60, 64, 22, 21, 20],
-        [9, 10],
-        0.03
+        'day',
+        [20, 22, 19, 21, 20, 23, 22, 21, 20, 22, 21, 60, 64, 20],
+        [3, 2]
     ),
-    makeSeries(1, 'Signups by referrer', 'Newsletter', [8, 9, 8, 7, 9, 8, 30, 9, 8, 7, 8, 9, 8, 7], [6], 0.02),
+    makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', [8, 9, 8, 7, 9, 8, 8, 9, 8, 7, 8, 9, 30, 7], [2]),
     makeSeries(
         1,
         'Signups by referrer',
         'Direct',
-        [64, 66, 61, 65, 63, 62, 64, 66, 30, 28, 63, 65, 64, 62],
-        [8, 9],
-        0.05
+        'day',
+        [64, 66, 61, 65, 63, 62, 64, 66, 63, 65, 64, 30, 28, 62],
+        [3, 2]
     ),
-    makeSeries(1, 'Signups by referrer', 'Partners', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 18, 5, 6], [11], 0.01),
-    makeSeries(2, 'Checkout started', 'Checkout started', [310, 305, 298, 312, 120, 115], [4, 5], 0),
+    makeSeries(1, 'Signups by referrer', 'Partners', 'day', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 5, 18, 6], [2]),
+    makeSeries(
+        2,
+        'Checkout started',
+        'Checkout started',
+        'hour',
+        Array.from(
+            { length: 7 * 24 },
+            (_, index) => 300 + 40 * Math.sin((index / 24) * 2 * Math.PI) - (index > 150 ? 180 : 0)
+        ),
+        [17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 120]
+    ),
 ]
+
+function pointsResponse(): AnomalyPointsResponseApi {
+    return {
+        date_to: iso(NOW),
+        series: FLAGGED_SERIES.map(({ row, chartFrom, points }) => ({
+            insight_id: row.insight_id,
+            series_key: row.series_key,
+            interval: row.interval,
+            date_from: chartFrom,
+            points,
+        })),
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -142,7 +185,34 @@ export const FlaggedSeries: Story = {
             waitForSelector: '[data-attr="anomalies-tab-row-chart"]',
         },
     },
-    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES, has_more: true }) } })],
+    decorators: [
+        mswDecorator({
+            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const SeriesCapped: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-series-capped"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    truncated: true,
+                    series_capped: true,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
 }
 
 export const NothingFlagged: Story = {

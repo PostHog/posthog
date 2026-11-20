@@ -8,6 +8,7 @@ A provider turns this into its own body shape.
 
 import hashlib
 from dataclasses import field
+from datetime import datetime
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
@@ -129,6 +130,48 @@ def transition_delivery_key(message: AlertMessage) -> str:
         transition.occurred_at.isoformat(),
     )
     return f"alert-platform-{hashlib.sha256('|'.join(parts).encode()).hexdigest()[:32]}"
+
+
+DELIVERY_TEST_NOTE: Final = "Test alert from PostHog. No action is needed."
+DELIVERY_TEST_LABEL: Final = "posthog_delivery_test"
+
+
+def build_delivery_test_message(
+    *,
+    source: SourceKind,
+    configuration_id: str,
+    alert_name: str,
+    alert_url: str,
+    occurred_at: datetime,
+    project: MessageLink | None = None,
+) -> AlertMessage:
+    """A firing message that says it is a test, worded like the test a source's HogFunctions get."""
+    name = f"[TEST] {alert_name}"
+    return AlertMessage(
+        headline=_HEADLINES[AlertEventKind.FIRING].format(kind=_SOURCE_LABELS[source], name=name),
+        symbol=_SYMBOLS[AlertEventKind.FIRING],
+        details=(),
+        context=(DELIVERY_TEST_NOTE,),
+        configuration_id=configuration_id,
+        alert_name=name,
+        source=source,
+        alert_url=alert_url,
+        # Its own group, so a receiver that keys incidents by group never folds a test into a real firing.
+        labels={DELIVERY_TEST_LABEL: "true"},
+        transition=AnnouncedTransition(
+            grouping_key=f"delivery-test:{occurred_at.isoformat()}",
+            kind=AlertEventKind.FIRING,
+            episode_started_at=occurred_at,
+            value=None,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=occurred_at,
+            configuration_id=configuration_id,
+        ),
+        project=project,
+    )
 
 
 def state_symbol(kind: AlertEventKind) -> str:

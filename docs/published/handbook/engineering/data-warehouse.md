@@ -181,6 +181,11 @@ Direct connections group tables by schema. Search matches table and folder names
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
 
+## Moving averages on SQL charts
+
+In a SQL line or area chart, enable **Show moving average** under **Display** to overlay a trailing average on each series.
+The window defaults to three chart points in result order. Each point averages the available numeric values in its window, including the current point.
+
 ## SQL heatmaps
 
 For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.

@@ -524,11 +524,12 @@ The judgment calls when you adopt or change it:
   `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
   A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
 - **A check name that embeds a runner label is brittle.**
-  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  Renaming the job or its runner silently stops reuse, and the only sign is a rise in `no-proven-run` in the `posthog-ci-reuse-decision` events.
   When you rename a job, update `reuse-checks` in the same change.
 - **`reuse-proof-checks` names a job that runs only when the suite really runs.**
   A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
-  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  The action searches the branch's earlier heads for the newest one with the same inputs where a proof check concluded `success`, so a green skip is never the result it reuses.
+  That head need not be the previous one: a revert, a rebase or a force-push can reuse a run from before it.
   Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
 - **Keep filters out of scope when a job they gate must post on every head.**
   Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.

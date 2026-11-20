@@ -140,11 +140,6 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     owner_changed_at = models.DateTimeField(null=True, blank=True)
     labels = models.JSONField(default=dict, db_default={})
     annotations = models.JSONField(default=dict, db_default={})
-    # Written and never read. A pod from an older release still reads it during a deploy, so creates
-    # keep writing it until a later release removes the field.
-    destinations_owner = models.CharField(
-        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
-    )
     # Where a check that reads closed windows starts its next one. Null until its first check, which starts at
     # `created_at`.
     evaluated_until = models.DateTimeField(null=True, blank=True)
