@@ -54,9 +54,14 @@ Details:
 - After this workflow reaches `master`, ask a repository administrator through `@PostHog/team-devex` to add `mobile-ci / Mobile CI Pass` to the `master` ruleset's required status checks with GitHub Actions as its source. Keep the other required checks. YAML comments do not configure repository rules.
 - The release workflow calls Mobile CI on the merged commit. A push has no pull request diff to filter, so the checks always run there.
 
-`@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
-
 The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
+
+### Review ownership
+
+`CODEOWNERS` requires Mobile App team approval to merge changes to native build inputs and release tooling, including the Mobile Build, Mobile CI, and Mobile Release workflows.
+The app's `product.yaml` assigns optional Mobile App ownership to OTA app code, docs, test-only files, and release requests.
+`.github/owners.yaml` lists Mobile App and DevEx as optional reviewers for mobile workflows.
+Each production deployment requires [approval after merge](#mobile-release).
 
 ## Mobile Build
 

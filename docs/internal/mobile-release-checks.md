@@ -8,10 +8,11 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
 
 ## Review ownership
 
-Required mobile-team approval covers native code, widgets, config plugins, native build configuration, embedded icons and splash images, and the OTA signing certificate.
-Dependency manifests and the lockfile also require approval because they can change native dependencies and linking.
-App routes, JavaScript bridges, screens, other OTA assets, docs, tests, release scripts and workflows use optional ownership.
-The app's `product.yaml` assigns the mobile team; `.github/owners.yaml` assigns mobile workflows to the mobile and DevEx teams.
+The Mobile App team must approve changes to native build inputs and to the tooling that builds, validates, signs, and publishes mobile releases.
+This includes native code, widgets, build configuration, dependency manifests, the lockfile and patches, and the OTA signing certificate.
+App routes, screens, JavaScript bridges, OTA assets, docs, test-only files, and release requests use optional ownership.
+An authorized `mobile-production` reviewer must approve each production deployment after merge.
+See [Mobile CI and release ownership](../../products/mobile/docs/CI.md#review-ownership) for details.
 
 ## Build and update checks
 

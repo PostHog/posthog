@@ -107,16 +107,16 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex
 
-# Native changes need a new binary and store submission. OTA changes keep optional
-# ownership through products/mobile/product.yaml and .github/owners.yaml.
+# These files control the native binary shipped to the app stores.
 products/mobile/app.config.ts @PostHog/team-mobile-app
 products/mobile/eas.json @PostHog/team-mobile-app
+products/mobile/.easignore @PostHog/team-mobile-app
 products/mobile/src/lib/appVariants.json @PostHog/team-mobile-app
-products/mobile/releases/ota-certificate.pem @PostHog/team-mobile-app
 products/mobile/package.json @PostHog/team-mobile-app
 products/mobile/pnpm-lock.yaml @PostHog/team-mobile-app
 products/mobile/pnpm-workspace.yaml @PostHog/team-mobile-app
 products/mobile/.npmrc @PostHog/team-mobile-app
+products/mobile/patches/** @PostHog/team-mobile-app
 products/mobile/plugins/** @PostHog/team-mobile-app
 products/mobile/targets/** @PostHog/team-mobile-app
 products/mobile/modules/*/expo-module.config.json @PostHog/team-mobile-app
@@ -129,10 +129,24 @@ products/mobile/assets/app*.icon/** @PostHog/team-mobile-app
 products/mobile/assets/icon*.png @PostHog/team-mobile-app
 products/mobile/assets/adaptive-icon*.png @PostHog/team-mobile-app
 products/mobile/assets/splash-icon*.png @PostHog/team-mobile-app
-# Docs and tests do not change the installed native binary.
+
+# Deployment approval covers each release request. These files control what the release job builds, validates, and signs.
+.github/workflows/mobile-build.yml @PostHog/team-mobile-app
+.github/workflows/mobile-ci.yml @PostHog/team-mobile-app
+.github/workflows/mobile-release.yml @PostHog/team-mobile-app
+products/mobile/.node-version @PostHog/team-mobile-app
+products/mobile/releases/config.json @PostHog/team-mobile-app
+products/mobile/releases/ota-certificate.pem @PostHog/team-mobile-app
+products/mobile/scripts/eas-build.sh @PostHog/team-mobile-app
+products/mobile/scripts/releases/** @PostHog/team-mobile-app
+products/mobile/babel.config.js @PostHog/team-mobile-app
+products/mobile/metro.config.js @PostHog/team-mobile-app
+products/mobile/metro.transformer.js @PostHog/team-mobile-app
+
+# Keep exemptions to test files and Gradle test source sets. The iOS podspecs include source files recursively.
 products/mobile/**/*.md
-products/mobile/**/*.test.*
-products/mobile/**/__tests__/**
-products/mobile/**/Tests/**
-products/mobile/**/android/src/test/**
-products/mobile/**/android/src/androidTest/**
+products/mobile/plugins/*.test.js
+products/mobile/scripts/releases/*.test.mjs
+products/mobile/scripts/releases/fixtures/**
+products/mobile/modules/*/android/src/test/**
+products/mobile/modules/*/android/src/androidTest/**
