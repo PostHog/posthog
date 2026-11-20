@@ -16,6 +16,7 @@ copies to flag_evaluations.
 import os
 import math
 import time
+import fcntl
 import argparse
 from collections.abc import Iterable
 from contextlib import AbstractContextManager, nullcontext
@@ -26,11 +27,12 @@ from typing import Any, TextIO
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 from posthog.models import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_modes
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -140,7 +142,8 @@ class Command(BaseCommand):
             type=Path,
             help=(
                 "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
-                "writes its ids before it commits and removes them again when it fails before the commit. A rerun with the same path "
+                "writes its ids before it commits. When the chunk fails, the file keeps only the ids whose organization "
+                "is at --mode. A rerun with the same path "
                 "appends the ids it changes. Refused with --dry-run."
             ),
         )
@@ -210,7 +213,7 @@ class Command(BaseCommand):
                     .order_by("created_at", "id")
                 )
                 chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
-                committing = False
+                written_ids: list[UUID] = []
                 try:
                     with transaction.atomic():
                         changes = set_organizations_flag_evaluations_mode(
@@ -224,18 +227,12 @@ class Command(BaseCommand):
                         # organization as unchanged, so it could not list an id that a crash after the
                         # commit lost.
                         if changed_ids_file is not None:
-                            changed_ids_file.writelines(
-                                f"{change.organization_id}\n" for change in changes if change.changed
-                            )
+                            written_ids = [change.organization_id for change in changes if change.changed]
+                            changed_ids_file.writelines(f"{organization_id}\n" for organization_id in written_ids)
                             _sync(changed_ids_file)
-                        # An exception after this line comes from the commit, and the server may have applied
-                        # the commit. The ids then stay in the file. A listed id that the run did not move does
-                        # no harm. A lost id would leave its organization out of a rollback.
-                        committing = True
                 except BaseException:
-                    if changed_ids_file is not None and not committing:
-                        changed_ids_file.truncate(chunk_start)
-                        _sync(changed_ids_file)
+                    if changed_ids_file is not None:
+                        self._keep_ids_at_mode(changed_ids_file, chunk_start, written_ids, mode)
                     raise
 
                 done_count += len(chunk_ids)
@@ -291,11 +288,40 @@ class Command(BaseCommand):
             file = path.open("a+")
         except OSError as error:
             raise CommandError(f"Cannot open {path}: {error}") from error
+        # Failure recovery truncates the file to where its chunk started, which would erase ids that another
+        # run appended after that point.
+        try:
+            fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            file.close()
+            raise CommandError(f"Another run is writing to {path}") from error
         file.seek(0)
         if listed_count := sum(1 for line in file if line.strip()):
             self.stdout.write(f"Appending to {path}, which lists {listed_count} organization id(s) already.")
         file.seek(0, os.SEEK_END)
         return file
+
+    def _keep_ids_at_mode(
+        self, file: TextIO, chunk_start: int, written_ids: list[UUID], mode: FlagEvaluationsMode
+    ) -> None:
+        """Leave in the file only the chunk's ids whose organization is now at `mode`.
+
+        A failed chunk may or may not have committed, because a commit can apply on the server and still
+        raise. The stored modes tell the two apart.
+        """
+        try:
+            stored_modes = get_organization_flag_evaluations_modes(written_ids)
+        except DatabaseError:
+            self.stderr.write(
+                f"Could not read back the modes of the failed chunk, so {file.name} keeps its "
+                f"{len(written_ids)} id(s) unverified."
+            )
+            return
+        file.truncate(chunk_start)
+        file.writelines(
+            f"{organization_id}\n" for organization_id in written_ids if stored_modes[organization_id] == mode
+        )
+        _sync(file)
 
     def _write_organization_line(self, change: OrganizationModeChange, *, count_experiments: bool) -> None:
         outcome = (

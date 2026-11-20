@@ -1,9 +1,12 @@
 import re
+import fcntl
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -13,7 +16,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection
+from django.db import DatabaseError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -64,6 +67,13 @@ class TestSetFlagEvaluationsMode(BaseTest):
         path = Path(directory.name) / "ids.txt"
         path.write_text("".join(f"{line}\n" for line in lines))
         return str(path)
+
+    def _file_locked_by_another_run(self) -> str:
+        path = self._ids_file()
+        file = open(path, "a")
+        self.addCleanup(file.close)
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        return path
 
     def _organizations_without_config(self, count: int) -> list[Organization]:
         # bulk_create skips the post_save handler, so these organizations have no config row, like
@@ -221,6 +231,16 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 ),
                 "a dry run changes none",
             ),
+            (
+                "changed_ids_file_another_run_writes",
+                lambda self, missing: (
+                    "--organization-id",
+                    str(self.organization.id),
+                    "--write-changed-ids",
+                    self._file_locked_by_another_run(),
+                ),
+                "Another run is writing to",
+            ),
         ]
     )
     def test_refuses_the_run_before_writing(self, _name: str, build_args: Any, message: str) -> None:
@@ -289,6 +309,41 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
+
+    @parameterized.expand([("commit_applies", True), ("commit_is_lost", False)])
+    def test_a_commit_that_raises_keeps_the_ids_file_in_step_with_the_stored_modes(
+        self, _name: str, commit_applies: bool
+    ) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        changed_ids_file = self._ids_file()
+        real_atomic = transaction.atomic
+
+        @contextmanager
+        def atomic_whose_commit_raises() -> Iterator[None]:
+            with real_atomic():
+                yield
+                if not commit_applies:
+                    raise DatabaseError("connection lost before the commit")
+            raise DatabaseError("connection lost after the commit")
+
+        with (
+            patch(
+                "products.feature_flags.backend.management.commands.set_flag_evaluations_mode.transaction",
+                SimpleNamespace(atomic=atomic_whose_commit_raises),
+            ),
+            self.assertRaises(DatabaseError),
+        ):
+            self._run(
+                "--mode", "2", "--organization-id", str(self.organization.id), "--write-changed-ids", changed_ids_file
+            )
+
+        self.assertEqual(
+            self._stored_mode(self.organization),
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY if commit_applies else FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        )
+        self.assertEqual(
+            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if commit_applies else []
+        )
 
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
         included, excluded = self._organizations_without_config(2)
