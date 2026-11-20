@@ -408,6 +408,11 @@ describe('createForkFlagEvaluationsStep', () => {
                 buildService: () => enabledService(),
             },
             {
+                name: 'the mode is READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK',
+                mode: FlagEvaluationsMode.ReadFlagEvaluationsWithoutEventsFallback,
+                buildService: () => enabledService(),
+            },
+            {
                 name: 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 buildService: () => enabledService({ flagEvaluationsOnlyDisabled: true }),

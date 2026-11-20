@@ -7,7 +7,7 @@ const { Events, EventProperties } = TaxonomicFilterGroupType
 const {
     Number0: EVENTS_MODE,
     Number1: READS_FLAG_EVALUATIONS,
-    Number2: FLAG_EVALUATIONS_ONLY,
+    Number3: FLAG_EVALUATIONS_ONLY,
 } = FlagEvaluationsModeEnumApi
 
 describe('showsFlagCalledMoveNotice', () => {

@@ -60,15 +60,16 @@ Mode | Where the flag calls are | `posthog.flag_evaluations`
 --- | --- | ---
 0 | `events`, and `posthog.flag_evaluations` on PostHog Cloud | Queryable on PostHog Cloud only
 1 | `events` and `posthog.flag_evaluations` | Queryable
-2 | `posthog.flag_evaluations` only, for 90 days | Queryable
+2 | `events` and `posthog.flag_evaluations`, and HogQL reads them as it does on mode 3 | Queryable
+3 | `posthog.flag_evaluations` only, for 90 days | Queryable
 
 ### Query flag calls from `events` in a scan of their own
 
 Filter `event` to `$feature_flag_called` alone, as in `FROM events WHERE event = '$feature_flag_called'`.
 That query works in every mode, because PostHog reads such a scan from `posthog.flag_evaluations` when the organization keeps its calls there.
-On mode 2 it returns at most the last 90 days.
+On modes 2 and 3 it returns at most the last 90 days.
 
-On mode 2, these shapes can go wrong:
+On modes 2 and 3, these shapes can go wrong:
 
 - A scan that filters `event` to flag calls and other events together, such as `event IN ('$feature_flag_called', '$pageview')`, can read only `events` and return no flag calls, with no error.
   A scan with no `event` filter, such as a count of every event, can leave the flag calls out the same way.

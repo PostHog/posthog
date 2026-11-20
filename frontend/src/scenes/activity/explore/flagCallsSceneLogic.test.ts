@@ -95,11 +95,11 @@ describe('flagCallsSceneLogic', () => {
     })
 
     test.each<[string, FlagEvaluationsModeEnumApi, boolean, string | undefined, boolean]>([
-        ['the default range', FlagEvaluationsModeEnumApi.Number2, true, '-24h', false],
-        ['a range inside the retention window', FlagEvaluationsModeEnumApi.Number2, true, '-30d', false],
-        ['a range older than the retention window', FlagEvaluationsModeEnumApi.Number2, true, '-180d', true],
+        ['the default range', FlagEvaluationsModeEnumApi.Number3, true, '-24h', false],
+        ['a range inside the retention window', FlagEvaluationsModeEnumApi.Number3, true, '-30d', false],
+        ['a range older than the retention window', FlagEvaluationsModeEnumApi.Number3, true, '-180d', true],
         ['all time', FlagEvaluationsModeEnumApi.Number1, false, 'all', true],
-        ['no start', FlagEvaluationsModeEnumApi.Number2, true, undefined, false],
+        ['no start', FlagEvaluationsModeEnumApi.Number3, true, undefined, false],
         ['all time on the events mode', FlagEvaluationsModeEnumApi.Number0, false, 'all', false],
         ['all time on native JSON events with the events mode', FlagEvaluationsModeEnumApi.Number0, true, 'all', true],
     ])('decides whether the retention note shows for %s', (_name, mode, onlyInFlagEvaluations, after, expected) => {

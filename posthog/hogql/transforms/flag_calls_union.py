@@ -94,7 +94,7 @@ _EVENTS_FIELDS = frozenset(EventsTable().fields)
 
 # The value the flag-call finder gives a CTE whose value is not a constant or a list of constants, because such a value
 # can compute `$feature_flag_called` or read a name the finder does not track. A scan that the union can read then
-# costs a second table read. On mode 2, a scan that the union refuses then fails the query.
+# costs a second table read. On modes 2 and 3, a scan that the union refuses then fails the query.
 _MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
 # The value the flag-call finder gives a read of a lambda argument. It is not a field, so the finder never reads the
@@ -343,9 +343,9 @@ def rename_flag_call_scans_to_union(
     A scan that the flag_evaluations swap changed reads `posthog.flag_evaluations` and is not an `events` scan any
     more. The flag_evaluations swap swaps or refuses a first scan that reads only flag calls, so the union neither
     renames nor refuses it. The swap cannot read an unqualified `event` next to a join. On mode 1 a first scan that
-    reads only flag calls through such an `event` stays on events. On mode 2 the union renames it.
+    reads only flag calls through such an `event` stays on events. On modes 2 and 3 the union renames it.
 
-    A refusal does not decide the query on mode 2. `swap_scans_found_by_type` can still move the refused scan to
+    A refusal does not decide the query on modes 2 and 3. `swap_scans_found_by_type` can still move the refused scan to
     flag_evaluations, as it does for a scan of only flag calls joined after another table.
     """
     renamer = _UnionRenamer(flag_key_compares_as_string, only_in_flag_evaluations)
@@ -1095,11 +1095,11 @@ class _UnionRenamer(ScanVisitor):
 
     def _left_to_the_swap(self, node: ast.SelectQuery, scan: EventsScan, aliases: _Aliases) -> bool:
         # The flag_evaluations swap handles a first scan whose `event` filter it reads as only flag calls. It swaps or
-        # refuses that scan on mode 2. On mode 1 events holds every flag call, so the union would read the same calls
+        # refuses that scan on modes 2 and 3. On mode 1 events holds every flag call, so the union would read the same calls
         # twice there.
         if self.rename_flag_only_scans:
             return False
-        # The swap cannot read a sampled scan. On mode 2 the union reads it.
+        # The swap cannot read a sampled scan. On modes 2 and 3 the union reads it.
         sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
         conjuncts = filter_conjuncts(node)
         if aliases.aliases:

@@ -79,7 +79,7 @@ describe('groupLogic flag calls', () => {
     })
 
     it.each([
-        ['flag evaluations mode 2 or the native JSON events table', true],
+        ['flag evaluations mode 3 or the native JSON events table', true],
         ['mode 0 and the legacy events table', false],
     ])('for a team on %s, showFlagCallsTab is %s', (_, onlyInFlagEvaluations) => {
         teamLogic.actions.loadCurrentTeamSuccess({

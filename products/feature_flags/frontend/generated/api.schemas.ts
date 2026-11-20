@@ -190,6 +190,7 @@ export const FlagEvaluationsModeEnumApi = {
     Number0: 0,
     Number1: 1,
     Number2: 2,
+    Number3: 3,
 } as const
 
 export interface StaffTeamConfigApi {
@@ -209,11 +210,12 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
-    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 reads like 3 while ingestion still writes $feature_flag_called to events: a HogQL query reads flag_evaluations for any date range and fails when it can't, and a query that mixes flag calls with other events reads flag_evaluations for the flag calls. Queries that read events without naming $feature_flag_called still find the flag calls in events. 3 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 3, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. FLAG_EVALUATIONS_READS_FORCE_EVENTS moves 1 and 2 back to events. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1, 2 and 3. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
-     * * `2` - Flag evaluations only */
+     * * `2` - Read flag evaluations, no events fallback
+     * * `3` - Flag evaluations only */
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
     feature_flag_count: number
@@ -244,11 +246,12 @@ export interface StaffTeamConfigMutationApi {
 }
 
 export interface StaffFlagEvaluationsModeMutationApi {
-    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 reads like 3 while ingestion still writes $feature_flag_called to events: a HogQL query reads flag_evaluations for any date range and fails when it can't, and a query that mixes flag calls with other events reads flag_evaluations for the flag calls. Queries that read events without naming $feature_flag_called still find the flag calls in events. 3 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 3, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. FLAG_EVALUATIONS_READS_FORCE_EVENTS moves 1 and 2 back to events. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1, 2 and 3.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
-     * * `2` - Flag evaluations only */
+     * * `2` - Read flag evaluations, no events fallback
+     * * `3` - Flag evaluations only */
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /**
      * Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.
@@ -267,13 +270,15 @@ export interface StaffOrganizationModeChangeApi {
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
-     * * `2` - Flag evaluations only */
+     * * `2` - Read flag evaluations, no events fallback
+     * * `3` - Flag evaluations only */
     current_mode: FlagEvaluationsModeEnumApi
     /** The target mode.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
-     * * `2` - Flag evaluations only */
+     * * `2` - Read flag evaluations, no events fallback
+     * * `3` - Flag evaluations only */
     target_mode: FlagEvaluationsModeEnumApi
     /** Organization id. */
     organization_id: string
@@ -294,7 +299,8 @@ export interface StaffFlagEvaluationsModeResponseApi {
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
-     * * `2` - Flag evaluations only */
+     * * `2` - Read flag evaluations, no events fallback
+     * * `3` - Flag evaluations only */
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** True when the request wrote nothing. */
     dry_run: boolean

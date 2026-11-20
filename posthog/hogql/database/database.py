@@ -258,7 +258,7 @@ class HogQLDatabaseSources:
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
     read_flag_calls_from_flag_evaluations: bool
-    # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
+    # The organization reads flag calls only from posthog.flag_evaluations, with no fallback to events.
     flag_calls_only_in_flag_evaluations: bool
     # The catalog has the union table. HogQLContext.reads_flag_calls_with_union decides whether a query reads it.
     flag_calls_union_enabled: bool
@@ -2222,6 +2222,7 @@ class Database(BaseModel):
                 get_flag_evaluations_read_mode,
                 is_flag_calls_union_disabled,
                 is_flag_evaluations_table_enabled,
+                read_mode_has_no_events_fallback,
             )
 
             # A direct-connection catalog has no "posthog" node to hold the table.
@@ -2232,7 +2233,7 @@ class Database(BaseModel):
             if include_flag_evaluations_table:
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
-            flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+            flag_calls_only_in_flag_evaluations = read_mode_has_no_events_fallback(read_mode)
             flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()
             # On READ_FLAG_EVALUATIONS, events still holds every flag call. The union only adds cost there. The flag
             # lets an organization on that mode read the union, to compare it with events before it moves to mode 2.

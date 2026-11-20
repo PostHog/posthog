@@ -75,3 +75,6 @@ replay_vision.0153_drop_retired_recording_relevance_fields
 # scan proceeds. Every write is conditional on the row still mirroring the token, so a
 # failed run resumes safely and re-running changes nothing already repaired.
 conversations.0091_reconcile_signing_secrets
+# Moves the stored mode 2 to 3 under a swapped CHECK constraint. Each operation is idempotent, and a retry
+# after a partial failure reruns the drop with IF EXISTS and the NOT VALID add that skips an existing constraint.
+feature_flags.0028_organizationfeatureflagsconfig_mode_2_becomes_3

@@ -50,7 +50,8 @@ export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
 export const FLAG_EVALUATIONS_MODE_LABELS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'Events',
     1: 'Read flag evaluations',
-    2: 'Flag evaluations only',
+    2: 'Read flag evaluations, no events fallback',
+    3: 'Flag evaluations only',
 }
 
 export interface FlagEvaluationsModeRequest {
@@ -668,10 +669,10 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     ).length,
                     organizationsLoweredFromFlagEvaluationsOnly: preview.response.organizations.filter(
                         (organization) =>
-                            organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
+                            organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number3
                     ).length,
                     experimentsNeedingFlagCallsInEvents:
-                        preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2
+                        preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number3
                             ? preview.response.organizations
                                   .filter((organization) => organization.changed)
                                   .reduce(

@@ -1427,6 +1427,11 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
                 FlagEvaluationsMode.EVENTS,
             ),
             (
+                "read_without_events_fallback_reads_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
+                FlagEvaluationsMode.EVENTS,
+            ),
+            (
                 "flag_evaluations_only_keeps_its_mode",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
@@ -1451,6 +1456,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         [
             ("events", FlagEvaluationsMode.EVENTS, False, False),
             ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            (
+                "read_without_events_fallback",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
+                False,
+                False,
+            ),
             ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
             ("native_events_table", FlagEvaluationsMode.EVENTS, True, True),
         ]

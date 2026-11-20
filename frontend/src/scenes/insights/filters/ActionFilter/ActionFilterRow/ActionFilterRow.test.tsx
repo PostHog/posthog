@@ -948,11 +948,11 @@ describe('ActionFilterRow', () => {
             ['$feature_flag_called', true, true],
             ['$feature_flag_called', true, false],
         ])(
-            'offers one Feature flag called row on mode 2 for "%s" (definition: %s, Events tab: %s)',
+            'offers one Feature flag called row on mode 3 for "%s" (definition: %s, Events tab: %s)',
             async (searchQuery, hasDefinition, onEventsTab) => {
                 teamHasFlagCalledDefinition = hasDefinition
                 const captureSpy = jest.spyOn(posthog, 'capture')
-                const onChange = renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number2)
+                const onChange = renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number3)
 
                 const rows = await flagCalledRowsAfterSearching(searchQuery, onEventsTab)
                 expect(rows).toHaveLength(1)
@@ -975,10 +975,10 @@ describe('ActionFilterRow', () => {
             }
         )
 
-        // The real row stays out of a mode 2 list, so a saved series reopens on the synthetic selected row.
-        it('reopens a saved flag calls series on mode 2 without a definition', async () => {
+        // The real row stays out of a mode 3 list, so a saved series reopens on the synthetic selected row.
+        it('reopens a saved flag calls series on mode 3 without a definition', async () => {
             teamHasFlagCalledDefinition = false
-            renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number2, {
+            renderFlagCallsRow(FlagEvaluationsModeEnumApi.Number3, {
                 kind: NodeKind.DataWarehouseNode,
                 id: 'posthog.flag_evaluations',
                 table_name: 'posthog.flag_evaluations',
@@ -1024,8 +1024,8 @@ describe('ActionFilterRow', () => {
                 description: /Insights include calls from the last 90 days/,
             },
             {
-                insight: 'funnels on mode 2',
-                mode: FlagEvaluationsModeEnumApi.Number2,
+                insight: 'funnels on mode 3',
+                mode: FlagEvaluationsModeEnumApi.Number3,
                 mathAvailability: MathAvailability.FunnelsOnly,
                 dataWarehousePopoverFields: [
                     { key: 'id_field', label: 'Unique ID' },

@@ -98,7 +98,7 @@ export function convertToHogFunctionInvocationGlobals(
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
             // The events page reads flag calls from flag_evaluations only when the link names the event.
-            // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
+            // On flag_evaluations_mode 3 a flag call has no events row, so a link without the name finds nothing.
             url:
                 event.event === '$feature_flag_called'
                     ? `${eventUrl}?event=${encodeURIComponent(event.event)}`

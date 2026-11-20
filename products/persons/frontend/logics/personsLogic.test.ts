@@ -682,7 +682,7 @@ describe('personsLogic', () => {
         ])('with the range starting at %s, flagCallsReachPastRetention is %s', async (after, expected) => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
-                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number3,
             })
             const current = logic.values.flagCallsQuery!
             logic.actions.setFlagCallsQuery({ ...current, source: { ...current.source, after } as any })

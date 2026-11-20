@@ -101,9 +101,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_evaluations_only", "2", (), True, True),
+            ("flag_evaluations_only", "3", (), True, True),
             ("read_flag_evaluations", "1", (), True, False),
-            ("skipped_count", "2", ("--skip-experiment-count",), False, False),
+            ("skipped_count", "3", ("--skip-experiment-count",), False, False),
         ]
     )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
@@ -353,7 +353,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             self.assertRaises(DatabaseError),
         ):
             self._run(
-                "--mode", "2", "--organization-id", str(self.organization.id), "--write-changed-ids", changed_ids_file
+                "--mode", "3", "--organization-id", str(self.organization.id), "--write-changed-ids", changed_ids_file
             )
 
         self.assertEqual(self._stored_mode(self.organization), expected_mode)
@@ -364,7 +364,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
         included, excluded = self._organizations_without_config(2)
 
-        self._run("--mode", "2", "--all-organizations", "--exclude-organization-ids-file", self._ids_file(excluded.id))
+        self._run("--mode", "3", "--all-organizations", "--exclude-organization-ids-file", self._ids_file(excluded.id))
 
         self.assertEqual(get_organization_flag_evaluations_mode(included.id), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         self.assertEqual(
@@ -378,7 +378,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
         changed_ids_file = self._ids_file()
         ids_file = self._ids_file(already_on_two.id, moved.id, moved.id, deleted_later.id)
 
-        self._run("--mode", "2", "--organization-ids-file", ids_file, "--write-changed-ids", changed_ids_file)
+        self._run("--mode", "3", "--organization-ids-file", ids_file, "--write-changed-ids", changed_ids_file)
         deleted_later.delete()
         output = self._run(
             "--mode",

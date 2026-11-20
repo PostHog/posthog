@@ -52,43 +52,43 @@ describe('eventsSceneLogic', () => {
     })
 
     // The last field is flag_calls_only_in_flag_evaluations. It defaults to what the backend sends for a team on the
-    // events table, which is true only on mode 2. A rest parameter stops Jest from treating that optional field as
+    // events table, which is true only on mode 3. A rest parameter stops Jest from treating that optional field as
     // the `done` callback on four-field rows.
     test.each<[string, FlagEvaluationsModeEnumApi, Partial<EventsQuery>, FlagCallsNote | null, boolean?]>([
-        ['an unfiltered list', FlagEvaluationsModeEnumApi.Number2, {}, 'stored-separately'],
+        ['an unfiltered list', FlagEvaluationsModeEnumApi.Number3, {}, 'stored-separately'],
         [
             'a list filtered to another event',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { events: ['$pageview'] },
             'stored-separately',
         ],
         [
             'a list filtered to flag calls and another event',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { events: ['$feature_flag_called', '$pageview'] },
             'stored-separately',
         ],
         [
             'a list filtered to flag calls',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { events: ['$feature_flag_called'] },
             null,
         ],
         [
             'a list filtered to flag calls by the single event field',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { event: '$feature_flag_called' },
             null,
         ],
         [
             'a list filtered to flag calls and an action',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { event: '$feature_flag_called', actionId: 1 },
             'stored-separately',
         ],
         [
             'a list filtered to flag calls and action steps',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { event: '$feature_flag_called', actionSteps: [{ event: '$feature_flag_called' }] },
             'stored-separately',
         ],
@@ -101,7 +101,7 @@ describe('eventsSceneLogic', () => {
         ],
         [
             'flag calls over all time',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { events: ['$feature_flag_called'], after: 'all' },
             'retention',
         ],
@@ -132,7 +132,7 @@ describe('eventsSceneLogic', () => {
                 ...MOCK_DEFAULT_TEAM,
                 flag_evaluations_mode: mode,
                 flag_calls_only_in_flag_evaluations:
-                    onlyInFlagEvaluations ?? mode === FlagEvaluationsModeEnumApi.Number2,
+                    onlyInFlagEvaluations ?? mode === FlagEvaluationsModeEnumApi.Number3,
             })
             const query: DataTableNode = {
                 kind: NodeKind.DataTableNode,
@@ -156,24 +156,24 @@ describe('eventsSceneLogic', () => {
         ]
     >([
         [
-            'a link to a flag call on mode 2',
-            FlagEvaluationsModeEnumApi.Number2,
+            'a link to a flag call on mode 3',
+            FlagEvaluationsModeEnumApi.Number3,
             {},
             'row',
             'link',
             '$feature_flag_called',
         ],
         [
-            'a link on mode 2 that flag_evaluations does not hold',
-            FlagEvaluationsModeEnumApi.Number2,
+            'a link on mode 3 that flag_evaluations does not hold',
+            FlagEvaluationsModeEnumApi.Number3,
             {},
             'no row',
             'link',
             undefined,
         ],
         [
-            'a link on mode 2 whose flag call query fails',
-            FlagEvaluationsModeEnumApi.Number2,
+            'a link on mode 3 whose flag call query fails',
+            FlagEvaluationsModeEnumApi.Number3,
             {},
             'error',
             'link',
@@ -182,7 +182,7 @@ describe('eventsSceneLogic', () => {
         ['a link on mode 1', FlagEvaluationsModeEnumApi.Number1, {}, 'row', 'link', undefined],
         [
             'a link that names its event',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             { event: '$pageview' },
             'row',
             'link',
@@ -190,7 +190,7 @@ describe('eventsSceneLogic', () => {
         ],
         [
             'a link with another filter',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             {
                 properties: [
                     ...(getEventLookupQuery(LOOKUP_UUID).source as EventsQuery).properties!,
@@ -208,16 +208,16 @@ describe('eventsSceneLogic', () => {
         ],
         [
             'a link whose query the user edits before the check answers',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             {},
             'row',
             'link, then edit',
             undefined,
         ],
-        ['an edit that clears the event of a lookup', FlagEvaluationsModeEnumApi.Number2, {}, 'row', 'edit', undefined],
+        ['an edit that clears the event of a lookup', FlagEvaluationsModeEnumApi.Number3, {}, 'row', 'edit', undefined],
         [
             'a restored tab whose lookup names no event',
-            FlagEvaluationsModeEnumApi.Number2,
+            FlagEvaluationsModeEnumApi.Number3,
             {},
             'row',
             'restore',
@@ -296,7 +296,7 @@ describe('eventsSceneLogic', () => {
         })
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number3,
         })
         router.actions.push(
             combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: getEventLookupQuery(LOOKUP_UUID) }).url

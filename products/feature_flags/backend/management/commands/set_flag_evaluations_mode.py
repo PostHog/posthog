@@ -9,7 +9,7 @@ A run skips organizations already at --mode, so a run that fails partway resumes
 again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
 a file. A rollback passes that file to --organization-ids-file.
 
-On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
+On mode 3, ingestion stops writing $feature_flag_called to events for the organization's teams that it
 copies to flag_evaluations.
 """
 
@@ -159,9 +159,9 @@ class Command(BaseCommand):
             "--allow-downgrade",
             action="store_true",
             help=(
-                "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
+                "Also lower organizations that are above --mode. Lowering an organization from mode 3 restarts "
                 "the events writes that ingestion stopped for its teams. The events table keeps a gap for those "
-                "teams for the time the organization spent on 2."
+                "teams for the time the organization spent on 3."
             ),
         )
 

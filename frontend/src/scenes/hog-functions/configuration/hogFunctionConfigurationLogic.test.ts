@@ -842,13 +842,13 @@ describe('hogFunctionConfigurationLogic', () => {
             ;(performWideEventsQueryInTwoPhases as jest.Mock).mockResolvedValue({ results: [] })
         })
 
-        // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
+        // Mode 1 still writes flag calls to events, so only mode 3 adds the flag_evaluations count.
         it.each([
             ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0], undefined],
             ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0], undefined],
             [
                 'flag evaluations only',
-                FlagEvaluationsModeEnumApi.Number2,
+                FlagEvaluationsModeEnumApi.Number3,
                 1203,
                 [0, 200, 0],
                 'person_id_no_override_properties_on_events',
@@ -882,7 +882,7 @@ describe('hogFunctionConfigurationLogic', () => {
             // The example flag call names the flag that the destination filters on, so a test run passes the filters.
             [
                 'flag evaluations only mode',
-                FlagEvaluationsModeEnumApi.Number2,
+                FlagEvaluationsModeEnumApi.Number3,
                 [FLAG_CALLED],
                 `${FLAG_CALLS_NOT_LOADABLE} Showing an example $feature_flag_called event instead.`,
                 '$feature_flag_called',
@@ -891,7 +891,7 @@ describe('hogFunctionConfigurationLogic', () => {
             // A pageview can still match, so the notice about flag calls does not apply.
             [
                 'flag evaluations only mode with a pageview matcher',
-                FlagEvaluationsModeEnumApi.Number2,
+                FlagEvaluationsModeEnumApi.Number3,
                 [FLAG_CALLED, PAGEVIEW],
                 NO_MATCH_IN_30_DAYS,
                 '$pageview',
