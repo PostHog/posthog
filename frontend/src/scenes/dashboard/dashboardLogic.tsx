@@ -6097,8 +6097,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                   })
                 : openStaleTiles
             // A tile on screen that its window says is still fresh sits out this tick, and isn't deferred either.
-            // A tile still loading from an earlier refresh stays in, since this refresh aborts that load.
-            const stillLoadingTileIds: Set<number> | undefined = cache.refreshingTileIds
+            // A tile still loading from an earlier refresh or a deferred load stays in, since this refresh aborts that load.
+            const refreshingTileIds: Set<number> | undefined = cache.refreshingTileIds
+            const deferredLoadingTileIds: Set<number> | undefined = cache.deferredLoadingTileIds
             const dueTiles =
                 values.dashboardV2Enabled && isAutomatic
                     ? new Set(
@@ -6114,7 +6115,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       )
                     : null
             const sortedTilesToRefresh = dueTiles
-                ? visibleTilesToRefresh.filter((tile) => dueTiles.has(tile) || stillLoadingTileIds?.has(tile.id))
+                ? visibleTilesToRefresh.filter(
+                      (tile) =>
+                          dueTiles.has(tile) || refreshingTileIds?.has(tile.id) || deferredLoadingTileIds?.has(tile.id)
+                  )
                 : visibleTilesToRefresh
             const tilesNotDueCount = visibleTilesToRefresh.length - sortedTilesToRefresh.length
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
@@ -6756,15 +6760,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshedAt: tileRefreshedAt(cache),
                 refreshStartedAt: now(),
             }
+            const { refreshedAt, refreshStartedAt } = tileRefresh
+            // Scrolled-in tiles batch into one stream load, so a tile leaves this set once whichever call loads it settles.
+            const deferredLoading: Set<number> = (cache.deferredLoadingTileIds ??= new Set<number>())
+            tiles.forEach((tile) => deferredLoading.add(tile.id))
             const scrolledIn = values.dashboardV2Enabled
                 ? await loadScrolledInTiles(cache, tiles, tileRefresh, {
                       placement: values.placement,
                       report: reportDashboardTileRefreshed,
                       breakpoint,
+                      settle: (tile, outcome) =>
+                          refreshedAt.set(tile.id, outcome === 'errored' ? null : refreshStartedAt),
                   })
                 : null
+            scrolledIn?.settledTileIds.forEach((tileId) => deferredLoading.delete(tileId))
             const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
-            await Promise.all((scrolledIn?.leftTiles ?? tiles).map((tile) => refreshInsightTile(tile, perTileRefresh)))
+            await Promise.all(
+                (scrolledIn?.leftTiles ?? tiles).map(async (tile) => {
+                    try {
+                        return await refreshInsightTile(tile, perTileRefresh)
+                    } finally {
+                        deferredLoading.delete(tile.id)
+                    }
+                })
+            )
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
