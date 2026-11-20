@@ -271,11 +271,15 @@ The empty state explains that older runs may no longer be available.
 `AccountContextPane` and its keyed `accountContextLogic` render the Context system tab and view widget.
 `customer-analytics-context-pane` gates the tab, the widget picker, and saved widgets through the shared component registry.
 The flag payload names the context source with `project_id`, `endpoint`, and `account_variable`. Without a valid payload, the pane shows a setup state and sends no request.
+The page bootstrap carries flag values but no payloads, so the logic loads again when `setFeatureFlags` arrives after a setup state.
 The logic runs that endpoint through the generated `endpointsRunCreate` client with the account's external ID.
+`CONTEXT_COLUMNS` in `accountContextData.ts` lists every column the parser reads. A response without one of them shows an unreadable state and reports the missing names, so an endpoint change fails loudly instead of rendering blank cells.
 `accountContextData.ts` turns the returned rows into facts, signals, and internal Slack threads with plain-language labels.
+An account without an external ID, a viewer without access (403 or 404), an unreadable response, and a failed request each show their own state. Only a failed request offers a retry, and a 403 or 404 is not reported as an exception.
 The pane stores nothing in Customer analytics, so no account read, MCP tool, or agent context returns its rows. Its root carries `ph-no-capture`.
-The confirmed and inferred split, the filters, and pagination run client-side over one response. Write actions render disabled until write-back exists.
-`ContextViewed`, `ContextLoaded`, and `ContextLoadFailed` track entry, loading, and failure with counts only, never account data.
+The confirmed and inferred split, the filters, and pagination run client-side over one response. The tables set `useUrl: false`, and a filter change returns a table to its first page. Write actions render disabled until write-back exists.
+Context dates are UTC calendar days. `AccountContextDate` parses them as UTC and turns off the `TZLabel` popover, which renders outside the `ph-no-capture` root.
+`ContextViewed`, `ContextLoaded`, and `ContextLoadFailed` track entry, loading, and failure with counts and a failure `reason` (`error`, `no_access`, or `unreadable`), never account data.
 
 `AccountsTable.useExpandable()` makes expansion controlled by `accountsExpansionLogic`. Expanded rows show `AccountPinnedPropertiesExpansion`.
 `accountViewComponents.tsx` owns the system-tab kinds and component registry. `AccountDetailNavigation` renders system tabs through `AccountViewComponent`.

@@ -5,117 +5,84 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { accountContextResponse } from '../../__mocks__/accountContextResponse'
 import { AccountContextPane } from './AccountContextPane'
 
 const RUN_ENDPOINT = '/api/projects/:project_id/endpoints/:name/run/'
 
 const SOURCE = { project_id: 1, endpoint: 'account-context', account_variable: 'account_key' }
 
-const COLUMNS = [
-    'section',
-    'id',
-    'author',
-    'fact_text',
-    'confidence',
-    'review_due',
-    'fact_source',
-    'valid_from',
-    'signal_type',
-    'direction',
-    'signal_state',
-    'onset',
-    'closed_on',
-    'change',
-    'arr_at_stake',
-    'summary',
-    'observed_on',
-    'node_kind',
-    'node_name',
-    'to_id',
-    'relation',
-    'link_source',
-    'expired_facts',
-]
-
-function row(values: Record<string, unknown>): unknown[] {
-    return COLUMNS.map((column) => values[column] ?? null)
-}
-
-const RESPONSE = {
-    name: 'account-context',
-    columns: COLUMNS,
-    results: [
-        row({ section: 'meta', id: 'contract', expired_facts: 1 }),
-        row({
-            section: 'fact',
-            id: 'fact-renewal',
-            author: 'alex@example.com',
-            fact_text: 'The renewal closed in July with a prepaid credit purchase.',
-            confidence: 'confirmed',
-            review_due: 0,
-            fact_source: 'session',
-            valid_from: '2026-07-08',
-        }),
-        row({
-            section: 'fact',
-            id: 'fact-dashboards',
-            author: 'morgan@example.com',
-            fact_text: 'The team wants one dashboard for every major feature by the end of the quarter.',
-            confidence: 'confirmed',
-            review_due: 1,
-            fact_source: 'gong',
-            valid_from: '2026-10-02',
-        }),
-        row({
-            section: 'fact',
-            id: 'fact-polling',
-            author: 'alex@example.com',
-            fact_text: 'One backend service probably polls flags in a loop.',
-            confidence: 'inferred',
-            review_due: 0,
-            fact_source: 'session',
-            valid_from: '2026-10-14',
-        }),
-        row({
-            section: 'signal',
-            id: 'signal-flags',
-            signal_type: 'usage_spike',
-            direction: 'up',
-            signal_state: 'open',
-            onset: '2026-10-05',
-            change: 8,
-            arr_at_stake: 48000,
-        }),
-        row({
-            section: 'signal',
-            id: 'signal-cap',
-            signal_type: 'cap_hit',
-            direction: 'down',
-            signal_state: 'open',
-            onset: '2026-11-10',
-        }),
-        row({
-            section: 'slack',
-            id: 'https://example.slack.com/archives/C000/p1',
-            summary: 'The customer asked how to raise the flag request limit.',
-            observed_on: '2026-11-04',
-        }),
-        row({ section: 'node', id: 'product:feature_flags', node_kind: 'product', node_name: 'Feature flags' }),
-        row({ section: 'node', id: 'subject:contract', node_kind: 'subject', node_name: 'Contract and renewal' }),
-        row({ section: 'node', id: 'feature:dashboards', node_kind: 'feature', node_name: 'Dashboards' }),
-        row({ section: 'link', id: 'fact-renewal', to_id: 'subject:contract', relation: 'about' }),
-        row({ section: 'link', id: 'fact-dashboards', to_id: 'feature:dashboards', relation: 'about' }),
-        row({ section: 'link', id: 'fact-polling', to_id: 'product:feature_flags', relation: 'about' }),
-        row({ section: 'link', id: 'signal-flags', to_id: 'product:feature_flags', relation: 'on' }),
-        row({
-            section: 'link',
-            id: 'signal-flags',
-            to_id: 'fact-polling',
-            relation: 'explains',
-            link_source: 'explain',
-        }),
-    ],
-}
+const RESPONSE = accountContextResponse([
+    { section: 'meta', id: 'contract', expired_facts: 1 },
+    {
+        section: 'fact',
+        id: 'fact-renewal',
+        author: 'alex@example.com',
+        fact_text: 'The renewal closed in July with a prepaid credit purchase.',
+        confidence: 'confirmed',
+        review_due: 0,
+        fact_source: 'session',
+        valid_from: '2026-07-08',
+    },
+    {
+        section: 'fact',
+        id: 'fact-dashboards',
+        author: 'morgan@example.com',
+        fact_text: 'The team wants one dashboard for every major feature by the end of the quarter.',
+        confidence: 'confirmed',
+        review_due: 1,
+        fact_source: 'gong',
+        valid_from: '2026-10-02',
+    },
+    {
+        section: 'fact',
+        id: 'fact-polling',
+        author: 'alex@example.com',
+        fact_text: 'One backend service probably polls flags in a loop.',
+        confidence: 'inferred',
+        review_due: 0,
+        fact_source: 'session',
+        valid_from: '2026-10-14',
+    },
+    {
+        section: 'signal',
+        id: 'signal-flags',
+        signal_type: 'usage_spike',
+        direction: 'up',
+        signal_state: 'open',
+        onset: '2026-10-05',
+        change: 8,
+        arr_at_stake: 48000,
+    },
+    {
+        section: 'signal',
+        id: 'signal-cap',
+        signal_type: 'cap_hit',
+        direction: 'down',
+        signal_state: 'open',
+        onset: '2026-11-10',
+    },
+    {
+        section: 'slack',
+        id: 'https://example.slack.com/archives/C000/p1',
+        summary: 'The customer asked how to raise the flag request limit.',
+        observed_on: '2026-11-04',
+    },
+    { section: 'node', id: 'product:feature_flags', node_kind: 'product', node_name: 'Feature flags' },
+    { section: 'node', id: 'subject:contract', node_kind: 'subject', node_name: 'Contract and renewal' },
+    { section: 'node', id: 'feature:dashboards', node_kind: 'feature', node_name: 'Dashboards' },
+    { section: 'link', id: 'fact-renewal', to_id: 'subject:contract', relation: 'about' },
+    { section: 'link', id: 'fact-dashboards', to_id: 'feature:dashboards', relation: 'about' },
+    { section: 'link', id: 'fact-polling', to_id: 'product:feature_flags', relation: 'about' },
+    { section: 'link', id: 'signal-flags', to_id: 'product:feature_flags', relation: 'on' },
+    {
+        section: 'link',
+        id: 'signal-flags',
+        to_id: 'fact-polling',
+        relation: 'explains',
+        link_source: 'explain',
+    },
+])
 
 const meta: Meta<typeof AccountContextPane> = {
     title: 'Customer Analytics/Account views/Context',

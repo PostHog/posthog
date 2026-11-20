@@ -53,7 +53,7 @@ export function AccountContextThreads({
                 dataSource={context?.threads ?? []}
                 columns={columns}
                 rowKey="url"
-                pagination={{ pageSize: THREAD_PAGE_SIZE }}
+                pagination={{ pageSize: THREAD_PAGE_SIZE, useUrl: false }}
                 emptyState="No recent internal Slack threads."
             />
         </section>

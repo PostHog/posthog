@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import { AccountContextFacts } from './AccountContextFacts'
-import { accountContextLogic, type AccountContextLogicProps } from './accountContextLogic'
+import { accountContextLogic, type AccountContextLogicProps, type AccountContextResult } from './accountContextLogic'
 import { AccountContextSignals } from './AccountContextSignals'
 import { AccountContextSummaryStrip } from './AccountContextSummaryStrip'
 import { AccountContextThreads } from './AccountContextThreads'
@@ -15,6 +15,35 @@ import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { CONTEXT_WRITE_DISABLED_REASON } from './constants'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
+interface EmptyStateCopy {
+    title: string
+    detail: string
+    dataAttr: string
+}
+
+const UNAVAILABLE_STATES: Record<Exclude<AccountContextResult['status'], 'loaded' | 'failed'>, EmptyStateCopy> = {
+    not_configured: {
+        title: "Context isn't set up",
+        detail: 'This project has no context source yet. Ask your PostHog admin to connect one.',
+        dataAttr: 'account-context-not-set-up',
+    },
+    no_external_id: {
+        title: 'No linked organization',
+        detail: 'This account has no linked organization, so there is no context to load.',
+        dataAttr: 'account-context-no-external-id',
+    },
+    no_access: {
+        title: "You don't have access to this context",
+        detail: "Your account can't read the context source. Ask the person who manages it for access.",
+        dataAttr: 'account-context-no-access',
+    },
+    unreadable: {
+        title: "Couldn't read this context",
+        detail: "The context source sent data this tab can't read. Ask the person who manages it to check the source.",
+        dataAttr: 'account-context-unreadable',
+    },
+}
 
 interface AccountContextPaneProps extends AccountViewTileLogicProps {
     accountId: string
@@ -57,14 +86,6 @@ export function AccountContextPane({
     let content: JSX.Element
     if (contextResult === null) {
         content = <LemonSkeleton className="h-64 w-full" />
-    } else if (contextResult.status === 'not_configured') {
-        content = (
-            <ContextEmptyState
-                title="Context isn't set up"
-                dataAttr="account-context-not-set-up"
-                detail="This project has no context source yet. Ask your PostHog admin to connect one."
-            />
-        )
     } else if (contextResult.status === 'failed') {
         content = (
             <ContextEmptyState
@@ -83,6 +104,8 @@ export function AccountContextPane({
                 }
             />
         )
+    } else if (contextResult.status !== 'loaded') {
+        content = <ContextEmptyState {...UNAVAILABLE_STATES[contextResult.status]} />
     } else if (!context || !summary || (!context.facts.length && !context.signals.length && !context.threads.length)) {
         content = (
             <ContextEmptyState

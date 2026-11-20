@@ -97,7 +97,8 @@ export function AccountContextSignals({
                 dataSource={visibleSignals}
                 columns={columns}
                 rowKey="id"
-                pagination={{ pageSize: SIGNAL_PAGE_SIZE }}
+                key={signalState}
+                pagination={{ pageSize: SIGNAL_PAGE_SIZE, useUrl: false }}
                 emptyState={signalState === 'open' ? 'No open signals.' : 'No signals closed in the last 90 days.'}
             />
         </section>

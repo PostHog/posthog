@@ -69,6 +69,33 @@ export interface FactFilters {
 
 type Row = Record<string, unknown>
 
+export const CONTEXT_COLUMNS = [
+    'section',
+    'id',
+    'author',
+    'fact_text',
+    'confidence',
+    'review_due',
+    'fact_source',
+    'valid_from',
+    'created_at',
+    'signal_type',
+    'direction',
+    'signal_state',
+    'onset',
+    'closed_on',
+    'change',
+    'arr_at_stake',
+    'summary',
+    'observed_on',
+    'node_kind',
+    'node_name',
+    'to_id',
+    'relation',
+    'link_source',
+    'expired_facts',
+] as const
+
 const SOURCE_LABELS: Record<string, string> = {
     session: 'Agent session',
     'cloud-task': 'Cloud task',
@@ -149,6 +176,10 @@ export function signalTitle(type: string, direction: string, change: number | nu
     return title({ subject: product ?? 'Product', product, amount: changeLabel(change), down: direction === 'down' })
 }
 
+function signalDate(signal: AccountContextSignal): string {
+    return signal.open ? signal.onset : signal.closedOn
+}
+
 function signalReason(signalLinks: Row[], factText: Map<string, string>): AccountContextReason | null {
     const reasons = signalLinks.filter((link) => link.relation === 'explains' && factText.has(text(link.to_id)))
     const reason = reasons.find((link) => link.link_source === 'distiller') ?? reasons[0]
@@ -156,6 +187,11 @@ function signalReason(signalLinks: Row[], factText: Map<string, string>): Accoun
         return null
     }
     return { text: factText.get(text(reason.to_id)) ?? '', likely: reason.link_source !== 'distiller' }
+}
+
+export function missingContextColumns(response: EndpointRunResponseApi): string[] {
+    const columns = new Set(response.columns ?? [])
+    return CONTEXT_COLUMNS.filter((column) => !columns.has(column))
 }
 
 function toRows(response: EndpointRunResponseApi): Row[] {
@@ -222,7 +258,7 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
                 reason: signalReason(signalLinks, factText),
             }
         })
-        .sort((a, b) => b.onset.localeCompare(a.onset))
+        .sort((a, b) => signalDate(b).localeCompare(signalDate(a)))
 
     const threads: AccountContextThread[] = bySection('slack')
         .map((row) => ({ url: text(row.id), summary: text(row.summary), observedOn: text(row.observed_on) }))

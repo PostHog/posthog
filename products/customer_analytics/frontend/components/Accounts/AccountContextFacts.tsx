@@ -22,6 +22,11 @@ function filterOptions(values: string[], allLabel: string): { value: string | nu
     return [{ value: null, label: allLabel }, ...values.map((value) => ({ value, label: value }))]
 }
 
+function shownTopics(topics: string[], topicFilter: string | null): string[] {
+    const ordered = topicFilter ? [topicFilter, ...topics.filter((topic) => topic !== topicFilter)] : topics
+    return ordered.slice(0, 2)
+}
+
 export function AccountContextFacts({
     logicProps,
     embedded,
@@ -72,7 +77,7 @@ export function AccountContextFacts({
             key: 'topics',
             render: (_, fact) => (
                 <div className="flex flex-wrap gap-1">
-                    {fact.topics.slice(0, 2).map((topic) => (
+                    {shownTopics(fact.topics, topicFilter).map((topic) => (
                         <LemonTag key={topic}>{topic}</LemonTag>
                     ))}
                 </div>
@@ -183,7 +188,8 @@ export function AccountContextFacts({
                 dataSource={visibleFacts}
                 columns={columns}
                 rowKey="id"
-                pagination={{ pageSize: FACT_PAGE_SIZE }}
+                key={[factConfidence, factSearch, topicFilter, authorFilter, sourceFilter, recheckOnly].join('|')}
+                pagination={{ pageSize: FACT_PAGE_SIZE, useUrl: false }}
                 emptyState="No facts match these filters."
             />
         </section>
