@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LateImageResult,
     LegacyEventEmitter,
     LegacyWebhookBody,
+    LinkedHogFunctionRetirer,
     LiveHogFunctionLookup,
     SourceAlertCreator,
     SourceDescriber,
@@ -46,6 +47,11 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
     """The product that owns HogFunctions says which still exist, so a destination row that copies one waits for it to go."""
     destinations.register_live_hog_function_lookup(lookup)
+
+
+def register_linked_hog_function_retirer(retirer: LinkedHogFunctionRetirer) -> None:
+    """The product that owns HogFunctions retires the ones a deleted destination row links to."""
+    alert_destinations.register_linked_hog_function_retirer(retirer)
 
 
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:

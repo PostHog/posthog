@@ -40,6 +40,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
+    alert_destinations,
     control_plane,
     destination_handoff,
     platform_lifecycle,
@@ -47,7 +48,7 @@ from products.alerts_platform.backend.logic import (
     rule_metadata,
     source_configs,
 )
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 
 class MissingPlatformCopy(Exception):
@@ -569,14 +570,23 @@ def _remove_owned_destinations(team_id: int, locked: Sequence[PlatformAlertConfi
     transaction, so a delete that fails keeps them. True when any configuration was the platform's.
 
     A shadow copy's destinations are its source's, which removes them with its own row. An
-    `AlertDestination` row goes with its configuration, so there is nothing to remove for it.
+    `AlertDestination` row goes with its configuration, and for a kind whose destinations are rows,
+    the HogFunctions a row links to are retired here.
     """
     owned = [configuration for configuration in locked if configuration.owner == PlatformAlertOwner.PLATFORM]
     for configuration in owned:
         spec = source_configs.spec(SourceKind(configuration.source_kind))
-        remove = None if spec is None or spec.native is None else spec.native.remove_destinations
-        if remove is not None:
-            remove(team_id=team_id, alert_id=configuration.destination_alert_id)
+        native = None if spec is None else spec.native
+        if native is None:
+            continue
+        if native.remove_destinations is not None:
+            native.remove_destinations(team_id=team_id, alert_id=configuration.destination_alert_id)
+        if native.platform_destinations:
+            alert_destinations.retire_linked_hog_functions(
+                team_id=team_id,
+                configuration=configuration,
+                rows=list(AlertDestination.objects.for_team(team_id).filter(configuration_id=configuration.id)),
+            )
     return bool(owned)
 
 

@@ -23,12 +23,40 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     DeletedSourceDestinations,
     DestinationType,
+    LinkedHogFunctionRetirer,
     NewAlertDestination,
     SourceDestination,
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
+
+_retirer: LinkedHogFunctionRetirer | None = None
+
+
+def register_linked_hog_function_retirer(retirer: LinkedHogFunctionRetirer) -> None:
+    global _retirer
+    if _retirer is not None and _retirer is not retirer:
+        raise RuntimeError("A different HogFunction retirer is already registered.")
+    _retirer = retirer
+
+
+def retire_linked_hog_functions(
+    *, team_id: int, configuration: PlatformAlertConfiguration, rows: Collection[AlertDestination]
+) -> None:
+    """Retires the HogFunctions that `rows` link to, which a person made by customizing a row. Call it in
+    the transaction that deletes the rows, so a delete that fails keeps them.
+
+    Without this, a customized HogFunction outlives its row and keeps sending for the alert.
+    """
+    linked = {hog_function_id for row in rows for hog_function_id in row.legacy_hog_function_ids}
+    if not linked:
+        return
+    # Raise rather than skip. A missing registration would leave the HogFunctions sending, and nothing would report it.
+    if _retirer is None:
+        raise RuntimeError("No HogFunction retirer is registered. products.alerts registers one in its ready().")
+    _retirer(team_id=team_id, alert_id=configuration.destination_alert_id, hog_function_ids=linked)
+
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY, DestinationType.INCIDENT_IO})
@@ -139,7 +167,8 @@ def destination_types_by_configuration(
 def delete_alert_destinations(
     *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
 ) -> dict[UUID, str]:
-    """Deletes the named destinations of one configuration, and returns the type of each one it deleted, by id.
+    """Deletes the named destinations of one configuration, with the HogFunctions they link to, and returns
+    the type of each one it deleted, by id.
 
     An id of another configuration is left alone, so a caller cannot reach past the alert it checked access to.
     The rows are locked before the delete, so of two concurrent deletes only the first returns a row.
@@ -148,9 +177,12 @@ def delete_alert_destinations(
         named = AlertDestination.objects.for_team(team_id).filter(
             configuration_id=configuration_id, id__in=destination_ids
         )
-        deleted = dict(named.select_for_update().values_list("id", "type"))
-        named.filter(id__in=deleted).delete()
-    return deleted
+        locked = list(named.select_for_update())
+        configuration = PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).first()
+        if locked and configuration is not None:
+            retire_linked_hog_functions(team_id=team_id, configuration=configuration, rows=locked)
+        named.filter(id__in=[row.id for row in locked]).delete()
+    return {row.id: row.type for row in locked}
 
 
 def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:

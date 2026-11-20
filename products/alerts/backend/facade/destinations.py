@@ -242,6 +242,12 @@ def soft_delete_alert_destinations(
     )
 
 
+def retire_linked_hog_functions(*, team_id: int, alert_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """The platform's retirer for the HogFunctions a deleted destination row links to, which `products.alerts`
+    registers when Django starts."""
+    destinations.retire_linked_hog_functions(team_id=team_id, alert_id=alert_id, hog_function_ids=hog_function_ids)
+
+
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
     return destinations.soft_delete_all_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
