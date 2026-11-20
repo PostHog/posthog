@@ -51,6 +51,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.posthog import BOT_DETECTION_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
@@ -2413,12 +2414,10 @@ class Resolver(CloningVisitor):
         return node
 
     def _declared_posthog_return_type(self, name: str) -> ConstantType | None:
-        if not self.type_posthog_calls_by_signature:
+        if not self.type_posthog_calls_by_signature or name not in BOT_DETECTION_FUNCTIONS:
             return None
         meta = find_hogql_posthog_function(name)
         if meta is None or not meta.signatures:
-            return None
-        if len({type(return_type) for _, return_type in meta.signatures}) != 1:
             return None
         return dataclasses.replace(meta.signatures[0][1])
 
