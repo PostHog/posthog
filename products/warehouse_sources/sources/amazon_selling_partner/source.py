@@ -13,6 +13,8 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REPORTS_PATH,
+    SP_API_HOSTS,
 )
 from products.warehouse_sources.sources.sdk import (
     OAUTH2_PERMANENT_ERROR_MARKER,
@@ -59,6 +61,18 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
         return ExternalDataSourceType.AMAZONSELLINGPARTNER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # A 400 from createReport is a validation failure on the report type, options or marketplace
+        # for this account, so the same request fails identically on every retry. Matched per region
+        # host (not the generic "sellingpartnerapi" prefix other entries use) so a transient 400
+        # elsewhere, such as an expired inventory page token, still retries.
+        report_creation_rejected = {
+            f"400 Client Error:  for url: {host}{REPORTS_PATH}": (
+                "Amazon rejected the report request. Check that this account can create this report "
+                "for the configured marketplace (the vendor program, distributor view or marketplace "
+                "IDs), then update the source."
+            )
+            for host in SP_API_HOSTS.values()
+        }
         return {
             "HTTP 400 from the OAuth2 token endpoint": "Amazon rejected the refresh token. Re-authorize the app for this seller and update the refresh token.",
             "HTTP 401 from the OAuth2 token endpoint": "Amazon rejected the Login with Amazon client ID or client secret. Check them in the Amazon developer console and update the source.",
@@ -67,6 +81,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             MISSING_MARKETPLACES_MESSAGE: MISSING_MARKETPLACES_MESSAGE,
             "Unknown Amazon marketplace ID for real-time sales": "A marketplace ID in the source settings is not one Amazon lists. Check the IDs and update the source.",
             OAUTH2_PERMANENT_ERROR_MARKER: "Amazon rejected the Login with Amazon credentials. Check the client ID, client secret and refresh token, then update the source.",
+            **report_creation_rejected,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -158,11 +173,13 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             label="Amazon Selling Partner",
             keywords=["sp-api", "seller central", "vendor central", "amazon seller", "amazon vendor", "fba"],
             caption=(
-                "Seller accounts sync orders, order items, financial transactions and FBA inventory. "
+                "Seller accounts sync orders, order items, financial transactions, payouts, FBA inventory, "
+                "FBA inbound plans and multi-channel fulfillment orders. "
                 "The app needs the Inventory and Order Tracking, Finance and Accounting and Amazon Fulfillment roles. "
                 "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long. "
-                "Vendor accounts sync daily sales, inventory, net pure product margin, forecasts and hourly sales "
-                "reports, which need the Brand Analytics role and your marketplace IDs."
+                "Vendor accounts sync purchase orders from the last 6 months, which need the Inventory and Order "
+                "Tracking role. They also sync daily sales, inventory, net pure product margin, forecasts and hourly "
+                "sales reports, which need the Brand Analytics role and your marketplace IDs."
             ),
             iconPath="/static/services/amazon_selling_partner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-selling-partner",

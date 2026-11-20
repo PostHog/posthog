@@ -3046,6 +3046,16 @@ export interface TeamRealtimeCohortsApi {
     max_cohorts: number | null
 }
 
+/**
+ * * `issue_summaries` - Issue Summaries
+ */
+export type ErrorTrackingAIFeatureEnumApi =
+    (typeof ErrorTrackingAIFeatureEnumApi)[keyof typeof ErrorTrackingAIFeatureEnumApi]
+
+export const ErrorTrackingAIFeatureEnumApi = {
+    IssueSummaries: 'issue_summaries',
+} as const
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3838,10 +3848,6 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -3889,6 +3895,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Realtime cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -4738,10 +4746,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -4789,6 +4793,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Realtime cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -6504,7 +6510,10 @@ export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string

@@ -374,6 +374,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    // The opener must pass playerRef too, because it mounts the logic before SessionRecordingPlayer renders.
+    keepFullScreenAcrossRecordings?: boolean
     skipToFirstMatchingEvent?: boolean
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
@@ -750,7 +752,7 @@ export interface sessionRecordingPlayerLogicValues {
     snapshotsLoaded: boolean // snapshotDataLogic
     snapshotsLoading: boolean // snapshotDataLogic
     storeVersion: number // snapshotDataLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     clickCount: number
     currentPlayerState:
@@ -778,7 +780,7 @@ export interface sessionRecordingPlayerLogicValues {
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
     forceShowPlayerChrome: boolean
-    fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
+    fromRRWebPlayerTime: (time?: number) => number | undefined
     hasLateFullSnapshot: boolean
     hasSnapshots: boolean
     hasUnrenderableWindow: boolean
@@ -828,7 +830,7 @@ export interface sessionRecordingPlayerLogicValues {
         seconds: number
     } | null
     seekRenderability: (timestamp: number) => SeekRenderability
-    segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null
+    segmentForTimestamp: (timestamp?: number) => RecordingSegment | null
     sessionRecordingId: string
     showAmbientBackground: boolean
     showPlayerChrome: boolean
@@ -889,11 +891,11 @@ export interface sessionRecordingPlayerLogicActions {
         mode: SessionRecordingPlayerMode | undefined
         options:
             | {
-                  css_selector?: string | undefined
-                  filename?: string | undefined
-                  height?: number | undefined
-                  skip_inactivity?: boolean | undefined
-                  width?: number | undefined
+                  css_selector?: string
+                  filename?: string
+                  height?: number
+                  skip_inactivity?: boolean
+                  width?: number
               }
             | undefined
         sessionRecordingId: string
@@ -1146,7 +1148,7 @@ export interface sessionRecordingPlayerLogicActions {
         timestamp: number
     }
     setCurrentSegment: (segment: RecordingSegment) => {
-        segment: RecordingSegment
+        segment: import('@posthog/replay-shared').RecordingSegment
     }
     setCurrentTimestamp: (timestamp: number) => {
         timestamp: number
@@ -1312,10 +1314,7 @@ export interface sessionRecordingPlayerLogicMeta {
         dataBufferedUntilTimestamp: (sessionPlayerData: SessionPlayerData) => number | null
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
-        replayerWindowId: (
-            player: Player | null,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-        ) => number | undefined
+        replayerWindowId: (player: Player | null, currentSegment: null | RecordingSegment) => number | undefined
         toRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
             replayerWindowId: number | undefined
@@ -1326,21 +1325,19 @@ export interface sessionRecordingPlayerLogicMeta {
         ) => (timestamp: number) => number
         fromRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-        ) => (time?: number | undefined) => number | undefined
+            currentSegment: null | RecordingSegment
+        ) => (time?: number) => number | undefined
         jumpTimeMs: (speed: number) => number
         playerSpeed: (
             speed: number,
             isSkippingInactivity: boolean,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment,
+            currentSegment: null | RecordingSegment,
             currentTimestamp: number | undefined,
             arg: any
         ) => number
-        segmentForTimestamp: (
-            sessionPlayerData: SessionPlayerData
-        ) => (timestamp?: number | undefined) => RecordingSegment | null
+        segmentForTimestamp: (sessionPlayerData: SessionPlayerData) => (timestamp?: number) => RecordingSegment | null
         seekRenderability: (
-            segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null,
+            segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
             snapshotStore: SnapshotStore,
             allSourcesLoaded: boolean,
             sessionPlayerData: SessionPlayerData,
@@ -1382,7 +1379,7 @@ export interface sessionRecordingPlayerLogicMeta {
         resolution: (
             sessionPlayerData: SessionPlayerData,
             currentTimestamp: number | undefined,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
+            currentSegment: null | RecordingSegment
         ) => {
             height: number
             width: number
@@ -3876,6 +3873,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
+                const playerElement = props.playerRef?.current
+                if (playerElement && document.fullscreenElement === playerElement) {
+                    // The browser refuses a request without a user gesture even for the element it already shows in
+                    // fullscreen, and auto-advance to the next recording has no gesture.
+                    return
+                }
                 try {
                     await props.playerRef?.current?.requestFullscreen()
                 } catch (e) {
@@ -4054,6 +4057,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+        // The browser sends no fullscreenchange event for an element that stays in fullscreen, so a new logic for
+        // the next recording reads the state once. Comparing with the player's own element keeps a page that is
+        // in fullscreen for another reason, such as a fullscreen dashboard, from turning the player fullscreen.
+        if (
+            props.keepFullScreenAcrossRecordings &&
+            props.playerRef?.current &&
+            document.fullscreenElement === props.playerRef.current
+        ) {
+            actions.setIsFullScreen(true)
+        }
 
         // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
         // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal

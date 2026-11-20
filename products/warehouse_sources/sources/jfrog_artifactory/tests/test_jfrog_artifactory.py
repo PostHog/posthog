@@ -96,6 +96,12 @@ class TestStripDomainPrefix:
             ("prefixed_builds", {"build.name": "b", "build.number": "1"}, "builds", {"name": "b", "number": "1"}),
             ("bare_builds", {"name": "b", "number": "1"}, "builds", {"name": "b", "number": "1"}),
             ("bare_items", {"repo": "r", "path": "p", "name": "n"}, "items", {"repo": "r", "path": "p", "name": "n"}),
+            (
+                "prefixed_releases",
+                {"release.name": "web-app", "release.version": "1.0.0", "release.type": "source"},
+                "releases",
+                {"name": "web-app", "version": "1.0.0", "type": "source"},
+            ),
         ]
     )
     def test_strip(self, _name: str, item: dict, domain: str, expected: dict) -> None:
@@ -151,6 +157,38 @@ class TestFlattenRelated:
                 "name": "web.war",
                 "sha1": "b2",
             },
+        ]
+
+    @parameterized.expand(
+        [
+            ("bare_nested_keys", {"properties": [{"key": "env", "value": "prod"}, {"key": "env", "value": "qa"}]}),
+            (
+                "prefixed_nested_keys",
+                {"item.properties": [{"property.key": "env", "property.value": "prod"}, {"key": "env", "value": "qa"}]},
+            ),
+        ]
+    )
+    def test_artifact_properties_one_row_per_key_value(self, _name: str, related: dict) -> None:
+        item = {"repo": "libs", "path": "com/acme", "name": "app.jar", "created": "2026-01-01", **related}
+
+        rows = list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"], item))
+
+        parent = {"repo": "libs", "path": "com/acme", "name": "app.jar", "created": "2026-01-01"}
+        assert rows == [{**parent, "key": "env", "value": "prod"}, {**parent, "key": "env", "value": "qa"}]
+
+    def test_non_scalar_parent_fields_are_dropped(self) -> None:
+        item = {
+            "repo": "libs",
+            "path": ["x" * 100] * 100,
+            "name": {"nested": "x" * 100},
+            "created": "2026-01-01",
+            "properties": [{"key": "env", "value": "prod"}],
+        }
+
+        rows = list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"], item))
+
+        assert rows == [
+            {"repo": "libs", "path": None, "name": None, "created": "2026-01-01", "key": "env", "value": "prod"}
         ]
 
     def test_parent_without_related_entries_emits_nothing(self) -> None:
@@ -387,6 +425,35 @@ class TestGetRowsAqlRelated:
 
         assert [(r["module_name"], r["name"]) for r in rows] == [("core", "lib")]
 
+    def test_expanded_related_rows_are_yielded_in_bounded_batches(self, monkeypatch: Any) -> None:
+        # Each property row repeats its artifact's fields, so a small response can expand far past the
+        # response cap; one unbounded list would be converted to Arrow in a single step.
+        monkeypatch.setattr(jfrog_artifactory, "RELATED_BATCH_MAX_BYTES", 10_000)
+        config = JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"]
+        long_name = "a" * 2_000 + ".jar"
+        parent = {"repo": "libs", "path": "com/acme", "name": long_name, "created": "2026-01-01"}
+        properties = [{"property.key": f"k{i}", "property.value": "v"} for i in range(50)]
+        _patch_related_aql(
+            monkeypatch,
+            {build_aql_query(config, offset=0): {"results": [parent]}},
+            lambda q: {"results": [{**parent, "properties": properties}]},
+        )
+
+        batches = list(
+            get_rows(
+                base_url="https://acme.jfrog.io",
+                access_token="token",
+                endpoint="artifact_properties",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+
+        assert len(batches) > 1
+        row_bytes = jfrog_artifactory._expanded_row_bytes(batches[0][0])
+        assert all(sum(map(jfrog_artifactory._expanded_row_bytes, b)) < 10_000 + row_bytes for b in batches)
+        assert [r["key"] for b in batches for r in b] == [f"k{i}" for i in range(50)]
+
 
 def _violation(created: str) -> dict:
     return {"issue_id": "XRAY-1", "created": created, "violation_details_url": f"https://x/{created}"}
@@ -466,16 +533,44 @@ class TestGetRowsXray:
 
 
 class TestGetRowsRest:
-    def test_repositories_returns_bare_array(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(
-            jfrog_artifactory,
-            "_get_json",
-            lambda session, base_url, access_token, path, logger: [{"key": "libs-release", "type": "LOCAL"}],
-        )
+    @parameterized.expand(
+        [
+            (
+                "repositories_bare_array",
+                "repositories",
+                {"https://acme.jfrog.io/artifactory/api/repositories": [{"key": "libs-release", "type": "LOCAL"}]},
+                [{"key": "libs-release", "type": "LOCAL"}],
+            ),
+            (
+                "xray_licenses_from_xray_api",
+                "xray_licenses",
+                {
+                    "https://acme.jfrog.io/xray/api/v1/licensesNames": [
+                        {"name": "MIT", "full_name": "MIT License", "category": "Permissive", "isCustom": False}
+                    ]
+                },
+                [{"name": "MIT", "full_name": "MIT License", "category": "Permissive", "isCustom": False}],
+            ),
+        ]
+    )
+    def test_reads_rows_from_service_url(
+        self, _name: str, endpoint: str, responses: dict[str, Any], expected: list[dict]
+    ) -> None:
+        requested: list[str] = []
 
-        rows = _collect(_FakeResumableManager(), endpoint="repositories")
+        def fake_request(session: Any, method: str, url: str, headers: dict, logger: Any, data: Any = None) -> Any:
+            requested.append(url)
+            return responses[url]
 
-        assert rows == [{"key": "libs-release", "type": "LOCAL"}]
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(jfrog_artifactory, "_request", fake_request)
+        try:
+            rows = _collect(_FakeResumableManager(), endpoint=endpoint)
+        finally:
+            monkeypatch.undo()
+
+        assert rows == expected
+        assert requested == list(responses)
 
 
 class TestSourceResponse:
@@ -555,6 +650,23 @@ class TestProbeEndpoint:
         method, url, data = session.requests[0]
         assert (method, url) == ("POST", "https://acme.jfrog.io/xray/api/v1/violations")
         assert data is not None and json.loads(data)["pagination"]["limit"] == 1
+
+    @parameterized.expand(
+        [
+            ("xray_licenses", "https://acme.jfrog.io/xray/api/v1/licensesNames"),
+            ("repositories", "https://acme.jfrog.io/artifactory/api/repositories"),
+        ]
+    )
+    def test_rest_probe_gets_endpoint_on_its_service(self, endpoint: str, expected_url: str) -> None:
+        session = _FakeSession(status_code=200)
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(jfrog_artifactory, "_get_session", lambda access_token: session)
+        try:
+            assert probe_endpoint("https://acme.jfrog.io", "token", endpoint=endpoint) == (True, 200)
+        finally:
+            monkeypatch.undo()
+
+        assert session.requests == [("GET", expected_url, None)]
 
     def test_transport_error_returns_none_status(self, monkeypatch: Any) -> None:
         session = MagicMock()

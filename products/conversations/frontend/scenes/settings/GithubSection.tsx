@@ -4,14 +4,22 @@ import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillGithubSection } from '../../components/QuillGithubSection/QuillGithubSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function GithubSection(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <GithubConnectionSection />
+    }
+
     return (
         <SceneSection
             title="GitHub Issues"
@@ -37,6 +45,38 @@ function GithubConnectionSection(): JSX.Element {
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmDisconnect = (): void => {
+        LemonDialog.open({
+            title: 'Disconnect GitHub?',
+            description:
+                'New issues will no longer create tickets. Existing tickets will remain but replies will not sync.',
+            primaryButton: {
+                children: 'Disconnect',
+                status: 'danger',
+                onClick: disconnectGithub,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillGithubSection
+                githubConnected={githubConnected}
+                githubIntegrations={githubIntegrations}
+                githubRepoNames={githubRepos.map((r) => r.full_name)}
+                githubReposLoading={githubReposLoading}
+                githubSelectedRepos={githubSelectedRepos}
+                adminRestrictionReason={adminRestrictionReason}
+                onConnect={connectGithub}
+                onDisconnect={confirmDisconnect}
+                onReposChange={setGithubRepos}
+                onLoadRepos={loadGithubRepos}
+            />
+        )
+    }
 
     if (!githubConnected) {
         if (githubIntegrations.length === 0) {
@@ -94,19 +134,7 @@ function GithubConnectionSection(): JSX.Element {
                     size="xsmall"
                     status="danger"
                     disabledReason={adminRestrictionReason}
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Disconnect GitHub?',
-                            description:
-                                'New issues will no longer create tickets. Existing tickets will remain but replies will not sync.',
-                            primaryButton: {
-                                children: 'Disconnect',
-                                status: 'danger',
-                                onClick: disconnectGithub,
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
+                    onClick={confirmDisconnect}
                 >
                     Disconnect
                 </LemonButton>

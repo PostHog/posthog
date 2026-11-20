@@ -19,6 +19,7 @@ import { type TraceLinkParams, inApiCase } from 'lib/components/ViewTraceButton/
 
 import { type TraceSpanPages, loadTraceSpanPages } from 'products/tracing/frontend/traceSpanPages'
 
+import type { Span, SpanInspectorTab } from '../../types'
 import { type TraceViewSurface, traceViewLogic } from '../TraceView/traceViewLogic'
 
 export interface TraceEmbedLogicProps {
@@ -40,15 +41,15 @@ export interface traceEmbedLogicActions {
     selectSpan: (spanId: string | null) => {
         spanId: string | null
     } // traceViewLogic
-    setSpans: (spans: import('../../types').Span[]) => {
-        spans: import('../../types').Span[]
+    setSpans: (spans: Span[]) => {
+        spans: Span[]
     } // traceViewLogic
     showTrace: (
         pinnedSpanId: string | null,
-        tab: null | import('../../types').SpanInspectorTab
+        tab: SpanInspectorTab | null
     ) => {
         pinnedSpanId: string | null
-        tab: null | import('../../types').SpanInspectorTab
+        tab: SpanInspectorTab | null
     } // traceViewLogic
     loadTraceSpans: (_: void) => void
     loadTraceSpansFailure: (

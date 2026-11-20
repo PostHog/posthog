@@ -10,6 +10,7 @@ import {
 } from '@/lib/stateless-protocol'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import { parseExecCallInnerToolName } from '@/tools/exec'
+import { isExecDispatcher } from '@/tools/exec-names'
 
 import type { RedisLike } from './cache/RedisCache'
 import { resolveSessionKey } from './mcp-context'
@@ -271,12 +272,11 @@ export class InterviewRecruitment {
 
     private isProductCall(params: Record<string, unknown>, state: ResolvedState): boolean {
         const args = params.arguments as Record<string, unknown> | undefined
-        const name =
-            params.name === 'exec'
-                ? typeof args?.command === 'string'
-                    ? parseExecCallInnerToolName(args.command)
-                    : undefined
-                : params.name
+        const name = isExecDispatcher(params.name)
+            ? typeof args?.command === 'string'
+                ? parseExecCallInnerToolName(args.command)
+                : undefined
+            : params.name
         return (
             typeof name === 'string' &&
             name !== 'docs-search' &&

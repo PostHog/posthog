@@ -18,6 +18,10 @@
             "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
             "type": "string"
         },
+        "connected": {
+            "description": "Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.",
+            "type": "string"
+        },
         "count_only": {
             "default": false,
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
@@ -78,12 +82,16 @@
             "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400.",
             "type": "string"
         },
+        "plan": {
+            "description": "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.",
+            "type": "string"
+        },
         "priority": {
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
             "type": "string"
         },
         "ranking_id": {
-            "description": "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.",
+            "description": "For sort=recommended and sort=personal when the ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.",
             "type": "string"
         },
         "ranking_min_lift": {
@@ -111,7 +119,7 @@
             "type": "string"
         },
         "sort": {
-            "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.",
+            "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended and personal put the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in priority order. With scope=teammate they read the teammate's stored ranking, else yours. They only read the stored ranking and never start a build. With no stored personal ranking, or a teammate outside the organization, they give the priority order. The response's ranker field names the order used, and its ranking_pill field says whether to show score pills.",
             "type": "string"
         },
         "source_id": {
@@ -129,6 +137,14 @@
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
             "type": "string"
+        },
+        "tags": {
+            "description": "Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "task_id": {
             "description": "Only reports associated with this task (via the report's task associations).",
@@ -151,7 +167,7 @@
             "type": "boolean"
         },
         "view": {
-            "description": "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
+            "description": "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
             "type": "string"
         }
     },

@@ -17,6 +17,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType, SlackChannelType } from '~/types'
@@ -24,6 +25,8 @@ import { IntegrationType, SlackChannelType } from '~/types'
 import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { integrationsLogic } from './integrationsLogic'
+import { QuillSlackChannelPicker } from './QuillSlackChannelPicker'
+import { QuillSlackChannelPickerNotices } from './QuillSlackChannelPickerNotices'
 import { slackChannelId } from './slackChannel'
 import { slackConnectLogic } from './slackConnectLogic'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
@@ -476,6 +479,7 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         getChannelRefreshButtonDisabledReason,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
+    const quillSurface = useQuillSurface()
     const [localValue, setLocalValue] = useState<string | null>(null)
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
@@ -584,56 +588,95 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         modifiedValues
     )
 
+    const handleSelectionChange = (val: string[]): void => {
+        // LemonInputSelect blurs the input before it reports a selection, so onBlur has
+        // already flagged the search as dropped by the time this runs. Both happen on
+        // one synchronous call stack, so this reset wins and no error renders.
+        clearDroppedSearch()
+        for (const key of val) {
+            // Pin into the by-id slot so the post-select bulk reload can't drop the
+            // channel from slackChannels and unresolve the label.
+            const [channelId] = key.split('|')
+            const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
+            if (channel) {
+                loadSlackChannelByIdSuccess(channel)
+            }
+        }
+        onValuesChange(props.mode === 'multiple' ? val : val.slice(0, 1))
+    }
+
+    const handleInputChange = (val: string): void => {
+        if (val) {
+            // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
+            // resolve via direct lookup. ID-shape input fires only the direct lookup;
+            // anything else fires only the search, skipping the otherwise-redundant
+            // by-id call for a free-text channel name.
+            const idCandidate = val.trim().toUpperCase()
+            if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
+                loadSlackChannelById(idCandidate)
+                setPastedChannelId(idCandidate)
+            } else if (!modifiedValues.includes(val)) {
+                setPastedChannelId(null)
+                // LemonInputSelect auto-fills the input with the selected option's key on
+                // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
+                // search — the composite "id|#name" matches no channel server-side and
+                // would overwrite the cached list with [], so the bare ID could no longer
+                // resolve to a name after blur.
+                loadAllSlackChannels(false, val)
+                hasActiveSearchRef.current = true
+            }
+            hasUnselectedSearchRef.current = true
+            setBlurredWithoutSelection(false)
+            setLocalValue(val)
+        } else if (hasActiveSearchRef.current) {
+            loadAllSlackChannels()
+            hasActiveSearchRef.current = false
+        }
+    }
+
+    const handleFocus = (): void => {
+        if (!slackChannels.length && !allSlackChannelsLoading) {
+            loadAllSlackChannels()
+        }
+    }
+
+    const handleBlur = (): void => setBlurredWithoutSelection(hasUnselectedSearchRef.current)
+
+    if (quillSurface) {
+        return (
+            <>
+                <QuillSlackChannelPicker
+                    values={modifiedValues}
+                    options={options}
+                    multiple={props.mode === 'multiple'}
+                    disabled={disabled}
+                    loading={allSlackChannelsLoading || slackChannelByIdLoading}
+                    invalid={showUnselectedSearchError}
+                    refreshDisabledReason={channelRefreshButtonDisabledReason}
+                    onChange={handleSelectionChange}
+                    onInputChange={handleInputChange}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
+                    onRefresh={() => loadAllSlackChannels(true)}
+                />
+
+                <QuillSlackChannelPickerNotices
+                    integration={integration}
+                    values={values}
+                    showUnselectedSearchError={showUnselectedSearchError}
+                />
+            </>
+        )
+    }
+
     return (
         <>
             <LemonInputSelect
-                onChange={(val) => {
-                    // LemonInputSelect blurs the input before it reports a selection, so onBlur has
-                    // already flagged the search as dropped by the time this runs. Both happen on
-                    // one synchronous call stack, so this reset wins and no error renders.
-                    clearDroppedSearch()
-                    for (const key of val) {
-                        // Pin into the by-id slot so the post-select bulk reload can't drop the
-                        // channel from slackChannels and unresolve the label.
-                        const [channelId] = key.split('|')
-                        const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
-                        if (channel) {
-                            loadSlackChannelByIdSuccess(channel)
-                        }
-                    }
-                    onValuesChange(props.mode === 'multiple' ? val : val.slice(0, 1))
-                }}
-                onInputChange={(val) => {
-                    if (val) {
-                        // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
-                        // resolve via direct lookup. ID-shape input fires only the direct lookup;
-                        // anything else fires only the search, skipping the otherwise-redundant
-                        // by-id call for a free-text channel name.
-                        const idCandidate = val.trim().toUpperCase()
-                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
-                            loadSlackChannelById(idCandidate)
-                            setPastedChannelId(idCandidate)
-                        } else if (!modifiedValues.includes(val)) {
-                            setPastedChannelId(null)
-                            // LemonInputSelect auto-fills the input with the selected option's key on
-                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
-                            // search — the composite "id|#name" matches no channel server-side and
-                            // would overwrite the cached list with [], so the bare ID could no longer
-                            // resolve to a name after blur.
-                            loadAllSlackChannels(false, val)
-                            hasActiveSearchRef.current = true
-                        }
-                        hasUnselectedSearchRef.current = true
-                        setBlurredWithoutSelection(false)
-                        setLocalValue(val)
-                    } else if (hasActiveSearchRef.current) {
-                        loadAllSlackChannels()
-                        hasActiveSearchRef.current = false
-                    }
-                }}
+                onChange={handleSelectionChange}
+                onInputChange={handleInputChange}
                 value={modifiedValues}
-                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
-                onBlur={() => setBlurredWithoutSelection(hasUnselectedSearchRef.current)}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
                 status={showUnselectedSearchError ? 'danger' : 'default'}
                 disabled={disabled}
                 mode={props.mode ?? 'single'}

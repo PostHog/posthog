@@ -31,11 +31,16 @@ import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'rea
 import { createPortal } from 'react-dom'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillVerticalNestedDNDChildItem } from './QuillVerticalNestedDNDChildItem'
+import { QuillVerticalNestedDNDContainer } from './QuillVerticalNestedDNDContainer'
 
 const NOOP = (): void => {}
 export interface VDNDChildItem {
@@ -86,6 +91,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     const lastOverId = useRef<UniqueIdentifier | null>(null)
     const recentlyMovedToNewContainer = useRef(false)
     const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor))
+    const quillSurface = useQuillSurface()
     const isSortingContainer = activeId ? containers.includes(activeId) : false
 
     const debouncedOnChanged = useDebouncedCallback((items: Item[]) => onChange?.(items), 200)
@@ -355,7 +361,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
             }}
             onDragCancel={onDragCancel}
         >
-            <div className="deprecated-space-y-2">
+            <div className={quillSurface ? 'flex flex-col gap-2' : 'deprecated-space-y-2'}>
                 <SortableContext items={containers} strategy={verticalListSortingStrategy}>
                     {containers.map((containerId) => (
                         <DroppableContainer
@@ -394,9 +400,20 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         </DroppableContainer>
                     ))}
                 </SortableContext>
-                <div className="px-[calc(1.5rem+1px)] flex flex-row justify-end deprecated-space-x-2">
+                <div
+                    className={
+                        quillSurface
+                            ? 'flex flex-row flex-wrap justify-end gap-2'
+                            : 'px-[calc(1.5rem+1px)] flex flex-row justify-end deprecated-space-x-2'
+                    }
+                >
                     {renderAddContainerItem ? (
                         renderAddContainerItem({ onAddContainer: handleAddContainerItem })
+                    ) : quillSurface ? (
+                        <Button variant="primary" onClick={handleAddContainerItem}>
+                            <IconPlus />
+                            Add container
+                        </Button>
                     ) : (
                         <LemonButton onClick={handleAddContainerItem} fullWidth={false} type="primary">
                             Add container
@@ -692,7 +709,32 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     }: ContainerProps<Item>,
     ref: React.ForwardedRef<HTMLDivElement>
 ) {
+    const quillSurface = useQuillSurface()
     const Component = onClick ? 'button' : 'div'
+
+    if (quillSurface) {
+        return (
+            <QuillVerticalNestedDNDContainer
+                {...props}
+                ref={ref}
+                handleProps={handleProps}
+                onClick={onClick}
+                onRemove={onRemove}
+                onAddChild={onAddChild}
+                containerItemId={containerItemId}
+                placeholder={placeholder}
+                isDragging={isDragging}
+                transform={transform}
+                transition={transition}
+                renderContainerItem={renderContainerItem}
+                updateContainerItem={updateContainerItem}
+                item={item}
+                renderAddChildItem={renderAddChildItem}
+            >
+                {children}
+            </QuillVerticalNestedDNDContainer>
+        )
+    }
 
     return (
         <Component
@@ -789,6 +831,7 @@ export const ChildItem = React.memo(
         ref
     ): JSX.Element {
         const handle = true
+        const quillSurface = useQuillSurface()
         useEffect(() => {
             if (!dragOverlay) {
                 return
@@ -800,6 +843,23 @@ export const ChildItem = React.memo(
                 document.body.style.cursor = ''
             }
         }, [dragOverlay])
+
+        if (quillSurface) {
+            return (
+                <QuillVerticalNestedDNDChildItem
+                    {...props}
+                    ref={ref}
+                    isDragging={isDragging}
+                    handleProps={handleProps}
+                    listeners={listeners}
+                    onRemove={onRemove}
+                    childItemId={childItemId}
+                    renderChildItem={renderChildItem}
+                    updateChildItem={updateChildItem}
+                    item={item}
+                />
+            )
+        }
 
         return (
             <li

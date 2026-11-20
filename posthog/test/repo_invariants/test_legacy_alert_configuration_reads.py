@@ -60,15 +60,18 @@ READERS: dict[str, str] = {
     "products/logs/backend/management/commands/delete_orphaned_platform_logs_alert_copies.py": (
         "finds copies whose row is gone"
     ),
+    "products/alerts/backend/legacy_history_copy.py": "G1 history copy",
+    "products/logs/backend/legacy_history_copy.py": "G1 history copy",
     "products/alerts/backend/platform_native_cleanup.py": "tells native alerts from copies by row existence (E2)",
     "products/alerts/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/logs/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
-    "products/alerts/backend/platform_source_cycle.py": "check input for copies through `legacy_alerts_of` (D1)",
     "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
-    "products/alerts/backend/platform_insight_alert.py": "builds a copy's check input from its row (D1)",
+    "products/alerts/backend/platform_insight_alert.py": (
+        "investigations and firing signals of a copy load its row (D1 follow-up)"
+    ),
     "products/logs/backend/alert_source_cycle.py": (
         "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
     ),
