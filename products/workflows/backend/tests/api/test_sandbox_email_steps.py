@@ -13,6 +13,7 @@ import responses
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.utils import absolute_uri
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -310,8 +311,13 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert [warning["code"] for warning in detail["warnings"]] == expected
         assert listed["warnings"] == detail["warnings"]
         assert listed_for_mcp["warnings"] == detail["warnings"]
+        setup_url = absolute_uri(f"/project/{self.team.id}/workflows/channels/email/new")
         for warning in detail["warnings"]:
-            assert f"To reach your users, {next_step}. " in warning["message"]
+            assert warning["message"] == (
+                "This live workflow has email steps on the PostHog test sender. They reach only verified members "
+                f"of your organization, and everyone else is skipped. To reach your users, {next_step}. "
+                f"If you don't have a verified sender yet, set up your sending domain: {setup_url}"
+            )
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
     def test_a_stored_sandbox_step_stays_editable_without_the_flag(self, _name: str, in_draft: bool) -> None:
