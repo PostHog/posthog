@@ -211,7 +211,7 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
 
 
 def _organization_deactivated(team_id: Any) -> bool:
-    return Team.objects.filter(pk=team_id, organization__is_active=False).exists()
+    return Team.objects.using("default").filter(pk=team_id, organization__is_active=False).exists()
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -397,12 +397,10 @@ gateway_credential_hypercache = HyperCache(
 )
 
 
-def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
-    """Write (or clear) the credential's policy blob from current DB state."""
-    cache_hash = credential_hash(credential)
-    if not cache_hash:
-        return
+_MAX_PROJECTION_PASSES = 3
 
+
+def _write_or_clear_gateway_credential(credential: Credential, cache_hash: str, memo: "_RefreshMemo | None") -> None:
     policy = _policy_for_credential(credential, memo)
     if isinstance(policy, HyperCacheStoreMissing):
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
@@ -416,8 +414,32 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.
     gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
-    if _organization_deactivated(policy["team_id"]):
-        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+
+
+def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
+    """Write (or clear) the credential's policy blob from current DB state."""
+    cache_hash = credential_hash(credential)
+    if not cache_hash:
+        return
+
+    team = _team_for_credential(credential, memo)
+
+    def deactivated_now() -> bool:
+        return team is not None and _organization_deactivated(team.id)
+
+    for _ in range(_MAX_PROJECTION_PASSES):
+        deactivated = deactivated_now()
+        _write_or_clear_gateway_credential(credential, cache_hash, memo)
+        try:
+            settled = deactivated_now() == deactivated
+        except Exception:
+            try:
+                gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+            except Exception as e:
+                logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
+            raise
+        if settled:
+            return
 
 
 def clear_gateway_credential(credential_or_hash: Credential | str) -> None:

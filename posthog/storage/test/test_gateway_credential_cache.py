@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -360,6 +360,35 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
             real_write(*args, **kwargs)
 
         with patch.object(hypercache, "set_cache_value_redis_only", side_effect=deactivate_then_write):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_a_stale_clear_that_races_a_reactivation_restores_the_blob(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_delete = hypercache.delete_cache_entry
+
+        def reactivate_then_delete(*args, **kwargs):
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=True)
+            return real_delete(*args, **kwargs)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=reactivate_then_delete):
+            project_gateway_credential(credential)
+
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
+    def test_a_write_that_cannot_be_verified_is_cleared(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with (
+            patch.object(
+                gateway_credential_cache,
+                "_organization_deactivated",
+                side_effect=[False, False, OperationalError("database unavailable")],
+            ),
+            self.assertRaises(OperationalError),
+        ):
             project_gateway_credential(credential)
 
         self.assertIsNone(self._read_blob(credential_hash(credential)))
