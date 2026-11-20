@@ -387,6 +387,24 @@ describe('ExperimentImplementationDetails', () => {
             ],
         },
         {
+            setup: 'a warehouse-native exposure',
+            overrides: {
+                exposure_criteria: {
+                    exposure_config: {
+                        kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                        connection_id: 'source-1',
+                        query: 'SELECT customer_id AS entity_id, variant, viewed_at AS timestamp FROM exposures',
+                        unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+                    },
+                },
+            },
+            expected: [
+                '- Exposure source: a data warehouse query with one row per "customer", identified by "billing_customer_id"',
+                'Exposures come from the data warehouse query, not from the flag read.',
+            ],
+            absent: ['a call that records an exposure'],
+        },
+        {
             setup: 'an activation event',
             overrides: {
                 exposure_criteria: {
@@ -425,24 +443,30 @@ describe('ExperimentImplementationDetails', () => {
             overrides: { name: 'x'.repeat(200) },
             expected: [`- Experiment: "${'x'.repeat(79)}…"\n`],
         },
-    ])('tells the agent about $setup', async ({ overrides, expected }) => {
-        useMocks({ get: { '/api/environments/:team_id/groups_types/': MOCK_GROUP_TYPES } })
-        groupsModel.mount()
-        await waitFor(() => expect(groupsModel.values.groupTypes.size).toBeGreaterThan(0))
-        setImplementationArm('test')
-        const { container } = render(
-            <ExperimentImplementationDetails
-                experiment={{ ...experimentWithStatus(ExperimentStatus.Draft), ...overrides } as Experiment}
-                placement="draft_header"
-            />
-        )
+    ] as { setup: string; overrides: Partial<Experiment>; expected: string[]; absent?: string[] }[])(
+        'tells the agent about $setup',
+        async ({ overrides, expected, absent = [] }) => {
+            useMocks({ get: { '/api/environments/:team_id/groups_types/': MOCK_GROUP_TYPES } })
+            groupsModel.mount()
+            await waitFor(() => expect(groupsModel.values.groupTypes.size).toBeGreaterThan(0))
+            setImplementationArm('test')
+            const { container } = render(
+                <ExperimentImplementationDetails
+                    experiment={{ ...experimentWithStatus(ExperimentStatus.Draft), ...overrides } as Experiment}
+                    placement="draft_header"
+                />
+            )
 
-        await clickCopy(container)
+            await clickCopy(container)
 
-        for (const text of expected) {
-            expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining(text), 'snippet')
+            for (const text of expected) {
+                expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining(text), 'snippet')
+            }
+            for (const text of absent) {
+                expect(copyToClipboard).not.toHaveBeenCalledWith(expect.stringContaining(text), 'snippet')
+            }
         }
-    })
+    )
 
     // Codex and Claude Code in VS Code cut a deep link's prompt at 4,000 characters. Long variant keys
     // would push the data warning and the steps past the cut.

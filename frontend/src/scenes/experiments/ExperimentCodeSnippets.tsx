@@ -532,6 +532,11 @@ export interface ExperimentAgentPromptEvent {
     name: string
 }
 
+export interface ExperimentAgentPromptWarehouseExposure {
+    unitType: string
+    idNamespace: string
+}
+
 export interface ExperimentFlagAgentPromptInput {
     experimentName: string
     /** Absolute link to the experiment page, left out of the prompt when null. */
@@ -545,6 +550,7 @@ export interface ExperimentFlagAgentPromptInput {
     activation?: ExperimentAgentPromptEvent | null
     /** The group type the flag is evaluated per, like "company". Null when it is evaluated per person. */
     groupType?: string | null
+    warehouseExposure?: ExperimentAgentPromptWarehouseExposure | null
 }
 
 const AGENT_PROMPT_MAX_CHARS = 3_600
@@ -582,6 +588,7 @@ function composeExperimentFlagAgentPrompt(
         customExposure = null,
         activation = null,
         groupType = null,
+        warehouseExposure = null,
     }: ExperimentFlagAgentPromptInput,
     omitProjectValues: boolean
 ): string {
@@ -599,6 +606,9 @@ function composeExperimentFlagAgentPrompt(
               groupType ? `- Group type: ${quote(groupType)}` : null,
               customExposure ? `- Exposure ${customExposure.kind}: ${quote(customExposure.name)}` : null,
               activation ? `- Activation ${activation.kind}: ${quote(activation.name)}` : null,
+              warehouseExposure
+                  ? `- Exposure source: a data warehouse query with one row per ${quote(warehouseExposure.unitType)}, identified by ${quote(warehouseExposure.idNamespace)}`
+                  : null,
           ]
     const context = [
         `- Experiment: ${quote(clip(experimentName, EXPERIMENT_NAME_MAX_CHARS))}`,
@@ -608,20 +618,26 @@ function composeExperimentFlagAgentPrompt(
         .filter(Boolean)
         .join('\n')
 
-    const exposureStep = customExposure
+    const exposureStep = warehouseExposure
         ? [
-              `Read the flag where users see the change. Users count as exposed when the exposure ${eventNoun(customExposure)} fires there, not on the flag read.`,
-              `Fire it after the flag loads, with the flag's value in its "$feature/<flag key>" property. Add it if the project doesn't send it.`,
-              customExposure.kind === 'action'
-                  ? "Look up the action's events with the PostHog MCP server, or ask me."
-                  : null,
+              'Read the flag where users see the change. Exposures come from the data warehouse query, not from the flag read.',
+              'Each unit that sees the change needs a row with its ID, the variant and a timestamp in the table that query reads. The experiment page shows the query.',
+              'If nothing writes those rows yet, ask me how they get there.',
           ]
-        : [
-              "Read the flag where users see the change, not earlier, with a call that records an exposure, like getFeatureFlag. getAllFlags and payload-only calls don't.",
-              activation
-                  ? `Users count as exposed only once the activation ${eventNoun(activation)} fires after that read. Add it if the project doesn't send it.`
-                  : null,
-          ]
+        : customExposure
+          ? [
+                `Read the flag where users see the change. Users count as exposed when the exposure ${eventNoun(customExposure)} fires there, not on the flag read.`,
+                `Fire it after the flag loads, with the flag's value in its "$feature/<flag key>" property. Add it if the project doesn't send it.`,
+                customExposure.kind === 'action'
+                    ? "Look up the action's events with the PostHog MCP server, or ask me."
+                    : null,
+            ]
+          : [
+                "Read the flag where users see the change, not earlier, with a call that records an exposure, like getFeatureFlag. getAllFlags and payload-only calls don't.",
+                activation
+                    ? `Users count as exposed only once the activation ${eventNoun(activation)} fires after that read. Add it if the project doesn't send it.`
+                    : null,
+            ]
     const testVariantCount = variantKeys.filter((key) => key !== baselineVariantKey).length
     const steps = [
         "Find where users see the change this experiment tests. If it's unclear, ask me.",

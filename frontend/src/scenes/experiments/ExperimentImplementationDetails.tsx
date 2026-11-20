@@ -26,6 +26,7 @@ import {
     AndroidSnippet,
     buildExperimentFlagAgentPrompt,
     type ExperimentAgentPromptEvent,
+    type ExperimentAgentPromptWarehouseExposure,
     FlutterSnippet,
     GolangSnippet,
     IOSSnippet,
@@ -132,6 +133,14 @@ function promptEvent(config: ExperimentExposureConfig | undefined): ExperimentAg
     return { kind: 'action', name: config.name ?? String(config.id) }
 }
 
+function promptWarehouseExposure(
+    config: ExperimentExposureConfig | undefined
+): ExperimentAgentPromptWarehouseExposure | null {
+    return config?.kind === NodeKind.ExperimentWarehouseNativeExposureConfig
+        ? { unitType: config.unit.unit_type, idNamespace: config.unit.id_namespace }
+        : null
+}
+
 function experimentFlagAgentPrompt(
     experiment: Partial<Experiment> | null,
     groupTypes: Map<GroupTypeIndex, GroupType>
@@ -151,6 +160,7 @@ function experimentFlagAgentPrompt(
         activation: promptEvent(getActivationConfig(experiment?.exposure_criteria)),
         groupType:
             groupTypeIndex != null ? (groupTypes.get(groupTypeIndex as GroupTypeIndex)?.group_type ?? null) : null,
+        warehouseExposure: promptWarehouseExposure(experiment?.exposure_criteria?.exposure_config),
     })
 }
 
