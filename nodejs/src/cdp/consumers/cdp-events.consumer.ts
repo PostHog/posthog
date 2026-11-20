@@ -119,7 +119,8 @@ export class CdpEventsConsumer<
             this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: runsOnEvents,
-                // A team's event matches few of its functions. Dropping the rest here skips a filter run per function per event.
+                // Drops a function whose event filter names only other events, so its filter never runs.
+                // filterFunctionInstrumented records a `filtered` metric in that case, so this records the same metric.
                 invocationFilterFn: (fn, globals) => {
                     if (!rejectsEventName(fn.filters, globals.event.event)) {
                         return true

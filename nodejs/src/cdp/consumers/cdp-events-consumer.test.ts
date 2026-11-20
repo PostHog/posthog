@@ -973,12 +973,25 @@ describe('CdpEventsConsumer', () => {
                     expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
                 })
 
-                it('skips the filter of a destination that rejects the event name while another destination runs', async () => {
+                it('skips the filter of a destination and a workflow that reject the event name while another destination runs', async () => {
                     const catchAll = await insertHogFunction({
                         ...HOG_EXAMPLES.simple_fetch,
                         ...HOG_INPUTS_EXAMPLES.simple_fetch,
                         ...HOG_FILTERS_EXAMPLES.no_filters,
                     })
+                    const pageviewFlow = await _insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withSimpleWorkflow({
+                                trigger: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                                },
+                            })
+                            .build()
+                    )
+                    processor['hogFlowManager']['onHogFlowsReloaded'](team.id, [pageviewFlow.id])
                     const prefilter = register.getSingleMetric('cdp_hog_function_prefilter_result') as Counter
                     prefilter.reset()
 
@@ -988,9 +1001,12 @@ describe('CdpEventsConsumer', () => {
                     expect(queued.map((x: any) => x.functionId)).toEqual([catchAll.id])
                     const metrics = mockProducerObserver
                         .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
-                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
-                        .map(({ value }: any) => `${value.metric_name} ${value.count}`)
-                    expect(metrics).toEqual(['filtered 1'])
+                        .filter(({ value }: any) =>
+                            [pageviewFunction.id, pageviewFlow.id].includes(value.app_source_id)
+                        )
+                        .map(({ value }: any) => `${value.app_source} ${value.metric_name} ${value.count}`)
+                        .sort()
+                    expect(metrics).toEqual(['hog_flow filtered 1', 'hog_function filtered 1'])
                     expect((await prefilter.get()).values.map(({ labels }) => labels.result)).not.toContain(
                         'bytecode_execution_skipped__pre_filtered_out'
                     )
