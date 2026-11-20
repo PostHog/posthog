@@ -204,6 +204,30 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreateBodyPrUrlMax = 500
+
+export const signalsMonitorPrCreateBodyNoteDefault = ``
+export const signalsMonitorPrCreateBodyNoteMax = 4000
+
+export const SignalsMonitorPrCreateBody = /* @__PURE__ */ zod.object({
+    pr_url: zod
+        .url()
+        .max(signalsMonitorPrCreateBodyPrUrlMax)
+        .describe(
+            'GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.'
+        ),
+    note: zod
+        .string()
+        .max(signalsMonitorPrCreateBodyNoteMax)
+        .default(signalsMonitorPrCreateBodyNoteDefault)
+        .describe(
+            'Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.'
+        ),
+})
+
 export const signalsOnboardingCreateBodyScannerIdsMax = 100
 
 export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200

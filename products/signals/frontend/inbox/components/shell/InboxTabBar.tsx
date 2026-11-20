@@ -15,9 +15,12 @@ import { INBOX_TAB_KEYS, INBOX_TAB_LABEL, InboxTabKey } from '../../types'
  */
 export function InboxTabBar(): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
+    const monitorPR = useFeatureFlag('SIGNALS_MONITOR_PR')
 
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
-    const tabs = INBOX_TAB_KEYS.filter((key) => key !== 'monitoring' || monitoringEnabled).map((key) => ({
+    const tabs = INBOX_TAB_KEYS.filter(
+        (key) => (key !== 'prs' || monitorPR) && (key !== 'monitoring' || monitoringEnabled)
+    ).map((key) => ({
         key,
         label: INBOX_TAB_LABEL[key],
         content: <></>,

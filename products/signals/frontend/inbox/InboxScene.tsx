@@ -20,6 +20,7 @@ import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDe
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
+import { PullRequestsTab } from './components/pullRequests/PullRequestsTab'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
@@ -84,6 +85,9 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
                     <LazyMonitoringTab />
                 </React.Suspense>
             )
+
+        case 'prs':
+            return <PullRequestsTab />
         case 'scouts':
             return <ScoutsRoster />
         case 'sources':
@@ -110,7 +114,7 @@ function InboxListView(): JSX.Element {
     // Keep Settings attributed to `config` so existing panel breakdowns remain continuous.
     const panelViewFiredRef = useRef<InboxTabKey | null>(null)
     useEffect(() => {
-        if ((activeTab !== 'settings' && activeTab !== 'sources') || onboarding || pending) {
+        if ((activeTab !== 'settings' && activeTab !== 'sources' && activeTab !== 'prs') || onboarding || pending) {
             panelViewFiredRef.current = null
             return
         }
@@ -118,7 +122,7 @@ function InboxListView(): JSX.Element {
             return
         }
         panelViewFiredRef.current = activeTab
-        captureInboxPanelViewed({ panel: activeTab === 'settings' ? 'config' : 'sources' })
+        captureInboxPanelViewed({ panel: activeTab === 'settings' ? 'config' : activeTab })
     }, [activeTab, onboarding, pending])
 
     return (

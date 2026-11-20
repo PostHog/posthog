@@ -7,6 +7,26 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    inbox-monitor-pr:
+        operation: signals_monitor_pr_create
+        enabled: true
+        title: Monitor PR
+        description: >
+            Start a sandbox agent to inspect a GitHub pull request, identify its key impact metric from this project's
+            data, and create an inbox report assigned to the person calling this tool. Works with any PR author when
+            the project's GitHub integrations can access the base repository. Research starts immediately for open
+            and merged PRs. Monitoring starts after research has produced a measurable check and the PR has merged;
+            open PRs wait for merge. Optionally include a note about what the person specifically wants monitored.
+            Infer that context from the conversation or ask when it matters; otherwise omit the note and let the
+            research agent choose the metric. If no meaningful metric is available, the report explains what is
+            missing and waits for input. Returns the report link and current status, not the completed research.
+            Safe to retry: the same person and PR in this project return the original report and retain its note.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        feature_flag: signals-monitor-pr
+        feature_flag_behavior: enable
     activity-summary-get:
         operation: signals_activity_summary_list
         enabled: true

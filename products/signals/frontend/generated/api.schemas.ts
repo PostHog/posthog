@@ -1140,6 +1140,78 @@ export interface InboxSummaryApi {
     people: InboxSummaryPersonApi[] | null
 }
 
+export interface MonitorPRRequestApi {
+    /**
+     * GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.
+     * @maxLength 500
+     */
+    pr_url: string
+    /**
+     * Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+/**
+ * * `potential` - Potential
+ * * `candidate` - Candidate
+ * * `in_progress` - In Progress
+ * * `pending_input` - Pending Input
+ * * `ready` - Ready
+ * * `monitoring` - Monitoring
+ * * `resolved` - Resolved
+ * * `closed` - Closed
+ * * `failed` - Failed
+ * * `deleted` - Deleted
+ * * `suppressed` - Suppressed
+ */
+export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+
+export const SignalReportStatusEnumApi = {
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    PendingInput: 'pending_input',
+    Ready: 'ready',
+    Monitoring: 'monitoring',
+    Resolved: 'resolved',
+    Closed: 'closed',
+    Failed: 'failed',
+    Deleted: 'deleted',
+    Suppressed: 'suppressed',
+} as const
+
+export interface MonitorPRResponseApi {
+    /** The report assigned to the person who requested monitoring. */
+    report_id: string
+    /** Open the report to follow research and monitoring. */
+    report_url: string
+    /** Current report status. Research runs asynchronously; monitoring starts after research and PR merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** True when this person already requested monitoring for this PR in this project. The original note is retained. */
+    idempotent_replay: boolean
+}
+
+export interface MonitorPRUnavailableApi {
+    /** Why PR research could not start and whether to retry. */
+    detail: string
+    /** The saved report, if creation succeeded before dispatch failed. */
+    report_id?: string
+}
+
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
     scout_run_id?: string
@@ -1989,6 +2061,129 @@ export interface PauseResponseApi {
 }
 
 /**
+ * * `open` - Open
+ * * `closed` - Closed
+ * * `merged` - Merged
+ */
+export type PRStateEnumApi = (typeof PRStateEnumApi)[keyof typeof PRStateEnumApi]
+
+export const PRStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export interface PRBrowserReportApi {
+    /** Monitoring report assigned to the caller. */
+    id: string
+    /** Current report status, including research and waiting for merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+}
+
+export interface PRBrowserItemApi {
+    /** GitHub URL. */
+    url: string
+    /** Repository registered with this project, in owner/name format. */
+    repository: string
+    /** GitHub pull request number. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Current GitHub pull request state.
+     *
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: PRStateEnumApi
+    /** Whether this is a draft pull request. */
+    draft: boolean
+    /** GitHub login of the author. */
+    author: string
+    /** When the PR was opened. */
+    created_at: string
+    /** When GitHub last updated the PR. */
+    updated_at: string
+    /** The caller’s monitoring report, or null when not requested. */
+    report: PRBrowserReportApi | null
+}
+
+export interface PRBrowserPageApi {
+    /** Authored pull requests ordered by creation time, newest first. */
+    results: PRBrowserItemApi[]
+    /**
+     * Opaque continuation cursor, or null at the end of the available history.
+     * @nullable
+     */
+    next_cursor: string | null
+    /**
+     * The caller’s connected GitHub identity, or null if not connected.
+     * @nullable
+     */
+    github_login: string | null
+    /** Whether the project has a GitHub installation. */
+    has_integration: boolean
+    /** Whether GitHub returned incomplete results or its search history limit was reached. */
+    incomplete: boolean
+}
+
+export interface PRBrowserUnavailableApi {
+    /** Why the GitHub request could not complete. */
+    detail: string
+}
+
+export interface PRBrowserCheckApi {
+    /** GitHub check name. */
+    name: string
+    /** Current GitHub check status, such as queued, in_progress or completed. */
+    status: string
+    /**
+     * Check conclusion when finished, otherwise null.
+     * @nullable
+     */
+    conclusion: string | null
+    /**
+     * GitHub URL.
+     * @nullable
+     */
+    url: string | null
+}
+
+export interface PRBrowserOverviewApi {
+    /** Current PR metadata and the caller’s monitoring report. */
+    pull_request: PRBrowserItemApi
+    /** Pull request description in Markdown. */
+    body: string
+    /** Source branch. */
+    head_branch: string
+    /** Target branch. */
+    base_branch: string
+    /** Lines added. */
+    additions: number
+    /** Lines deleted. */
+    deletions: number
+    /** Number of changed files. */
+    changed_files: number
+    /** Checks and commit statuses for the PR head. */
+    checks: PRBrowserCheckApi[]
+    /** False when CI checks could not be read through this installation. */
+    checks_available: boolean
+    /** Whether GitHub reports merge conflicts. */
+    has_conflicts: boolean
+}
+
+/**
  * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
  * @nullable
  */
@@ -2046,35 +2241,6 @@ export interface ReviewerControlResponseApi {
     /** Whether this report uses saved reviewer corrections. */
     enabled: boolean
 }
-
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `monitoring` - Monitoring
- * * `resolved` - Resolved
- * * `closed` - Closed
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
-
-export const SignalReportStatusEnumApi = {
-    Potential: 'potential',
-    Candidate: 'candidate',
-    InProgress: 'in_progress',
-    PendingInput: 'pending_input',
-    Ready: 'ready',
-    Monitoring: 'monitoring',
-    Resolved: 'resolved',
-    Closed: 'closed',
-    Failed: 'failed',
-    Deleted: 'deleted',
-    Suppressed: 'suppressed',
-} as const
 
 /**
  * * `claude` - Claude
@@ -13792,6 +13958,42 @@ export type SignalsProcessingListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsPullRequestsListParams = {
+    /**
+     * Continuation cursor from the previous page, bound to this user, project and filter.
+     * @minLength 1
+     * @maxLength 8000
+     */
+    cursor?: string
+    /**
+     * Filter by whether the caller has requested monitoring, including research and waiting for merge.
+     *
+     * * `all` - All
+     * * `monitored` - Monitored
+     * * `unmonitored` - Unmonitored
+     * @minLength 1
+     */
+    monitoring?: SignalsPullRequestsListMonitoring
+}
+
+export type SignalsPullRequestsListMonitoring =
+    (typeof SignalsPullRequestsListMonitoring)[keyof typeof SignalsPullRequestsListMonitoring]
+
+export const SignalsPullRequestsListMonitoring = {
+    All: 'all',
+    Monitored: 'monitored',
+    Unmonitored: 'unmonitored',
+} as const
+
+export type SignalsPullRequestsOverviewRetrieveParams = {
+    /**
+     * URL of a pull request in a repository registered with the project.
+     * @minLength 1
+     * @maxLength 500
+     */
+    pr_url: string
 }
 
 export type SignalsReportsListParams = {

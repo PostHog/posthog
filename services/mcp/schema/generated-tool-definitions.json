@@ -8984,6 +8984,23 @@
             "readOnlyHint": true
         }
     },
+    "inbox-monitor-pr": {
+        "description": "Start a sandbox agent to inspect a GitHub pull request, identify its key impact metric from this project's data, and create an inbox report assigned to the person calling this tool. Works with any PR author when the project's GitHub integrations can access the base repository. Research starts immediately for open and merged PRs. Monitoring starts after research has produced a measurable check and the PR has merged; open PRs wait for merge. Optionally include a note about what the person specifically wants monitored. Infer that context from the conversation or ask when it matters; otherwise omit the note and let the research agent choose the metric. If no meaningful metric is available, the report explains what is missing and waits for input. Returns the report link and current status, not the completed research. Safe to retry: the same person and PR in this project return the original report and retain its note.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Monitor PR",
+        "title": "Monitor PR",
+        "required_scopes": ["inbox:write", "task:write", "query:read", "event_definition:read"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/monitor_pr/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-monitor-pr",
+        "feature_flag_behavior": "enable"
+    },
     "inbox-my-settings-get": {
         "description": "Get the personal inbox overrides of the authenticated user. These overrides replace the project defaults for this user only: the minimum priority at which PostHog opens pull requests for reports that suggest the user as reviewer (`autostart_priority`), whether those pull requests open ready for review (`github_open_pull_request_ready`), whether the user becomes a GitHub assignee on them (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A null field follows the project default. `has_overrides: false` means the user saved no overrides, so the project defaults apply to every setting.",
         "category": "Signals",

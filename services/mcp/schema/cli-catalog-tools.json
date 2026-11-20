@@ -26805,6 +26805,47 @@
             "validators": []
         }
     },
+    "inbox-monitor-pr": {
+        "name": "inbox-monitor-pr",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/monitor_pr/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "pr_url",
+                    "key": "pr_url"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-my-settings-get": {
         "name": "inbox-my-settings-get",
         "kind": "http",

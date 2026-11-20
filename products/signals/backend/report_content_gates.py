@@ -105,6 +105,10 @@ def organization_inbox_card_links_enabled(organization_id: UUID) -> bool:
     )
 
 
+def team_pr_monitoring_enabled(team_id: int) -> bool:
+    return _team_flag_enabled("signals-monitor-pr", team_id, enable_in_debug=False)
+
+
 def team_research_reviewer_selection_enabled(team_id: int) -> bool:
     return _team_flag_enabled(RESEARCH_REVIEWER_SELECTION_FLAG, team_id)
 

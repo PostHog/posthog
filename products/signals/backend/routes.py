@@ -5,7 +5,9 @@ from products.signals.backend.presentation.activity_summary import ActivitySumma
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
 from products.signals.backend.presentation.inbox_status import InboxStatusViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
+from products.signals.backend.presentation.monitor_pr import MonitorPRViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
+from products.signals.backend.presentation.pr_browser import PRBrowserViewSet
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.presentation.spend import (
@@ -31,6 +33,8 @@ from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"signals/pull_requests", PRBrowserViewSet, "project_signals_pull_requests", ["team_id"])
+    routers.projects.register(r"signals/monitor_pr", MonitorPRViewSet, "project_signals_monitor_pr", ["team_id"])
     routers.projects.register(r"signals/usage", SignalMonthlyUsageViewSet, "project_signals_usage", ["team_id"])
     routers.projects.register(r"signals/spend", SignalSpendViewSet, "project_signals_spend", ["team_id"])
     routers.projects.register(

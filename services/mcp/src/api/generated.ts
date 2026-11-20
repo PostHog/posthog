@@ -76154,6 +76154,49 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface MonitorPRRequest {
+      /**
+         * GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.
+         * @maxLength 500
+         */
+      pr_url: string;
+      /**
+         * Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.
+         * @maxLength 4000
+         */
+      note?: string;
+    }
+
+    export interface MonitorPRResponse {
+      /** The report assigned to the person who requested monitoring. */
+      report_id: string;
+      /** Open the report to follow research and monitoring. */
+      report_url: string;
+      /** Current report status. Research runs asynchronously; monitoring starts after research and PR merge.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** True when this person already requested monitoring for this PR in this project. The original note is retained. */
+      idempotent_replay: boolean;
+    }
+
+    export interface MonitorPRUnavailable {
+      /** Why PR research could not start and whether to retry. */
+      detail: string;
+      /** The saved report, if creation succeeded before dispatch failed. */
+      report_id?: string;
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -79662,6 +79705,116 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface PRBrowserCheck {
+      /** GitHub check name. */
+      name: string;
+      /** Current GitHub check status, such as queued, in_progress or completed. */
+      status: string;
+      /**
+         * Check conclusion when finished, otherwise null.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * GitHub URL.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    export interface PRBrowserReport {
+      /** Monitoring report assigned to the caller. */
+      id: string;
+      /** Current report status, including research and waiting for merge.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+    }
+
+    export interface PRBrowserItem {
+      /** GitHub URL. */
+      url: string;
+      /** Repository registered with this project, in owner/name format. */
+      repository: string;
+      /** GitHub pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Current GitHub pull request state.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
+      /** Whether this is a draft pull request. */
+      draft: boolean;
+      /** GitHub login of the author. */
+      author: string;
+      /** When the PR was opened. */
+      created_at: string;
+      /** When GitHub last updated the PR. */
+      updated_at: string;
+      /** The caller’s monitoring report, or null when not requested. */
+      report: PRBrowserReport | null;
+    }
+
+    export interface PRBrowserOverview {
+      /** Current PR metadata and the caller’s monitoring report. */
+      pull_request: PRBrowserItem;
+      /** Pull request description in Markdown. */
+      body: string;
+      /** Source branch. */
+      head_branch: string;
+      /** Target branch. */
+      base_branch: string;
+      /** Lines added. */
+      additions: number;
+      /** Lines deleted. */
+      deletions: number;
+      /** Number of changed files. */
+      changed_files: number;
+      /** Checks and commit statuses for the PR head. */
+      checks: PRBrowserCheck[];
+      /** False when CI checks could not be read through this installation. */
+      checks_available: boolean;
+      /** Whether GitHub reports merge conflicts. */
+      has_conflicts: boolean;
+    }
+
+    export interface PRBrowserPage {
+      /** Authored pull requests ordered by creation time, newest first. */
+      results: PRBrowserItem[];
+      /**
+         * Opaque continuation cursor, or null at the end of the available history.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /**
+         * The caller’s connected GitHub identity, or null if not connected.
+         * @nullable
+         */
+      github_login: string | null;
+      /** Whether the project has a GitHub installation. */
+      has_integration: boolean;
+      /** Whether GitHub returned incomplete results or its search history limit was reached. */
+      incomplete: boolean;
+    }
+
+    export interface PRBrowserUnavailable {
+      /** Why the GitHub request could not complete. */
+      detail: string;
+    }
 
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
@@ -148925,6 +149078,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsPullRequestsListParams = {
+    /**
+     * Continuation cursor from the previous page, bound to this user, project and filter.
+     * @minLength 1
+     * @maxLength 8000
+     */
+    cursor?: string;
+    /**
+     * Filter by whether the caller has requested monitoring, including research and waiting for merge.
+     *
+     * * `all` - All
+     * * `monitored` - Monitored
+     * * `unmonitored` - Unmonitored
+     * @minLength 1
+     */
+    monitoring?: SignalsPullRequestsListMonitoring;
+    };
+
+    export type SignalsPullRequestsListMonitoring = typeof SignalsPullRequestsListMonitoring[keyof typeof SignalsPullRequestsListMonitoring];
+
+
+    export const SignalsPullRequestsListMonitoring = {
+      All: 'all',
+      Monitored: 'monitored',
+      Unmonitored: 'unmonitored',
+    } as const;
+
+    export type SignalsPullRequestsOverviewRetrieveParams = {
+    /**
+     * URL of a pull request in a repository registered with the project.
+     * @minLength 1
+     * @maxLength 500
+     */
+    pr_url: string;
     };
 
     export type SignalsReportsListParams = {

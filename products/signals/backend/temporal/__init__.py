@@ -115,6 +115,12 @@ from products.signals.backend.temporal.inbox_notification import (
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
 )
+from products.signals.backend.temporal.monitor_pr import (
+    MonitorPRWorkflow,
+    fail_monitored_pr_activity,
+    refresh_monitored_pr_activity,
+    research_monitored_pr_activity,
+)
 from products.signals.backend.temporal.monitoring_assessment import (
     MonitoringAssessmentWorkflow,
     exhaust_monitoring_assessment_activity,
@@ -171,6 +177,7 @@ if TYPE_CHECKING:
     from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
+    MonitorPRWorkflow,
     MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
@@ -198,6 +205,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES: list[ActivityDefinition] = [
+    research_monitored_pr_activity,
+    fail_monitored_pr_activity,
+    refresh_monitored_pr_activity,
     assigned_signal_ids_activity,
     delete_expired_grouping_records_activity,
     delete_expired_spend_activity,

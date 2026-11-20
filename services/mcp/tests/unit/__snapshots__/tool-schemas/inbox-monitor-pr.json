@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "note": {
+            "default": "",
+            "description": "Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "pr_url": {
+            "description": "GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.",
+            "format": "uri",
+            "maxLength": 500,
+            "type": "string"
+        }
+    },
+    "required": ["pr_url"],
+    "type": "object"
+}
