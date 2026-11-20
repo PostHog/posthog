@@ -951,7 +951,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions, asyncActions, cache }) => ({
+    listeners(({ props, values, actions, asyncActions, cache, isMounted }) => ({
         // Person properties load after the editor starts, and the editor only reads its options once.
         loadPersonPropertyDefinitionsSuccess: () => {
             const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
@@ -1221,8 +1221,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         flushPendingDesignEdit: async () => {
             const editor = values.emailEditorRef?.editor
-            // An inline new editor commits edits as they happen too, and flushes them when it loses focus.
-            const commitsLive = props.liveChanges || (props.layout === 'inline' && values.documentEditorOffered)
+            // An inline editor commits edits as they happen too.
+            const commitsLive = props.liveChanges || props.layout === 'inline'
             if (!editor) {
                 actions.setLatestEditUnsaved(false)
                 return
@@ -1245,6 +1245,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         EDITOR_READ_TIMEOUT_MS
                     )
                 } catch (error) {
+                    if (!isMounted()) {
+                        return
+                    }
                     posthog.captureException(error)
                     // With no edit reported, a canvas that can't be read counts as unchanged, so it never traps the email.
                     if (!cache.pendingDesignEdit && !values.latestEditUnsaved) {
@@ -1252,6 +1255,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     }
                     cache.flushFailed = true
                     actions.setLatestEditUnsaved(true)
+                    return
+                }
+                // The editor closed while it was read. Its earlier edits are already in the form.
+                if (!isMounted()) {
                     return
                 }
                 if (cache.designEdits !== editsBeforeExport) {
@@ -1488,9 +1495,20 @@ function escapeHTMLStringCurlies(htmlString: string): string {
  * Runs a save once the open email editor has handed over its last edit. When that edit can't be read out of the
  * editor, the save would store an older email, so it doesn't run and the person is told.
  */
+let emailSaveRunning = false
+
 export async function saveWithLatestEmailEdit(save: () => void): Promise<void> {
-    if (await latestEmailEditSaved()) {
-        save()
+    // The save button shows no spinner while the editor is read, so a second click must not save twice.
+    if (emailSaveRunning) {
+        return
+    }
+    emailSaveRunning = true
+    try {
+        if (await latestEmailEditSaved()) {
+            save()
+        }
+    } finally {
+        emailSaveRunning = false
     }
 }
 
@@ -1501,6 +1519,9 @@ export async function latestEmailEditSaved(): Promise<boolean> {
         return true
     }
     await templater.asyncActions.flushPendingDesignEdit()
+    if (!templater.isMounted()) {
+        return true
+    }
     if (templater.values.latestEditUnsaved) {
         showEmailSaveFailed()
         return false

@@ -4931,8 +4931,12 @@ export const workflowLogic = kea<workflowLogicType>([
             // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
             if (emailTemplaterLogic.findMounted()) {
                 actions.setDraftActionPending('publish')
-                const emailEditSaved = await latestEmailEditSaved()
-                actions.setDraftActionPending(null)
+                let emailEditSaved: boolean
+                try {
+                    emailEditSaved = await latestEmailEditSaved()
+                } finally {
+                    actions.setDraftActionPending(null)
+                }
                 if (!emailEditSaved) {
                     return
                 }
