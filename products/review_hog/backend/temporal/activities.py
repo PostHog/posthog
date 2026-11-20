@@ -592,6 +592,8 @@ class PublishInput:
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
     capped_lens_parts: int | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass
@@ -751,6 +753,8 @@ class GatePushInput:
     delta_band: bool = False
     # A coordinated PR always records the control arm of the delta split, so evaluations leave these PRs out.
     coordinator: bool = False
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass(frozen=False)
@@ -2332,7 +2336,12 @@ def _publish(input: PublishInput) -> PublishResult:
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
-        cadence = ReviewCadence.load(input.team_id, f"{input.owner}/{input.repo}")
+        cadence = ReviewCadence.load(
+            input.team_id,
+            f"{input.owner}/{input.repo}",
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+        )
         if cadence is not None and cadence.ends_after_ready_review():
             ready_notice = last_review_notice(comment_commands_on)
     intro_note = first_review_note(
@@ -2671,7 +2680,12 @@ def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draf
 
 def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact | None, draft: bool | None) -> bool:
     """Rule 0: whether the repository's review cadence has a review for this turn. An unknown cadence reviews."""
-    cadence = ReviewCadence.load(input.team_id, input.repository)
+    cadence = ReviewCadence.load(
+        input.team_id,
+        input.repository,
+        installation_id=input.installation_id,
+        github_repo_id=input.github_repo_id,
+    )
     if cadence is None or cadence.review_pushes:
         return True
     reviewed_draft = (

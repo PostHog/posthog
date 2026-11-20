@@ -20,7 +20,7 @@ failed read reviews the push.
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewRepository
-from products.review_hog.backend.ownership import RepositoryOwnership
+from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 
 READY_FOR_REVIEW_ACTION = "ready_for_review"
 
@@ -38,13 +38,26 @@ class ReviewCadence:
         return cls(review_drafts=row.review_drafts, review_pushes=row.review_pushes)
 
     @classmethod
-    def load(cls, team_id: int, repository: str) -> "ReviewCadence | None":
-        """The cadence of a repository known only by name, or None when the name finds no owner in this project.
+    def load(
+        cls,
+        team_id: int,
+        repository: str,
+        *,
+        installation_id: str | None = None,
+        github_repo_id: int | None = None,
+    ) -> "ReviewCadence | None":
+        """The cadence of a repository, or None when it finds no owner in this project. Callers treat None as unknown.
 
-        The dispatch also matches a repository by GitHub's id, so a renamed repository can reach a turn whose
-        name no longer finds its row. Callers treat None as unknown.
+        Pass the installation id and GitHub's repository id when the turn has them, as the dispatch does. A lookup
+        by name alone misses when the integration's cached account name is a placeholder or the repository was
+        renamed, and a miss lets the turn run.
         """
-        owner = RepositoryOwnership.find_by_name(repository)
+        if installation_id:
+            owner = RepositoryOwnership.find(
+                RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=repository)
+            )
+        else:
+            owner = RepositoryOwnership.find_by_name(repository)
         if owner is None or owner.team_id != team_id:
             return None
         return cls.of(owner.row)

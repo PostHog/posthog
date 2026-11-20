@@ -122,6 +122,16 @@ def _stamphog_connected(team_id: int) -> bool:
         return False
 
 
+def _auto_approval_repositories(team_id: int) -> frozenset[str]:
+    # Reads the stamphog product DB like `_stamphog_connected`, so a stamphog outage hides the Deep review
+    # switches instead of failing the repository overview.
+    try:
+        return reviewable_repositories(team_id)
+    except Exception:
+        logger.exception("review_hog_auto_approval_repositories_failed")
+        return frozenset()
+
+
 def _user_preferences(team_id: int, preferences: ReviewPreferences) -> ReviewUserPreferences:
     return ReviewUserPreferences(
         default_review_mode=preferences.default_review_mode,
@@ -487,7 +497,7 @@ def get_review_repository_overview(
     folds = view == RepositoryOverviewView.DIFFERS or (view == RepositoryOverviewView.ALL and not search.strip())
     folded = overview.folded() if folds else []
     claim = repositories.claim_for(installation_id)
-    auto_approval = reviewable_repositories(team_id)
+    auto_approval = _auto_approval_repositories(team_id)
     return ReviewRepositoryOverviewPage(
         installation_id=installation_id,
         claim_scope=ReviewInstallationClaimScope(claim.scope) if claim is not None else None,

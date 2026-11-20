@@ -432,6 +432,27 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             assert (stored.full_name, stored.github_repo_id) == ("example-org/web", other_row_repo_id)
 
     @patch(
+        "products.review_hog.backend.facade.api.reviewable_repositories",
+        side_effect=RuntimeError("stamphog unavailable"),
+    )
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_overview_lists_the_repositories_when_stamphog_is_unavailable(
+        self, _cached: object, _reviewable: object
+    ) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+
+        res = self.client.get(self._url(f"repository_overview/?installation_id={INSTALLATION}"))
+
+        assert res.status_code == 200, res.json()
+        assert {entry["full_name"]: entry["auto_approval"] for entry in res.json()["results"]} == {
+            "example-org/web": False,
+            "example-org/api": False,
+            "example-org/docs": False,
+        }
+
+    @patch(
         "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
     )
     def test_overview_joins_the_cached_list_with_ownership_and_my_result(self, _cached: object) -> None:

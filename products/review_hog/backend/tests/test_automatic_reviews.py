@@ -38,6 +38,7 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
 from products.review_hog.backend.receivers import queue_stamphog_handoff
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
@@ -628,6 +629,22 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         assert start.call_args.kwargs["trigger_action"] == action
         assert _dispatch_count("started") - started_before == 1.0
+
+    @parameterized.expand(
+        [
+            ("by_installation", _INSTALLATION_ID, ReviewCadence(review_drafts=False, review_pushes=False)),
+            ("by_name_only", None, None),
+        ]
+    )
+    def test_the_cadence_lookup_finds_the_repository_by_installation_when_the_account_name_is_a_placeholder(
+        self, _name: str, installation_id: str | None, expected: ReviewCadence | None
+    ) -> None:
+        self.integration.config = {"installation_id": _INSTALLATION_ID, "account": {"name": "placeholder"}}
+        self.integration.save(update_fields=["config"])
+
+        cadence = ReviewCadence.load(self.team.id, "PostHog/posthog", installation_id=installation_id)
+
+        assert cadence == expected
 
     @parameterized.expand(
         [
