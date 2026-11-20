@@ -193,7 +193,7 @@ class TestChunkedRunLog(SimpleTestCase):
             chunk_count = append_run_log_chunk(_chunked_log(0), [{"type": "session"}], lock_attempts=1, batch_id=None)
 
         self.assertEqual(chunk_count, 101)
-        self.assertEqual(bucket["list_object_summaries"].call_count, 1)
+        bucket["list_object_summaries"].assert_not_called()
 
     def test_version_checks_only_chunks_past_the_count(self) -> None:
         bucket = self._bucket(7)
