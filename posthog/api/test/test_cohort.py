@@ -1186,8 +1186,8 @@ email@example.org
         self.assertIsNone(cohort.population_marker)
         self.assertIsNone(cohort.population_claimed_at)
         self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [])
-        # The interrupted replace left orphaned _offset = 1 rows in ClickHouse; the blocker filter makes
-        # adds and appends ignore them if the cohort is ever populated statically again.
+        # Adds and appends skip _offset = 1 rows until a replace finishes, so they ignore these if the cohort is
+        # populated statically again.
 
     def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
@@ -6625,7 +6625,7 @@ email@example.org,
             )
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.json())
-        self.assertEqual(response["Retry-After"], "20")
+        self.assertEqual(response["Retry-After"], "9")
         self.assertIn("This cohort is being replaced. Try again shortly.", response.json()["detail"])
         self.assertEqual(count_cohort_members(self.team.pk, static_cohort.pk, consistency="strong"), 0)
 

@@ -889,8 +889,9 @@ STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
 # UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE. With insert_quorum_parallel=0, a quorum insert fails up front while another
 # quorum insert to the table still waits for its quorum, before it writes anything, so retrying it can't duplicate rows.
 CLICKHOUSE_QUORUM_LOCKED_CODE = 286
-# Adds wait up to ~20 s for an active replace's quorum insert to finish before failing retryably with 503.
-QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5, 3, 5, 10)
+# Adds wait up to ~9 s for an active replace's quorum insert to finish before failing retryably with 503,
+# keeping the workflow endpoint inside Node's 15 s per-attempt timeout (computed: 2 s lock wait + 9 s retries + work).
+QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5, 3, 4)
 # Short in-process retries for a replace insert colliding with a quick quorum add; prolonged contention falls through
 # to the Celery task retry, which mints a fresh marker instead of burning the task's time limit re-running SELECT.
 REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS = (1, 3)

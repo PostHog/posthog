@@ -113,6 +113,6 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
             response = self._post()
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
-        assert response["Retry-After"] == "20"
+        assert response["Retry-After"] == "9"
         assert response.json()["detail"] == "This cohort is being replaced. Try again shortly."
         assert count_cohort_members(team_id=self.team.id, cohort_id=self.cohort.id, consistency="strong") == 0

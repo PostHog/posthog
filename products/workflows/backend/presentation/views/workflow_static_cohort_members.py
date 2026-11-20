@@ -31,7 +31,7 @@ class WorkflowStaticCohortReplacingUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "static_cohort_replacing"
     default_detail = "This cohort is being replaced. Try again shortly."
-    wait = 20
+    wait = 9
 
 
 class WorkflowStaticCohortMemberResponseSerializer(serializers.Serializer):
@@ -102,10 +102,11 @@ class WorkflowStaticCohortMemberViewSet(viewsets.GenericViewSet):
             return _respond("The cohort was deleted or isn't static.", status.HTTP_409_CONFLICT)
 
         # The insert checks for an existing member and then writes, so two runs for the same person must not
-        # overlap. Otherwise both see no member and the person is stored twice. The 60 s timeout outlives the
-        # ~20 s quorum-lock retry budget plus person resolution and Postgres writes.
+        # overlap. Otherwise both see no member and the person is stored twice. blocking_timeout=2 keeps the
+        # computed worst case (2 s lock wait + 9 s quorum-lock retries + resolution/writes) under Node's 15 s
+        # per-attempt abort, while timeout=60 still outlives the whole insert.
         lock = get_client().lock(
-            f"workflow-static-cohort-member:{team_id}:{cohort_id}:{person_uuid}", timeout=60, blocking_timeout=5
+            f"workflow-static-cohort-member:{team_id}:{cohort_id}:{person_uuid}", timeout=60, blocking_timeout=2
         )
         try:
             with lock:

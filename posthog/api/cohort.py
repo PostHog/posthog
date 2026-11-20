@@ -723,7 +723,7 @@ class StaticCohortReplacingUnavailable(APIException):
         "This cohort is being replaced. Try again shortly. "
         "Members from earlier batches in this request may already be added."
     )
-    wait = 20
+    wait = 9
 
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
