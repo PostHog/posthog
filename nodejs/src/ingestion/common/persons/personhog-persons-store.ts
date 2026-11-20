@@ -967,7 +967,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
-            if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
+            if (invalid) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
                 throw error
             }
@@ -975,10 +975,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // refusal from a later saga step is a parked op, so it takes the
             // no-verdict path below, whose retries attach and resume it; if
             // they give up, the lifecycle sweeper settles it.
-            if (
-                error instanceof ConnectError &&
-                error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
-            ) {
+            if (opIdReused) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
@@ -1143,6 +1140,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
+    /** Lanes are kept, because the ops of a destroyed person reach the survivor through the redirect. */
     private purgeAfterMerge(
         teamId: number,
         distinctIds: string[],
@@ -1665,10 +1663,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                     `the same person; failing the flush to redeliver`
             )
         }
-        if (!purged) {
-            if (this.resolutions.has(distinctKey)) {
-                this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
-            }
+        // A key that no batch recorded gets no edge here, because nothing would ever release that edge.
+        if (!purged && this.resolutions.has(distinctKey)) {
+            this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
         }
         this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_survivor')
         // Ops travel as they stand, deletions included, matching Postgres.

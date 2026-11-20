@@ -431,7 +431,14 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.id).toBe('7')
     })
 
-    it('a prefetch answer that outlives a failed leader read still honors a merge purge', async () => {
+    it.each([
+        ['is recorded when nothing purged its person', (): void => {}, '1:9'],
+        [
+            'is declined when a merge purged its person',
+            (): void => (store as any).purgeAfterMerge(1, ['elsewhere'], new Set(['1:9']), 'merge_verdict', true),
+            undefined,
+        ],
+    ])('a prefetch answer that outlives a failed leader read %s', async (_case, purge, edge) => {
         let release: () => void = () => {}
         repository.resolvePersonsByDistinctIds.mockResolvedValue([
             { teamId: 1, distinctId: 'd1', person: { ...person } },
@@ -451,11 +458,11 @@ describe('PersonhogPersonsStore', () => {
         ])
         // Resolves while the second leader read is still pending.
         await prefetching
-        ;(store as any).purgeAfterMerge(1, ['elsewhere'], new Set(['1:9']), 'merge_verdict', true)
+        purge()
         release()
         await new Promise((resolve) => setImmediate(resolve))
 
-        expect(edgeOf('1:d2')).toBeUndefined()
+        expect(edgeOf('1:d2')).toBe(edge)
     })
 
     it('an answer that arrives after its read ended is served but not recorded', () => {
@@ -646,11 +653,11 @@ describe('PersonhogPersonsStore', () => {
         const rejectedWith = (code: Code, headers?: Record<string, string>) => (): Promise<never> =>
             Promise.reject(new ConnectError('refused', code, new Headers(headers)))
         const answeredWith =
-            (source: Record<string, unknown>, survives = true) =>
+            (sources: Record<string, unknown>[], survives = true) =>
             (): Promise<unknown> =>
                 Promise.resolve({
                     survivor: survives ? survivor() : null,
-                    results: [{ sourceDistinctId: 'anon-1', ...source }],
+                    results: sources.map((source, i) => ({ sourceDistinctId: `anon-${i + 1}`, ...source })),
                 })
 
         it.each([
@@ -660,20 +667,30 @@ describe('PersonhogPersonsStore', () => {
                 rejectedWith(Code.FailedPrecondition, { 'x-semantic-refusal': 'op_id_reused' }),
                 undefined,
             ],
-            ['a verdict with an errored source', answeredWith({ outcome: 'error' }), undefined],
-            ['a verdict with an outcome this build cannot name', answeredWith({ outcome: 'unknown' }), undefined],
-            ['a merged verdict that names no source person', answeredWith({ outcome: 'merged' }), undefined],
+            ['a verdict with an errored source', answeredWith([{ outcome: 'error' }]), undefined],
+            ['a verdict with an outcome this build cannot name', answeredWith([{ outcome: 'unknown' }]), undefined],
+            ['a merged verdict that names no source person', answeredWith([{ outcome: 'merged' }]), undefined],
             [
                 'a merged verdict with no survivor',
-                answeredWith({ outcome: 'merged', sourcePersonId: '8' }, false),
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }], false),
+                undefined,
+            ],
+            [
+                'a verdict with one named merge and one errored source',
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }, { outcome: 'error' }]),
                 undefined,
             ],
             [
                 'a verdict with an unsettled conflict',
-                answeredWith({ outcome: 'skipped_conflict', settled: false }),
+                answeredWith([{ outcome: 'skipped_conflict', settled: false }]),
                 '1:9',
             ],
-            ['a verdict that names the merged person', answeredWith({ outcome: 'merged', sourcePersonId: '8' }), '1:9'],
+            ['a verdict that attaches a personless source', answeredWith([{ outcome: 'attached' }]), '1:9'],
+            [
+                'a verdict that names the merged person',
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }]),
+                '1:9',
+            ],
             [
                 'a call the service did not apply',
                 rejectedWith(Code.Unavailable, { 'x-not-applied': 'load_shed' }),
