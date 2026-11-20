@@ -27,6 +27,7 @@ from products.signals.backend.anomaly_scores.search import (
     SCORING_DISABLED_MESSAGE,
     SCORING_SOURCE_OFF_MESSAGE,
     SCORING_TURNED_OFF_MESSAGE,
+    is_noisy,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
@@ -205,6 +206,20 @@ class TestAnomalyRanking(SimpleTestCase):
 
         assert [summary.series_key for summary in ranked] == expected
 
+    @parameterized.expand(
+        [
+            ("above_the_limit", ChartShare(scored_buckets=10, flagged_buckets=2), 0.1, True),
+            ("at_the_limit", ChartShare(scored_buckets=10, flagged_buckets=1), 0.1, False),
+            ("too_few_buckets_to_judge", ChartShare(scored_buckets=9, flagged_buckets=9), 0.1, False),
+            ("no_scored_bucket_in_the_window", None, 0.1, False),
+            ("filter_off", ChartShare(scored_buckets=10, flagged_buckets=10), 1.0, False),
+        ]
+    )
+    def test_noise_filter_hides_only_a_high_share_over_enough_buckets(
+        self, _name: str, chart_share: ChartShare | None, max_anomaly_rate: float, expected: bool
+    ) -> None:
+        assert is_noisy(chart_share, max_anomaly_rate) is expected
+
     def test_rollup_sums_buckets_instead_of_averaging_rates(self) -> None:
         insight = rollup(
             [_summary("a", scored=1, flagged=1), _summary("b", scored=9, flagged=1), _summary("c", scored=5, flagged=0)]
@@ -350,7 +365,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             for hour in hours:
                 self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
 
-        body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
+        body = self._get("search", date_from="-3d", interval="hour", include_points=True, max_anomaly_rate=1).json()
 
         assert {row["series_key"]: (row["scored_buckets"], len(row["points"])) for row in body["series"]} == {
             "signups": (72, 7 * 24),
@@ -386,6 +401,42 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ),
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
         ]
+
+    @parameterized.expand(
+        [
+            ("default_limit", {}, ["quiet", "sparse"], 1, None),
+            ("filter_off", {"max_anomaly_rate": 1}, ["noisy", "quiet", "sparse"], 0, None),
+            ("default_limit_by_insight", {"group_by": "insight"}, ["quiet", "sparse"], 1, None),
+            # Over these 3 days both daily series flag 1 bucket in 3. Over the chart window only one is noisy.
+            ("measured_over_the_chart_window", {"date_from": "2026-10-20"}, ["quiet", "sparse"], 1, None),
+            (
+                "every_flagged_series_hidden",
+                {"max_anomaly_rate": 0.05, "interval": "day"},
+                [],
+                2,
+                "The noise filter hid all 2 matching series",
+            ),
+        ]
+    )
+    def test_search_hides_series_above_the_anomaly_rate_limit(
+        self, _name: str, params: dict[str, Any], expected: list[str], hidden: int, message: str | None
+    ) -> None:
+        flagged_days = {"noisy": {13, 16, 19, 22}, "quiet": {22}}
+        for series_key, days in flagged_days.items():
+            for day in range(11, 23):
+                self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+        # 2 flags in 5 buckets is too few for the filter to judge.
+        for hours_ago in range(1, 6):
+            hour = NOW - datetime.timedelta(hours=hours_ago)
+            self._score(hour, score=0.5, flag=int(hours_ago <= 2), series_key="sparse", interval="hour")
+
+        body = self._get("search", **{"date_from": "2026-10-11", **params}).json()
+
+        rows = body["series"] or [series for row in body["insights"] for series in row["top_series"]]
+        assert sorted(row["series_key"] for row in rows) == expected
+        assert body["hidden_series"] == hidden
+        assert (body["message"] or "").startswith(message or "")
+        assert body["max_anomaly_rate"] == params.get("max_anomaly_rate", 0.1)
 
     def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
         for day in (20, 22):
@@ -429,7 +480,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
                 self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
 
         pages = [
-            self._get("search", date_from="2026-10-15", order=order, limit=2, offset=offset).json() for offset in (0, 2)
+            self._get("search", date_from="2026-10-15", order=order, limit=2, offset=offset, max_anomaly_rate=1).json()
+            for offset in (0, 2)
         ]
 
         assert [row["series_key"] for page in pages for row in page["series"]] == expected
@@ -545,7 +597,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         with patch(
             "products.signals.backend.anomaly_scores.read.execute_hogql_query", wraps=execute_hogql_query
         ) as query:
-            body = self._get("search", date_from="2026-10-19").json()
+            body = self._get("search", date_from="2026-10-19", max_anomaly_rate=1).json()
 
         assert (len(body["series"]), body["scored_days"], body["scored_history_ready"]) == (1, 5, False)
         assert "AnomalyScoresScoredDays" not in [call.kwargs["query_type"] for call in query.call_args_list]
