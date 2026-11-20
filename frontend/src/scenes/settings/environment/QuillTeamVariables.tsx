@@ -1,48 +1,10 @@
-import { IconCopy, IconRefresh } from '@posthog/icons'
-import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@posthog/quill'
+import { IconRefresh } from '@posthog/icons'
+import { Button, InputGroupButton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { QuillCopyField } from 'scenes/settings/components/QuillCopyField'
 
 import { Region } from '~/types'
-
-function TeamVariableRow({
-    title,
-    description,
-    value,
-    thing,
-    extraAction,
-}: {
-    title: string
-    description: React.ReactNode
-    value: string
-    thing: string
-    extraAction?: React.ReactNode
-}): JSX.Element {
-    return (
-        <Item variant="outline" className="flex-wrap">
-            <ItemContent className="min-w-60">
-                <ItemTitle>{title}</ItemTitle>
-                <ItemDescription>{description}</ItemDescription>
-            </ItemContent>
-            <ItemActions className="min-w-0">
-                <code data-quill className="truncate rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs select-all">
-                    {value}
-                </code>
-                <Button
-                    size="icon-sm"
-                    aria-label={`Copy ${thing}`}
-                    tooltip={`Copy ${thing}`}
-                    onClick={() => void copyToClipboard(value, thing)}
-                    data-attr="copy-code-button"
-                >
-                    <IconCopy />
-                </Button>
-                {extraAction}
-            </ItemActions>
-        </Item>
-    )
-}
 
 export function QuillTeamVariables({
     apiToken,
@@ -60,44 +22,48 @@ export function QuillTeamVariables({
     onResetToken: () => void
 }): JSX.Element {
     return (
-        <ItemGroup combined className="max-w-200">
-            <TeamVariableRow
-                title="Project token"
-                thing="project token"
-                value={apiToken}
-                description={
-                    <>
-                        Write-only key for use in{' '}
-                        <Button
-                            variant="link"
-                            size="inline"
-                            nativeButton={false}
-                            render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
-                        >
-                            client libraries
-                        </Button>
-                        . Safe to use in public apps.
-                    </>
-                }
-                extraAction={
-                    isTokenResetAvailable ? (
-                        <Button
-                            size="icon-sm"
-                            aria-label="Reset token"
-                            tooltip="Reset token"
-                            disabledReason={restrictedReason}
-                            onClick={onResetToken}
-                        >
-                            <IconRefresh />
-                        </Button>
-                    ) : undefined
-                }
-            />
-            <TeamVariableRow
-                title="Project ID"
-                thing="project ID"
+        <div className="grid max-w-200 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+                <QuillCopyField
+                    label="Project token"
+                    description="project token"
+                    value={apiToken}
+                    data-attr="copy-code-button"
+                    helpText={
+                        <>
+                            Write-only key for{' '}
+                            <Button
+                                variant="link"
+                                size="inline"
+                                nativeButton={false}
+                                render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
+                            >
+                                client libraries
+                            </Button>
+                            . Safe to use in public apps.
+                        </>
+                    }
+                    actions={
+                        isTokenResetAvailable ? (
+                            <InputGroupButton
+                                size="icon-xs"
+                                aria-label="Reset token"
+                                tooltip="Reset token"
+                                disabledReason={restrictedReason}
+                                onClick={onResetToken}
+                            >
+                                <IconRefresh />
+                            </InputGroupButton>
+                        ) : undefined
+                    }
+                />
+            </div>
+            <QuillCopyField
+                label="Project ID"
+                description="project ID"
                 value={projectId}
-                description={
+                data-attr="copy-code-button"
+                helpText={
                     <>
                         Use this ID in the{' '}
                         <Button
@@ -113,13 +79,14 @@ export function QuillTeamVariables({
                 }
             />
             {region ? (
-                <TeamVariableRow
-                    title="Region"
-                    thing="project region"
+                <QuillCopyField
+                    label="Region"
+                    description="project region"
                     value={`${region} Cloud`}
-                    description="Where your PostHog data is hosted."
+                    data-attr="copy-code-button"
+                    helpText="Where your PostHog data is hosted."
                 />
             ) : null}
-        </ItemGroup>
+        </div>
     )
 }
