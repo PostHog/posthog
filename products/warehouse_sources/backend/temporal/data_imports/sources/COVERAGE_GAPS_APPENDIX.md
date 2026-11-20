@@ -15556,8 +15556,8 @@ Diffed against: <https://docs.unstructured.io/llms.txt>
 - [x] `job failed files (GET /jobs/{id}/failed-files)` — per-file failure reasons — the only place processing errors are enumerated; jobs alone give just a status (high)
 - [x] `job details (GET /jobs/{id}/details)` — per-node processing counts and timings inside a job, the grain needed for throughput and cost analysis (high)
 - [x] `notifications (GET /notifications)` — workspace event stream (job started/failed/completed) with timestamps, an analytical log the jobs table does not reproduce (medium)
-- [ ] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
-- [ ] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
+- [x] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
+- [x] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
 
 Note: docs.unstructured.io serves no OpenAPI JSON (api.unstructuredapp.io/openapi.json 404s); the llms.txt index enumerates every api-reference operation and was used for the diff. The four synced tables cover the main workflow objects, so remaining gaps are the per-job detail and notification event surfaces.
 
