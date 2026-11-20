@@ -351,7 +351,9 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
 
 export function rampOf(evidence: RampEvidence): Ramp {
     const { planned, steps, admissions } = evidence
-    const sustainedBefore = (index: number): number | null => (index > 0 ? steps[index - 1].scale : null)
+    const { placed, unplaced } = candidatesOf(evidence)
+    const sustainedBefore = (index: number): number | null =>
+        index > 0 && unplaced.length === 0 ? steps[index - 1].scale : null
     const admitted = steps[0] && admissionLimitOf(admissions, steps[0])
     if (admitted) {
         return { end: 'harness_limit', sustainedScale: null, broke: admitted.broke, reason: admitted.reason }
@@ -366,7 +368,6 @@ export function rampOf(evidence: RampEvidence): Ramp {
                   reason: `the drive ended during the ${last.scale}x step`,
               }
             : undefined
-    const { placed, unplaced } = candidatesOf(evidence)
     const [first] = placed.sort((a, b) => a.index - b.index || a.rank - b.rank)
     if (interrupted && first?.index === last?.index && first.broke.kind === 'harness') {
         return interrupted
@@ -374,7 +375,7 @@ export function rampOf(evidence: RampEvidence): Ramp {
     if (first) {
         return {
             end: first.broke.kind === 'harness' ? 'harness_limit' : 'broke',
-            sustainedScale: unplaced.length > 0 ? null : sustainedBefore(first.index),
+            sustainedScale: sustainedBefore(first.index),
             broke: first.broke,
             reason: first.reason,
         }

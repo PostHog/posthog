@@ -637,6 +637,20 @@ describe('ramp', () => {
             },
         ],
         [
+            'a last step the drive was interrupted in before the run host could read its bar, while an invariant failed with no crossing unit in any step',
+            {
+                steps: [driven(0), driven(1), { ...driven(2, 100), endedAt: T + 4 * MINUTE + 20_000, dueUnits: 100 }],
+                bars: [unreadAt(5)],
+                invariants: [failed('resident_backlog_intact')],
+            },
+            {
+                end: 'harness_limit',
+                sustainedScale: null,
+                broke: { ...harnessAt(2, 'generator'), offeredPerSecond: 5 },
+                reason: 'the drive ended during the 5x step',
+            },
+        ],
+        [
             'a bar that broke at a step whose late acknowledgements the generator did not count',
             { steps: [driven(0), driven(1), driven(2, 550)], bars: [brokeAt(5)] },
             {
