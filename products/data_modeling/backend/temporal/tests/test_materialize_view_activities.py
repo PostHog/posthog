@@ -26,6 +26,7 @@ from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -84,6 +85,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     LOGGER,
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
+    IncrementalWindow,
     InvalidNodeTypeException,
     _adaptive_retry_delay,
     _describe_columns,
@@ -1007,6 +1009,9 @@ class TestNodeSuspension:
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
             "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
+            "error 502: bad gateway",
+            "error 503: service unavailable",
+            "error 504: gateway timeout",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1059,6 +1064,7 @@ class TestNodeSuspension:
                     "name=CLUSTER_OUT_OF_MEMORY,",
                     "name=TOO_MANY_REQUESTS_FAILED,",
                     "name=PAGE_TRANSPORT_TIMEOUT,",
+                    "error 503: service unavailable",
                 ]
             ),
         ],
@@ -2803,6 +2809,119 @@ class TestHogqlTableDuplicateOutputColumns:
         assert client.arrow_query_calls == 0
         # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
         assert isinstance(error.value, NonReportableError)
+
+    # ClickHouse keeps the qualifier on the bare column because its plain name is taken, while HogQL
+    # names both columns `event`
+    @pytest.mark.parametrize(
+        ("query", "expected_columns"),
+        [
+            pytest.param(
+                "SELECT a.event, a.timestamp, a.event AS event FROM events AS a",
+                ["a.event", "timestamp", "event"],
+                id="type-the-wrapper-converts",
+            ),
+            pytest.param(
+                "SELECT a.event, a.distinct_id, a.event AS event FROM events AS a",
+                ["a.event", "distinct_id", "event"],
+                id="type-the-wrapper-leaves-alone",
+            ),
+        ],
+    )
+    # an incremental run re-selects the model's output through its guard, which must keep every column
+    @pytest.mark.parametrize(
+        "window",
+        [
+            pytest.param(None, id="full-run"),
+            pytest.param(IncrementalWindow(incremental_key="event", since=""), id="incremental-run"),
+        ],
+    )
+    async def test_a_qualified_column_repeated_under_its_own_name_materializes_as_described(
+        self,
+        ateam: Team,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        expected_columns: list[str],
+        window: IncrementalWindow | None,
+    ) -> None:
+        events, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=2,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), window=window)]
+
+        assert [name for name, _ in batches[0][1]] == expected_columns
+        assert all(table.schema.names == expected_columns for table, _ in batches)
+        rows = [row for table, _ in batches for row in table.to_pylist()]
+        assert len(rows) == len(events)
+        assert all(row["a.event"] == row["event"] for row in rows)
+
+    @pytest.mark.parametrize(
+        ("query", "expected_columns", "expected_row_count"),
+        [
+            # the pinned aliases sit next to the filter and the sort, so a wrong name would redirect them
+            pytest.param(
+                "SELECT a.event, b.event, a.timestamp FROM events AS a JOIN events AS b ON a.team_id = b.team_id "
+                "WHERE b.event = 'test-1' ORDER BY a.timestamp, a.event",
+                ["a.event", "event", "timestamp"],
+                4,
+                id="join-filtered-on-a-pinned-column",
+            ),
+            # the array join already defines `n`, so pinning must not alias it a second time
+            pytest.param(
+                "SELECT n, timestamp FROM events ARRAY JOIN [1, 2] AS n ORDER BY timestamp, n",
+                ["n", "timestamp"],
+                8,
+                id="array-join-alias-selected-by-name",
+            ),
+        ],
+    )
+    async def test_materializes_the_rows_the_sql_editor_returns(
+        self,
+        ateam: Team,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        expected_columns: list[str],
+        expected_row_count: int,
+    ) -> None:
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=4,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+        editor = await database_sync_to_async(execute_hogql_query)(query, ateam)
+
+        assert [name for name, _ in batches[0][1]] == expected_columns
+        materialized = [tuple(row.values()) for table, _ in batches for row in table.to_pylist()]
+        assert materialized == [tuple(row) for row in editor.results]
+        assert len(materialized) == expected_row_count
 
 
 class _SlowDescribeClient(_EmptyArrowClient):

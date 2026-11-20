@@ -4,6 +4,10 @@ import { LemonBanner, LemonInput, LemonTable, LemonTableColumns, Link } from '@p
 
 import { urls } from 'scenes/urls'
 
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
+
+import { AlertOnThisMenu } from './AlertOnThisMenu'
+import { serviceAlertTarget } from './alertPresets'
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { environmentLabel } from './environmentDisplay'
 import type { ServiceHealthApi } from './generated/api.schemas'
@@ -12,7 +16,12 @@ import { HealthTableLink } from './HealthTableLink'
 import { Sparkline } from './Sparkline'
 import { TelemetryLinks } from './TelemetryLinks'
 
-export function ServicesTab(): JSX.Element {
+export interface ServicesTabProps {
+    /** Absent when traces alerts are off, which hides the row menu. */
+    onCreateAlert?: (form: TracesAlertFormType) => void
+}
+
+export function ServicesTab({ onCreateAlert }: ServicesTabProps): JSX.Element {
     const {
         services,
         filteredServices,
@@ -57,6 +66,21 @@ export function ServicesTab(): JSX.Element {
                 </span>
             ),
         },
+        ...(onCreateAlert
+            ? [
+                  {
+                      key: 'actions',
+                      width: 0,
+                      render: (_: unknown, row: ServiceHealthApi) => (
+                          <AlertOnThisMenu
+                              target={serviceAlertTarget(row)}
+                              source="services"
+                              onCreateAlert={onCreateAlert}
+                          />
+                      ),
+                  },
+              ]
+            : []),
     ]
 
     const inEnvironment = environment === null ? 'across all environments' : `in ${environmentLabel(environment)}`

@@ -4,7 +4,13 @@ import { describe, it } from 'node:test'
 import {
     definitionPathFor,
     fetchFailingTools,
+    fetchReviewerDirectory,
+    fileTeamSignals,
     HANDWRITTEN_TOOL_PATH,
+    MAX_SIGNAL_REVIEWERS,
+    ownedTeams,
+    roleMembers,
+    signalReport,
     teamPostsWithheld,
     teamReport,
     toolDefinitionIndex,
@@ -140,4 +146,142 @@ describe('weekly MCP tool health report', () => {
             assert.deepEqual(posts, expected)
         })
     }
+
+    describe('signals to owning teams', () => {
+        const NOW = new Date('2026-10-26T13:50:00Z')
+        const TOOL = { tool: 'survey-get', calls: 120, errors: 30, users: 7, topError: 'GET /api/#/ -> 500' }
+        const SURVEYS = { owner: 'team-surveys', items: [TOOL] }
+
+        it('groups failing tools by owning team and leaves unowned tools out', () => {
+            const items = [
+                { tool: 'survey-get', owner: 'team-surveys' },
+                { tool: 'execute-sql', owner: 'unowned' },
+                { tool: 'survey-create', owner: 'team-surveys' },
+            ]
+            const teams = ownedTeams(items, (item) => ({ owner: item.owner, slack: `#${item.owner}` }))
+            assert.deepEqual(
+                teams.map((team) => [team.owner, team.items.map((item) => item.tool)]),
+                [['team-surveys', ['survey-get', 'survey-create']]]
+            )
+        })
+
+        it('files nothing for a team that silenced this report in owners.yaml', () => {
+            const items = [{ tool: 'survey-get', owner: 'team-surveys', slack: null }]
+            assert.deepEqual(
+                ownedTeams(items, (item) => item),
+                []
+            )
+        })
+
+        it('keys the report on the week and team so a later re-run returns the first report', () => {
+            const thursday = new Date('2026-10-29T09:00:00Z')
+            assert.equal(signalReport(thursday, SURVEYS, []).idempotency_key, 'mcp-tool-health:2026-10-26:team-surveys')
+        })
+
+        it('backs the report with one piece of evidence per failing tool', () => {
+            assert.deepEqual(
+                signalReport(NOW, SURVEYS, []).evidence.map((entry) => entry.source_id),
+                ['survey-get']
+            )
+        })
+
+        it('routes the report to the owning team members, capped at the reviewer limit', () => {
+            const uuids = Array.from({ length: MAX_SIGNAL_REVIEWERS + 2 }, (_, i) => `uuid-${i}`)
+            assert.equal(signalReport(NOW, SURVEYS, uuids).suggested_reviewers.length, MAX_SIGNAL_REVIEWERS)
+        })
+
+        it('names each reviewer by PostHog user so members without a linked GitHub account are reached', () => {
+            assert.equal(signalReport(NOW, SURVEYS, ['uuid-1']).suggested_reviewers[0].user_uuid, 'uuid-1')
+        })
+
+        const role = (name, ...uuids) => ({ name, members: uuids.map((uuid) => ({ user: { uuid } })) })
+        const ROLES = [
+            role('Team Feature Flags', 'flags-1'),
+            role('Team Conversations', 'conv-1'),
+            role('Team Developer Experience', 'devex-1'),
+        ]
+        for (const [owner, expected] of [
+            ['team-feature-flags', ['flags-1']],
+            ['conversations', ['conv-1']],
+            ['team-devex', ['devex-1']],
+            ['team-agent-infrastructure', []],
+        ]) {
+            it(`finds the role members for the ${owner} GitHub team`, () => {
+                assert.deepEqual(roleMembers(ROLES, owner), expected)
+            })
+        }
+
+        it('tags the report with the owning team', () => {
+            assert.deepEqual(signalReport(NOW, SURVEYS, []).tags, ['mcp-tool-health', 'team-surveys'])
+        })
+
+        it('files nothing for a team whose members cannot be read, so a re-run can still route it', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                membersOf: async () => {
+                    throw new Error('403')
+                },
+                file: async () => ({ report_id: 'r1' }),
+            })
+            assert.deepEqual(reports, [])
+        })
+
+        it('leaves deactivated role members out of the reviewers', async () => {
+            const pages = {
+                '/api/projects/2/': { organization: 'org' },
+                '/api/organizations/org/roles/?limit=500': { results: [role('Team Surveys', 'active', 'gone')] },
+                '/api/organizations/org/members/?limit=500': { results: [{ user: { uuid: 'active' } }], next: null },
+            }
+            const membersOf = await fetchReviewerDirectory('2', async (url) => pages[url])
+            assert.deepEqual(membersOf('team-surveys'), ['active'])
+        })
+
+        it('starts no team once the delivery deadline has passed', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                deadline: Date.now() - 1,
+                membersOf: async () => [],
+                file: async () => ({ report_id: 'r3' }),
+            })
+            assert.deepEqual(reports, [])
+        })
+
+        it('files nothing when the reviewer lookup runs past the delivery deadline', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                deadline: Date.now() + 20,
+                membersOf: () => new Promise((resolve) => setTimeout(() => resolve([]), 40)),
+                file: async () => ({ report_id: 'r4' }),
+            })
+            assert.deepEqual(reports, [])
+        })
+
+        it('keeps the organization id out of reviewer lookup errors, since Actions logs are public', async () => {
+            const labels = []
+            const pages = {
+                '/api/projects/2/': { organization: 'org-uuid' },
+                '/api/organizations/org-uuid/roles/?limit=500': { results: [] },
+                '/api/organizations/org-uuid/members/?limit=500': { results: [], next: null },
+            }
+            await fetchReviewerDirectory('2', async (path, label) => {
+                labels.push(label)
+                return pages[path]
+            })
+            assert.ok(labels.every((label) => !label.includes('org-uuid')))
+        })
+
+        it('keeps filing the next team after one team fails', async () => {
+            const reports = await fileTeamSignals([SURVEYS, { owner: 'team-cdp', items: [TOOL] }], {
+                now: NOW,
+                membersOf: async () => [],
+                file: async (body) => {
+                    if (body.tags.includes('team-surveys')) {
+                        throw new Error('500')
+                    }
+                    return { report_id: 'r2' }
+                },
+            })
+            assert.deepEqual(reports, [{ owner: 'team-cdp', reportId: 'r2' }])
+        })
+    })
 })

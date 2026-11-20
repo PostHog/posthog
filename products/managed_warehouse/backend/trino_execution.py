@@ -7,7 +7,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
 import structlog
-from trino.exceptions import HttpError
+from trino.exceptions import Http502Error, Http503Error, Http504Error, HttpError, TrinoConnectionError
 
 from posthog.sync import database_sync_to_async_pool
 
@@ -133,6 +133,8 @@ async def run_trino_model(
 
 
 def is_transient_trino_error(error: BaseException) -> bool:
+    if isinstance(error, TrinoConnectionError | Http502Error | Http503Error | Http504Error):
+        return True
     if getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES:
         return True
     return isinstance(error, HttpError) and str(error).startswith(TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX)
