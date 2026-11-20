@@ -25,7 +25,7 @@ def check_organization_execution(team_id: int) -> None:
             team_id,
             "organization_pending_deletion",
         )
-    if not active:
+    if active is False:
         raise ComputeBillingLimitError({"team_id": team_id}, "organization_deactivated")
 
 

@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.process_task.organization import check_orga
         (True, True, "organization_pending_deletion"),
         (True, False, "organization_pending_deletion"),
         (False, False, "organization_deactivated"),
+        (False, None, None),
     ],
 )
 def test_organization_execution_uses_current_state(team, pending_deletion, active, reason) -> None:
