@@ -16001,8 +16001,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-settings-update": {
         "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates replaces the whole mapping, so include every type to keep. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the setting-up-supabase-auth-emails skill before you set up or change the connection.",
@@ -16017,8 +16016,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-starter-templates-create": {
         "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up the connection.",
@@ -16033,8 +16031,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "suppressions-add": {
         "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. An address that already has an entry keeps it. A bounce also makes that entry block transactional email, unless someone removed it from the list. Repeating a call is safe.",
