@@ -163,7 +163,12 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         }, 30_000)
 
         it('fails a command on a dropped connection without waiting for the command timeout', async () => {
+            const clientSawTheDrop = writer.useClient(
+                { name: 'watch-drop' },
+                (client) => new Promise((resolve) => client.once('close', resolve))
+            )
             await dropConnections()
+            await clientSawTheDrop
 
             const startedAt = Date.now()
             await expect(writer.useClient({ name: 'outage-ping' }, (client) => client.ping())).rejects.toThrow()
