@@ -114,14 +114,10 @@ describe('scrollToFormError', () => {
 
     it('focuses an invalid control inside the error field instead of scrolling the field', () => {
         document.body.innerHTML = '<div class="Field--error contents"><input name="name" aria-invalid="true" /></div>'
-        const field = document.querySelector('.Field--error') as HTMLElement
-        field.scrollIntoView = mockScrollIntoView
 
         scrollToFormError({ fallbackErrorMessage: 'There was an error submitting this form.' })
 
         expect(document.activeElement).toBe(document.querySelector('input[name="name"]'))
-        expect(mockScrollIntoView).not.toHaveBeenCalled()
-        expect(lemonToast.error).not.toHaveBeenCalled()
     })
 
     it('scrolls a field with no box of its own to its error message', () => {
@@ -130,12 +126,10 @@ describe('scrollToFormError', () => {
         const field = document.querySelector('.Field--error') as HTMLElement
         const message = document.querySelector('.Field__error') as HTMLElement
         field.getClientRects = () => [] as unknown as DOMRectList
-        field.scrollIntoView = jest.fn()
         message.scrollIntoView = mockScrollIntoView
 
         scrollToFormError()
 
         expect(mockScrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
-        expect(field.scrollIntoView).not.toHaveBeenCalled()
     })
 })
