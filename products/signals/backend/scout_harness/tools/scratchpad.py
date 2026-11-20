@@ -228,6 +228,20 @@ def search_scratchpad(
     return []
 
 
+def has_live_entry_created_by(*, team_id: int, skill_name: str) -> bool:
+    """Whether `skill_name` created an unexpired entry on the team, in one existence query.
+
+    Not an agent tool. The run prompt reads it to decide whether a section about another scout's
+    entries applies, so it matches the creator the same indexed way `search_scratchpad` does.
+    """
+    return (
+        SignalScratchpad.objects.filter(team_id=team_id)
+        .filter(_creator_filter(team_id=team_id, skill_name=skill_name))
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .exists()
+    )
+
+
 def search_scratchpad_naming(
     *,
     team_id: int,
