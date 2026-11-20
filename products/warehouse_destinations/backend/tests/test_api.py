@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -51,6 +52,8 @@ def test_override_destination_changes_capabilities_and_supported_types_only_insi
 
 
 # Run in a fresh interpreter, because this test session has already imported the vendor SDKs.
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
 _IMPORT_PROBE = """
 import json, sys
 import products.warehouse_destinations.backend.facade.api as api
@@ -83,8 +86,9 @@ def test_facade_core_and_postgres_capabilities_spec_and_config_load_no_vendor_sd
         capture_output=True,
         text=True,
         env={**os.environ, "DEBUG": "1"},
-        check=True,
+        cwd=REPO_ROOT,
     )
+    assert result.returncode == 0, result.stderr
 
     probe = json.loads(result.stdout.strip().splitlines()[-1])
     assert probe == {
