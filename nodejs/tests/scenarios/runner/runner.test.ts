@@ -59,6 +59,7 @@ import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { FakeCloud } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
+import { devEnvironment, devTarget } from '../dev-target/target'
 import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -70,7 +71,7 @@ import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-a
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, createRunner } from './runner'
+import { RunResult, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -274,10 +275,255 @@ describe('runner', () => {
         const result = await onHost.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
-        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        expect(api.captured.map(({ properties }) => [properties.run_id, properties.target])).toEqual([[runId, 'local']])
         await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
             `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
         )
+    })
+
+    it('runs the card on the target it is given rather than the local one', async () => {
+        const opened: string[] = []
+        const closed: TargetRun = {
+            truth: { head: () => Promise.resolve(0), after: (next) => Promise.resolve({ records: [], next }) },
+            fetchRetries: 0,
+            probe: { unfinishedJobs: () => Promise.resolve(0), runningJobs: () => Promise.resolve(0) },
+            groups: [],
+            connect: () => Promise.reject(new Error('the given target refused the connection')),
+            seed: () => Promise.reject(new Error('unreachable')),
+            probes: () => Promise.reject(new Error('unreachable')),
+            offers: () => Promise.reject(new Error('unreachable')),
+            writeLogTails: () => Promise.resolve(),
+            close: () => Promise.resolve(),
+        }
+        const given = createRunner(
+            environment,
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            {
+                target: {
+                    name: 'local',
+                    open: (_loaded, runId) => {
+                        opened.push(runId)
+                        return closed
+                    },
+                },
+            }
+        )
+
+        const result = await given.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(opened).toEqual([result.runId])
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringContaining('the given target refused the connection'),
+        })
+    })
+
+    describe('on the dev target', () => {
+        const WORKFLOW = '0190f6a2-0000-7000-8000-000000000001'
+        const devCard = (): LoadedCard =>
+            load(path.join(__dirname, '..', 'cards', 'dev', 'dev-smoke.yaml'), {
+                profilePath: path.join(__dirname, '..', 'profiles', 'dev.yaml'),
+                target: 'dev',
+            })
+
+        const runOnDev = async (
+            {
+                metrics = 200,
+                project = 200,
+                projectToken = 'phc_test',
+                month = {},
+                actions = [{ id: 'exit-1', type: 'exit' }],
+                exitCondition = 'exit_only_at_end',
+                timezone = 'UTC',
+                ramp,
+            }: {
+                metrics?: number
+                project?: number
+                projectToken?: string
+                month?: Record<string, number>
+                actions?: { id: string; type: string }[]
+                exitCondition?: string
+                timezone?: string
+                ramp?: LoadedCard
+            },
+            interrupt = new AbortController()
+        ): Promise<{ result: RunResult; offered: number }> => {
+            let offered = 0
+            const receipts: [string, number, string][] = []
+            const server = http.createServer((req, res) => {
+                let text = ''
+                req.on('data', (chunk) => (text += chunk))
+                req.on('end', () => {
+                    const reply = (status: number, body: object): void => {
+                        res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+                    }
+                    if (req.url === '/i/v1/analytics/events') {
+                        offered++
+                        const { uuid, properties } = parseJSON(text).batch[0]
+                        receipts.push([properties.unit_id, Date.now(), uuid])
+                        if (!ramp) {
+                            interrupt.abort()
+                        }
+                        return reply(200, { results: { [uuid]: { result: 'ok' } } })
+                    }
+                    if (req.headers.authorization !== 'Bearer phx_test') {
+                        return reply(401, { type: 'authentication_error' })
+                    }
+                    if (req.url === `/api/projects/1/hog_flows/${WORKFLOW}/`) {
+                        return reply(metrics, { id: WORKFLOW, actions, exit_condition: exitCondition })
+                    }
+                    if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
+                        const daily = req.url!.includes('interval=day')
+                        const exits = req.url!.includes('instance_id=exit-1')
+                        const hour: Record<string, number> = ramp
+                            ? exits
+                                ? { succeeded: offered }
+                                : { triggered: offered, quota_limited: Math.min(offered, 1) }
+                            : {}
+                        const counts = daily ? month : hour
+                        const names = new URL(req.url!, 'http://dev').searchParams.get('name')!.split(',')
+                        const series = names.map((name) => ({ name, values: [counts[name] ?? 0] }))
+                        return reply(metrics, { labels: ['2026-11-01'], series })
+                    }
+                    if (req.url === '/api/projects/1/') {
+                        return reply(project, { id: 1, api_token: projectToken, timezone })
+                    }
+                    return reply(200, { results: receipts })
+                })
+            })
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const onDev = createRunner(
+                devEnvironment(),
+                { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+                {
+                    target: devTarget({
+                        host: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+                        offers: { teamId: 1, token: 'phc_test', workflowId: WORKFLOW },
+                        receiptsTeamId: 2,
+                        monthlyRuns: 10_000,
+                        key: 'phx_test',
+                    }),
+                    topologyEveryMs: 10,
+                }
+            )
+            try {
+                return { result: await onDev.run(ramp ?? devCard(), interrupt.signal), offered }
+            } finally {
+                await onDev.down()
+                await new Promise<void>((done) => server.close(() => done()))
+            }
+        }
+
+        it.each([
+            ['a workflow dev does not know', { metrics: 404 }, 'dev answered the workflow metrics read with 404'],
+            [
+                'a key that cannot read the offers project',
+                { project: 403 },
+                'dev answered the offers project read with 403',
+            ],
+            [
+                'an offers token of another project',
+                { projectToken: 'phc_other' },
+                'DEV_TARGET_OFFERS_TOKEN is not the token of project 1',
+            ],
+            [
+                'a workflow dev quota limited this month',
+                { month: { triggered: 5, quota_limited: 1 } },
+                'dev quota limited 1 runs of the workflow this month',
+            ],
+            [
+                'a workflow whose finished runs cannot be counted at one exit',
+                { actions: [{ id: 'webhook-1', type: 'function' }] },
+                'the workflow needs one exit action',
+            ],
+            [
+                'a workflow that can exit on a conversion, skipping its exit action',
+                { exitCondition: 'exit_on_conversion' },
+                'the workflow needs one exit action',
+            ],
+            [
+                'an offers project off UTC, whose metric hours would not line up',
+                { timezone: 'Asia/Kolkata' },
+                'project 1 is not on UTC',
+            ],
+            [
+                'a month whose runs leave less than a full run of room',
+                { month: { triggered: 8_001 } },
+                'could pass DEV_TARGET_MONTHLY_RUNS',
+            ],
+        ])('calls a run invalid before its first offer on %s', async (_story, answers, reason) => {
+            const { result, offered } = await runOnDev(answers)
+
+            expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringContaining(reason) })
+            expect(offered).toBe(0)
+        })
+
+        it('halts a dev ramp at the step after which dev quota limited a run, and offers no unit after the halt', async () => {
+            const card = devCard()
+            const ramp: LoadedCard = {
+                ...card,
+                card: {
+                    ...card.card,
+                    drive: {
+                        ...card.card.drive,
+                        for: '31s',
+                        ramp: [
+                            { scale: 1, for: '1s' },
+                            { scale: 1, for: '30s' },
+                        ],
+                        stopOnBreak: true,
+                    },
+                    invariants: card.card.invariants.filter(({ name }) => name === 'refused_at_intake'),
+                    gates: { refused_at_intake: 0 },
+                    convergeWithin: '3s',
+                },
+            }
+
+            const { result, offered } = await runOnDev({ ramp })
+
+            const [, second] = result.units?.steps ?? []
+            expect({ offered, cutShort: second.endedAt - second.startedAt < 30_000, ramp: result.ramp }).toEqual({
+                offered: expect.any(Number),
+                cutShort: true,
+                ramp: expect.objectContaining({
+                    end: 'harness_limit',
+                    reason: 'dev quota limited 1 runs of the workflow at the 1x step',
+                    broke: expect.objectContaining({ by: 'target', kind: 'harness', scale: 1 }),
+                }),
+            })
+        }, 90_000)
+
+        it('publishes no topology hash for a run whose target has no processes to read', async () => {
+            const { result, offered } = await runOnDev({})
+
+            expect(offered).toBeGreaterThan(0)
+            expect(result.topologyHash).toBeUndefined()
+            expect(api.captured.map(({ properties }) => properties.topology_hash)).toEqual([null])
+        })
+    })
+
+    it.each([
+        ['a negative', -1],
+        ['a text', '1'],
+    ])('refuses to start on a run manifest whose reader minimum is %s value', (_story, readerMinAcu) => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+                readerIdleMaxAcu: 2.5,
+                readerMinAcu,
+            })
+        )
+
+        expect(() =>
+            createRunner(environment, { ...processEnv, XDG_CACHE_HOME: cacheHome, SCENARIO_RUN_MANIFEST: manifest })
+        ).toThrow(`The run manifest at ${manifest} has no valid readerMinAcu, so it is not used.`)
     })
 
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
@@ -880,7 +1126,9 @@ describe('runner through seed, drive and judge', () => {
             load: loadTargets,
             backlog,
             ramp,
+            stopOnBreak,
             bars = [],
+            driveFor = '2s',
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -889,7 +1137,9 @@ describe('runner through seed, drive and judge', () => {
             load?: Profile['load']
             backlog?: Backlog
             ramp?: LoadedCard['card']['drive']['ramp']
+            stopOnBreak?: true
             bars?: Named[]
+            driveFor?: string
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -898,7 +1148,14 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
+                drive: {
+                    ...SMOKE.card.drive,
+                    for: driveFor,
+                    minOffered: 0.5,
+                    traffic: [{ name: traffic }],
+                    ramp,
+                    stopOnBreak,
+                },
                 invariants,
                 measure: measures,
                 bars,
@@ -1498,15 +1755,10 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
-        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
-        pinClockAfterMinuteStart()
-        const cloud = new FakeCloud({
-            now: () => new Date(),
-            failover: { takesMs: 20 },
-            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
-            shortValuesOf: 'Maximum',
-        })
+    const runOnHost = async (
+        cloud: FakeCloud,
+        loaded: LoadedCard
+    ): Promise<{ result: RunResult; stackName: string }> => {
         const { manifest } = cloud.runCluster(randomUUID())
         const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
@@ -1514,10 +1766,11 @@ describe('runner through seed, drive and judge', () => {
             aws: cloud,
             failover: {
                 identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
+                pollMs: 50,
+                observeWithinMs: 2000,
             },
         })
         const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
-
         const result = await createRunner(
             onHost,
             { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
@@ -1525,8 +1778,22 @@ describe('runner through seed, drive and judge', () => {
                 topologyWithinMs: 1000,
                 topologyEveryMs: 10,
             }
-        ).run(shortSmoke([{ ...failover, at: '1s', for: '500ms' }]), NEVER_ABORTED)
+        ).run(loaded, NEVER_ABORTED)
         results.push(result)
+        return { result, stackName: manifest.stackName }
+    }
+
+    it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+        pinClockAfterMinuteStart()
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+            shortValuesOf: 'Average',
+        })
+
+        const { result, stackName } = await runOnHost(cloud, shortSmoke([{ ...failover, at: '1s', for: '500ms' }]))
 
         const refusal = expect.stringMatching(
             /^pg\.failover refused: .*-reader's capacity read has \d+ timestamps and \d+ values/
@@ -1538,26 +1805,220 @@ describe('runner through seed, drive and judge', () => {
         })
         expect(result.timeline[0]).not.toHaveProperty('intentAt')
         expect(cloud.promotions).toEqual([])
-        expect(cloud.writerOf(manifest.stackName)).toBe(`${manifest.stackName}-writer`)
+        expect(cloud.writerOf(stackName)).toBe(`${stackName}-writer`)
     }, 30_000)
 
-    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
-        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+    it.each([
+        [
+            'ends the drive at once',
+            'AccessDenied',
+            true,
+            /^pg\.failover on cyclotron was not observed: the failover request was refused: .*\(AccessDenied\)/,
+        ],
+        [
+            'drives on',
+            'InternalFailure',
+            false,
+            /^pg\.failover on cyclotron was not observed: failover request ambiguous, not observed: .*\(InternalFailure\)/,
+        ],
+    ])(
+        '%s and calls the failover card invalid when AWS answers its failover request with %s',
+        async (_outcome, code, endsEarly, reason) => {
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
+            pinClockAfterMinuteStart()
+            const cloud = new FakeCloud({ now: () => new Date(), liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } })
+            cloud.failWhen('failover-db-cluster', () => true, code)
+
+            const { result } = await runOnHost(
+                cloud,
+                shortSmoke([{ ...failover, at: '1s', for: '500ms' }], 'event_email', { driveFor: '10s' })
+            )
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                endedEarly: result.units!.offeredUnits < result.units!.targetUnits / 2,
+            }).toEqual({ status: 'invalid', statusReason: expect.stringMatching(reason), endedEarly: endsEarly })
+        },
+        60_000
+    )
+
+    it.each<[string, true | undefined]>([
+        ['the scale card', undefined],
+        ['a ramp that stops on a break', true],
+    ])(
+        'names the writer CPU bar as not judged for %s on a host without a run manifest',
+        async (_story, stopOnBreak) => {
+            const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+                ({ name }) => name === 'writer_cpu_under'
+            )
+            const ramp = [
+                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+            ]
+
+            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                bars: result.bars,
+                steps: result.units?.steps.map(({ scale }) => scale),
+            }).toEqual({
+                status: 'invalid',
+                statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'the local stack has no Aurora writer to read CPU from',
+                    },
+                ],
+                steps: [1, 2],
+            })
+        },
+        30_000
+    )
+
+    it('reports the verdict of a live writer CPU read still pending when a ramp that did not converge ends', async () => {
+        const runId = randomUUID()
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            })
+        )
+        let readStarted = (): void => undefined
+        const started = new Promise<void>((resolve) => (readStarted = resolve))
+        let release = (): void => undefined
+        const onHost: Environment = {
+            ...environmentOf('all, leaving one job running'),
+            writerCpu: (_manifest, { startedAt, endedAt }) => {
+                if (endedAt - startedAt > 1500) {
+                    return Promise.resolve([])
+                }
+                readStarted()
+                return new Promise(
+                    (_resolve, reject) => (release = () => reject(new Error('CloudWatch throttled the read')))
+                )
+            },
+        }
+        const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+            ({ name }) => name === 'writer_cpu_under'
+        )
+
+        const running = createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            { topologyWithinMs: 1000, topologyEveryMs: 10 }
+        ).run(
+            shortSmoke([], undefined, {
+                ramp: [
+                    { scale: 1, for: '1s' },
+                    { scale: 2, for: '1s' },
+                ],
+                stopOnBreak: true,
+                bars: writerCpu,
+                driveFor: '2s',
+            }),
+            NEVER_ABORTED
+        )
+        await Promise.race([started, running])
+        release()
+        const result = await running
+        results.push(result)
+
+        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
+            convergence: false,
+            ramp: expect.objectContaining({
+                end: 'harness_limit',
+                reason: expect.stringContaining('CloudWatch throttled the read'),
+            }),
+        })
+    }, 60_000)
+
+    it('ends a ramp that held every step but left a job unfinished with no sustained scale', async () => {
         const ramp = [
             { scale: 1, for: '1s' },
             { scale: 2, for: '1s' },
         ]
 
-        const result = await run('all', [], undefined, { ramp, bars })
-
-        expect(result.status).toBe('invalid')
-        expect(result.bars[0]).toEqual({
-            name: 'writer_cpu_under',
-            unit: '%',
-            limit: 70,
-            passed: false,
-            unjudged: 'no writer CPU reading off a run host in the 1x step',
+        const result = await run('all, leaving one job running', [], undefined, {
+            ramp,
+            stopOnBreak: true,
+            driveFor: '2s',
         })
+
+        expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
+            status: 'failed',
+            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            ramp: {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        })
+    }, 30_000)
+
+    it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
+        const refusingIntake = http.createServer((_request, response) => {
+            response.writeHead(503).end()
+        })
+        await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(refusingIntake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                    ],
+                    driveFor: '20s',
+                    stopOnBreak: true,
+                    load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [first, ...later] = result.units?.steps ?? []
+            const ranMs = first.endedAt - first.startedAt
+
+            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+                ranUnderPlan: true,
+                later: [],
+                result: {
+                    status: 'invalid',
+                    ramp: {
+                        end: 'harness_limit',
+                        sustainedScale: null,
+                        broke: { scale: 1, kind: 'harness' },
+                        reason: `the load admission failed at the 1x step: the baseline was too short to measure: ${Number((ranMs / 1000).toFixed(1))}s, under the 30s minimum`,
+                    },
+                },
+            })
+        } finally {
+            refusingIntake.closeAllConnections()
+            await new Promise((resolve) => refusingIntake.close(resolve))
+        }
     }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {

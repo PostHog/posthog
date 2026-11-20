@@ -94,6 +94,6 @@ export function buildMetricTiles(stats: TransactionalEmailStatsOverTimeApi): Met
         },
         rateTile(stats, 'delivered', 'Delivered', 'sent', 'up'),
         rateTile(stats, 'bounced', 'Bounced', 'sent', 'down'),
-        rateTile(stats, 'complained', 'Marked as spam', 'delivered', 'down'),
+        rateTile(stats, 'complained', 'Spam complaints', 'delivered', 'down'),
     ]
 }

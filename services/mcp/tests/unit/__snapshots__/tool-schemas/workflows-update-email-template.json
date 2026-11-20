@@ -117,6 +117,59 @@
                     ],
                     "description": "Email message content. Replaced as a whole on update — send the complete object."
                 },
+                "push": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "body": {
+                                    "description": "Notification body text. Supports Liquid templating. Required in `content` for push-type templates.",
+                                    "maxLength": 4000,
+                                    "type": "string"
+                                },
+                                "channels": {
+                                    "description": "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.",
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "maxItems": 20,
+                                    "type": "array"
+                                },
+                                "data": {
+                                    "additionalProperties": {
+                                        "maxLength": 4000,
+                                        "type": "string"
+                                    },
+                                    "description": "Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                "image": {
+                                    "description": "URL of an image to show in the notification. Supports Liquid templating.",
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                "link": {
+                                    "description": "Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.",
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "description": "Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.",
+                                    "maxLength": 1000,
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Push notification content, for push-type templates. Replaced as a whole on update — send the complete object."
+                },
                 "templating": {
                     "default": "liquid",
                     "description": "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
@@ -168,7 +221,7 @@
             "type": "array"
         },
         "type": {
-            "description": "Message channel of the template. Currently 'email'.",
+            "description": "Message channel of the template: 'email' (the default) or 'push'.",
             "maxLength": 24,
             "type": "string"
         }

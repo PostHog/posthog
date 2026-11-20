@@ -1457,7 +1457,7 @@ function generateToolCode(
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
     if (needsWithAgentNote) {
-        resultType = `WithAgentNote<${resultType}>`
+        resultType = `WithAgentNote<${resultType}${config.hooks ? ', false' : ''}>`
     }
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
@@ -1858,7 +1858,9 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    let customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    let customResultType = needsWithAgentNote
+        ? `WithAgentNote<${responseType}${config.hooks ? ', false' : ''}>`
+        : (responseType ?? 'unknown')
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
         customResultType = `WithInformationalResponse<${customResultType}>`

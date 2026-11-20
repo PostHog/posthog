@@ -15,10 +15,13 @@ import {
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillAddTeamsChannelRow } from '../../components/QuillAddTeamsChannelRow/QuillAddTeamsChannelRow'
+import { QuillTeamsSection } from '../../components/QuillTeamsSection/QuillTeamsSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 // Graph reports shared channels as "shared" or, in some tenants, "unknownFutureValue".
@@ -28,6 +31,12 @@ function isSharedMembershipType(membershipType: string | null | undefined): bool
 }
 
 export function TeamsSection(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <TeamsChannelSection />
+    }
+
     return (
         <SceneSection
             title="Microsoft Teams"
@@ -109,6 +118,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
         useActions(supportSettingsLogic)
 
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Install status is a single global value; only apply it to the row when it refers to the selected team.
     const statusForSelected =
@@ -138,19 +148,67 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
         }
     }
 
+    const retryInstall = (): void => {
+        if (selectedTeamId) {
+            installTeamsApp(selectedTeamId)
+        }
+    }
+
+    const refreshChannels = (): void => {
+        if (selectedTeamId) {
+            loadTeamsChannelsForTeam(selectedTeamId)
+        }
+    }
+
+    const teamOptions = [
+        { value: null, label: 'Select team group...' },
+        ...teamsTeams.map((t: { id: string; name: string }) => ({
+            value: t.id,
+            label: t.name,
+        })),
+    ]
+
+    const channelOptions = [
+        { value: null, label: 'Select channel...' },
+        ...selectedTeamChannels.map((c: { id: string; name: string; membership_type?: string | null }) => {
+            const isShared = isSharedMembershipType(c.membership_type)
+            return {
+                value: c.id,
+                label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
+            }
+        }),
+    ]
+
+    if (todayRailNav) {
+        return (
+            <QuillAddTeamsChannelRow
+                selectedTeamId={selectedTeamId}
+                teamOptions={teamOptions}
+                channelOptions={channelOptions}
+                teamsLoading={teamsTeamsLoading}
+                channelsLoading={teamsChannelsLoading || !!teamsChannelPairLoading}
+                isInstalling={isInstalling}
+                needsOrgCatalog={needsOrgCatalog}
+                installError={installError}
+                appInstalled={appInstalled}
+                allChannelsConfigured={selectedTeamChannels.length === 0 && !teamsChannelsLoading}
+                adminRestrictionReason={adminRestrictionReason}
+                onTeamSelect={handleTeamSelect}
+                onChannelSelect={handleChannelSelect}
+                onRefreshTeams={loadTeamsTeamsWithToken}
+                onRetryInstall={retryInstall}
+                onRefreshChannels={refreshChannels}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2 py-2 px-3 border border-dashed border-muted rounded">
             <div className="flex gap-2 items-center">
                 <div className="flex-1">
                     <LemonSelect
                         value={selectedTeamId}
-                        options={[
-                            { value: null, label: 'Select team group...' },
-                            ...teamsTeams.map((t: { id: string; name: string }) => ({
-                                value: t.id,
-                                label: t.name,
-                            })),
-                        ]}
+                        options={teamOptions}
                         onChange={handleTeamSelect}
                         loading={teamsTeamsLoading}
                         placeholder="Select team group"
@@ -183,7 +241,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                         (one-time). Once uploaded, click Retry.
                     </div>
                     <div>
-                        <LemonButton type="primary" size="small" onClick={() => installTeamsApp(selectedTeamId)}>
+                        <LemonButton type="primary" size="small" onClick={retryInstall}>
                             Retry install
                         </LemonButton>
                     </div>
@@ -194,7 +252,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                 <LemonBanner type="error" className="flex flex-col gap-2">
                     <div>Failed to install SupportHog into the selected Teams group.</div>
                     <div>
-                        <LemonButton type="primary" size="small" onClick={() => installTeamsApp(selectedTeamId)}>
+                        <LemonButton type="primary" size="small" onClick={retryInstall}>
                             Retry
                         </LemonButton>
                     </div>
@@ -212,18 +270,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                             <div className="flex-1">
                                 <LemonSelect
                                     value={null}
-                                    options={[
-                                        { value: null, label: 'Select channel...' },
-                                        ...selectedTeamChannels.map(
-                                            (c: { id: string; name: string; membership_type?: string | null }) => {
-                                                const isShared = isSharedMembershipType(c.membership_type)
-                                                return {
-                                                    value: c.id,
-                                                    label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
-                                                }
-                                            }
-                                        ),
-                                    ]}
+                                    options={channelOptions}
                                     onChange={handleChannelSelect}
                                     loading={teamsChannelsLoading || !!teamsChannelPairLoading}
                                     placeholder="Select channel"
@@ -234,7 +281,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
+                                onClick={refreshChannels}
                                 disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
                             >
                                 Refresh
@@ -256,6 +303,42 @@ function TeamsChannelSection(): JSX.Element {
     })
 
     const [showAddRow, setShowAddRow] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const connect = (): void => connectTeams(window.location.pathname)
+
+    const confirmDisconnect = (): void => {
+        LemonDialog.open({
+            title: 'Disconnect Microsoft Teams?',
+            description: 'This will stop creating tickets from Teams messages. Existing tickets will not be affected.',
+            primaryButton: {
+                status: 'danger',
+                children: 'Disconnect',
+                onClick: disconnectTeams,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillTeamsSection
+                teamsConnected={teamsConnected}
+                channelPairs={teamsChannelPairs.map((pair) => ({
+                    ...pair,
+                    isShared: isSharedMembershipType(pair.membership_type),
+                }))}
+                removingChannelId={teamsChannelPairLoading}
+                adminRestrictionReason={adminRestrictionReason}
+                showAddRow={showAddRow}
+                addRow={<AddTeamsChannelRow adminRestrictionReason={adminRestrictionReason} />}
+                onConnect={connect}
+                onDisconnect={confirmDisconnect}
+                onRemovePair={removeTeamsChannelPair}
+                onShowAddRow={() => setShowAddRow(true)}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -271,7 +354,7 @@ function TeamsChannelSection(): JSX.Element {
                         type="primary"
                         size="small"
                         disabledReason={adminRestrictionReason}
-                        onClick={() => connectTeams(window.location.pathname)}
+                        onClick={connect}
                     >
                         Connect Microsoft Teams
                     </LemonButton>
@@ -333,19 +416,7 @@ function TeamsChannelSection(): JSX.Element {
                             status="danger"
                             size="small"
                             disabledReason={adminRestrictionReason}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Disconnect Microsoft Teams?',
-                                    description:
-                                        'This will stop creating tickets from Teams messages. Existing tickets will not be affected.',
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Disconnect',
-                                        onClick: disconnectTeams,
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
+                            onClick={confirmDisconnect}
                         >
                             Disconnect Microsoft Teams
                         </LemonButton>

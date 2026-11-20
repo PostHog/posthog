@@ -12,6 +12,7 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { CATALOG_CHANNELS, ChannelSummary, PUSH_CHANNELS, summarizeChannel } from './channelSummary'
 import { addEmailSenderLogic } from './EmailDomain/addEmailSenderLogic'
+import type { AddEmailSenderEntry } from './EmailDomain/addEmailSenderLogic'
 import { startEmailDomainSetup } from './EmailDomain/emailDomainSetupLinks'
 import type { ChannelType } from './MessageChannels'
 
@@ -28,10 +29,10 @@ export interface channelCatalogLogicValues {
 export interface channelCatalogLogicActions {
     openAddSender: (
         domain: string | null,
-        entry: import('./EmailDomain/addEmailSenderLogic').AddEmailSenderEntry
+        entry: AddEmailSenderEntry
     ) => {
         domain: string | null
-        entry: import('./EmailDomain/addEmailSenderLogic').AddEmailSenderEntry
+        entry: AddEmailSenderEntry
     } // addEmailSenderLogic
     loadIntegrationsFailure: (
         error: string,

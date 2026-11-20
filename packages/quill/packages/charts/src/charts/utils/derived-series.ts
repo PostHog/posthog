@@ -38,6 +38,7 @@ export function buildConfidenceIntervalSeries<Meta = unknown>(
 export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     sourceSeries: Series<Meta>
     window: number
+    alignment?: 'centered' | 'trailing'
     label?: string
     excluded?: boolean
 }
@@ -51,13 +52,13 @@ export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAvera
     return {
         key: movingAverageKey(sourceSeries.key),
         label: input.label ?? `${sourceSeries.label} (Moving avg)`,
-        data: movingAverage(sourceSeries.data, windowSize),
+        data: movingAverage(sourceSeries.data, windowSize, input.alignment),
         color: sourceSeries.color,
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: MA_DASH_PATTERN },
         overlay: true,
-        visibility: { excluded: input.excluded, tooltip: false },
+        visibility: { excluded: input.excluded, tooltip: false, valueLabel: false },
     }
 }
 

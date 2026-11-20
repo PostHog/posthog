@@ -18,6 +18,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.facade.testing import report_task_run_limits_payload
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -598,6 +599,39 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
         assert not Task.objects.filter(signal_report=report).exists()
         workflow.assert_not_called()
 
+    def test_a_user_entry_in_the_limits_flag_raises_the_daily_limit(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        reports = [self._report(prompts=["Why does checkout fail?"]) for _ in range(3)]
+
+        with report_task_run_limits_payload(
+            {"default": {"per_day": 1}, "users": {str(self.user.uuid): {"per_day": 2}}}
+        ):
+            responses = [
+                self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0}) for report in reports
+            ]
+
+        assert [r.status_code for r in responses] == [
+            status.HTTP_201_CREATED,
+            status.HTTP_201_CREATED,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        ]
+        assert responses[2].json()["detail"].startswith("You've reached your limit of 2 report runs a day.")
+
+    def test_a_run_refused_by_both_windows_reports_the_daily_wait(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        reports = [self._report(prompts=["Why does checkout fail?"]) for _ in range(2)]
+
+        with report_task_run_limits_payload({"default": {"per_hour": 1, "per_day": 1}}):
+            responses = [
+                self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0}) for report in reports
+            ]
+
+        assert responses[1].status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert responses[1].json()["detail"].startswith("You've reached your limit of 1 report runs a day.")
+        assert int(responses[1]["Retry-After"]) > 60 * 60
+
 
 SCOUT_SKILL = "signals-scout-ci-watch"
 
@@ -689,16 +723,33 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
         with _ci("failing"):
             return self._run(report, {"action": "make_it_green", **body})
 
-    def test_a_granted_scout_starts_make_it_green_and_the_work_log_names_it(
-        self, workflow: MagicMock, _flag_mock: MagicMock
+    @parameterized.expand(
+        [
+            ("make_it_green", "failing", False, FIX_CI_REQUEST),
+            ("resolve_conflicts", "passing", True, RESOLVE_CONFLICTS_REQUEST),
+        ]
+    )
+    def test_a_granted_scout_starts_the_action_and_the_work_log_names_it(
+        self,
+        workflow: MagicMock,
+        _flag_mock: MagicMock,
+        action: str,
+        ci_status: str,
+        has_conflict: bool,
+        request: str,
     ) -> None:
+        self.config.report_actions = [action]
+        self.config.save()
+        self.scout_run.metadata = {"report_actions": [action]}
+        self.scout_run.save()
         report = self._red_report()
         self._as_sandbox(self.scout_run.task_run.task_id)
 
-        with patch("products.signals.backend.views.report_user_action") as capture:
-            response = self._make_it_green(report)
+        with _ci(ci_status, has_conflict), patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(report, {"action": action})
 
         assert response.status_code == status.HTTP_201_CREATED, response.data
+        assert Task.objects.get(id=response.json()["task_id"]).description.endswith(request)
         entry = SignalReportArtefact.objects.get(
             report=report, task_id=response.json()["task_id"], type=SignalReportArtefact.ArtefactType.TASK_RUN
         )
@@ -726,6 +777,12 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
             ("revoked_mid_run", _revoke, {}, "report_action_not_granted"),
             ("dry_run", _dry_run, {}, "report_action_not_granted"),
             ("granted_after_dispatch", _widen_after_dispatch, {}, "report_action_not_granted"),
+            (
+                "another_kind_than_granted",
+                lambda test: None,
+                {"action": "resolve_conflicts"},
+                "report_action_not_granted",
+            ),
             # The scout's steering must not choose what a run with its acting user's full posture does.
             ("own_message", lambda test: None, {"message": "Also add a destination"}, "report_action_not_granted"),
             (
@@ -738,6 +795,12 @@ class TestScoutReportActionsAPI(_ReportActionFixtures):
                 "get_it_merged_even_when_stored",
                 _store_ungrantable_kinds,
                 {"action": "get_it_merged"},
+                "report_action_not_granted",
+            ),
+            (
+                "suggested_prompt_even_when_stored",
+                _store_ungrantable_kinds,
+                {"action": "suggested_prompt", "suggested_prompt_index": 0},
                 "report_action_not_granted",
             ),
         ]

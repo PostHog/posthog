@@ -1,4 +1,7 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { KeyValidationResult, LLMProvider, LLM_PROVIDER_LABELS } from './llmProviderKeysLogic'
+import { QuillKeyValidationStatus } from './QuillKeyValidationStatus'
 
 export function KeyValidationStatus({
     result,
@@ -13,12 +16,27 @@ export function KeyValidationStatus({
     suppressError?: boolean
     usesFoundry?: boolean
 }): JSX.Element | null {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const providerLabel =
+        provider === 'openai_compatible' ? 'your provider' : usesFoundry ? 'Microsoft' : LLM_PROVIDER_LABELS[provider]
+
+    if (todayRailNav) {
+        return (
+            <QuillKeyValidationStatus
+                result={result}
+                isValidating={isValidating}
+                provider={provider}
+                providerLabel={providerLabel}
+                suppressError={suppressError}
+            />
+        )
+    }
+
     if (isValidating) {
         return <p className="text-xs text-muted mt-1">Validating key...</p>
     }
 
-    const providerLabel =
-        provider === 'openai_compatible' ? 'your provider' : usesFoundry ? 'Microsoft' : LLM_PROVIDER_LABELS[provider]
     const bullets = (
         <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
             <li>Your key will be encrypted and stored securely</li>

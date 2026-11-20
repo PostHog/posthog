@@ -136,7 +136,12 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
             allowed_fields = {("external_id",), ("accounts", "external_id"), ("system", "accounts", "external_id")}
             if node.select_from.alias:
                 allowed_fields.add((node.select_from.alias, "external_id"))
-        if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases, allowed_fields):
+        reads_validated_subquery = node.select_from is not None and isinstance(
+            node.select_from.table, ast.SelectQuery | ast.SelectSetQuery
+        )
+        if not node.select_from or (
+            not reads_validated_subquery and not is_account_sql_query_filter(node.where, self.aliases, allowed_fields)
+        ):
             if allowed_fields is not None:
                 raise InvalidAccountViewContent(
                     ["SQL queries on system.accounts must filter external_id by {account_external_id}."]

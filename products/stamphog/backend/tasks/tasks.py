@@ -24,7 +24,8 @@ import structlog
 from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -51,11 +52,17 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.attestation_checks import PendingCheck, all_reported
+from products.stamphog.backend.logic.attestation_policy import WorkflowPublisher, workflow_publisher
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.installations import (
+    delete_installation,
+    remove_from_installation_snapshot,
+    reviewable_repo_config,
+    reviewable_repo_configs,
+)
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
@@ -74,6 +81,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -1533,25 +1541,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
-def _reviewable(configs: QuerySet[StamphogRepoConfig], repository: str) -> QuerySet[StamphogRepoConfig]:
-    """The enabled configs for ``repository`` that were bound through the verified sync flow.
-
-    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
-    case-insensitively because callers pass repository names in whatever casing they hold, while
-    configs keep GitHub's casing.
-    """
-    return (
-        configs.using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
-        .exclude(installation_id="")
-    )
-
-
-def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
-    """The team's reviewable config for ``repository``."""
-    return _reviewable(StamphogRepoConfig.objects.for_team(team_id), repository).order_by("created_at", "id").first()
-
-
 def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     """The teams among ``team_ids``, environments included, where a manual review of ``repository``
     would find its config."""
@@ -1560,7 +1549,7 @@ def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     rows = Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
     project_ids = {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
     configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=set(project_ids.values()))
-    reviewing = set(_reviewable(configs, repository).values_list("team_id", flat=True))
+    reviewing = set(reviewable_repo_configs(configs, repository).values_list("team_id", flat=True))
     return [team_id for team_id in team_ids if project_ids.get(team_id) in reviewing]
 
 
@@ -1757,7 +1746,7 @@ def process_inbox_pr_review(
 
     # iexact because tasks stores repository slugs lowercased while configs keep GitHub's casing.
     try:
-        repo_config = _reviewable_repo_config(team_id, repository)
+        repo_config = reviewable_repo_config(team_id, repository)
     except Exception as e:
         logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
@@ -1894,7 +1883,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     Runs synchronously in the API request, so the caller learns right away why a request was
     refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
     """
-    repo_config = _reviewable_repo_config(team_id, repository)
+    repo_config = reviewable_repo_config(team_id, repository)
     if repo_config is None:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_FOUND,
@@ -2095,7 +2084,7 @@ _ATTESTATION_WAKE = "attestation_check_wake"
 _ATTESTATION_WAKES_PER_HEAD = 3
 
 
-def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
+def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck | WorkflowPublisher]:
     """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
     A gate denial is saved as a GATED WAIT too, so the engine's own verdict decides. A PR that another
@@ -2107,8 +2096,14 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     entries = ((gate_result.get("classification") or {}).get("attestations") or {}).get("pending")
     if not isinstance(entries, list):
         return []
-    checks = [PendingCheck.from_entry(entry) for entry in entries]
-    return [check for check in checks if check is not None]
+    # A workflow entry names its publisher instead of an App, and any job can post a check run of its
+    # name, so only a result the publisher signed counts as reported.
+    pending: list[PendingCheck | WorkflowPublisher] = []
+    for entry in entries:
+        check = PendingCheck.from_entry(entry) or workflow_publisher(entry)
+        if check is not None:
+            pending.append(check)
+    return pending
 
 
 def waits_on_attestations(run: ReviewRun) -> bool:
@@ -2146,7 +2141,16 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    if not all_reported(client, repo_config.repository, run.head_sha, pending):
+    app_checks = [check for check in pending if isinstance(check, PendingCheck)]
+    if not all_reported(client, repo_config.repository, run.head_sha, app_checks):
+        return False
+    proofs = WorkflowProofs(
+        client, repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha, priority=Priority.BATCH
+    )
+    try:
+        if not all(proofs.has_result(check) for check in pending if isinstance(check, WorkflowPublisher)):
+            return False
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations
@@ -2398,7 +2402,7 @@ def route_reviewers_after_attestation(
 
 def _route_after_external_review(team_id: int, repository: str, pr_number: int, head_sha: str, task_id: str) -> None:
     # A disabled repo has no config here. Its heads never wait for a silent review, so nothing is lost.
-    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+    repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
     if repo_config is None:
         return
     route_after_external_review(
@@ -2537,7 +2541,7 @@ def silent_review_after_clean_external_review(
     safe: every check runs again, and the head dedupe collapses repeats into one run.
     """
     try:
-        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
         if repo_config is None:
             logger.info(
                 "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"

@@ -22,7 +22,7 @@ import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
@@ -224,7 +224,7 @@ describe('SandboxEmailSendStep', () => {
         expect(sent.invocation.queue).toBe('hogflow')
         expect(metricNames([sent])).toEqual([['email_sandbox_sent', 'email']])
         await waitForExpect(() =>
-            expect(capturedAnalytics).toEqual([
+            expect(capturedFor(world.team.uuid)).toEqual([
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
@@ -341,9 +341,9 @@ describe('SandboxEmailSendStep', () => {
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
             await waitForExpect(() =>
-                expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
-                    [ANALYTICS_EVENTS[metric], 'workflow'],
-                ])
+                expect(
+                    capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])
+                ).toEqual([[ANALYTICS_EVENTS[metric], 'workflow']])
             )
         }
     )

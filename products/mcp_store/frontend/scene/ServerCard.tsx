@@ -4,10 +4,12 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { MCPServerTemplateApi } from '../generated/api.schemas'
 import { mcpStoreLogic } from '../mcpStoreLogic'
 import { ServerIcon } from './icons'
+import { QuillServerCard } from './QuillServerCard'
 
 interface Props {
     server: MCPServerTemplateApi
@@ -21,6 +23,7 @@ export function ServerCard({ server }: Props): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isInstalled = installedServerUrls.has(server.url)
     const installation = isInstalled ? installations.find((i) => i.url === server.url) : null
@@ -41,6 +44,19 @@ export function ServerCard({ server }: Props): JSX.Element {
         } else {
             installTemplate({ templateId: server.id })
         }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillServerCard
+                server={server}
+                installation={isInstalled ? installation : null}
+                restrictedReason={restrictedReason}
+                onOpen={openDetail}
+                onConnect={handleConnect}
+                onRemove={uninstallServer}
+            />
+        )
     }
 
     return (

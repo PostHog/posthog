@@ -91,3 +91,19 @@ export const SmallCompact: Story = {
         )
     },
 }
+
+export const DisabledReason: Story = {
+    render: () => {
+        return (
+            <div className="max-w-32">
+                <NumberFieldRoot defaultValue={30} disabledReason="Only admins can change the limit">
+                    <NumberFieldGroup>
+                        <NumberFieldDecrement />
+                        <NumberFieldInput />
+                        <NumberFieldIncrement />
+                    </NumberFieldGroup>
+                </NumberFieldRoot>
+            </div>
+        )
+    },
+}

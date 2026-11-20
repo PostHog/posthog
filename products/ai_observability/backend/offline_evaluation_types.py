@@ -5,10 +5,30 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+MAX_ITEM_PAYLOAD_BYTES = 1024 * 1024
+MAX_RESULT_PAYLOAD_BYTES = 256 * 1024
+
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
 type ResultValue = float | bool | list[str]
 type RunSource = Literal["ci", "local", "scheduled"]
 type ResultStatus = Literal["ok", "error", "skipped", "not_applicable"]
+
+
+def reported_score_errors(status: str, value: object, error_code: object) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if status == "ok" and value is None:
+        errors["value"] = "A score is required for an ok result."
+    if status != "ok" and value is not None:
+        errors["value"] = "Only an ok result may contain a score."
+    if status != "error" and error_code is not None:
+        errors["error_code"] = "Only an error result may contain an error code."
+    return errors
+
+
+def result_payload_error(status: str, payload: dict[str, JSONValue] | None) -> str | None:
+    if status != "error" and payload and payload.get("error_message") is not None:
+        return "Only an error result may contain an error message."
+    return None
 
 
 @frozen
