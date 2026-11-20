@@ -4,6 +4,11 @@ name: Mobile CI
 # App checks install the standalone mobile workspace. The replay bundle check
 # installs only the two root workspace packages that produce the WebView player.
 #
+# The committed replay bundle is a pinned snapshot of the player, so a player change
+# does not have to regenerate a file the mobile team owns. A PR that changes the
+# bundle or its build script must match the current player source exactly. A PR
+# that changes only the player builds the bundle to prove it still compiles.
+#
 # "Mobile CI Pass" reports on every pull request so repository rules can require it.
 # PR housekeeping calls this workflow on each PR event. Change detection skips
 # validation when the app, its imported API types, and its replay bundle inputs are unchanged.
@@ -44,7 +49,9 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
             api_types: ${{ steps.filter.outputs.api_types || 'false' }}
-            replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'true' }}
+            # The pinned bundle is behind the player source on most master commits, so a push only builds it.
+            replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'false' }}
+            replay_player: ${{ steps.filter.outputs.replay_player || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -72,10 +79,13 @@ jobs:
                           - 'products/posthog_ai/frontend/generated/api.schemas.ts'
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                      # Only these can change what ships, so only they must match the source.
                       replay_bundle:
+                          - 'products/mobile/src/features/replay/web/phonePlayer.generated.replay'
+                          - 'common/replay-headless/build-phone.mjs'
+                      replay_player:
                           - 'common/replay-headless/**'
                           - 'common/replay-shared/**'
-                          - 'products/mobile/src/features/replay/web/**'
                           - 'patches/**'
                           - 'package.json'
                           - 'pnpm-lock.yaml'
@@ -192,7 +202,7 @@ jobs:
     replay_bundle:
         name: Check mobile replay bundle
         needs: changes
-        if: needs.changes.outputs.replay_bundle == 'true'
+        if: needs.changes.outputs.replay_bundle == 'true' || needs.changes.outputs.replay_player == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
@@ -219,9 +229,15 @@ jobs:
 
             - name: Verify generated WebView player
               if: hashFiles('products/mobile/src/features/replay/web/playerHtml.ts', 'products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              env:
+                  CHECK_COMMITTED_BUNDLE: ${{ needs.changes.outputs.replay_bundle }}
               run: |
                   pnpm --filter @posthog/replay-headless... install --frozen-lockfile --ignore-scripts
-                  pnpm --filter @posthog/replay-headless run build:phone --check
+                  if [[ "$CHECK_COMMITTED_BUNDLE" == "true" ]]; then
+                    pnpm --filter @posthog/replay-headless run build:phone --check
+                  else
+                    pnpm --filter @posthog/replay-headless run build:phone
+                  fi
 
     mobile_checks:
         name: Mobile CI Pass
@@ -243,7 +259,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_bundle }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_bundle }}" != "true" && "${{ needs.changes.outputs.replay_player }}" != "true" ]]; then
                     echo "Mobile checks were skipped (no relevant changes)"
                     exit 0
                   fi
