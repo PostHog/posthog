@@ -30,10 +30,25 @@
 //   hog    -> {"op":"proguard","path":"/abs/mapping.txt","out":"/tmp/hog-upload-1/mapping-0.symbolset"}
 //   worker -> {"ok":true,"result":{"contentHash":"...","size":640}}
 //
+// A React Native build with Hermes works on maps alone. `clone` copies the chunk id and the release
+// from Metro's packager map to the map Hermes composed, and an upload sends the composed maps:
+//
+//   hog    -> {"op":"load_maps","paths":["/abs/main.jsbundle.map","/abs/main.hbc.composed.map"]}
+//   worker -> {"ok":true,"result":{"maps":[{"id":0,"chunkId":"...","debugId":null,"releaseId":null,"empty":false},{"unreadable":"ENOENT: ..."}]}}
+//   hog    -> {"op":"set_map_release","ids":[0],"releaseId":"..."}
+//   worker -> {"ok":true,"result":{}}
+//   hog    -> {"op":"clone_metadata","from":0,"to":1}
+//   worker -> {"ok":true,"result":{"map":{"id":1,"chunkId":"...","debugId":null,"releaseId":"...","empty":false}}}
+//   hog    -> {"op":"write_maps","ids":[0,1]}
+//   worker -> {"ok":true,"result":{}}
+//   hog    -> {"op":"prepare_maps","ids":[1],"folder":"/tmp/hog-upload-1"}
+//   worker -> {"ok":true,"result":{"containers":[{"contentHash":"...","size":640,"path":"/tmp/hog-upload-1/map-1.symbolset"}]}}
+//
 // `fingerprint` records what a pair's files hold, so `clean_up` can tell later that nothing
 // touched them. `prepare` writes each pair's symbol set to a file for hog to send, and lets the
-// pairs go: nothing reads them after it. hog sends back to `clean_up` the stylesheets whose map
-// no ignore pattern matches.
+// pairs go: nothing reads them after it. `prepare_maps` does the same for Hermes maps, which have
+// ids of their own. hog sends back to `clean_up` the stylesheets whose map no ignore pattern
+// matches.
 //
 // A request that fails answers {"ok":false,"error":{"code":"...","message":"..."}} and the worker
 // keeps running. The pairs a `read_pairs` returns stay in memory under their ids until hog closes
@@ -43,6 +58,7 @@
 
 mod cleanup;
 mod constant;
+mod hermes;
 mod memory;
 mod node;
 mod pair;
@@ -132,6 +148,25 @@ enum Request {
         path: String,
         out: Option<String>,
     },
+    LoadMaps {
+        paths: Vec<String>,
+    },
+    CloneMetadata {
+        from: usize,
+        to: usize,
+    },
+    #[serde(rename_all = "camelCase")]
+    SetMapRelease {
+        ids: Vec<usize>,
+        release_id: Option<String>,
+    },
+    WriteMaps {
+        ids: Vec<usize>,
+    },
+    PrepareMaps {
+        ids: Vec<usize>,
+        folder: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -190,7 +225,43 @@ enum Answer {
         warnings: Vec<String>,
     },
     Proguard(proguard::Built),
+    Maps {
+        maps: Vec<MapAnswer>,
+    },
+    Map {
+        map: MapState,
+    },
+    Containers {
+        containers: Vec<hermes::Built>,
+    },
     Done {},
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum MapAnswer {
+    Loaded(MapState),
+    Unreadable { unreadable: String },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MapState {
+    id: usize,
+    chunk_id: Option<String>,
+    debug_id: Option<String>,
+    release_id: Option<String>,
+    empty: bool,
+}
+
+fn map_state(id: usize, map: &hermes::MapFile) -> MapState {
+    MapState {
+        id,
+        chunk_id: map.content.chunk_id.clone(),
+        debug_id: map.content.debug_id.clone(),
+        release_id: map.content.release_id.clone(),
+        empty: map.content.is_empty(),
+    }
 }
 
 #[derive(Serialize)]
@@ -289,6 +360,7 @@ fn state(id: usize, pair: &SourcePair) -> PairState {
 struct Worker {
     // A pair's id is its place here. A dropped pair leaves a hole, so ids never move.
     pairs: Vec<Option<SourcePair>>,
+    maps: Vec<Option<hermes::MapFile>>,
     // What `fingerprint` recorded, for `clean_up`.
     targets: Vec<cleanup::Target>,
     stylesheets: Vec<cleanup::CssCandidate>,
@@ -336,6 +408,13 @@ impl Worker {
                     .map(Answer::Proguard)
                     .map_err(|message| Failure::new(READ_FAILED, message))
             }
+            Request::LoadMaps { paths } => Ok(self.load_maps(&paths)),
+            Request::CloneMetadata { from, to } => self.clone_metadata(from, to),
+            Request::SetMapRelease { ids, release_id } => {
+                self.set_map_release(&ids, release_id.as_deref())
+            }
+            Request::WriteMaps { ids } => self.write_maps(&ids),
+            Request::PrepareMaps { ids, folder } => self.prepare_maps(&ids, folder.as_deref()),
         }
     }
 
@@ -652,6 +731,105 @@ impl Worker {
     }
 }
 
+impl Worker {
+    fn load_maps(&mut self, paths: &[String]) -> Answer {
+        let loaded: Vec<Result<hermes::MapFile, String>> = paths
+            .par_iter()
+            .map(|path| hermes::load(Path::new(path)))
+            .collect();
+        self.trace.mark("load maps");
+
+        let maps = loaded
+            .into_iter()
+            .map(|result| match result {
+                Ok(map) => {
+                    let id = self.maps.len();
+                    let answer = MapAnswer::Loaded(map_state(id, &map));
+                    self.maps.push(Some(map));
+                    answer
+                }
+                Err(unreadable) => MapAnswer::Unreadable { unreadable },
+            })
+            .collect();
+        Answer::Maps { maps }
+    }
+
+    fn map_mut(&mut self, id: usize) -> Result<&mut hermes::MapFile, Failure> {
+        self.maps
+            .get_mut(id)
+            .and_then(Option::as_mut)
+            .ok_or_else(|| unknown_map(id))
+    }
+
+    fn take_map(&mut self, id: usize) -> Result<hermes::MapFile, Failure> {
+        self.maps
+            .get_mut(id)
+            .and_then(Option::take)
+            .ok_or_else(|| unknown_map(id))
+    }
+
+    fn clone_metadata(&mut self, from: usize, to: usize) -> Result<Answer, Failure> {
+        let mut composed = self.take_map(to)?;
+
+        let cloned = self
+            .map_mut(from)
+            .map(|packager| hermes::clone_metadata(&packager.content, &mut composed.content));
+        let map = map_state(to, &composed);
+        self.maps[to] = Some(composed);
+
+        cloned.map(|()| Answer::Map { map })
+    }
+
+    fn set_map_release(
+        &mut self,
+        ids: &[usize],
+        release_id: Option<&str>,
+    ) -> Result<Answer, Failure> {
+        for id in ids {
+            self.map_mut(*id)?.content.release_id = release_id.map(str::to_string);
+        }
+        Ok(Answer::Done {})
+    }
+
+    fn write_maps(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
+        for id in ids {
+            self.map_mut(*id)?
+                .write()
+                .map_err(|message| Failure::new(WRITE_FAILED, message))?;
+        }
+        self.trace.mark("write maps");
+
+        Ok(Answer::Done {})
+    }
+
+    fn prepare_maps(&mut self, ids: &[usize], folder: Option<&str>) -> Result<Answer, Failure> {
+        let maps: Vec<hermes::MapFile> = ids
+            .iter()
+            .map(|id| self.take_map(*id))
+            .collect::<Result<_, _>>()?;
+        let folder = folder.map(Path::new);
+
+        let built: Result<Vec<hermes::Built>, String> = ids
+            .par_iter()
+            .zip(maps)
+            .map(|(id, map)| {
+                let path = map.path.clone();
+                hermes::build(*id, map, folder)
+                    .map_err(|error| format!("{}: {error:#}", path.display()))
+            })
+            .collect();
+        self.trace.mark("prepare maps");
+
+        built
+            .map(|containers| Answer::Containers { containers })
+            .map_err(|message| Failure::new(PREPARE_FAILED, message))
+    }
+}
+
+fn unknown_map(id: usize) -> Failure {
+    Failure::new(BAD_REQUEST, format!("the worker holds no map {id}"))
+}
+
 fn send(message: &impl Serialize) -> io::Result<()> {
     let mut line = serde_json::to_vec(message)?;
     line.push(b'\n');
@@ -672,6 +850,7 @@ fn main() -> io::Result<()> {
 
     let mut worker = Worker {
         pairs: Vec::new(),
+        maps: Vec::new(),
         targets: Vec::new(),
         stylesheets: Vec::new(),
         trace: Trace::from_environment(),

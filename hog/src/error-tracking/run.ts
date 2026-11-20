@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 
@@ -9,9 +9,8 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import { releaseRequested, resolveJsRelease, type InjectAction } from './js-flow'
-import { decodeUtf8 } from './json'
-import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
-import { loadMapContent, serializeMapContent, type MapContent, type ReleaseMode, type Skip } from './kinds/js'
+import { isHermesBundlePath } from './kinds/hermes'
+import type { ReleaseMode, Skip } from './kinds/js'
 import {
     dedupeNativeFiles,
     dsymSlices,
@@ -34,7 +33,7 @@ import {
     type SymbolSetUpload,
     type UploadStatus,
 } from './upload'
-import type { Worker } from './worker'
+import type { MapAnswer, MapState, Worker } from './worker'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -198,6 +197,10 @@ function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
 const CONTAINER_FOLDER_PREFIX = 'hog-upload-'
 const CONTAINER_EXTENSION = 'symbolset'
 const CSS_EXTENSION = '.css'
+
+// Expo stamps only a `debugId` on the packager map, so a Hermes map uploads under it when it has
+// no chunk ID.
+const uploadChunkId = (map: MapState): string | null => map.chunkId ?? map.debugId
 
 const hasUploadId = ({ pair }: OwnedPair): boolean =>
     pair.chunkId !== null || pair.sourceDebugId !== null || pair.mapDebugId !== null
@@ -382,10 +385,14 @@ async function uploadFrom(
                 'In event mode, exceptions take their release from the app. Pass --release-name, --release-version and --build matching the app identifier, version and build number, or exceptions will report no release.'
             )
         }
-        const maps = composed.map((artifact) => ({
-            artifact,
-            map: loadMapContent(decodeUtf8(readFileSync(artifact.path))),
-        }))
+        const loaded = await worker.loadMaps(composed.map((artifact) => artifact.path))
+        const maps = composed.map((artifact, index) => {
+            const map = loaded[index]!
+            if ('unreadable' in map) {
+                throw new Error(map.unreadable)
+            }
+            return { artifact, map }
+        })
         // posthog-cli creates the release even in event mode, so PostHog has a row to match the
         // app metadata of an event to.
         let releaseId: string | null = null
@@ -406,29 +413,53 @@ async function uploadFrom(
                 : { force: options.force, skipOnConflict: options.skipOnConflict }),
             batchSize: options.batchSize ?? 50,
         }
-        let uploadable = 0
+        const uploadable: { artifact: Artifact; map: MapState; chunkId: string }[] = []
         for (const { artifact, map } of maps) {
-            const reason = hermesSkipReason(map)
-            if (reason) {
+            const chunkId = uploadChunkId(map)
+            if (chunkId === null) {
                 skipped.push({
                     path: artifact.display,
-                    reason:
-                        reason === 'no_chunk_id'
-                            ? 'the map has no chunk ID. Run `hog error-tracking clone` after the Hermes build.'
-                            : 'the sourcemap is empty. Check your bundler sourcemap setting.',
+                    reason: 'the map has no chunk ID. Run `hog error-tracking clone` after the Hermes build.',
                 })
                 continue
             }
-            map.releaseId = options.releaseMode === 'event' ? null : (releaseId ?? map.releaseId)
-            planned.push({ artifact, upload: hermesUpload(map), policy })
-            uploadable++
+            if (map.empty) {
+                skipped.push({
+                    path: artifact.display,
+                    reason: 'the sourcemap is empty. Check your bundler sourcemap setting.',
+                })
+                continue
+            }
+            uploadable.push({ artifact, map, chunkId })
         }
-        if (uploadable === 0) {
+        if (uploadable.length === 0) {
             throw new HogError(
                 'no_hermes_chunk_ids',
                 'None of the Hermes maps has a chunk ID, so nothing was uploaded.',
                 'Run `hog error-tracking inject` on the Metro bundle before the Hermes build, and `hog error-tracking clone` after it.'
             )
+        }
+
+        const mapIds = uploadable.map(({ map }) => map.id)
+        if (options.releaseMode === 'event') {
+            await worker.setMapRelease(mapIds, null)
+        } else if (releaseId !== null) {
+            await worker.setMapRelease(mapIds, releaseId)
+        }
+        const containers = await worker.prepareMaps(mapIds, folder)
+
+        for (const [index, { artifact, map, chunkId }] of uploadable.entries()) {
+            const { path, ...container } = containers[index]!
+            planned.push({
+                artifact,
+                upload: {
+                    chunkId,
+                    releaseId: options.releaseMode === 'event' ? null : (releaseId ?? map.releaseId),
+                    ...container,
+                    file: path,
+                },
+                policy,
+            })
         }
     }
 
@@ -635,33 +666,35 @@ export interface CloneReport {
     releaseId: string | null
 }
 
-function readMap(cwd: string, path: string, role: string): { path: string; map: MapContent } {
-    const full = resolve(cwd, path)
-    try {
-        return { path: full, map: loadMapContent(decodeUtf8(readFileSync(full))) }
-    } catch (error) {
-        throw new HogError('map_unreadable', `hog couldn't read the ${role} map ${path}: ${(error as Error).message}`)
+function readableMap(answer: MapAnswer, path: string, role: string): MapState {
+    if ('unreadable' in answer) {
+        throw new HogError('map_unreadable', `hog couldn't read the ${role} map ${path}: ${answer.unreadable}`)
     }
+    return answer
 }
 
 export async function cloneMaps(
     ctx: Context,
+    worker: Worker,
     fromPath: string,
     toPath: string,
     options: ErrorTrackingOptions
 ): Promise<CloneReport> {
     const cwd = ctx.runtime.cwd()
-    const from = readMap(cwd, fromPath, 'packager')
-    const to = readMap(cwd, toPath, 'composed')
+    const fromFile = resolve(cwd, fromPath)
+    const answers = await worker.loadMaps([fromFile, resolve(cwd, toPath)])
+    const from = readableMap(answers[0]!, fromPath, 'packager')
+    const to = readableMap(answers[1]!, toPath, 'composed')
+
     const warnings: string[] = []
     let reported: ReleaseReport | null = null
     let releaseId: string | null = null
     if (options.releaseMode === 'symbol-set') {
         // Without release flags, the release `inject` stamped stays, and the upload binds to it.
-        releaseId = from.map.releaseId
+        releaseId = from.releaseId
         const fields = await releaseFields(ctx, options)
-        if (releaseRequested(fields) || from.map.releaseId === null) {
-            const resolved = resolveJsRelease(fields, ctx.runtime.env, from.path, warnings)
+        if (releaseRequested(fields) || from.releaseId === null) {
+            const resolved = resolveJsRelease(fields, ctx.runtime.env, fromFile, warnings)
             if (resolved) {
                 reported = { name: resolved.name, version: resolved.version, id: null }
                 if (!options.dryRun) {
@@ -674,23 +707,24 @@ export async function cloneMaps(
     if (options.releaseMode === 'symbol-set' && releaseId === null && reported === null) {
         warnings.push(MISSING_RELEASE_WARNING)
     }
-    const fromChanged = from.map.releaseId !== releaseId
-    from.map.releaseId = releaseId
-    cloneMetadata(from.map, to.map)
-    if (!options.dryRun) {
-        if (fromChanged) {
-            writeFileSync(from.path, serializeMapContent(from.map))
-        }
-        writeFileSync(to.path, serializeMapContent(to.map))
+
+    const fromChanged = from.releaseId !== releaseId
+    if (fromChanged) {
+        await worker.setMapRelease([from.id], releaseId)
     }
+    const cloned = await worker.cloneMetadata(from.id, to.id)
+    if (!options.dryRun) {
+        await worker.writeMaps(fromChanged ? [from.id, to.id] : [to.id])
+    }
+
     return {
         dryRun: options.dryRun,
         release: reported,
         warnings,
         from: fromPath,
         to: toPath,
-        chunkId: to.map.chunkId,
-        releaseId: to.map.releaseId,
+        chunkId: cloned.chunkId,
+        releaseId: cloned.releaseId,
     }
 }
 

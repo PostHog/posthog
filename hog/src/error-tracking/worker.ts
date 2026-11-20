@@ -97,6 +97,26 @@ const ProguardContainer = z.union([
     z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }),
     z.object({ contentHash: z.string(), size: z.number() }),
 ])
+const MapState = z.object({
+    id: z.number(),
+    chunkId: z.string().nullable(),
+    debugId: z.string().nullable(),
+    releaseId: z.string().nullable(),
+    empty: z.boolean(),
+})
+export type MapState = z.output<typeof MapState>
+
+const Maps = z.object({ maps: z.array(z.union([MapState, z.object({ unreadable: z.string() })])) })
+const ClonedMap = z.object({ map: MapState })
+const MapContainers = z.object({
+    containers: z.array(
+        z.object({
+            contentHash: z.string(),
+            size: z.number(),
+            path: z.string().nullable(),
+        })
+    ),
+})
 
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 export type PairAnswer = z.output<typeof Pairs>['pairs'][number]
@@ -104,6 +124,8 @@ export type PreparedPair = z.output<typeof Prepared>['prepared'][number]
 export type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
 export type CleanupReport = z.output<typeof Cleaned>
 export type ProguardContainer = z.output<typeof ProguardContainer>
+export type MapAnswer = z.output<typeof Maps>['maps'][number]
+export type MapContainer = z.output<typeof MapContainers>['containers'][number]
 
 export interface DetectCandidate {
     path: string
@@ -293,6 +315,36 @@ export class Worker {
     // Checks a ProGuard mapping and writes its symbol set to `out`. Without `out` nothing is written.
     async proguard(path: string, out: string | null): Promise<ProguardContainer> {
         return this.call({ op: 'proguard', path, out }, ProguardContainer)
+    }
+
+    async loadMaps(paths: string[]): Promise<MapAnswer[]> {
+        if (paths.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'load_maps', paths }, Maps)).maps
+    }
+
+    async cloneMetadata(from: number, to: number): Promise<MapState> {
+        return (await this.call({ op: 'clone_metadata', from, to }, ClonedMap)).map
+    }
+
+    async setMapRelease(ids: number[], releaseId: string | null): Promise<void> {
+        if (ids.length > 0) {
+            await this.call({ op: 'set_map_release', ids, releaseId }, Done)
+        }
+    }
+
+    async writeMaps(ids: number[]): Promise<void> {
+        if (ids.length > 0) {
+            await this.call({ op: 'write_maps', ids }, Done)
+        }
+    }
+
+    async prepareMaps(ids: number[], folder: string | null): Promise<MapContainer[]> {
+        if (ids.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers)).containers
     }
 
     // Closing stdin ends the worker. A worker that never started has nothing to close.
