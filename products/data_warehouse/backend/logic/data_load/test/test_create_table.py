@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -167,3 +169,48 @@ async def test_a_given_row_count_is_recorded_without_counting_the_files(team: Te
 
     await result.table.arefresh_from_db()
     assert result.table.row_count == 42
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_concurrent_publishes_run_their_blocking_reads_at_the_same_time(team: Team) -> None:
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=team,
+        name="parallel_model",
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+    )
+    first_job, second_job = [
+        await DataModelingJob.objects.acreate(
+            team=team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id=workflow_id,
+        )
+        for workflow_id in ("first-workflow", "second-workflow")
+    ]
+    both_publishes_reading = threading.Barrier(2, timeout=5)
+
+    def read_alongside_the_other_publish(result: object) -> Callable[..., object]:
+        def read(*args: object, **kwargs: object) -> object:
+            both_publishes_reading.wait()
+            return result
+
+        return read
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", side_effect=read_alongside_the_other_publish({})),
+        patch.object(DataWarehouseTable, "get_count", side_effect=read_alongside_the_other_publish(1)),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.get_size_of_folder",
+            side_effect=read_alongside_the_other_publish(3.0),
+        ),
+    ):
+        first_result, second_result = await asyncio.gather(
+            create_table_from_saved_query(str(first_job.id), str(saved_query.id), team.pk, "first-folder"),
+            create_table_from_saved_query(str(second_job.id), str(saved_query.id), team.pk, "second-folder"),
+        )
+
+    assert [(result.table.row_count, result.total_storage_mib) for result in (first_result, second_result)] == [
+        (1, 3.0),
+        (1, 3.0),
+    ]
