@@ -1,6 +1,7 @@
 import copy
 import json
 import uuid
+import builtins
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -151,6 +152,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_fired_checks,
     moved_alert_settings,
     moved_alert_statuses,
+    native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
@@ -1086,6 +1088,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         created_by = fields.pop("created_by")
         if threshold_data:
             fields["threshold"] = threshold_data.get("configuration")
+            fields["threshold_name"] = threshold_data.get("name", "")
         with _platform_write_errors():
             view = create_native_alert(
                 team_id=team_id, insight_id=insight.id, created_by_id=created_by.id, fields=fields
@@ -1249,6 +1252,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if threshold is None:
                 threshold = Threshold(id=instance.id, team_id=instance.team_id, created_at=instance.created_at)
             threshold.configuration = threshold_data.get("configuration")
+            threshold.name = threshold_data.get("name", threshold.name)
             instance.threshold = threshold
         rescheduled = _apply_platform_edit(
             instance, edit.validated_data, threshold_before=threshold_before, enable_now=edit.enable_now
@@ -1312,7 +1316,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             instance.threshold = None
         elif threshold_data is not None:
             instance.threshold = Threshold(
-                team_id=instance.team_id, insight=instance.insight, configuration=threshold_data.get("configuration")
+                team_id=instance.team_id,
+                insight=instance.insight,
+                name=threshold_data.get("name", instance.threshold.name if instance.threshold else ""),
+                configuration=threshold_data.get("configuration"),
             )
         rescheduled = _apply_platform_edit(
             instance, validated_data, threshold_before=threshold_before, enable_now=edit.enable_now
@@ -1507,6 +1514,7 @@ def _platform_changes(instance: AlertConfiguration, validated_data: dict, *, thr
     }
     if threshold_changed:
         changes["threshold"] = instance.threshold.configuration if instance.threshold else None
+        changes["threshold_name"] = instance.threshold.name if instance.threshold else ""
     if "insight" in validated_data:
         changes["insight_id"] = validated_data["insight"].id
     return changes
@@ -3334,9 +3342,73 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # An alert can move to another insight and keep its threshold, so each embedded alert passes
         # the same gates on its own insight. Prefetched, so the page's alerts are the same objects its
         # thresholds then serialize.
-        alerts = AlertConfiguration.objects.filter(insight_id__in=viewable.values("id"))
+        return queryset.filter(insight_id__in=viewable.values("id")).prefetch_related(
+            Prefetch("alertconfiguration_set", queryset=self._readable_alerts())
+        )
+
+    def _readable_alerts(self) -> QuerySet[AlertConfiguration]:
+        alerts = AlertConfiguration.objects.filter(
+            insight_id__in=_viewable_insights(self.user_access_control, self.team_id).values("id")
+        )
         if _token_lacks_metrics_scope(self.request):
             alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-        return queryset.filter(insight_id__in=viewable.values("id")).prefetch_related(
-            Prefetch("alertconfiguration_set", queryset=alerts)
+        return alerts
+
+    @extend_schema(description="The insight's thresholds, each with the alerts that use it.")
+    def list(self, request, *args, **kwargs):
+        # Paged in memory, because thresholds held only by the platform have no row to page on. An
+        # insight has as many thresholds as alerts at most.
+        thresholds = [*self.filter_queryset(self.get_queryset()), *self._platform_only_thresholds()]
+        thresholds.sort(key=lambda threshold: (threshold.created_at, threshold.id))
+        page = self.paginate_queryset(thresholds)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(thresholds, many=True).data)
+
+    @extend_schema(description="One of the insight's thresholds, with the alerts that use it.")
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            return super().retrieve(request, *args, **kwargs)
+        except Http404:
+            held = next((t for t in self._platform_only_thresholds() if str(t.id) == str(kwargs.get("pk"))), None)
+            if held is None:
+                raise
+            return Response(self.get_serializer(held).data)
+
+    def _platform_only_thresholds(self) -> builtins.list[Threshold]:
+        """The thresholds of this insight's alerts that only the platform holds: those of alerts with no
+        insight row, and of moved alerts whose row has no threshold. Each carries its alert's id."""
+        raw_insight_id = str(self.parents_query_dict.get("insight_id"))
+        if not raw_insight_id.isdigit():
+            return []
+        insight_id = int(raw_insight_id)
+        moved = list(
+            self._readable_alerts()
+            .filter(insight_id=insight_id, owner=PlatformAlertOwner.PLATFORM, threshold__isnull=True)
+            .select_related("team", "insight", "created_by")
         )
+        _show_copy_settings(moved)
+        alerts = [alert for alert in moved if alert.threshold is not None]
+        native_ids = native_insight_alert_ids_by_insight(self.team_id, [insight_id]).get(insight_id, [])
+        if native_ids and self._readable_insight(insight_id):
+            views = native_insight_alert_views(self.team_id, native_ids)
+            # An alert with no insight row is shown with a placeholder threshold; only a held one is listed.
+            held = [view for view in views if (view.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")]
+            alerts += AlertConfiguration.from_platform_views(held, team_id=self.team_id).values()
+        thresholds = []
+        for alert in alerts:
+            threshold = alert.threshold
+            assert threshold is not None
+            threshold._prefetched_objects_cache = {"alertconfiguration_set": [alert]}  # type: ignore[attr-defined]
+            thresholds.append(threshold)
+        return thresholds
+
+    def _readable_insight(self, insight_id: int) -> bool:
+        insights = _viewable_insights(self.user_access_control, self.team_id).filter(id=insight_id)
+        if _token_lacks_metrics_scope(self.request):
+            insights = insights.exclude(
+                id__in=insights.filter(
+                    Q(query__kind=NodeKind.METRICS_QUERY) | Q(query__source__kind=NodeKind.METRICS_QUERY)
+                ).values("id")
+            )
+        return insights.exists()

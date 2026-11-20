@@ -39,6 +39,9 @@ class InsightPlatformAlertCondition(BaseModel):
         ...,
         description="How the value is compared: as it is, or as an increase or decrease from the previous interval.",
     )
+    threshold_name: str = Field(
+        default="", max_length=255, description="The threshold's name, shown with its bounds on the insight."
+    )
     detector: dict[str, Any] | None = Field(
         default=None,
         description="The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. "

@@ -1095,6 +1095,9 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
  */
 export const platformAlertsUpdateBodyOneNameMax = 255
 
+export const platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdNameDefault = ``
+export const platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdNameMax = 255
+
 export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
@@ -1249,6 +1252,11 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                                 .describe(
                                     'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
                                 ),
+                            threshold_name: zod
+                                .string()
+                                .max(platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdNameMax)
+                                .default(platformAlertsUpdateBodyOneSourceConfigOneConditionThresholdNameDefault)
+                                .describe("The threshold's name, shown with its bounds on the insight."),
                             detector: zod
                                 .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                 .optional()
@@ -2099,6 +2107,9 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
  */
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdNameDefault = ``
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdNameMax = 255
+
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
@@ -2257,6 +2268,11 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                                 .describe(
                                     'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
                                 ),
+                            threshold_name: zod
+                                .string()
+                                .max(platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdNameMax)
+                                .default(platformAlertsPartialUpdateBodyOneSourceConfigOneConditionThresholdNameDefault)
+                                .describe("The threshold's name, shown with its bounds on the insight."),
                             detector: zod
                                 .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                 .optional()

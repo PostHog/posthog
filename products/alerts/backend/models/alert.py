@@ -313,6 +313,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 id=self.id,
                 team_id=self.team_id,
                 insight_id=self.insight_id,
+                name=settings.threshold_name or "",
                 configuration=settings.threshold,
                 created_at=self.created_at,
             )
@@ -320,6 +321,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             # A copy, because a threshold that embeds this alert can share the object it holds.
             self.threshold = copy.copy(self.threshold)
             self.threshold.configuration = settings.threshold
+            if settings.threshold_name is not None:
+                self.threshold.name = settings.threshold_name
 
     @property
     def platform_owned_since(self) -> datetime | None:

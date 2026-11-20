@@ -366,7 +366,12 @@ def _built_alert(
         team=insight.team,
         insight=insight,
         enabled=enabled,
-        threshold=Threshold(team=insight.team, insight=insight, configuration=threshold_config)
+        threshold=Threshold(
+            team=insight.team,
+            insight=insight,
+            name=_threshold_name_of(configuration) or "",
+            configuration=threshold_config,
+        )
         if threshold_config
         else None,
         owner=PlatformAlertOwner.PLATFORM,
@@ -377,6 +382,11 @@ def _built_alert(
 
 def _threshold_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any] | None:
     return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")
+
+
+def _threshold_name_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> str | None:
+    """None for a copy made before copies held the name, whose row's threshold keeps it."""
+    return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold_name")
 
 
 def _row_settings(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any]:
@@ -410,6 +420,7 @@ def moved_alert_settings(*, team_id: int, alert_ids: Collection[UUID]) -> dict[U
         alert_id: MovedAlertSettings(
             fields={**_copied_row_settings(view), "enabled": view.enabled},
             threshold=_threshold_of(view),
+            threshold_name=_threshold_name_of(view),
             schedule_start_time=view.anchor_time,
             created_by_id=view.created_by_id,
         )

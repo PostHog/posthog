@@ -41,7 +41,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
                 trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             ).model_dump(),
         )
-        threshold = Threshold.objects.create(team=team, insight=insight, configuration=THRESHOLD)
+        threshold = Threshold.objects.create(team=team, insight=insight, name="Revenue bound", configuration=THRESHOLD)
         fields: dict[str, Any] = {
             "team": team,
             "insight": insight,
@@ -104,6 +104,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             "threshold": THRESHOLD,
             "comparison": {"type": "absolute_value"},
             "detector": None,
+            "threshold_name": "Revenue bound",
         }
         assert {key: copies[daily.id].source_config[key] for key in INSIGHT_ROW_SETTINGS} == {
             "config": {"type": "TrendsAlertConfig", "series_index": 0},

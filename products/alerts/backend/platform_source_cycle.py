@@ -236,6 +236,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
                 "threshold": alert.threshold.configuration if alert.threshold else None,
                 "comparison": alert.condition,
                 "detector": alert.detector_config,
+                **({"threshold_name": alert.threshold.name} if alert.threshold else {}),
             },
             **insight_row_settings(alert),
         },

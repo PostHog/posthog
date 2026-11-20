@@ -66648,6 +66648,11 @@ export namespace Schemas {
       threshold: InsightThreshold | null;
       /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
       comparison: AlertCondition;
+      /**
+         * The threshold's name, shown with its bounds on the insight.
+         * @maxLength 255
+         */
+      threshold_name?: string;
       /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
       detector?: InsightPlatformAlertConditionDetector;
     }

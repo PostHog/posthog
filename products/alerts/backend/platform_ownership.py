@@ -96,20 +96,14 @@ def create_native_alert(
 ) -> PlatformAlertConfigurationView:
     """Creates an insight alert with no insight row from a create the insight API or the Max tool
     checked, in the caller's transaction, after its limit checks. `fields` holds the alert's other
-    fields by name, with `threshold` as the threshold's configuration and `snoozed_until` parsed.
+    fields by name, with `threshold` as the threshold's configuration, `threshold_name` as its name and
+    `snoozed_until` parsed.
     Its subscribers are the caller's to write.
 
     Raises `PlatformCannotOwn` for an alert the platform cannot evaluate, and like `create_configuration`.
     """
-    threshold_configuration = fields.get("threshold")
-    alert = AlertConfiguration(
-        team_id=team_id,
-        insight_id=insight_id,
-        created_by_id=created_by_id,
-        **{field: value for field, value in fields.items() if field != "threshold"},
-    )
-    if threshold_configuration is not None:
-        alert.threshold = Threshold(team_id=team_id, insight_id=insight_id, configuration=threshold_configuration)
+    alert = AlertConfiguration(team_id=team_id, insight_id=insight_id, created_by_id=created_by_id)
+    _apply_changes(alert, fields)
     if alert.schedule_start_time is not None:
         alert.next_check_at = next_check_at_after_schedule_restriction_change(alert)
     upsert = platform_upsert_of(alert)
@@ -225,18 +219,27 @@ def write_moved_alert_edit(
     if alert is None or not show_locked_copy(alert):
         return
     row_insight_id = alert.insight_id
-    for field, value in changes.items():
-        if field == "threshold":
-            alert.threshold = (
-                Threshold(team_id=team_id, insight_id=alert.insight_id, configuration=value)
-                if value is not None
-                else None
-            )
-        else:
-            setattr(alert, field, value)
+    _apply_changes(alert, changes)
     on_updated(alert, snooze_changed=snooze_changed, rescheduled=rescheduled)
     if alert.insight_id != row_insight_id:
         AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).update(insight_id=alert.insight_id)
+
+
+def _apply_changes(alert: AlertConfiguration, changes: Mapping[str, Any]) -> None:
+    """Sets an edit's fields on `alert`. `threshold` is the threshold's configuration and
+    `threshold_name` its name; a new configuration keeps the name the edit leaves alone."""
+    name = changes.get("threshold_name", alert.threshold.name if alert.threshold else "")
+    for field, value in changes.items():
+        if field == "threshold":
+            alert.threshold = (
+                Threshold(team_id=alert.team_id, insight_id=alert.insight_id, configuration=value)
+                if value is not None
+                else None
+            )
+        elif field != "threshold_name":
+            setattr(alert, field, value)
+    if alert.threshold is not None:
+        alert.threshold.name = name
 
 
 def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
@@ -377,7 +380,7 @@ def write_native_alert_edit(
 ) -> PlatformAlertConfigurationView | None:
     """Writes an edit the insight API checked onto an insight alert with no insight row. `changes`
     holds the alert's fields the edit sets, by name, with `threshold` as the threshold's
-    configuration. `rescheduled` says the edit moved the alert's due time, to `next_check_at`.
+    configuration and `threshold_name` as its name. `rescheduled` says the edit moved the alert's due time, to `next_check_at`.
     None when the alert is gone.
 
     Raises like `on_updated`.
@@ -390,11 +393,7 @@ def write_native_alert_edit(
     if alert is None:
         return None
     alert.schedule_start_time = view.anchor_time
-    for field, value in changes.items():
-        if field == "threshold":
-            alert.threshold = Threshold(configuration=value) if value is not None else None
-        else:
-            setattr(alert, field, value)
+    _apply_changes(alert, changes)
     if not can_move(alert):
         raise PlatformCannotOwn("The alerts platform runs this alert, and it can't run checks at this frequency.")
     upsert = platform_upsert_of(alert)

@@ -612,7 +612,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
-        expected = [(copy_threshold, self.alert.name, copy_threshold, "Revenue bound")]
+        expected = [(copy_threshold, self.alert.name, copy_threshold, "")]
         if shared_with_row_alert:
             row_alert = AlertConfiguration.objects.create(
                 team=self.team,
@@ -624,7 +624,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             # Edits to the row alert still write the threshold row, so the row's bounds are current.
             expected = sorted(
                 [
-                    (row_threshold, self.alert.name, copy_threshold, "Revenue bound"),
+                    (row_threshold, self.alert.name, copy_threshold, ""),
                     (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
                 ]
             )
@@ -1360,6 +1360,54 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         copy = self._copy()
         assert (copy.name, copy.source_config["condition"]["threshold"]) == ("Renamed", None)
+
+    @parameterized.expand(
+        [
+            (f"{kind}_{action}", kind, action)
+            for kind in ("moved_without_a_threshold_row", "native")
+            for action in ("list", "retrieve")
+        ]
+    )
+    def test_the_thresholds_endpoint_lists_a_threshold_only_the_platform_holds(
+        self, _name: str, kind: str, action: str
+    ) -> None:
+        if kind == "native":
+            self._forget_the_insight_row()
+            alert_id = self.copy_id
+        else:
+            AlertConfiguration.objects.filter(id=self.alert.id).update(threshold=None)
+            alert_id = self.alert.id
+        Threshold.objects.filter(id=self.alert.threshold_id).delete()
+        url = f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/"
+
+        response = self.client.get(url if action == "list" else f"{url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        thresholds = response.json()["results"] if action == "list" else [response.json()]
+        assert [
+            (threshold["id"], threshold["configuration"], [alert["id"] for alert in threshold["alerts"]])
+            for threshold in thresholds
+        ] == [(str(alert_id), self._copy().source_config["condition"]["threshold"], [str(alert_id)])]
+
+    @parameterized.expand([("moved_with_a_threshold_row",), ("moved_without_a_threshold_row",), ("native",)])
+    def test_a_threshold_name_is_kept_on_the_copy(self, kind: str) -> None:
+        if kind == "native":
+            self._forget_the_insight_row()
+            alert_id = self.copy_id
+        else:
+            if kind == "moved_without_a_threshold_row":
+                AlertConfiguration.objects.filter(id=self.alert.id).update(threshold=None)
+            alert_id = self.alert.id
+        named = {"name": "Revenue bound", "configuration": {"type": "absolute", "bounds": {"upper": 50.0}}}
+        bounds_only = {"configuration": {"type": "absolute", "bounds": {"upper": 60.0}}}
+
+        for threshold in (named, bounds_only):
+            edit = self.client.patch(f"{self.url}/{alert_id}/", {"threshold": threshold}, format="json")
+            assert edit.status_code == status.HTTP_200_OK, edit.json()
+
+        read = self.client.get(f"{self.url}/{alert_id}/").json()["threshold"]
+        assert (read["name"], read["configuration"]["bounds"]["upper"]) == ("Revenue bound", 60.0)
+        assert self._copy().source_config["condition"]["threshold_name"] == "Revenue bound"
 
     @parameterized.expand(
         [

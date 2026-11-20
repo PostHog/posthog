@@ -427,6 +427,9 @@ export const getInsightsThresholdsListUrl = (
         : `/api/projects/${projectId}/insights/${insightId}/thresholds/`
 }
 
+/**
+ * The insight's thresholds, each with the alerts that use it.
+ */
 export const insightsThresholdsList = async (
     projectId: string,
     insightId: number,
@@ -443,6 +446,9 @@ export const getInsightsThresholdsRetrieveUrl = (projectId: string, insightId: n
     return `/api/projects/${projectId}/insights/${insightId}/thresholds/${id}/`
 }
 
+/**
+ * One of the insight's thresholds, with the alerts that use it.
+ */
 export const insightsThresholdsRetrieve = async (
     projectId: string,
     insightId: number,
