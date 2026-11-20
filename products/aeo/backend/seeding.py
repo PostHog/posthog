@@ -30,6 +30,7 @@ from posthog.models.team import Team
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
 from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH
 from products.aeo.backend.models import AEOPrompt, AEOPromptVersion
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 logger = structlog.get_logger(__name__)
 
@@ -148,4 +149,5 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     created = len(rows.keys() - existing.keys())
     if skipped:
         logger.info("aeo_seed_candidates_skipped", team_id=team.id, skipped=skipped)
+    bump_data_version_on_commit(team_id)
     return {"created": created, "updated": valid - created, "skipped": skipped}

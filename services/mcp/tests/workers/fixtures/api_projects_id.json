@@ -146,8 +146,6 @@
     }
   ],
   "flags_persistence_default": false,
-  "secret_api_token": null,
-  "secret_api_token_backup": null,
   "receive_org_level_activity_logs": false,
   "business_model": null,
   "conversations_enabled": null,

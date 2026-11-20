@@ -57,6 +57,8 @@ import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
 import { OptionalHeaderFieldRow } from './OptionalHeaderFieldRow'
+import { EmailPersonPreview } from './preview/EmailPersonPreview'
+import { QuillEmailHeaderFields } from './QuillEmailHeaderFields'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import {
     SANDBOX_SENDER_VALUE,
@@ -566,9 +568,11 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
 function NativeEmailTemplaterForm({
     mode,
     fieldsHidden,
+    switchInHeader,
 }: {
     mode: EmailEditorMode
     fieldsHidden?: boolean
+    switchInHeader?: boolean
 }): JSX.Element {
     const {
         unlayerEditorProjectId,
@@ -605,7 +609,7 @@ function NativeEmailTemplaterForm({
             !documentEditorActive)
     const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
-    const showContentSwitch = mode === 'full' && logicProps.layout === 'inline'
+    const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
     const preheaderVisible = isHeaderFieldShown(visibleFields, 'preheader')
 
     return (
@@ -616,8 +620,10 @@ function NativeEmailTemplaterForm({
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                <div className={fieldsHidden && !documentEditorActive ? 'h-0 overflow-hidden' : ''}>
-                    {compactHeader ? (
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                    {compactHeader && logicProps.quillHeader && mode === 'preview' ? (
+                        <QuillEmailHeaderFields />
+                    ) : compactHeader ? (
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
@@ -628,6 +634,7 @@ function NativeEmailTemplaterForm({
                                             value={value}
                                             onChange={onChange}
                                             globals={logicProps.variables}
+                                            placeholder="Add a subject line"
                                         />
                                     )}
                                 </LemonField>
@@ -723,7 +730,7 @@ function NativeEmailTemplaterForm({
 
                 {documentEditorActive ? (
                     <div className="relative flex flex-col flex-1 min-h-0">
-                        {logicProps.layout === 'inline' ? (
+                        {showContentSwitch && !compactHeader ? (
                             <div className="flex justify-end px-2 py-1 border-b shrink-0">
                                 <LemonSegmentedButton
                                     size="xsmall"
@@ -858,32 +865,38 @@ function NativeEmailTemplaterForm({
 }
 
 function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
-    const { emailTemplate } = useValues(emailTemplaterLogic)
+    const { emailTemplate, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen } = useActions(emailTemplaterLogic)
+    const personPreviewEnabled = useFeatureFlag('WORKFLOWS_EMAIL_PERSON_PREVIEW')
 
     return (
         <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
-            {({ value }: ChildFunctionProps) => (
-                <>
-                    <div
-                        className={clsx(
-                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
-                            buttonsAt === 'bottom' ? 'items-end' : 'items-center',
-                            // Persistent start buttons while empty; hover-reveal once there is content
-                            value || emailTemplate.text
-                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
-                                : 'opacity-100'
-                        )}
-                    >
-                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                        {/* A plain-text-only email has no html, so content is judged on every shape */}
-                        <EmailPreviewOverlayButtons
-                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                        />
-                    </div>
+            {({ value }: ChildFunctionProps) =>
+                personPreviewEnabled && templatingEngine === 'liquid' && (value || emailTemplate.text) ? (
+                    <EmailPersonPreview html={value} text={emailTemplate.text} onEdit={() => setIsModalOpen(true)} />
+                ) : (
+                    <>
+                        <div
+                            className={clsx(
+                                'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                                buttonsAt === 'bottom' ? 'items-end' : 'items-center',
+                                // Persistent start buttons while empty; hover-reveal once there is content
+                                value || emailTemplate.text
+                                    ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
+                                    : 'opacity-100'
+                            )}
+                        >
+                            <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                            {/* A plain-text-only email has no html, so content is judged on every shape */}
+                            <EmailPreviewOverlayButtons
+                                hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                            />
+                        </div>
 
-                    <EmailBodyPreview html={value} text={emailTemplate.text} />
-                </>
-            )}
+                        <EmailBodyPreview html={value} text={emailTemplate.text} />
+                    </>
+                )
+            }
         </LemonField>
     )
 }
@@ -939,7 +952,16 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
     )
 }
 
-function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fieldsHidden?: boolean }): JSX.Element {
+function EmailTemplaterForm({
+    mode,
+    fieldsHidden,
+    switchInHeader,
+}: {
+    mode: EmailEditorMode
+    fieldsHidden?: boolean
+    /** The panel around the form already shows the visual/plain-text switch. */
+    switchInHeader?: boolean
+}): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -949,7 +971,7 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'native_email_transactional_template':
         case 'native_email':
         case 'native_email_sandbox':
-            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
+            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} switchInHeader={switchInHeader} />
     }
 }
 
@@ -1030,7 +1052,7 @@ function EmailTemplaterEditorPanel({
     // The takeover has no LemonModal chrome, so it asks for an explicit close button here.
     onClose?: () => void
 }): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, activeContentTab, usesDocumentEditor } = useValues(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, activeContentTab } = useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, setIsSaveTemplateModalOpen, setActiveContentTab } =
         useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
@@ -1051,16 +1073,14 @@ function EmailTemplaterEditorPanel({
                 {saveIndicator}
                 {/* The toggle label changes width; keeping it left of the right-anchored
                     tabs means the tabs never shift when it flips */}
-                {!usesDocumentEditor && (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                        onClick={() => setFieldsHidden(!fieldsHidden)}
-                    >
-                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                    onClick={() => setFieldsHidden(!fieldsHidden)}
+                >
+                    {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                </LemonButton>
                 <LemonSegmentedButton
                     size="small"
                     value={activeContentTab}
@@ -1074,7 +1094,7 @@ function EmailTemplaterEditorPanel({
                     <LemonButton size="small" icon={<IconX />} onClick={onClose} tooltip="Close" aria-label="Close" />
                 )}
             </div>
-            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
+            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} switchInHeader />
             <div className="flex gap-2 items-center shrink-0">
                 <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                     Save as new template

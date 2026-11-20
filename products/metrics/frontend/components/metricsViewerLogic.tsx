@@ -72,7 +72,16 @@ import type { MetricsChartSeries } from './metricsSeries'
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
 export type HistogramQuantileAggregation = 'histogram_p50' | 'histogram_p95' | 'histogram_p99'
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | HistogramQuantileAggregation
+export type HistogramCountAggregation = 'count_rate' | 'count_increase'
+export type MetricAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'p95'
+    | HistogramQuantileAggregation
+    | HistogramCountAggregation
 export const METRIC_AGGREGATIONS: MetricAggregation[] = [
     'sum',
     'avg',
@@ -83,6 +92,8 @@ export const METRIC_AGGREGATIONS: MetricAggregation[] = [
     'histogram_p50',
     'histogram_p95',
     'histogram_p99',
+    'count_rate',
+    'count_increase',
 ]
 
 /** Viewer shorthands for the API's `histogram_quantile`, which reads the bucket distribution. */
@@ -97,6 +108,13 @@ export const isHistogramQuantileAggregation = (
     aggregation: string | null
 ): aggregation is HistogramQuantileAggregation =>
     !!aggregation && Object.prototype.hasOwnProperty.call(HISTOGRAM_QUANTILES, aggregation)
+
+/**
+ * Aggregations that read a histogram's buckets or observation count. They need a histogram,
+ * and the backend rejects them together with a range function.
+ */
+export const isHistogramOnlyAggregation = (aggregation: string | null): boolean =>
+    isHistogramQuantileAggregation(aggregation) || aggregation === 'count_rate' || aggregation === 'count_increase'
 
 const histogramQuantileFields = (
     aggregation: HistogramQuantileAggregation
@@ -1068,10 +1086,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         let aggregation = clause.aggregation
                         if (!aggregation && defaultsToHistogramQuantile(metricType, clause.rangeFunction)) {
                             aggregation = DEFAULT_HISTOGRAM_AGGREGATION
-                        } else if (
-                            isHistogramQuantileAggregation(aggregation) &&
-                            !supportsHistogramQuantile(metricType)
-                        ) {
+                        } else if (isHistogramOnlyAggregation(aggregation) && !supportsHistogramQuantile(metricType)) {
                             aggregation = fallbackAggregation(clause.groupByKeys)
                         }
                         return { ...clause, selectedMetricType: metricType, aggregation }
@@ -1083,7 +1098,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     withActiveClause(state, (clause) => ({
                         ...clause,
                         aggregation,
-                        rangeFunction: isHistogramQuantileAggregation(aggregation) ? null : clause.rangeFunction,
+                        rangeFunction: isHistogramOnlyAggregation(aggregation) ? null : clause.rangeFunction,
                         groupByKeys: aggregation ? clause.groupByKeys : [],
                     })),
                 setRangeFunction: (state, { rangeFunction }) =>
@@ -1091,7 +1106,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         ...clause,
                         rangeFunction,
                         aggregation:
-                            rangeFunction && isHistogramQuantileAggregation(clause.aggregation)
+                            rangeFunction && isHistogramOnlyAggregation(clause.aggregation)
                                 ? fallbackAggregation(clause.groupByKeys)
                                 : clause.aggregation,
                     })),

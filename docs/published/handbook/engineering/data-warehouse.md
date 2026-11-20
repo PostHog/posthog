@@ -106,6 +106,8 @@ Views and insights can be saved or updated before running the SQL. Save and upda
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
 
+Saved SQL insight tables keep column headers visible while scrolling through rows or across columns. Tall results scroll inside an area capped at 70% of the window height; short results keep their natural height.
+
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
@@ -133,7 +135,7 @@ Panes share their value scale by default; **Independent value scales** lets each
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
 The Series panel accepts custom colors for individual breakdown values. The settings button beside a breakdown value lets you change its label without changing the query or grouping; clearing the label restores the original name. Clearing a color keeps the custom label. These controls also work in the SQL editor.
-Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. Value text and background colors can be customized independently of the series color. Clearing a color restores automatic styling; turning off the value background preserves its color for later use. These label controls also work in the SQL editor. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -178,6 +180,11 @@ Direct connections group tables by schema. Search matches table and folder names
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## Moving averages on SQL charts
+
+In a SQL line or area chart, enable **Show moving average** under **Display** to overlay a trailing average on each series.
+The window defaults to three chart points in result order. Each point averages the available numeric values in its window, including the current point.
 
 ## SQL heatmaps
 

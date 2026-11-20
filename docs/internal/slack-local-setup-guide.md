@@ -160,15 +160,20 @@ Django must be up at that moment.
 > otherwise) and the coding agent doesn't use it.
 
 > The `app_home` block + `app_home_opened` bot event power the App Home tab. With the
-> `slack-app-onboarding` flag on, the same event, an install, a reinstall, a `team_join` and a person's first `@PostHog` mention start the
+> `slack-app-onboarding` flag on for the person, the same event, an install, a reinstall, a `team_join` and a person's first `@PostHog` mention start the
 > `slack-app-onboarding` Temporal workflow, which posts a person's onboarding thread in the PostHog DM
 > once. It needs the Temporal worker running. The thread checks each step again before it shows it,
 > so a person who already linked their account or chose a model sees that step as already set.
+> The onboarding, work focus, tool connect and Slack MCP flags decide for the PostHog user linked to the Slack account,
+> so a rule on `email` targets one tester once they linked. Before the link they fall back to the workspace.
 > To see the thread again in a dev workspace, clear the `onboarding` field of your row in
 > `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. With
-> the `slack-app-daily-work-focus` flag on, that first work focus DM also turns on a daily one. To run it without
+> the `slack-app-daily-work-focus` flag on, linking sends that first work focus DM, which also turns on a daily one; with
+> the flag off, no work focus DM is sent at all. To run it without
 > waiting for the next workday, set `next_run_at` on your row in `slack_app_slackdailyfocus` to a past time. The
-> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. The
+> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. With the `slack-app-daily-summary` flag on,
+> the daily DM opens with what moved in the channels you share with the bot, read with the bot's `channels:read`
+> and `channels:history` scopes (private channels need `groups:read` and `groups:history` too). The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the

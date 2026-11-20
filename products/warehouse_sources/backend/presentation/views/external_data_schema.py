@@ -1677,6 +1677,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     else set()
                 )
                 if known:
+                    # Discovery keeps a stored column that left the source when dropping it would empty the
+                    # selection, and the column picker sends it back unseen. Drop it here, but never save an
+                    # empty selection, which would read every column.
+                    stored = set(instance.enabled_columns or [])
+                    stale = [c for c in enabled_columns if c not in known and c in stored]
+                    if stale:
+                        enabled_columns = [c for c in enabled_columns if c not in stale]
+                        if not enabled_columns:
+                            raise ValidationError(
+                                f"These columns no longer exist in the source: {', '.join(sorted(stale))}. "
+                                "Select at least one column to sync."
+                            )
+                        validated_data["enabled_columns"] = enabled_columns
+                        enabled_columns_changed = enabled_columns != instance.enabled_columns
                     unknown = [c for c in enabled_columns if c not in known]
                     if unknown:
                         raise ValidationError(

@@ -136,6 +136,19 @@ class WaitWorkflow(PostHogWorkflow):
 
 WAITER = Waiter()
 
+
+@activity.defn
+async def wait_for_activity(inputs: WaitInputsActivity) -> None:
+    await WAITER.wait_for_activity(inputs)
+
+
+@activity.defn
+def wait_for_activity_sync(inputs: WaitInputsActivity) -> None:
+    WAITER.wait_for_activity_sync(inputs)
+
+
 WORKFLOWS = [WaitWorkflow]
 
-ACTIVITIES = [WAITER.wait_for_activity, WAITER.wait_for_activity_sync]
+# hoglint reads this list for isolation claims. It cannot prove what a bound method of a
+# decorated activity resolves to, so list module-level functions, not WAITER's methods.
+ACTIVITIES = [wait_for_activity, wait_for_activity_sync]

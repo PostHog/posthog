@@ -53,7 +53,12 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: AgentEgressProbeInput) -> dict[int, int]:
-        execution = AgentEgressExecutionInput(probe=input, execution_id=str(workflow.uuid4()))
+        recoverable = workflow.patched("agent-egress-recoverable-provisioning")
+        execution = AgentEgressExecutionInput(
+            probe=input,
+            execution_id=str(workflow.uuid4()),
+            provisioning_deadline=(workflow.now() + timedelta(minutes=3)).timestamp() if recoverable else None,
+        )
         sandbox_id: str | None = None
         reason: Literal["completed", "cancelled", "failed"] = "failed"
         tasks: list[asyncio.Task[None] | asyncio.Task[dict[int, int]]] = []
@@ -62,7 +67,11 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 prepare_agent_egress,
                 execution,
                 schedule_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                start_to_close_timeout=timedelta(seconds=60) if recoverable else None,
+                heartbeat_timeout=timedelta(seconds=10) if recoverable else None,
+                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["ValueError"])
+                if recoverable
+                else RetryPolicy(maximum_attempts=1),
             )
             sandbox_id = prepared.sandbox_id
             renewal = asyncio.create_task(self._renew(execution))
@@ -82,13 +91,17 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            bounded_cleanup = (
+                workflow.patched("agent-egress-bounded-observation-cleanup") and input.sandbox_id is not None
+            )
             try:
                 await asyncio.shield(
                     workflow.execute_activity(
                         cleanup_agent_egress,
                         AgentEgressCleanupInput(execution=execution, sandbox_id=sandbox_id, reason=reason),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        schedule_to_close_timeout=timedelta(seconds=10) if bounded_cleanup else None,
+                        start_to_close_timeout=timedelta(seconds=10 if bounded_cleanup else 30),
+                        retry_policy=RetryPolicy(maximum_attempts=1 if bounded_cleanup else 3),
                     )
                 )
             except Exception:

@@ -111,7 +111,7 @@ class AIObservabilityTool(ConsoleTool):
     key = "ai-observability"
     title = "AI observability"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Sends a missing daily usage report, and pauses or resumes dataset cleanup in this region."
 
     def page(self, request: HttpRequest) -> Page:
@@ -382,7 +382,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
     key = "eval-suggestion-review"
     title = "Eval suggestion review"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Labels the eval suggestion cards the pipeline publishes, to tune which ones it shows."
 
     def page(self, request: HttpRequest) -> Page:
@@ -497,16 +497,25 @@ def _steps_table(steps: list[TaggerMigrationStep]) -> Table:
     )
 
 
+class TaggerMigrationForm(ReasonForm):
+    move_capped = forms.BooleanField(
+        label="Also move LLM taggers that cap their tags",
+        required=False,
+        help_text="The evaluation prompt asks for the same cap, but the judge can still pick more tags.",
+    )
+
+
 def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
     return Page(
         blocks=(
             Notice(
                 text="Each tagger that ran in the last 30 days becomes an enabled categorical evaluation with "
-                "the same name, filters, sampling, and model, and the migration switches the tagger off. It only "
+                "the same name, filters, sampling, and model, and the migration switches the tagger off. When the "
+                "team has no working provider key, the evaluation starts switched off. It only "
                 "switches off taggers that did not run. Old tag data stays. Results arrive as evaluation events from "
                 "now on, so insights built on tags stop updating."
             ),
-            _steps_table(plan_tagger_migration(cast(Team, obj))),
+            _steps_table(plan_tagger_migration(cast(Team, obj), move_capped=form.cleaned_data["move_capped"])),
         )
     )
 
@@ -516,7 +525,8 @@ def _taggers(count: int) -> str:
 
 
 def run_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form | None) -> Page:
-    steps = migrate_taggers(cast(Team, obj))
+    assert form is not None
+    steps = migrate_taggers(cast(Team, obj), move_capped=form.cleaned_data["move_capped"])
     moved = sum(step.action == MigrationAction.MIGRATE for step in steps)
     switched_off = sum(step.action == MigrationAction.SWITCH_OFF for step in steps)
     skipped = len(steps) - moved - switched_off
@@ -553,7 +563,7 @@ class TaggersPanel(Panel):
                 handler=run_tagger_migration,
                 preview=preview_tagger_migration,
                 danger=True,
-                form_class=ReasonForm,
+                form_class=TaggerMigrationForm,
                 description="Replaces the team's switched-on taggers with categorical evaluations and switches the "
                 "taggers off. The evaluations run on the team's own provider key.",
                 undo_hint="Switch the new evaluations off in the project's evaluations list. There is no way to switch "

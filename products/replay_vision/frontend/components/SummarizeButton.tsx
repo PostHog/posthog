@@ -35,10 +35,10 @@ export function SummarizeButton({
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
     const { summarize, summarizeWith } = useActions(logic)
     const hasSummary = observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')
-    const { quota } = useValues(visionQuotaLogic)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
-    const { tooltip: quotaTooltip } = quotaUx(quota)
+    const { tooltip: quotaTooltip } = quotaUx(quota, onFreePlan)
     const blockedReason = useSummarizeBlockedReason(scanBlock)
     // `loading` only disables this button. The caret and the menu rows are their own buttons, so without this a
     // second summarizer can start mid-run and spend the quota again.
@@ -94,6 +94,8 @@ export function SummarizeButton({
             type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
             fullWidth={fullWidth}
             center={fullWidth}
+            truncate
+            className="max-w-full"
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
@@ -136,7 +138,7 @@ export function SummarizeButton({
                     : null
             }
         >
-            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
+            {dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}
         </LemonButton>
     )
 

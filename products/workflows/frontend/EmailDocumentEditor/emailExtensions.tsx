@@ -181,7 +181,16 @@ export const EmailButton = Node.create({
             style.fontFamily ? `font-family:${style.fontFamily}` : '',
             style.fontWeight ? `font-weight:${style.fontWeight}` : '',
             style.buttonWidth ? `width:${Math.min(style.buttonWidth, 100)}%;box-sizing:border-box` : '',
-            style.borderWidth ? `border:${style.borderWidth}px solid ${style.borderColor ?? 'transparent'}` : '',
+            style.borderSides
+                ? (['top', 'right', 'bottom', 'left'] as const)
+                      .map(
+                          (side) =>
+                              `border-${side}:${style.borderSides?.[side] ?? 0}px solid ${style.borderColor ?? 'transparent'}`
+                      )
+                      .join(';')
+                : style.borderWidth
+                  ? `border:${style.borderWidth}px solid ${style.borderColor ?? 'transparent'}`
+                  : '',
             style.innerPaddingX !== undefined || style.innerPaddingY !== undefined
                 ? `padding:${style.innerPaddingY ?? 12}px ${style.innerPaddingX ?? 24}px`
                 : '',

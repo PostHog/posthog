@@ -16,9 +16,11 @@ import { WatchPanelSections } from './WatchPanelSections'
 export function WatchPanelSectionsWithObservations({
     sessionId,
     debug,
+    hintAnchor,
 }: {
     sessionId: string
     debug: boolean
+    hintAnchor: HTMLElement | null
 }): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { observations, hasLoadedObservations, timeline } = useValues(observationsDockLogic({ sessionId }))
@@ -38,6 +40,7 @@ export function WatchPanelSectionsWithObservations({
     return (
         <WatchPanelSections
             debug={debug}
+            hintAnchor={hintAnchor}
             observations={{
                 count: momentCount(timeline),
                 hasObservations: observations.length > 0,

@@ -415,6 +415,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("ceil(-1.234, 2)", "(ceil(-1.234 * power(10, 2)) / power(10, 2))"),
         ("md5(user_id AS TEXT)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", %(hogql_val_0)s), 1, 2) END'),
+        ("splitByString('', user_id)", 'regexp_extract_all("users"."user_id", \'(?s).\')'),
         ("arraySlice([1, 2, 3], -2, -1)", "element_at(transform(ARRAY[ROW(ARRAY[1, 2, 3], -2, -1)]"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
         ("toStartOfInterval(created_at, INTERVAL 10 MINUTE)", " / 600e0) AS BIGINT) * 600"),
@@ -539,6 +540,24 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
         ("id = 1", '("users"."id" = 1)'),
+        # ClickHouse reads date + n as n days and datetime + n as n seconds, with the number on either side.
+        ("toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
+        (
+            "1 + toDate(created_at)",
+            'date_add(\'day\', CAST(1 AS BIGINT), CAST("users"."created_at" AS DATE))',
+        ),
+        ("60 + created_at", 'date_add(\'second\', CAST(60 AS BIGINT), "users"."created_at")'),
+        ("minus(toDate(created_at), 1)", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
+        ("plus(1, toDate(created_at))", "date_add('day', CAST(1 AS BIGINT), CAST("),
+        ("plus(created_at, 60)", 'date_add(\'second\', CAST(60 AS BIGINT), "users"."created_at")'),
+        ("(1 + toDate(created_at)) - 1", "date_add('day', CAST(-(1) AS BIGINT), date_add('day', CAST(1 AS BIGINT)"),
+        (
+            "toDate(created_at) - CAST(id AS Int32)",
+            'date_add(\'day\', CAST(-(CAST("users"."id" AS INTEGER)) AS BIGINT)',
+        ),
+        ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
+        ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
+        ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -558,6 +577,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ),
         (
             "SELECT d + 1 FROM (SELECT toDate('2024-01-01') AS d UNION ALL SELECT toDateTime('2024-01-01 00:00:00') AS d)",
+            "date_add('second'",
+        ),
+        (
+            "SELECT (SELECT toDate('2024-01-01') UNION ALL SELECT toDateTime('2024-01-01 00:00:00') LIMIT 1) + 1",
             "date_add('second'",
         ),
         (
@@ -587,6 +610,22 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
+        ),
+        (
+            "WITH u AS (SELECT is_active FROM flagged UNION ALL SELECT 2 AS is_active) SELECT u.is_active FROM u",
+            'CAST("flagged"."is_active" AS BIGINT) AS "is_active"',
+        ),
+        (
+            "SELECT properties.color FROM (SELECT properties FROM users)",
+            'json_extract_scalar("properties", \'$["color"]\')',
+        ),
+        (
+            "SELECT p.color FROM (SELECT properties AS p FROM users)",
+            'json_extract_scalar("p", \'$["color"]\')',
+        ),
+        (
+            "WITH c AS (SELECT properties FROM users) SELECT q.properties.color FROM (SELECT properties FROM c) AS q",
+            'json_extract_scalar("q"."properties", \'$["color"]\')',
         ),
     ],
 )
@@ -628,6 +667,24 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT p.key FROM (SELECT properties.nested AS p FROM users)",
+        "WITH c AS (SELECT properties.nested AS p FROM users) SELECT q.p.key FROM (SELECT p FROM c) AS q",
+        "SELECT properties.key FROM (SELECT properties.nested AS properties FROM users)",
+        "SELECT p.key FROM (SELECT properties AS p FROM users UNION ALL SELECT properties.nested AS p FROM users)",
+        "SELECT q.properties.key FROM (SELECT b.properties, a.properties FROM users AS a "
+        "JOIN (SELECT id, properties.nested AS properties FROM users) AS b ON a.id = b.id) AS q",
+        "SELECT r.p.key FROM users AS l "
+        "LEFT ANY JOIN (SELECT id, properties.nested AS p FROM users) AS r ON l.id = r.id",
+    ],
+)
+def test_rejects_property_read_on_a_value_a_subquery_already_extracted(query: str) -> None:
+    with pytest.raises(TrinoLoweringError, match="TRINO_PROPERTY_NOT_LOWERED"):
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
 
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
@@ -883,6 +940,36 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "SELECT DISTINCT user_id FROM users ORDER BY created_at DESC",
             'row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC)',
             "DISTINCT",
+        ),
+        # An explicit alias wins over a later column of the same name, as in ClickHouse.
+        (
+            "SELECT a.id AS user_id, b.user_id FROM users AS a JOIN users AS b ON a.id + b.id = 3 "
+            "WHERE user_id > 1 ORDER BY user_id",
+            'WHERE ("a"."id" > 1) ORDER BY 1 ASC',
+            "ORDER BY 2",
+        ),
+        (
+            "SELECT a.id AS user_id, b.user_id, count() FROM users AS a JOIN users AS b ON a.id + b.id = 3 "
+            "GROUP BY user_id, b.user_id",
+            "GROUP BY 1, 2",
+            "GROUP BY 2, 2",
+        ),
+        # A subquery that projects one name twice is ambiguous to Trino. ClickHouse keeps the first column as `id`.
+        (
+            "SELECT id FROM (SELECT a.id, b.id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"b"."id" AS "__hogql_duplicate_id_1"',
+            '"b"."id" FROM',
+        ),
+        (
+            "SELECT id FROM (SELECT 1 AS __hogql_duplicate_id_2, a.id, b.id "
+            "FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"b"."id" AS "__hogql_duplicate_id_3"',
+            '"b"."id" AS "__hogql_duplicate_id_2"',
+        ),
+        (
+            "SELECT id FROM (SELECT a.id, b.user_id AS id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"a"."id" AS "__hogql_duplicate_id_1"',
+            '"b"."user_id" AS "__hogql_duplicate_id_',
         ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
@@ -2025,6 +2112,12 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             [(0, "a")],
         ),
         (
+            "WITH rows AS (SELECT 3 AS id UNION ALL SELECT 1 UNION ALL SELECT 2), "
+            "kept AS (SELECT id FROM rows ORDER BY id DESC LIMIT 9999999999 OFFSET 1) "
+            "SELECT count(), min(id) FROM kept",
+            [(2, 1)],
+        ),
+        (
             "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2), "
             "r AS (SELECT 1 AS k, 10 AS v, 1 AS live UNION ALL SELECT 1, 20, 2 UNION ALL SELECT 2, 30, 0) "
             "SELECT l.k, count(r.v) AS matches FROM l LEFT ANY JOIN r ON l.k = r.k AND r.live "
@@ -2203,26 +2296,25 @@ def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
         # An unsorted LIMIT has no cap in Trino and can cut a nested result, so it stays.
         ("SELECT user_id FROM users LIMIT 2147483648", "LIMIT 2147483648"),
         ("SELECT count() FROM (SELECT user_id FROM users LIMIT 2147483648)", "LIMIT 2147483648)"),
+        # Trino keeps the ORDER BY of a subquery only next to OFFSET or LIMIT, so a dropped LIMIT leaves OFFSET 0.
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
+            "ASC OFFSET 0 ROWS)",
+        ),
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
+            "ASC OFFSET 1 ROWS)",
+        ),
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 9999999999 WITH TIES)",
+            "ASC OFFSET 0 ROWS)",
+        ),
     ],
 )
 def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
     assert sql.endswith(expected_suffix)
-
-
-@pytest.mark.parametrize(
-    "query",
-    [
-        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
-        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
-    ],
-)
-def test_rejects_nested_sorted_limit_above_trino_cap(query: str) -> None:
-    with pytest.raises(TrinoLoweringError) as error:
-        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
-
-    assert error.value.feature_code == "TRINO_SORTED_LIMIT_TOO_LARGE"
 
 
 @pytest.mark.parametrize(
@@ -3078,14 +3170,14 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
 
 
 @pytest.mark.parametrize(
-    "people_column, error",
+    "people_column, expected, unread_hidden_columns",
     [
-        ("people.created_at", None),
-        # Property reads through a derived table are not lowered yet, but the hidden column must still resolve.
-        ("people.raw.key", "TRINO_PROPERTY_NOT_LOWERED"),
+        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw"]),
+        # A property read through a derived table reads the hidden column by its logical name.
+        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id"]),
     ],
 )
-def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -> None:
+def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_hidden_columns: list[str]) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -3110,15 +3202,11 @@ def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -
     query = parse_select(
         f"SELECT users.user_id, {people_column} FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
     )
-    if error is not None:
-        with pytest.raises(TrinoLoweringError, match=error):
-            prepare_and_print_ast(query, context, "trino")
-        return
     sql, _ = prepare_and_print_ast(query, context, "trino")
 
     assert "LEFT ANY JOIN" not in sql
-    assert "_sync_id" not in sql
-    assert "_raw" not in sql
+    assert expected in sql
+    assert not [column for column in unread_hidden_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 

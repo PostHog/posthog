@@ -41,7 +41,9 @@ MAX_SUGGESTIONS = 3
 MAX_PER_KIND = 2
 # A check that fails more than this share of traces does not fit the app, whatever it found.
 MAX_FAILURE_RATE = 0.25
-MIN_FAILURES = 2
+# Failures a check needs across the sampled days before it becomes a card. 1 to 3 in a few hundred traces is too
+# few to ask a team to run an eval on.
+MIN_FAILURES = 5
 # Filter rule: the segment holds a real share of the failures, enough of them to trust, and beats the rest.
 MIN_FILTER_FAILURE_SHARE = 0.3
 MIN_FILTER_FAILURES = 20
@@ -59,7 +61,6 @@ MIN_SCREENED_FLAGS = 3
 
 # Hog checks carry their own severity; these weigh the judges.
 SEVERITY: dict[str, float] = {
-    "prompt_injection": 0.9,
     "user_correction": 0.7,
     "sentiment": 0.4,
     "structured_output_gap": 0.8,

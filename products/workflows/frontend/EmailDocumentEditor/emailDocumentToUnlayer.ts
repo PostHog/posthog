@@ -135,15 +135,16 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
 }
 
 function buttonBorder(style: EmailBlockStyle, background: string): UnlayerValues {
-    if (!style.borderWidth) {
+    const sides = style.borderSides
+    if (!sides && !style.borderWidth) {
         return {}
     }
-    const side = { width: `${style.borderWidth}px`, style: 'solid', color: style.borderColor ?? background }
     const border: UnlayerValues = {}
     for (const name of ['Top', 'Right', 'Bottom', 'Left']) {
-        border[`border${name}Width`] = side.width
-        border[`border${name}Style`] = side.style
-        border[`border${name}Color`] = side.color
+        const width = sides ? sides[name.toLowerCase() as keyof EmailSides] : style.borderWidth
+        border[`border${name}Width`] = `${width ?? 0}px`
+        border[`border${name}Style`] = 'solid'
+        border[`border${name}Color`] = style.borderColor ?? background
     }
     return { border }
 }

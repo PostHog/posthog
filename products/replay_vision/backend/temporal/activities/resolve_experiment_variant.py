@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.scope.load import scope_for
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionError, ScannerFailureError
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
@@ -68,10 +69,13 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
             kind=FailureKind.INTERNAL_ERROR,
         )
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
-    experiment_scope = snapshot.experiment_scope()
-    experiment_id = (experiment_scope or {}).get("experiment_id")
-    if experiment_id is None:
+    # Read through `scope_for`, so an observation from a scanner narrowed only by the `scope`
+    # column still gets its variant resolved. Reading the legacy store would report the scan as
+    # watching no experiment and leave every session unlabeled.
+    scope = scope_for(snapshot)
+    if scope is None:
         return ResolveExperimentVariantOutput(applicable=False)
+    experiment_id = scope.settings.experiment_id
 
     team = Team.objects.get(pk=inputs.team_id)
     try:
@@ -81,8 +85,10 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         linkage = resolve_exposure_linkage(
             team,
             experiment_id=experiment_id,
-            variant=experiment_scope.get("variant") if experiment_scope else None,
-            variants=experiment_scope.get("variants") if experiment_scope else None,
+            # `scope_for` folds a legacy singular `variant` into a one-item list, so the plural
+            # carries both shapes and the singular is always None here.
+            variant=None,
+            variants=scope.settings.variants,
         )
     except UserAccessControlError as exc:
         raise IneligibleSessionError(

@@ -11,7 +11,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.user import User
 
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
-from products.error_tracking.backend.logic.issue_tags.registry import get_issue_tag_definition
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.logic.issue_tags.sync import sync_issue_tag_to_clickhouse
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
@@ -20,7 +20,7 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 def set_issue_tag(
     team_id: int,
     issue_id: UUID | str,
-    key: str,
+    definition: IssueTagDefinition,
     answer: TagAnswer,
     source: ErrorTrackingIssueTag.Source,
     *,
@@ -28,18 +28,20 @@ def set_issue_tag(
 ) -> bool:
     """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
 
-    Return whether it was stored.
+    Return whether it was stored. An answer that the tag already holds, field for field, writes nothing and counts as
+    stored.
     """
     if not issue_tags_enabled(team_id):
         return False
-    sources_above = get_issue_tag_definition(key).sources_ranked_above(source)
+    key = definition.key
+    sources_above = definition.sources_ranked_above(source)
     fields = {
         "source": source,
         "value": answer.value,
         "probability": answer.probability,
         "model": answer.model,
         "question_version": answer.question_version,
-        "set_by": answer.set_by,
+        "set_by_id": answer.set_by.id if answer.set_by else None,
     }
     after: dict[str, object] = {"key": key, "value": answer.value, "source": source}
 
@@ -62,8 +64,12 @@ def set_issue_tag(
         if not created:
             if tag.source in sources_above:
                 return False
+            if all(getattr(tag, name) == value for name, value in fields.items()):
+                return True
             before, updated_at = _replace_tag(tags, tag, fields)
-        if before != after:
+        # A rule answer tells whether the event matched a property that some members may not read, and every member
+        # can read the activity log. So the log holds no rule answer, as a change or as the value a correction replaced.
+        if before != after and source != ErrorTrackingIssueTag.Source.RULE:
             _log_tag_change(issue, answer.set_by, was_impersonated, before, after, strict=True)
         _sync_tag_on_commit(issue, key, answer.value, updated_at)
     return True
@@ -102,9 +108,11 @@ def carry_issue_tags_on_merge(target: ErrorTrackingIssue, source_issue_ids: list
             updated_at = tags.create(team=team, issue=target, key=key, **fields).updated_at
         else:
             before, updated_at = _replace_tag(tags, current, fields)
-        after: dict[str, object] = {"key": key, "value": True, "source": label.source}
-        # strict=False defers the activity insert and its internal event until the merge releases its row locks.
-        _log_tag_change(target, user=None, was_impersonated=False, before=before, after=after, strict=False)
+        # The activity log holds no rule answer, for the reason in set_issue_tag.
+        if label.source != ErrorTrackingIssueTag.Source.RULE:
+            after: dict[str, object] = {"key": key, "value": True, "source": label.source}
+            # strict=False defers the activity insert and its internal event until the merge releases its row locks.
+            _log_tag_change(target, user=None, was_impersonated=False, before=before, after=after, strict=False)
         _sync_tag_on_commit(target, key, True, updated_at)
 
 
@@ -123,12 +131,17 @@ def _carried_label_replaces(label: ErrorTrackingIssueTag, current: ErrorTracking
 
 def _replace_tag(
     tags: QuerySet[ErrorTrackingIssueTag], tag: ErrorTrackingIssueTag, fields: Mapping[str, object]
-) -> tuple[dict[str, object], datetime]:
-    """Overwrite the locked row with `fields`. Return the answer it held, for the activity log, and its new updated_at."""
+) -> tuple[dict[str, object] | None, datetime]:
+    """Overwrite the locked row with `fields`. Return the answer it held, for the activity log, and its new updated_at.
+
+    The answer is None when a rule wrote it, because the activity log holds no rule answer.
+    """
     # Pods do not share one clock, so a later write can read an earlier time. Each write to the
     # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
     updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
     tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
+    if tag.source == ErrorTrackingIssueTag.Source.RULE:
+        return None, updated_at
     return {"key": tag.key, "value": tag.value, "source": tag.source}, updated_at
 
 

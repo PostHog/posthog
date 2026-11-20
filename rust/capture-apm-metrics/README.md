@@ -22,6 +22,16 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | METRICS_SERIES_REDIS_PULL_INTERVAL_SECS | 60 | How often the local cache pulls new series from Redis |
 | METRICS_SERIES_CACHE_MAX_ENTRIES | 20000000 | Most series one pod remembers, across all tokens |
 | METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 2000000 | Most series one pod remembers for one token |
+| METRICS_LABEL_CARDINALITY_MODE | shadow | `off` or `shadow`. Shadow reports flagged keys but changes no row |
+| METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is flagged |
+| METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE | 0.5 | Smallest share of a key's rows that start a new series, for a flag |
+| METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES | 500 | New series per window before a metric's labels are measured |
+| METRICS_LABEL_CARDINALITY_MAX_CANDIDATES | 2000 | Most metrics one pod measures |
+| METRICS_LABEL_CARDINALITY_MAX_CANDIDATES_PER_TOKEN | 200 | Most metrics one pod measures for one token |
+| METRICS_LABEL_CARDINALITY_MAX_KEYS_PER_METRIC | 32 | Most label keys one pod measures for one metric |
+| METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS | 500000 | Most metrics one pod counts new series for |
+| METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS_PER_TOKEN | 50000 | Most metrics one pod counts new series for, per token |
+| METRICS_LABEL_CARDINALITY_PROTECTED_KEYS | le,quantile | Label keys that are never flagged |
 
 ### Metric series label gate
 
@@ -34,6 +44,14 @@ Pull metrics, all with a `kind` label of `seed` or `periodic`: `capture_metrics_
 Push metrics: `capture_metrics_series_redis_pushed`, `capture_metrics_series_redis_push_failed` (with `outcome` = `timeout` or `error`), and `capture_metrics_series_redis_push_duration_seconds` (with `outcome` = `ok`, `timeout`, or `error`). `capture_metrics_series_redis_queue_full` counts series dropped because the writer's queue of 100,000 was full. The writer uses its own Redis connection, so a large pull page does not hold its batches back. After three flushes or pulls in a row time out, the writer or puller rebuilds its connection, because a half-open socket times out on every command until the kernel gives up on it.
 
 The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows, with `cap` = `global` or `token` for the cap that was full. The `token` series also carries the project token that hit the cap, so the project is known without a log lookup. A `token` count with `capture_metrics_series_cache_size` well under the global cap means that token has more live series than `METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN` allows.
+
+### High cardinality label drop
+
+The service finds a label key that splits one metric into many series. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary count as one metric, unless the request's metadata declares them as other types.
+
+A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets a HyperLogLog sketch of each label key, and a count of the rows that carry the key and of those that start a new series, as the gate decides across all pods. The window a pod starts in is partial and is not judged. At the end of each later window, a key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values and at least `METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE` of its rows start a new series. A label with a new value on most points, such as a request ID, has a share near 1. A label such as a pod name repeats each series many times in a window, so its share stays low. While a token's gate cache is full, its rows count as repeats.
+
+Each flagged key is logged at warn level once per window. Metrics start with `capture_metrics_label_cardinality_`.
 
 ## Classic Prometheus histograms on remote write
 

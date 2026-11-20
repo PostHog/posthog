@@ -13,6 +13,8 @@ export interface ConfidenceIntervalConfig {
 export interface MovingAverageConfig {
     seriesKey: string
     window: number
+    /** The default centered window uses neighboring points. A trailing window includes only the current and preceding points. */
+    alignment?: 'centered' | 'trailing'
     label?: string
 }
 
@@ -94,6 +96,7 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
                 buildMovingAverageSeries<Meta>({
                     sourceSeries: found,
                     window: ma.window,
+                    alignment: ma.alignment,
                     label: ma.label,
                     excluded: found.visibility?.excluded,
                 })
@@ -185,7 +188,7 @@ function maSig(ma: MovingAverageConfig[] | undefined): string {
     if (!ma?.length) {
         return ''
     }
-    return ma.map((m) => `${m.seriesKey}|${m.window}|${m.label ?? ''}`).join(';')
+    return ma.map((m) => `${m.seriesKey}|${m.window}|${m.alignment ?? 'centered'}|${m.label ?? ''}`).join(';')
 }
 
 function tlSig(tl: TrendLineConfig[] | undefined): string {
