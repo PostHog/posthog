@@ -586,21 +586,23 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return []
         rows = self._select(
             f"""
-            SELECT lower(trim(search_term_view_search_term)) AS term, segments_keyword_info_text,
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id), segments_keyword_info_text,
                 toString(segments_keyword_info_match_type), sum(toFloat(metrics_cost_micros)) / 1000000 AS cost
             FROM {{table}}
             WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
                 AND notEmpty(term)
-            GROUP BY term, segments_keyword_info_text, segments_keyword_info_match_type
+            GROUP BY term, campaign_id, segments_keyword_info_text, segments_keyword_info_match_type
             ORDER BY cost DESC
             LIMIT {ROW_LIMIT}
             """,
             source.searchTermKeywordTable,
         )
         return [
-            TermKeywordStats(term=row[0], keyword=row[1] or "", match_type=row[2] or "", cost=float(row[3] or 0))
+            TermKeywordStats(
+                term=row[0], campaign_id=row[1], keyword=row[2] or "", match_type=row[3] or "", cost=float(row[4] or 0)
+            )
             for row in rows
-            if row[1]
+            if row[2]
         ]
 
     def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:

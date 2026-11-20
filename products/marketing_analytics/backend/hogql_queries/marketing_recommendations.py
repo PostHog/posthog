@@ -213,6 +213,7 @@ class RankingPage:
 @frozen
 class TermKeywordStats:
     term: str
+    campaign_id: str
     keyword: str
     match_type: str
     cost: float
@@ -284,6 +285,9 @@ class _Term:
     conversions: float
     status: str
     excluded_everywhere: bool
+    # Spend in the campaigns that still serve the search, or all of it once every campaign blocks it.
+    serving_clicks: float
+    serving_cost: float
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -521,12 +525,13 @@ class _Recommender:
             self.term_cost_by_campaign[row.campaign_id] += row.cost
         self.terms = self._aggregate_terms()
         self.brand_terms = {term.term for term in self.terms.values() if self._is_brand(term)}
-        self.top_keyword: dict[str, TermKeywordStats] = {}
+        self.top_keyword: dict[str, dict[str, TermKeywordStats]] = defaultdict(dict)
         self.keyword_stems: dict[str, set[str]] = defaultdict(set)
         for keyword_row in inputs.term_keywords:
-            current = self.top_keyword.get(keyword_row.term)
+            by_campaign = self.top_keyword[keyword_row.term]
+            current = by_campaign.get(keyword_row.campaign_id)
             if current is None or keyword_row.cost > current.cost:
-                self.top_keyword[keyword_row.term] = keyword_row
+                by_campaign[keyword_row.campaign_id] = keyword_row
             self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
         self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
@@ -1041,10 +1046,10 @@ class _Recommender:
                 term,
                 benchmark,
                 advice.action,
-                f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:,.0f} clicks with no conversions"
+                f"Spent {self._money(term.serving_cost)} ({term.serving_cost / benchmark.cpa:.1f}x {benchmark.label}) "
+                f"on {term.serving_clicks:,.0f} clicks with no conversions"
                 + (self._off_topic_reason(term) if term.term in off_topic else ""),
-                term.cost,
+                term.serving_cost,
                 "save",
                 "measured",
                 steps=advice.steps,
@@ -1054,7 +1059,7 @@ class _Recommender:
             if (benchmark := benchmarks.get(term.term))
             and term.term not in self.brand_terms
             and term.conversions == 0
-            and term.cost >= 2 * benchmark.cpa
+            and term.serving_cost >= 2 * benchmark.cpa
             and (term.excluded_everywhere or not _is_keyword(term.status))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
@@ -1115,8 +1120,12 @@ class _Recommender:
             and not stems & (copy | self.keyword_stems.get(term.term, set()))
         )
 
+    def _campaign_keyword(self, term: _Term) -> TermKeywordStats | None:
+        # Steps open the top campaign, so a keyword that matched in another campaign is not there to edit.
+        return self.top_keyword.get(term.term, {}).get(term.top_campaign_id)
+
     def _off_topic_reason(self, term: _Term) -> str:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         if keyword:
             return (
                 ". None of the main words in this search appear in the ads that showed on it "
@@ -1125,7 +1134,7 @@ class _Recommender:
         return ". None of the main words in this search appear in the ads that showed on it."
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         match_type = MATCH_TYPES.get(keyword.match_type, keyword.match_type).lower() if keyword else ""
         open_campaign = self._open_campaign(self._campaign_name(term))
         exact = f"[{term.term}]"
@@ -1399,22 +1408,24 @@ class _Recommender:
         for row in self.inputs.search_terms:
             if not self._is_excluded(row):
                 serving_campaigns[row.term].add(row.campaign_id)
+        serving_spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in self.inputs.search_terms:
-            # Spend in a campaign that already blocks the search is not recoverable, so it only counts once every
-            # campaign blocks it and the recommendation is applied.
-            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
-                continue
             total = totals[row.term]
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
             total[3] += row.impressions
-            statuses.setdefault(row.term, row.status)
-            cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
                 top_impressions[row.term][0] += row.absolute_top_percentage * row.impressions
                 top_impressions[row.term][1] += row.impressions
+            # A campaign that already blocks the search needs no change, so it decides nothing while another serves it.
+            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
+                continue
+            serving_spend[row.term][0] += row.clicks
+            serving_spend[row.term][1] += row.cost
+            statuses.setdefault(row.term, row.status)
+            cost_by_campaign[row.term][row.campaign_id] += row.cost
         return {
             term: _Term(
                 term=term,
@@ -1424,6 +1435,8 @@ class _Recommender:
                 conversions=conversions,
                 status=statuses[term],
                 excluded_everywhere=term not in serving_campaigns,
+                serving_clicks=serving_spend[term][0],
+                serving_cost=serving_spend[term][1],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),

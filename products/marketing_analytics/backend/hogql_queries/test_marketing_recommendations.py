@@ -763,7 +763,11 @@ class TestMarketingRecommendations(SimpleTestCase):
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
         pages = (RankingPage(query=query, page=ranking_page, impressions=5000),) if ranking_page else ()
         keywords = (
-            (TermKeywordStats(term="funnel tracking", keyword=keyword, match_type="PHRASE", cost=100),)
+            (
+                TermKeywordStats(
+                    term="funnel tracking", campaign_id="c1", keyword=keyword, match_type="PHRASE", cost=100
+                ),
+            )
             if keyword
             else ()
         )
@@ -974,8 +978,13 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("product analytics", "c1", cost=500, conversions=10),
         )
         keywords = (
-            TermKeywordStats(term="spy website traffic", keyword="website traffic", match_type=match_type, cost=400),
-            TermKeywordStats(term="spy website traffic", keyword="traffic", match_type="BROAD", cost=100),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="website traffic", match_type=match_type, cost=400
+            ),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="traffic", match_type="BROAD", cost=100
+            ),
+            TermKeywordStats(term="spy website traffic", campaign_id="c2", keyword="spy", match_type="BROAD", cost=900),
         )
 
         recs = [
@@ -1057,7 +1066,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("product analytics", "c1", cost=350, conversions=10), ad_group_ids=("ag1",)),
         )
         keywords = (
-            (TermKeywordStats(term="crm for dentist", keyword=keyword, match_type="BROAD", cost=250),)
+            (TermKeywordStats(term="crm for dentist", campaign_id="c1", keyword=keyword, match_type="BROAD", cost=250),)
             if keyword
             else ()
         )
@@ -1152,6 +1161,21 @@ class TestMarketingRecommendations(SimpleTestCase):
             (serving[0] if serving else "Search", f"Spent ${500 * max(len(serving), 1):,}")
         ] * len(rows)
         assert apply_resolutions(rows, {}, include_resolved=True) == rows
+
+    def test_clicks_from_a_campaign_that_now_excludes_a_search_still_make_it_navigational(self) -> None:
+        campaigns = (_campaign(), _campaign(id="c2", name="Other"))
+        terms = (
+            _term("trackly", "c1", cost=500, conversions=0, clicks=30),
+            _term("trackly", "c2", cost=500, conversions=0, clicks=5),
+            _term("product analytics", "c2", cost=500, conversions=10),
+        )
+        organic = (OrganicQueryStats(query="trackly", clicks=10, impressions=100, position=1),)
+        inputs = replace(
+            _inputs(campaigns, terms, organic),
+            excluded_searches=frozenset({ExcludedSearch(term="trackly", campaign_id="c1")}),
+        )
+
+        assert [rec.subject for rec in recommend(inputs) if rec.rule == "spend_without_conversions"] == []
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:
         terms = (
