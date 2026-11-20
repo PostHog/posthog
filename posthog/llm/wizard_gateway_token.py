@@ -698,12 +698,13 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
 def _decision_cap_usd(cap_usd: str) -> str | None:
     """How much of the run's cap its token may spend on the gateway's decision
     route, as a fixed-point string no higher than cap_usd, which the gateway
-    requires. None sends no field: an empty or zero setting leaves the token with
-    no decision cap, and the gateway then refuses its decisions.
+    requires. None sends no field: a setting of zero leaves the token with no
+    decision cap, and the gateway then refuses its decisions. Zero is the only
+    off value, since get_from_env reads an empty variable as the default.
     """
     raw = str(settings.WIZARD_GATEWAY_DECISION_CAP_USD).strip()
     try:
-        if raw == "" or Decimal(raw) == 0:
+        if Decimal(raw) == 0:
             return None
     except InvalidOperation:
         pass

@@ -1457,7 +1457,8 @@ WIZARD_GATEWAY_CLIENT_IDS = [
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
-# How much of a run's cap its token may spend on the gateway's decision route. Empty or 0 sends none.
+# How much of a run's cap its token may spend on the gateway's decision route. 0 sends none, and the
+# gateway then refuses the token's decisions. An empty value reads as the default, like every setting here.
 WIZARD_GATEWAY_DECISION_CAP_USD = get_from_env("WIZARD_GATEWAY_DECISION_CAP_USD", "0.25")
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that

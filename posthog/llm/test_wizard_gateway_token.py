@@ -145,8 +145,9 @@ class TestWizardMintRequest:
             # Unreadable: the default, not an uncapped token.
             ("a quarter", None, "0.250000"),
             ("-1", None, "0.250000"),
-            # Empty and zero turn the decision cap off.
-            ("", None, None),
+            # Blank is not an off value: get_from_env reads an empty variable as the default.
+            (" ", None, "0.250000"),
+            # Zero is the one value that turns the decision cap off.
             ("0", None, None),
             ("0.00", None, None),
         ],
