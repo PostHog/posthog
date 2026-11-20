@@ -42,7 +42,7 @@ MAX_SERIES_POINTS = 400
 # so a short range still charts enough history to judge a flag. Each stays within MAX_SERIES_POINTS.
 CHART_BUCKETS: Mapping[IntervalType, int] = {
     IntervalType.HOUR: 7 * 24,
-    IntervalType.DAY: 30,
+    IntervalType.DAY: 14,
     IntervalType.WEEK: 26,
     IntervalType.MONTH: 24,
 }
