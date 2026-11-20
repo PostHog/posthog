@@ -28,8 +28,6 @@ export function CheatCodeRedemption({
     return (
         <div className="mx-auto w-full max-w-160 mt-8 px-4">
             <div className="bg-surface-secondary rounded-lg p-6 space-y-4">
-                <h2 className="text-xl">Type the cheat code anywhere in PostHog</h2>
-
                 {couponsOverviewLoading ? (
                     <div className="flex items-center gap-2">
                         <Spinner className="text-lg" />
@@ -41,16 +39,19 @@ export function CheatCodeRedemption({
                             <IconCheck className="shrink-0" />
                             <span>Your organization already used this cheat code.</span>
                         </div>
-                        {renderSuccessActions ? (
-                            renderSuccessActions()
-                        ) : (
-                            <LemonButton type="primary" to={urls.organizationBilling()} disableClientSideRouting>
-                                View in billing
-                            </LemonButton>
-                        )}
+                        <div className="flex flex-wrap gap-2">
+                            {renderSuccessActions ? (
+                                renderSuccessActions()
+                            ) : (
+                                <LemonButton type="primary" to={urls.organizationBilling()} disableClientSideRouting>
+                                    View in billing
+                                </LemonButton>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <>
+                        <h2 className="text-xl">Type the cheat code anywhere in PostHog</h2>
                         <p className="text-muted">
                             Like in GTA: San Andreas, there's no box to enter it in. Type these keys while PostHog is
                             open, on this page or any other, and $5 of credit goes to your organization. Each

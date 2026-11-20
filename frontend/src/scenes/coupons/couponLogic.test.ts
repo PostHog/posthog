@@ -31,11 +31,8 @@ describe('couponLogic', () => {
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
     })
 
-    it.each([
-        ['a campaign page', { campaign: 'every' }],
-        ['the billing page', {}],
-    ])('does not send a cheat code submitted on %s as a coupon code', async (_, props) => {
-        const logic = couponLogic(props)
+    it('does not send a cheat code submitted on a campaign page as a coupon code', async () => {
+        const logic = couponLogic({ campaign: 'every' })
         logic.mount()
 
         logic.actions.setCouponValue('code', ' HESOYAM ')

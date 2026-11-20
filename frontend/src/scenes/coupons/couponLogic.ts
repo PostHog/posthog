@@ -237,11 +237,6 @@ export const couponLogic = kea<couponLogicType>([
                     actions.setClaimed(true)
                     actions.setClaimedDetails(res)
                     actions.loadCouponsOverview()
-                    if (!props.campaign) {
-                        // The billing page form has no claimed screen, so confirm here and clear the field.
-                        lemonToast.success('Coupon redeemed')
-                        actions.setCouponValue('code', '')
-                    }
                     posthog.capture('billing coupon claimed', {
                         campaign: props.campaign,
                         code: formValues.code,
