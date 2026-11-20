@@ -190,7 +190,8 @@ class _Converter:
             _append(out, value.liquid)
             cursor = value.end
         _append(out, _literal(self.text[cursor:]))
-        converted = "".join(out)
+        setup = "".join(f"{{% assign {kind} = {path} | json | slice: 0 %}}" for path, kind in self.go_kinds.items())
+        converted = setup + "".join(out)
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
         if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             return ConvertedText(text=self._as_text(), has_tags=True, too_large=True)
@@ -273,15 +274,11 @@ class _Converter:
         if self.engine == "handlebars":
             # Handlebars prints a list with commas between its items, and `join` leaves any other value as it is.
             return show(f'{path} | join: ","')
-        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is. A converted
-        # template has no blocks, so the first use of a value always runs first and later uses reuse its answer.
-        kind = self.go_kinds.get(path)
-        setup = ""
-        if kind is None:
-            kind = self.go_kinds[path] = f"go_value{len(self.go_kinds) + 1}"
-            setup = f"{{% assign {kind} = {path} | json | slice: 0 %}}"
+        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is. Each value's
+        # answer is worked out once, at the top of the template, so every use can read it.
+        kind = self.go_kinds.setdefault(path, f"go_value{len(self.go_kinds) + 1}")
         return (
-            setup + f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
+            f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
             f'{{% elsif {kind} == "{{" %}}map[{{% for pair in {path} %}}{{% unless forloop.first %}} {{% endunless %}}'
             f"{show('pair[0]')}:{show('pair[1]')}{{% endfor %}}]"
             f"{{% else %}}{show(path)}{{% endif %}}"

@@ -128,6 +128,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert converted.count("variables.x | json") == 1
         assert converted.count("variables.y | json") == 1
 
+    def test_a_go_value_used_first_through_a_mailgun_variable_still_reads_its_kind(self) -> None:
+        converted = convert_text("%recipient.x% {{.x}}", engine="go").text
+
+        assert converted.startswith("{% assign go_value1 = variables.x | json | slice: 0 %}")
+
     def test_a_blank_engine_with_go_syntax_reads_as_go(self) -> None:
         assert "variables.Name" in convert_version({"engine": "", "template": "{{.Name}}"}).html
 
