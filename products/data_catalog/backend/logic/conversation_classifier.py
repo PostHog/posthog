@@ -8,6 +8,7 @@ session needs a measure that the team can define once and track.
 """
 
 from collections.abc import Sequence
+from enum import StrEnum
 
 import structlog
 from anthropic import AsyncAnthropic
@@ -37,8 +38,8 @@ _MOTIVE_PROMPT = """You read the start of one conversation between a person and 
 
 Answer these things. Take each one only from the notes and tools. When they do not show it, answer "n/a": that is a normal answer, so never guess one.
 - "motive": what the person wants to get out of this session, in one or two sentences. Describe the outcome they want, such as a number, an explanation, a fix, a list, or a change to something. Name the specific thing they want, such as the metric, the error, or the record. Do not describe the agent's steps. Replace company names, people, and ids with general words such as "a customer".
-- "deliverable": what the person wants handed back, one of "number", "records", "explanation", "fix", "build", "other", or "n/a". A "number" is a count, sum, rate, average, or similar figure, also when it is one part of the answer. "records" is a list or details of specific things. "fix" changes something that is broken. "build" makes something new, such as a dashboard or a feature.
-- "scope": who or what the work covers, one of "all", "one customer", "one user", "one segment", or "n/a".
+- "deliverable": what the person wants handed back, one of {deliverables}. A "number" is a count, sum, rate, average, or similar figure, also when it is one part of the answer. "records" is a list or details of specific things. "fix" changes something that is broken. "build" makes something new, such as a dashboard or a feature.
+- "scope": who or what the work covers, one of {scopes}.
 - "given_definition": the existing query, insight, dashboard, or notebook that the person points to and that already computes what they want, in a few general words. Use "n/a" when there is none. Naming events, a metric, or a tool is not a given definition.
 - "scheduled": true when an automation started the conversation, not a person asking in it. Examples are a scheduled daily check, a weekly report, a recurring monitor, and an agent that an alert or a handoff started. False when a person started it.
 - "unclear": true when the notes and tools do not show what the person wants, so the motive could only be generic, such as "the person wants information from the data". False when the motive names a specific outcome.
@@ -60,9 +61,25 @@ Answer yes only when both of these are true:
 
 Reply with JSON only: {{"needs_measure": true or false}}"""
 
-DELIVERABLES = frozenset({"number", "records", "explanation", "fix", "build", "other", "n/a"})
-SCOPES = frozenset({"all", "one customer", "one user", "one segment", "n/a"})
 NOT_GIVEN = "n/a"
+
+
+class Deliverable(StrEnum):
+    NUMBER = "number"
+    RECORDS = "records"
+    EXPLANATION = "explanation"
+    FIX = "fix"
+    BUILD = "build"
+    OTHER = "other"
+    NOT_GIVEN = NOT_GIVEN
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    ONE_CUSTOMER = "one customer"
+    ONE_USER = "one user"
+    ONE_SEGMENT = "one segment"
+    NOT_GIVEN = NOT_GIVEN
 
 
 @frozen
@@ -76,8 +93,8 @@ class ConversationEvidence:
 @frozen
 class MotiveReading:
     motive: str
-    deliverable: str = NOT_GIVEN
-    scope: str = NOT_GIVEN
+    deliverable: Deliverable = Deliverable.NOT_GIVEN
+    scope: Scope = Scope.NOT_GIVEN
     given_definition: str = NOT_GIVEN
     scheduled: bool = False
     unclear: bool = False
@@ -132,8 +149,22 @@ def build_evidence(session_id: str, pieces: Sequence[Piece]) -> ConversationEvid
     )
 
 
+def _choices(answers: type[StrEnum]) -> str:
+    quoted = [f'"{answer}"' for answer in answers]
+    return f"{', '.join(quoted[:-1])}, or {quoted[-1]}"
+
+
+def _parse_answer[A: StrEnum](value: object, answers: type[A]) -> A:
+    """A model can vary the case or spacing of an answer, and that alone should not fail the read."""
+    if not isinstance(value, str):
+        raise ValueError("The answer is not a string")
+    return answers(" ".join(value.split()).lower())
+
+
 def build_motive_prompt(evidence: ConversationEvidence) -> str:
     return _MOTIVE_PROMPT.format(
+        deliverables=_choices(Deliverable),
+        scopes=_choices(Scope),
         exec_note=neutralize(evidence.exec_note) or "(none)",
         first_calls="\n".join(f"- {neutralize(line)}" for line in evidence.first_calls) or "(none)",
         tool_names=neutralize(", ".join(evidence.tool_names)) or "(none)",
@@ -152,12 +183,12 @@ async def extract_motive(client: AsyncAnthropic, evidence: ConversationEvidence)
             raise ValueError("The reply does not hold a motive and a scheduled flag")
         if not isinstance(unclear, bool):
             raise ValueError("The unclear flag is not a boolean")
-        if deliverable not in DELIVERABLES or scope not in SCOPES or not isinstance(given, str):
-            raise ValueError("The deliverable, scope, or given definition is not one of the allowed answers")
+        if not isinstance(given, str):
+            raise ValueError("The given definition is not a string")
         return MotiveReading(
             motive=motive.strip(),
-            deliverable=deliverable,
-            scope=scope,
+            deliverable=_parse_answer(deliverable, Deliverable),
+            scope=_parse_answer(scope, Scope),
             given_definition=given.strip() or NOT_GIVEN,
             scheduled=scheduled,
             unclear=unclear,

@@ -20,7 +20,9 @@ from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND, Ju
 from products.data_catalog.backend.logic.agent_sessions import Piece, PieceCall, StitchUnavailable
 from products.data_catalog.backend.logic.conversation_classifier import (
     ConversationEvidence,
+    Deliverable,
     MotiveReading,
+    Scope,
     build_evidence as build_conversation_evidence,
     extract_motive,
 )
@@ -407,10 +409,18 @@ class TestConversationClassifier(SimpleTestCase):
                 '"given_definition": "a saved signups insight", "scheduled": true, "unclear": false}',
                 MotiveReading(
                     motive="Weekly signups.",
-                    deliverable="number",
-                    scope="all",
+                    deliverable=Deliverable.NUMBER,
+                    scope=Scope.ALL,
                     given_definition="a saved signups insight",
                     scheduled=True,
+                ),
+            ),
+            (
+                "answers_in_another_case_and_spacing",
+                '{"motive": "Signups of one customer.", "deliverable": "Number", "scope": " one  Customer ", '
+                '"given_definition": "n/a", "scheduled": false, "unclear": false}',
+                MotiveReading(
+                    motive="Signups of one customer.", deliverable=Deliverable.NUMBER, scope=Scope.ONE_CUSTOMER
                 ),
             ),
             (
