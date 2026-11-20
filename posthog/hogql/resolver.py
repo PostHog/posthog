@@ -1,10 +1,10 @@
 import string
 import dataclasses
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
-from collections import defaultdict
 
 import re2
 
