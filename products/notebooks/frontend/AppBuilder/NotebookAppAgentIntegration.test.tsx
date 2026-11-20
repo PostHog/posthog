@@ -1,9 +1,10 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -29,12 +30,7 @@ describe('app builder AI updates', () => {
 
     beforeEach(() => {
         initKeaTests()
-        saved = {
-            ...saved,
-            content: buildMarkdownNotebookContent('A notebook'),
-            app_revision: 1,
-            app_draft: { ...emptyAppLayout(), title: 'Original app' },
-        }
+        saved = { ...saved, app_revision: 1, app_draft: { ...emptyAppLayout(), title: 'Original app' } }
         useMocks({
             get: {
                 '/api/projects/:team_id/notebooks/app-test': () => [200, saved],
@@ -48,47 +44,34 @@ describe('app builder AI updates', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
-    it.each([
-        { tool: 'notebooks-add-cell', input: { notebook_id: shortId }, expected: 'AI source' },
-        { tool: 'notebooks-widget-status', input: { short_id: shortId }, expected: 'AI source' },
-        { tool: 'notebooks-run', input: { notebook_id: 'another-notebook' }, expected: 'A notebook' },
-    ])('refreshes source after a foreground turn: $tool $input', async ({ tool, input, expected }) => {
-        const source = notebookLogic({ shortId })
-        source.actions.loadNotebook()
-        await waitFor(() => expect(source.values.markdownEditorValue).toBe('A notebook'))
-        render(<NotebookAppAgentIntegration shortId={shortId} />)
-        act(() => {
-            foregroundStreamLogic.actions.setForegroundStream('source-run', 'test')
-            toolStreamEventsLogic.actions.claimApplyBackTargets('source-run')
-            logic.actions.changeLayout({ ...logic.values.layout, title: 'My unsaved app' })
-        })
-        saved = { ...saved, content: buildMarkdownNotebookContent('AI source') }
-        await act(async () => {
-            toolStreamEventsLogic.actions.emitToolEvent({
-                streamKey: 'source-run',
-                toolCallId: 'source-update',
-                toolName: tool,
-                rawToolName: 'exec',
-                phase: 'completed',
-                source: 'live',
-                invocation: {
-                    toolCallId: 'source-update',
-                    rawServerName: 'posthog',
-                    rawToolName: 'exec',
-                    input: { command: `call ${tool} ${JSON.stringify(input)}` },
-                    status: 'completed',
-                    contentBlocks: [],
-                },
-            } satisfies ToolStreamEvent)
-            expect(source.values.markdownEditorValue).toBe('A notebook')
-            toolStreamEventsLogic.actions.emitTurnCompleteEvent({ streamKey: 'source-run' })
-            await expectLogic(source).toFinishAllListeners()
-        })
-        expect(source.values.markdownEditorValue).toBe(expected)
-        expect(logic.values.layout.title).toBe('My unsaved app')
-    })
+    it.each(['notebook', 'source', 'app', 'another-notebook'])(
+        'keeps unsaved edits when canceling navigation to %s',
+        async (target) => {
+            await waitFor(() => expect(logic.values.layout.title).toBe('Original app'))
+            router.actions.replace(urls.notebook(shortId), { view: 'builder' })
+            const builderPath = router.values.location.pathname
+            logic.actions.changeLayout({ ...logic.values.layout, title: 'Unsaved app' })
+            jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const pathname = target === 'another-notebook' ? builderPath.replace(shortId, 'other') : builderPath
+            router.actions.push(
+                pathname,
+                target === 'app' ? { view: 'app' } : {},
+                target === 'source' ? { node: 'cell-1' } : {}
+            )
+            expect(router.values.location.pathname).toBe(builderPath)
+            expect(router.values.searchParams.view).toBe('builder')
+            expect(logic.values.layout.title).toBe('Unsaved app')
+            jest.spyOn(window, 'confirm').mockReturnValue(true)
+            router.actions.push(pathname, target === 'app' ? { view: 'app' } : {})
+            expect(router.values.location.pathname).toBe(
+                target === 'another-notebook' ? builderPath.replace(shortId, 'other') : builderPath
+            )
+            expect(router.values.searchParams.view).toBe(target === 'app' ? 'app' : undefined)
+        }
+    )
 
     it.each([
         { target: shortId, dirty: false, expected: 'AI app', pending: false },
