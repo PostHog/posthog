@@ -75,7 +75,6 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
-    /** Null on every worker except the classify worker, which makes the calls the cap counts. */
     classifyDailyCap: ClassifyDailyCap | null
 }
 

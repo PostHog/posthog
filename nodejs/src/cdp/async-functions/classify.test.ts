@@ -1,10 +1,12 @@
 import { defaultConfig } from '~/common/config/config'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import { createExampleInvocation } from '../_tests/fixtures'
 import { AsyncFunctionContext, getAsyncFunctionHandler } from '../async-function-registry'
 import { MinimalLogEntry } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
-import './classify'
+import { ClassifyDailyCap } from './classify'
 
 describe('postHogClassify', () => {
     const payload = {
@@ -61,5 +63,45 @@ describe('postHogClassify', () => {
             expected
         )
         await expect(enqueue(args)).rejects.toThrow(expected)
+    })
+
+    describe('daily cap', () => {
+        let store: StallingValkeyProxy
+
+        beforeEach(() => {
+            store = new StallingValkeyProxy({ host: defaultConfig.CDP_REDIS_HOST, port: defaultConfig.CDP_REDIS_PORT })
+        })
+
+        afterEach(() => {
+            store.stop()
+        })
+
+        it('lets a classification through when Valkey stops answering', async () => {
+            const port = await store.start()
+            const cap = new ClassifyDailyCap(
+                createRedisV2PoolFromConfig({
+                    connection: {
+                        url: '127.0.0.1',
+                        options: { port, password: defaultConfig.CDP_REDIS_PASSWORD, retryStrategy: () => null },
+                        name: 'classify-daily-cap-stalling',
+                        exitOnRepeatedErrors: false,
+                    },
+                    poolMinSize: 0,
+                    poolMaxSize: 1,
+                }),
+                1
+            )
+            store.stopAnswering()
+
+            let gaveUp: NodeJS.Timeout | undefined
+            const answer = await Promise.race([
+                cap.countAndCheck(1),
+                new Promise<'no answer'>((resolve) => {
+                    gaveUp = setTimeout(() => resolve('no answer'), 10_000)
+                }),
+            ]).finally(() => clearTimeout(gaveUp))
+
+            expect(answer).toBe(true)
+        })
     })
 })

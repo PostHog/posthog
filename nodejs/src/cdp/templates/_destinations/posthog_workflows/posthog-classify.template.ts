@@ -22,12 +22,6 @@ let response := postHogClassify({
   'model': inputs.model
 })
 
-// Past the project's daily limit the step is skipped, so the run carries on without a category.
-if (response.status == 409) {
-  print(apiErrorMessage(response))
-  return { 'category': null, 'confidence': null, 'skipped': true }
-}
-
 if (response.status >= 400) {
   throw Error(f'Could not classify ({response.status}): {apiErrorMessage(response)}')
 }
