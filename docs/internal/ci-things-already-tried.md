@@ -322,17 +322,27 @@ _Also asked as:_ ignore whitespace changes in CI, skip CI for comment-only chang
 
 ### Compare against the last green head instead of the previous head for reuse
 
-**Verdict: rejected** · Nov 2026 · measured, not built
+**Verdict: landed** · Nov 2026 · [#138417](https://github.com/PostHog/posthog/pull/138417), first rejected on the measurement below
 
-Reuse compares the new head with the immediately previous head (`github.event.before`).
-When the previous head was not green, the suite runs, even if an older head was green with identical inputs.
+Reuse first compared the new head with the immediately previous head (`github.event.before`).
+When the previous head had other inputs or was not green, the suite ran, even if an older head was green with identical inputs.
 The proposal was to search back to the last green head.
 
 On the same replay of 120 PRs it adds 13 reused pushes on top of 255 across the six suites.
 About one in eight pushes whose previous head was not green has any earlier green head with identical inputs.
-It needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
+The first objection was cost: the search needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
 
-_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push
+Two findings removed that objection.
+The repository activity API lists every head a branch had in the last day in one call, force-pushed heads included.
+One GraphQL query then compares a few blobs on all of those heads, so a push that changes an input costs two more calls and reads no check run.
+The replay did not count a head that a rebase or a force-push removed from the PR's commits, or a previous head whose run was superseded.
+The gain is therefore not re-measured: read `heads_behind` on the `posthog-ci-reuse-decision` events, where any value above 0 is a reuse this search added.
+
+A failed gate on any head newer than the green one stops the search, whatever that head's inputs.
+The failure can come from a file no scoped filter matches, such as a database init script the suite mounts, and that file may still be on the branch.
+So the search adds reuse after a cancelled, superseded or skipped head, but not after a red one.
+
+_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push (refused), reuse after a revert, reuse after a rebase or force-push
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
