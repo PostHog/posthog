@@ -189,10 +189,10 @@ Note: Read the official Report Service operations, event catalog, and filter cat
 
 Re-audited 2026-11-19 against: <https://dev.adjust.com/en/api/campaign-api>
 
-- [ ] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
-- [ ] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
-- [ ] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
-- [ ] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
+- [x] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
+- [x] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
+- [x] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
+- [x] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
 
 Note (2026-11-19): Read the Report Service filters_data page and the Campaign API page on the Adjust developer hub (HTML, the .md form 404s). The Campaign API uses a Bearer token on a different host than the report service, and uses cursor pagination. Links need the app list first, then sublinks need each link. Excluded the ad spend push API, S2S event ingestion, App Automation writes, blocklist and device API.
 
