@@ -223,8 +223,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
     def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
-        self.units_to_charge = 0
-        self.retry_wait = 0.0
         self.units_to_check = units
         try:
             return self.allow_request(request, view)
@@ -232,11 +230,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             self.units_to_check = None
 
     def charge_units(self) -> None:
-        units, self.units_to_charge = self.units_to_charge, 0
-        if not units:
+        if not self.units_to_charge:
             return
         try:
-            self.cache.set(self.key, [self.now] * units + self.history, self.duration)
+            self.cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
         except Exception as e:
             capture_exception(e)
 

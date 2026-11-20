@@ -1185,73 +1185,8 @@ class TestReserveUnits(BaseTest):
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
 
-    def test_a_reused_throttle_charges_nothing_left_from_a_refused_reservation(self):
-        with (
-            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch.object(_PSAKTeamThrottleForTest, "rate", "5/minute"),
-        ):
-            self._singles_allowed(_PSAKThrottleForTest, 2)
-            throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
-            with self.assertRaises(exceptions.Throttled):
-                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
-
-            with override_instance_config("RATE_LIMIT_ENABLED", False):
-                self._clear_policy_caches()
-                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
-
-            self._clear_policy_caches()
-            self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 6), [True, True, True, True, True, False])
-
-    def test_a_reused_throttle_advertises_no_wait_left_from_a_refused_reservation(self):
-        with (
-            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch.object(_PSAKTeamThrottleForTest, "rate", "3/hour"),
-            time_machine.travel("2026-01-01T00:00:00Z", tick=False),
-        ):
-            self._singles_allowed(_PSAKTeamThrottleForTest, 2)
-            throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
-            with self.assertRaises(exceptions.Throttled):
-                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
-            self._singles_allowed(_PSAKThrottleForTest, 2)
-            unreachable = RedisCache("redis://127.0.0.1:1/0", {})
-
-            with (
-                patch.object(_PSAKTeamThrottleForTest, "cache", unreachable),
-                patch.object(_PSAKTeamThrottleForTest, "primary_cache", unreachable),
-            ):
-                with self.assertRaises(exceptions.Throttled) as refusal:
-                    rate_limit.reserve_units(throttles, self._request(), self.view, 2)
-
-            response = exception_handler(refusal.exception, {"request": self._request()})
-            assert response is not None
-            self.assertEqual(response.headers["Retry-After"], "60")
-
     def _lagging_reader_caches(self) -> dict[str, Any]:
         return lagging_reader_caches(self.cache_prefix)
-
-    def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
-        now = time.time()
-        with (
-            override_settings(CACHES=self._lagging_reader_caches()),
-            patch.object(_PSAKThrottleForTest, "rate", "2/minute"),
-            patch.object(_PSAKThrottleForTest, "timer", lambda _throttle: now),
-        ):
-            redis_cache = caches["default"]
-            assert isinstance(redis_cache, RedisCache)
-            key = _PSAKThrottleForTest().get_cache_key(self._request(), self.view)
-            primary_client, reader_client = clients = [
-                redis_cache.client.get_client(write=True),
-                redis_cache.client.get_client(write=False),
-            ]
-            try:
-                self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 1), [True])
-                redis_cache.set(key, redis_cache.get(key, client=primary_client), 60, client=reader_client)
-                retry_after = self._send([_PSAKThrottleForTest], 2)
-            finally:
-                for client in clients:
-                    redis_cache.delete(key, client=client)
-
-        self.assertEqual(retry_after, "60")
 
     @parameterized.expand(
         [

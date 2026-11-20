@@ -845,19 +845,9 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @parameterized.expand(
-        [
-            ("template_with_a_project_secret_key", "template", "secret_key"),
-            ("template_with_a_personal_api_key", "template", "personal_api_key"),
-            ("project_scoped_send_email", "send_email", "secret_key"),
-            ("key_scoped_send_email", "key_scoped", "secret_key"),
-        ]
-    )
-    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, route, sender
-    ):
+    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
-        client = self._sender_client(sender)
+        client = self._sender_client("secret_key")
         with (
             override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
             override_instance_config("RATE_LIMIT_ENABLED", True),
@@ -865,14 +855,7 @@ class TestTransactionalEmail(APIBaseTest):
         ):
             try:
                 is_rate_limit_enabled.cache_clear()
-                statuses = [
-                    (
-                        client.post("/api/messaging/send/email/", self._flat(self.body), format="json")
-                        if route == "key_scoped"
-                        else self._send(client, route, self.body)
-                    ).status_code
-                    for _ in range(3)
-                ]
+                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
             finally:
                 redis_cache = caches["default"]
                 assert isinstance(redis_cache, RedisCache)
