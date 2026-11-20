@@ -9,6 +9,7 @@ import structlog
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
+    BlockNotFoundError,
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
@@ -58,7 +59,7 @@ class RecordingApiClient:
                 url, params=params, headers=recording_api_auth_headers(team_id, "read")
             ) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockNotFoundError("Block not found")
                 if response.status == 410:
                     error = await _recording_deleted_error(response)
                     logger.info(

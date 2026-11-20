@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -15,11 +16,7 @@ class ExportTotals:
 
     def add(self, other: "ExportTotals") -> "ExportTotals":
         return ExportTotals(
-            exported=self.exported + other.exported,
-            deleted=self.deleted + other.deleted,
-            expired=self.expired + other.expired,
-            missing=self.missing + other.missing,
-            bytes=self.bytes + other.bytes,
+            **{f.name: getattr(self, f.name) + getattr(other, f.name) for f in dataclasses.fields(ExportTotals)}
         )
 
 
@@ -72,9 +69,6 @@ class WriteSummaryInput:
     destination: ExportDestination
     quote_id: str
     run_id: str
-    workflow_id: str
-    date_from: str
-    date_to: str
     shards_per_day: int
     started_at: str
     totals: ExportTotals

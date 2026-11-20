@@ -1,6 +1,4 @@
 import uuid
-import dataclasses
-from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -70,30 +68,8 @@ async def test_runs_every_shard_oldest_day_first_across_continue_as_new() -> Non
     assert [s.totals for s in summaries] == [totals]
 
 
-@pytest.mark.parametrize(
-    "cross_region,expected",
-    [
-        (
-            False,
-            {
-                "standard_gets_usd": 0.4,
-                "glacier_ir_gets_usd": 10.0,
-                "glacier_ir_retrieval_usd": 30.0,
-                "transfer_usd": 0.0,
-            },
-        ),
-        (
-            True,
-            {
-                "standard_gets_usd": 0.4,
-                "glacier_ir_gets_usd": 10.0,
-                "glacier_ir_retrieval_usd": 30.0,
-                "transfer_usd": 40.0,
-            },
-        ),
-    ],
-)
-def test_price_charges_glacier_blocks_at_the_glacier_rates(cross_region: bool, expected: dict[str, Any]) -> None:
+@pytest.mark.parametrize("cross_region,transfer_usd", [(False, 0.0), (True, 40.0)])
+def test_price_charges_glacier_blocks_at_the_glacier_rates(cross_region: bool, transfer_usd: float) -> None:
     usage = QuoteUsage(
         sessions=10,
         blocks=2_000_000,
@@ -104,5 +80,10 @@ def test_price_charges_glacier_blocks_at_the_glacier_rates(cross_region: bool, e
 
     cost = price(usage, max_parallel_shards=10, cross_region=cross_region)
 
-    assert {k: v for k, v in dataclasses.asdict(cost).items() if k in expected} == expected
-    assert cost.total_usd == round(sum(expected.values()) + cost.compute_usd, 2)
+    assert (cost.standard_gets_usd, cost.glacier_ir_gets_usd, cost.glacier_ir_retrieval_usd, cost.transfer_usd) == (
+        0.4,
+        10.0,
+        30.0,
+        transfer_usd,
+    )
+    assert cost.total_usd == round(0.4 + 10.0 + 30.0 + transfer_usd + cost.compute_usd, 2)

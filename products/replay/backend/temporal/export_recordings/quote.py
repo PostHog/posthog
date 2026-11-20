@@ -8,7 +8,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
-from products.replay.backend.temporal.export_recordings.activities import quote_storage_key
+from products.replay.backend.temporal.export_recordings.activities import SESSION_EXPIRY_TIME_SQL, quote_storage_key
 
 # AWS list prices for the replay bucket's storage classes.
 STANDARD_GET_USD_PER_1K = 0.0004
@@ -26,7 +26,7 @@ QUOTE_VALID_DAYS = 7
 RUN_ALLOWANCE_DAYS = 2
 SESSION_IDS_PER_QUERY = 2000
 
-QUOTE_USAGE_QUERY = """
+QUOTE_USAGE_QUERY = f"""
 SELECT
     count(),
     sum(length(blocks)),
@@ -45,12 +45,12 @@ FROM (
             ),
             groupArrayArray(block_urls)
         ) AS blocks,
-        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30)) AS expiry_time
+        {SESSION_EXPIRY_TIME_SQL} AS expiry_time
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
         AND min_first_timestamp >= %(range_start)s
         AND min_first_timestamp < %(range_end)s + INTERVAL 1 DAY
-    {session_filter}
+    {{session_filter}}
     GROUP BY session_id
     HAVING max(is_deleted) = 0
         AND start_time >= %(range_start)s
@@ -102,12 +102,11 @@ class Quote:
     cost: QuoteCost
 
     def to_json(self) -> str:
-        return json.dumps({**dataclasses.asdict(self), "sessions": self.usage.sessions}, indent=2)
+        return json.dumps(dataclasses.asdict(self), indent=2)
 
     @classmethod
     def from_json(cls, content: str) -> "Quote":
         data = json.loads(content)
-        data.pop("sessions")
         return cls(**{**data, "usage": QuoteUsage(**data["usage"]), "cost": QuoteCost(**data["cost"])})
 
 

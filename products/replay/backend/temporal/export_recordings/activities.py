@@ -4,12 +4,13 @@ import asyncio
 import hashlib
 import functools
 import contextlib
-from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
+import collections
+import dataclasses
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -22,9 +23,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.batch_exports.backend.facade.contracts import AWSCredentials
@@ -68,8 +70,11 @@ BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<sta
 
 NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, ExternalRoleArnNotConfiguredError)
 
+# Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
+SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
+
 # Rows group by session start, so a day reads the next day too: a session's later rows can start after midnight.
-SHARD_SESSIONS_QUERY = """
+SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
     any(distinct_id),
@@ -77,7 +82,7 @@ SELECT
     max(max_last_timestamp),
     groupArrayArray(block_first_timestamps),
     groupArrayArray(block_urls),
-    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30)) AS expiry_time,
+    {SESSION_EXPIRY_TIME_SQL} AS expiry_time,
     expiry_time < now() AS expired
 FROM session_replay_events
 PREWHERE team_id = %(team_id)s
@@ -147,26 +152,14 @@ class ManifestLine:
     block_count: int = 0
 
     def to_json(self) -> str:
-        return json.dumps(
-            {
-                "session_id": self.session_id,
-                "distinct_id": self.distinct_id,
-                "status": self.status,
-                "start_time": self.start_time,
-                "end_time": self.end_time,
-                "key": self.key,
-                "bytes": self.bytes,
-                "sha256": self.sha256,
-                "block_count": self.block_count,
-            }
-        )
+        return json.dumps(dataclasses.asdict(self))
 
 
 @frozen
 class ShardCheckpoint:
-    last_session_id: str
-    manifest_parts: int
-    totals: ExportTotals
+    last_session_id: str = ""
+    manifest_parts: int = 0
+    totals: ExportTotals = ExportTotals()
 
 
 def run_prefix(destination: ExportDestination, team_id: int) -> str:
@@ -243,9 +236,10 @@ def load_session_ids(key: str) -> frozenset[str]:
     return frozenset(line.strip() for line in content.splitlines() if line.strip())
 
 
-def load_session_metadata(
-    team_id: int, sessions: list[SessionRow]
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
+SessionMetadata = tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]
+
+
+def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMetadata:
     """Return the viewports per session and the person per distinct ID, which file playback cannot load."""
     team = Team.objects.get(id=team_id)
     viewports: dict[str, list[dict[str, Any]]] = {}
@@ -398,16 +392,32 @@ class SessionUpload:
 
 
 async def fetch_block(client: RecordingApiClient, block: Block, session: SessionRow, team_id: int) -> bytes:
-    for attempt in range(1, BLOCK_FETCH_ATTEMPTS + 1):
+    fetch = functools.partial(
+        client.fetch_block, block.key, block.start_byte, block.end_byte, session.session_id, team_id, decompress=False
+    )
+    for attempt in range(1, BLOCK_FETCH_ATTEMPTS):
         try:
-            return await client.fetch_block(
-                block.key, block.start_byte, block.end_byte, session.session_id, team_id, decompress=False
-            )
+            return await fetch()
+        except BlockNotFoundError:
+            raise
         except BlockFetchError:
-            if attempt == BLOCK_FETCH_ATTEMPTS:
-                raise
             await asyncio.sleep(attempt)
-    raise AssertionError("unreachable")
+    return await fetch()
+
+
+async def fetch_blocks_in_order(client: RecordingApiClient, session: SessionRow, team_id: int) -> AsyncGenerator[bytes]:
+    """Yield the session's blocks in order, keeping up to BLOCK_CONCURRENCY fetches in flight."""
+    pending: collections.deque[asyncio.Task[bytes]] = collections.deque()
+    try:
+        for block in session.blocks or []:
+            pending.append(asyncio.create_task(fetch_block(client, block, session, team_id)))
+            if len(pending) == BLOCK_CONCURRENCY:
+                yield await pending.popleft()
+        while pending:
+            yield await pending.popleft()
+    finally:
+        for task in pending:
+            task.cancel()
 
 
 async def export_session(
@@ -449,10 +459,8 @@ async def export_session(
                 }
             )
         )
-        # Fetch a window of blocks at a time and write them in order, so memory stays bounded for long sessions.
-        for window_start in range(0, len(session.blocks), BLOCK_CONCURRENCY):
-            window = session.blocks[window_start : window_start + BLOCK_CONCURRENCY]
-            for data in await asyncio.gather(*(fetch_block(recordings, b, session, input.team_id) for b in window)):
+        async with contextlib.aclosing(fetch_blocks_in_order(recordings, session, input.team_id)) as blocks:
+            async for data in blocks:
                 await upload.write(frame_block(data))
         await upload.finish()
     except RecordingDeletedError:
@@ -474,19 +482,13 @@ async def export_session(
     )
 
 
-def count(lines: Iterable[ManifestLine]) -> ExportTotals:
-    totals = ExportTotals()
-    for manifest_line in lines:
-        totals = totals.add(
-            ExportTotals(
-                exported=int(manifest_line.status == "exported"),
-                deleted=int(manifest_line.status == "deleted"),
-                expired=int(manifest_line.status == "expired"),
-                missing=int(manifest_line.status == "missing"),
-                bytes=manifest_line.bytes,
-            )
-        )
-    return totals
+def count(lines: list[ManifestLine]) -> ExportTotals:
+    statuses: collections.Counter[str] = collections.Counter(manifest_line.status for manifest_line in lines)
+    return ExportTotals(**statuses, bytes=sum(manifest_line.bytes for manifest_line in lines))
+
+
+async def put_object(s3: "S3Client", destination: ExportDestination, key: str, body: bytes) -> None:
+    await s3.put_object(Bucket=destination.bucket, Key=key, Body=body, **encryption_args(destination))
 
 
 @activity.defn
@@ -494,17 +496,14 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
     tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=input.team_id)
     log = logger.bind(team_id=input.team_id, run_id=input.run_id, day=input.day, shard=input.shard)
 
-    checkpoint = ShardCheckpoint(last_session_id="", manifest_parts=0, totals=ExportTotals())
+    checkpoint = ShardCheckpoint()
     if activity.info().heartbeat_details:
         # Heartbeat details come back as plain dicts, because the converter has no type hint for them.
         details = activity.info().heartbeat_details[0]
-        checkpoint = ShardCheckpoint(
-            last_session_id=details["last_session_id"],
-            manifest_parts=details["manifest_parts"],
-            totals=ExportTotals(**details["totals"]),
-        )
+        checkpoint = ShardCheckpoint(**{**details, "totals": ExportTotals(**details["totals"])})
 
-    sessions = [s for s in await sync_to_async(list_shard_sessions)(input) if s.session_id > checkpoint.last_session_id]
+    listed = await database_sync_to_async_pool(list_shard_sessions)(input)
+    sessions = [s for s in listed if s.session_id > checkpoint.last_session_id]
     log.info("export_recordings.shard_started", sessions=len(sessions), resumed_after=checkpoint.last_session_id)
 
     async with (
@@ -518,19 +517,26 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
             async with semaphore:
                 return await export_session(recordings, s3, input, session, viewports, person)
 
+        def load_metadata(chunk: list[SessionRow]) -> asyncio.Task[SessionMetadata]:
+            return asyncio.create_task(database_sync_to_async_pool(load_session_metadata)(input.team_id, chunk))
+
         prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
-        for chunk_start in range(0, len(sessions), SESSIONS_PER_CHECKPOINT):
-            chunk = sessions[chunk_start : chunk_start + SESSIONS_PER_CHECKPOINT]
-            viewports, persons = await sync_to_async(load_session_metadata)(input.team_id, chunk)
+        chunks = [sessions[i : i + SESSIONS_PER_CHECKPOINT] for i in range(0, len(sessions), SESSIONS_PER_CHECKPOINT)]
+        metadata = load_metadata(chunks[0]) if chunks else None
+        for index, chunk in enumerate(chunks):
+            assert metadata is not None
+            viewports, persons = await metadata
+            # The next chunk's metadata loads while this chunk exports.
+            metadata = load_metadata(chunks[index + 1]) if index + 1 < len(chunks) else None
             lines = await asyncio.gather(
                 *(export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id)) for s in chunk)
             )
             part = checkpoint.manifest_parts
-            await s3.put_object(
-                Bucket=input.destination.bucket,
-                Key=f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
-                Body="".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
-                **encryption_args(input.destination),
+            await put_object(
+                s3,
+                input.destination,
+                f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
+                "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
             )
             checkpoint = ShardCheckpoint(
                 last_session_id=chunk[-1].session_id,
@@ -545,19 +551,20 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
 
 @activity.defn
 async def write_summary(input: WriteSummaryInput) -> None:
-    quote_json = await sync_to_async(object_storage.read)(quote_storage_key(input.quote_id))
+    quote_json = await database_sync_to_async_pool(object_storage.read)(quote_storage_key(input.quote_id))
     if quote_json is None:
         raise ApplicationError(f"Quote {input.quote_id} does not exist", non_retryable=True)
-    quoted_sessions = json.loads(quote_json)["sessions"]
+    quote = json.loads(quote_json)
+    quoted_sessions = quote["usage"]["sessions"]
     totals = input.totals
     listed = totals.exported + totals.deleted + totals.expired + totals.missing
     summary = {
         "run_id": input.run_id,
         "quote_id": input.quote_id,
-        "workflow_id": input.workflow_id,
+        "workflow_id": activity.info().workflow_id,
         "team_id": input.team_id,
-        "date_from": input.date_from,
-        "date_to": input.date_to,
+        "date_from": quote["date_from"],
+        "date_to": quote["date_to"],
         "shards_per_day": input.shards_per_day,
         "manifest_file_pattern": "{date}-{shard}-{part}.jsonl",
         "started_at": input.started_at,
@@ -575,13 +582,5 @@ async def write_summary(input: WriteSummaryInput) -> None:
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
     async with destination_client(input.team_id, input.destination) as s3:
-        encryption = encryption_args(input.destination)
-        await s3.put_object(
-            Bucket=input.destination.bucket, Key=f"{prefix}/quote.json", Body=quote_json.encode(), **encryption
-        )
-        await s3.put_object(
-            Bucket=input.destination.bucket,
-            Key=f"{prefix}/summary.json",
-            Body=json.dumps(summary).encode(),
-            **encryption,
-        )
+        await put_object(s3, input.destination, f"{prefix}/quote.json", quote_json.encode())
+        await put_object(s3, input.destination, f"{prefix}/summary.json", json.dumps(summary).encode())

@@ -10,7 +10,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -118,6 +118,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         with (
             patch(f"{ACTIVITIES}.recording_api_client", recording_api),
             patch(f"{ACTIVITIES}.destination_client", destination),
+            # A pool thread has its own connection and cannot see this test's uncommitted rows.
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
         ):
             return async_to_sync(self._run_activity)(
                 env,
