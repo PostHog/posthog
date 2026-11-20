@@ -242,6 +242,23 @@ describe('boundText', () => {
         expect(bounded.body_next_offset).toBe(start + [...bounded.body].length)
     })
 
+    it('leaves text inside a field as written, even where it looks like a TOON header', () => {
+        const notes = `steps[9000]:\n${'  - a step the customer wrote\n'.repeat(3_000)}`
+        const value = { notes }
+
+        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+
+        expect(bounded.notes.startsWith('steps[9000]:\n')).toBe(true)
+    })
+
+    it('leaves a byte-counted next offset alone, since it reports no total length', () => {
+        const value = { content: '💬 a comment line\n'.repeat(2_500), content_next_offset: 60_000 }
+
+        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+
+        expect(bounded.content_next_offset).toBe(60_000)
+    })
+
     it('keeps a JSON string result a JSON string', () => {
         const value = 'line of schema\n'.repeat(10_000)
 
