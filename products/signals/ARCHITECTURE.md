@@ -813,6 +813,12 @@ Both report-pipeline stages write here too, under the `pipeline:implementation` 
 
 `expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry first hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); within its post-expiry grace the key stays taken and both `forget` and the `remember` upsert still find it. The daily `prune_expired_scratchpad_entries` janitor then hard-deletes rows whose expiry is more than `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, so lapsed entries cannot pile up forever; durable (`expires_at`-null) rows are never swept. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
 
+HogQL reads the same rows as `system.scout_scratchpad`, so a scout pre-check, the SQL editor, or an agent can count and group memory without paging `scout-scratchpad-search`.
+The table has the same `signal_scout` access scope and resource-level rules as `system.scout_runs`, and returns `content` to the same audience the search tool already serves.
+Unlike the search tool, it returns expired rows; filter on `expires_at` to drop them.
+Join `created_by_run_id` to `system.scout_runs.id` for the creating scout's `skill_name`. Both it and `created_by_identity` name the creator, not the last writer.
+Private trial memory never reaches this table: a trial run's `remember` and `forget` write to `SignalScoutRun.trial_state`, so the table needs no trial predicate.
+
 ### `SignalProjectProfile`
 
 Deterministic snapshot of "what's true about this project" — the agent's orientation surface. Time-series so future phases can diff a new profile against the previous row to populate `payload.deltas`. Computed by `scout_harness/profile/builders.py` from authoritative tables; v1 writes 10 inventory sections (events, properties, cohorts, feature flags, experiments, surveys, dashboards, insights, data warehouse sources, integrations).
