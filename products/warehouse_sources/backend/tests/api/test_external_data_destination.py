@@ -581,6 +581,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
             ("empty_braces", "a{}b", status.HTTP_400_BAD_REQUEST),
             ("attribute", "{table.foo}", status.HTTP_400_BAD_REQUEST),
             ("escaped_brace", "{{table}}", status.HTTP_400_BAD_REQUEST),
+            ("too_long", "{table}" * 147, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_a_prefix_may_only_use_the_documented_variables(self, _name: str, prefix: str, expected: int) -> None:
@@ -598,7 +599,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == expected, response.json()
         if expected == status.HTTP_400_BAD_REQUEST:
             assert response.json()["attr"] == "config"
-            assert "{year}" in response.json()["detail"]
+            assert "prefix" in response.json()["detail"]
 
     @parameterized.expand(
         [
