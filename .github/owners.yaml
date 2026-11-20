@@ -5,6 +5,8 @@ rules:
       owners: team-devex
     - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
       owners: team-devex
+    - match: ['/scripts/quarantine_base_check.py', '/scripts/test_quarantine_base_check.py']
+      owners: team-devex
     - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
       owners: team-devex
     - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
