@@ -949,7 +949,7 @@ Note: Parsed paths and HTTP methods from Apple's official Python SDK, then check
 
 ## AppLovin — gaps
 
-Today (12): `advertiser_report`, `assets`, `campaign_operation_logs`, `campaigns`, `creative_sets`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_cohort_ad_revenue`, `max_cohort_impressions`, `max_cohort_sessions`, `publisher_report`, `user_ad_revenue`
+Today (14): `advertiser_report`, `asset_report`, `assets`, `campaign_operation_logs`, `campaigns`, `creative_sets`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_cohort_ad_revenue`, `max_cohort_impressions`, `max_cohort_sessions`, `playable_metrics`, `publisher_report`, `user_ad_revenue`
 
 Diffed against: <https://support.applovin.com/en/growth/promoting-your-apps/api/axon-campaign-management-api>
 
@@ -963,8 +963,8 @@ Note: Compared collection GET operations in the official Campaign Management API
 
 Re-audited 2026-11-19 against: <https://support.applovin.com/en/growth/promoting-your-apps/api/asset-reporting-api>
 
-- [ ] `Asset reporting (GET https://r.applovin.com/assetAnalyticsReport; GET https://r.applovin.com/assetReport)` — creative asset level impressions, clicks and cost by campaign and creative set, which joins to the assets and creative_sets tables (high)
-- [ ] `HTML playable metrics (GET https://r.applovin.com/playableMetrics)` — engagement and error metrics for HTML playable ads by day (low)
+- [x] `Asset reporting (GET https://r.applovin.com/assetAnalyticsReport; GET https://r.applovin.com/assetReport)` — creative asset level impressions, clicks and cost by campaign and creative set, which joins to the assets and creative_sets tables (high)
+- [x] `HTML playable metrics (GET https://r.applovin.com/playableMetrics)` — engagement and error metrics for HTML playable ads by day (low)
 
 Note (2026-11-19): Parsed the Axon Campaign Management API page (all list endpoints are already synced) and the Reporting API page. The Asset Reporting and HTML Metrics API pages are separate pages on the same r.applovin.com host and Report Key. Both take start and end dates with a 45 day window, a columns list, and limit and offset paging. assetReport only takes a range of yesterday, last_7d or last_month, so use assetAnalyticsReport for incremental loads.
 
