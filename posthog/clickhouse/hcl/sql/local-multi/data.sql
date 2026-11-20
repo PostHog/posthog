@@ -254,6 +254,34 @@ CREATE TABLE posthog.email_status_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
+CREATE TABLE posthog.endpoint_runs_hourly (
+  team_id Int64,
+  day Date,
+  hour DateTime,
+  endpoint_id String,
+  version UInt32,
+  execution_type LowCardinality(String),
+  access LowCardinality(String),
+  refresh_mode LowCardinality(String),
+  has_variables Bool,
+  has_pagination Bool,
+  runs SimpleAggregateFunction(sum, UInt64),
+  cache_hits SimpleAggregateFunction(sum, UInt64),
+  cache_misses SimpleAggregateFunction(sum, UInt64),
+  failed SimpleAggregateFunction(sum, UInt64),
+  first_run_at SimpleAggregateFunction(min, DateTime),
+  last_run_at SimpleAggregateFunction(max, DateTime),
+  active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+  wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+  miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+  miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  ch_queries SimpleAggregateFunction(sum, UInt64),
+  ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+  ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+  ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+  ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+  ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_endpoint_runs_hourly');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,

@@ -154,6 +154,7 @@ def reset_clickhouse_tables():
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.cleanup_snapshots import TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.endpoint_runs import TRUNCATE_ENDPOINT_RUNS_HOURLY_TABLES_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.clickhouse.warehouse_object_reads import TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
@@ -218,6 +219,7 @@ def reset_clickhouse_tables():
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
         *TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL(),
         *TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL(),
+        *TRUNCATE_ENDPOINT_RUNS_HOURLY_TABLES_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
