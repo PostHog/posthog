@@ -94,6 +94,22 @@ describe('warehouseProvisioningLogic', () => {
         }).toNotHaveDispatchedActions(['pollStatus'])
     })
 
+    it('keeps the last known onboarding state and retries when the lookup fails', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'stopPolling'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess(
+                warehouseStatusFixture({ team_onboarded: null, schema_name: null })
+            )
+        })
+            .toDispatchActions(['pollStatus'])
+            .toMatchValues({ teamOnboarded: true, teamSchemaName: 'analytics' })
+    })
+
     // availableTabs depends on teamOnboarded, so a deprovision click that fails must not collapse the tabs.
     it('keeps the project onboarded when a deprovision request fails', async () => {
         jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())

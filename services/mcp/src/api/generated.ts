@@ -128141,8 +128141,11 @@ export namespace Schemas {
          * @nullable
          */
       table_suffix: string | null;
-      /** Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet — show the onboarding screen in that case. */
-      team_onboarded: boolean;
+      /**
+         * Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet, so show the onboarding screen. Null when the control plane could not report it, so keep the last known state and retry.
+         * @nullable
+         */
+      team_onboarded: boolean | null;
       /**
          * Schema this project's data lands in. Null when the project is not onboarded.
          * @nullable

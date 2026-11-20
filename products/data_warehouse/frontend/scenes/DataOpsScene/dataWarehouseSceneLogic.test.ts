@@ -59,6 +59,11 @@ describe('dataWarehouseSceneLogic', () => {
             expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS],
         },
         {
+            name: 'warehouse ready, onboarding lookup failed',
+            status: { state: 'ready', team_onboarded: null },
+            expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS],
+        },
+        {
             name: 'warehouse ready but this project not onboarded',
             status: { state: 'ready', team_onboarded: false },
             expectedTabs: [DataWarehouseTab.SETTINGS],

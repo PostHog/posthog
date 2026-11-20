@@ -14,6 +14,7 @@ import * as dwApi from 'products/data_warehouse/frontend/generated/api'
 import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { SettingsTab } from './SettingsTab'
+import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 import { trinoStatusFixture, warehouseStatusFixture } from './warehouseStatusFixtures'
 
 describe('SettingsTab', () => {
@@ -135,6 +136,40 @@ describe('SettingsTab', () => {
 
         expect(await screen.findByText('Connect with psql')).toBeInTheDocument()
         expect(screen.queryByText('Catalog')).not.toBeInTheDocument()
+    })
+
+    const duckdbConnection = {
+        host: 'my-warehouse.dw.example.com',
+        port: 5432,
+        database: 'ducklake',
+        username: 'root',
+    }
+
+    it('says the join state is unknown instead of offering to enable the project', async () => {
+        renderWithStatus(
+            warehouseStatusFixture({ connection: duckdbConnection, team_onboarded: null, schema_name: null }),
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]
+        )
+
+        expect(
+            await screen.findByText("Couldn't check whether this project has joined the warehouse. Retrying...")
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Enable this project')).not.toBeInTheDocument()
+    })
+
+    it('warns that the page is out of date when a refresh fails, and keeps the last status', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce(warehouseStatusFixture({ connection: duckdbConnection }))
+            .mockRejectedValue({ status: 500 })
+        renderTab([FEATURE_FLAGS.DATA_WAREHOUSE_SCENE])
+        await screen.findByText('Connect with psql')
+
+        warehouseProvisioningLogic.actions.loadWarehouseStatus()
+
+        expect(
+            await screen.findByText("Couldn't refresh the warehouse status, so this page may be out of date.")
+        ).toBeInTheDocument()
+        expect(screen.getByText('Connect with psql')).toBeInTheDocument()
     })
 
     it('offers a retry instead of the setup form when the status fails to load', async () => {

@@ -17,7 +17,7 @@ export function InitialPasswordBanner(): JSX.Element | null {
         <LemonBanner type="warning" onClose={clearInitialPassword}>
             <div className="space-y-2">
                 <strong>Save your password now. It won't be shown again.</strong>
-                <CodeSnippet compact thing="password">
+                <CodeSnippet compact thing="password" className="ph-no-capture ph-replay-block">
                     {initialPassword}
                 </CodeSnippet>
             </div>

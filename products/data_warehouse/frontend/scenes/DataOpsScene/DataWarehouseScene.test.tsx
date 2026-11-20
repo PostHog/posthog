@@ -43,5 +43,6 @@ describe('DataWarehouseScene', () => {
         expect(await screen.findByText("Save your password now. It won't be shown again.")).toBeInTheDocument()
         // CodeSnippet can split its text across elements, so this reads the page text.
         expect(document.body.textContent).toContain('example-password')
+        expect(document.querySelector('.ph-no-capture.ph-replay-block')?.textContent).toContain('example-password')
     })
 })

@@ -324,6 +324,30 @@ export function SettingsTab(): JSX.Element {
                 </div>
             ) : (
                 <div className="space-y-4">
+                    {warehouseStatusLoadFailed && (
+                        <LemonBanner type="warning">
+                            <div className="flex items-center justify-between gap-2">
+                                <span>Couldn't refresh the warehouse status, so this page may be out of date.</span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconRefresh />}
+                                    loading={warehouseStatusLoading}
+                                    onClick={() => loadWarehouseStatus()}
+                                    data-attr="retry-warehouse-status-refresh"
+                                >
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        </LemonBanner>
+                    )}
+
+                    {isReady && teamOnboarded === null && (
+                        <LemonBanner type="warning">
+                            Couldn't check whether this project has joined the warehouse. Retrying...
+                        </LemonBanner>
+                    )}
+
                     {(trinoStatus ? trinoStatus.inProgress : isInProgress) && (
                         <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
@@ -400,7 +424,7 @@ export function SettingsTab(): JSX.Element {
                         </>
                     )}
 
-                    {isReady && !teamOnboarded && adminRestrictionReason && (
+                    {isReady && teamOnboarded === false && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
                             <h3 className="mb-0">Your organization's warehouse is running</h3>
                             <p className="text-muted text-xs mb-0">
@@ -409,7 +433,7 @@ export function SettingsTab(): JSX.Element {
                         </div>
                     )}
 
-                    {isReady && !teamOnboarded && !adminRestrictionReason && (
+                    {isReady && teamOnboarded === false && !adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
                             <h3 className="mb-0">Your organization's warehouse is running</h3>
                             <p className="text-muted text-xs mb-0">
