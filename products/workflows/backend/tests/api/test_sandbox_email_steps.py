@@ -693,11 +693,13 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         if default_index is not None:
             set_default_email_sender_if_unset(self.team.id, senders[default_index].id)
         sender = {"integrationId": None, "email": custom_address} if custom_address else {"integrationId": None}
+        step = _own_email_step(None)
+        step["config"]["inputs"]["email"]["value"]["from"] = sender
 
         with _flag(enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
-                _flow(_own_email_step(None, **{"from": sender})),
+                _flow(step),
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
@@ -712,11 +714,13 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     def test_a_new_api_email_step_with_a_from_address_that_is_not_text_is_refused(self) -> None:
         self._sender("mail0.example.com", stopped=False)
+        step = _own_email_step(None)
+        step["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": None, "email": ["hi@mail0.example.com"]}
 
         with _flag(True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
-                _flow(_own_email_step(None, **{"from": {"integrationId": None, "email": ["hi@mail0.example.com"]}})),
+                _flow(step),
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )

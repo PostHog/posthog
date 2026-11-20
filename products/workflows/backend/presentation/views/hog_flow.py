@@ -1176,10 +1176,10 @@ def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id:
     for index in new_steps:
         step = deepcopy(actions[index])
         config = step["config"]
-        inputs = config.get("inputs") if isinstance(config.get("inputs"), dict) else {}
-        email = inputs.get("email") if isinstance(inputs.get("email"), dict) else {}
+        inputs: dict = config["inputs"] if isinstance(config.get("inputs"), dict) else {}
+        email: dict = inputs["email"] if isinstance(inputs.get("email"), dict) else {}
         value = _email_value(config)
-        sender = value.get("from") or {}
+        sender: dict = value["from"] if isinstance(value.get("from"), dict) else {}
         config["inputs"] = {
             **inputs,
             "email": {**email, "value": {**value, "from": {**sender, "integrationId": sender_id}}},
