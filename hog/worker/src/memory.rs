@@ -1,12 +1,9 @@
-// The worker holds a whole build's bundles and maps, and rewriting a map allocates several copies
-// of it for a moment. glibc keeps those freed copies for reuse by default, and with one arena per
-// thread that more than doubles the memory a large build needs. Returning large blocks to the
-// operating system as soon as they are freed keeps the peak near what the pairs themselves take.
+// Rewriting a map allocates several copies of it for a moment. glibc keeps freed blocks for reuse,
+// and with one arena per thread that more than doubles the memory a large build needs, so large
+// blocks go back to the operating system as soon as they are freed.
 
-// Blocks at least this large get their own mapping, which goes back to the system when freed.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 const MMAP_THRESHOLD_BYTES: libc::c_int = 256 * 1024;
-// Free space above this at the top of the heap goes back to the system.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 const TRIM_THRESHOLD_BYTES: libc::c_int = 64 * 1024;
 

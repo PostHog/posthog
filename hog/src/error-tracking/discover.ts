@@ -195,8 +195,7 @@ export async function discover(
     options: DiscoverOptions = {}
 ): Promise<Artifact[]> {
     const listed = roots.map((root) => rootFiles(root, cwd))
-    // One request for every file, so the worker reads them in parallel. A path given on its own is
-    // checked against every type, whatever its extension.
+    // One request for every file, so the worker reads them in parallel.
     const answers = await worker.detect(
         listed.flatMap(({ isFile, files }, index) => {
             const { kind } = roots[index]!

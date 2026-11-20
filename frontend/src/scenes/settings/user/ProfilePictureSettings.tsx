@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { GRAVATAR_MANAGE_URL } from 'lib/utils/gravatar'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -36,8 +39,66 @@ export function ProfilePictureSettings(): JSX.Element {
     const { gravatarStatus, gravatarChecking, gravatarEmail, gravatarRefreshKey, usesHedgehogAsProfilePicture } =
         useValues(profilePictureLogic)
     const { recheckGravatar } = useActions(profilePictureLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const email = user?.email || 'your email'
+
+    if (todayRailNav) {
+        return (
+            <div className="flex items-center gap-4">
+                <ProfilePicture
+                    key={`${gravatarEmail}:${gravatarRefreshKey}`}
+                    user={user}
+                    size="xxl"
+                    refreshKey={gravatarRefreshKey}
+                />
+                <div className="flex min-w-0 flex-col gap-2">
+                    {usesHedgehogAsProfilePicture ? (
+                        <>
+                            <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                Your hedgehog is your profile picture. Turn that off to show your Gravatar instead.
+                            </Text>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    nativeButton={false}
+                                    render={<LinkPrimitive to={urls.settings('user-customization', 'hedgehog-mode')} />}
+                                    data-attr="settings-profile-picture-hedgehog"
+                                >
+                                    Hedgehog mode settings
+                                </Button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                {gravatarDescription(gravatarStatus, email)}
+                            </Text>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    nativeButton={false}
+                                    render={<LinkPrimitive to={GRAVATAR_MANAGE_URL} target="_blank" />}
+                                    data-attr="settings-profile-picture-gravatar"
+                                >
+                                    {gravatarStatus === 'found' ? 'Change on Gravatar' : 'Add on Gravatar'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    loading={gravatarChecking}
+                                    onClick={recheckGravatar}
+                                    data-attr="settings-profile-picture-refresh"
+                                >
+                                    <IconRefresh />
+                                    Check again
+                                </Button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center gap-4">

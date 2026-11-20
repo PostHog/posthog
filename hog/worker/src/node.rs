@@ -23,8 +23,6 @@ const DESCRIPTIONS: [(i32, &str, &str); 12] = [
     (libc::EBUSY, "EBUSY", "resource busy or locked"),
 ];
 
-// `ENOENT: no such file or directory, open '/build/a.js'`. An error outside the table keeps the
-// operating system's own text.
 #[cfg(unix)]
 pub fn message(error: &io::Error, syscall: &str, path: &Path) -> String {
     let known = DESCRIPTIONS
@@ -48,7 +46,6 @@ pub fn message(error: &io::Error, syscall: &str, path: &Path) -> String {
     format!("{error}, {syscall} '{}'", path.display())
 }
 
-// `EACCES: permission denied, rename '/build/a.map' -> '/build/a.map.bak'`.
 pub fn rename_message(error: &io::Error, from: &Path, to: &Path) -> String {
     format!("{} -> '{}'", message(error, "rename", from), to.display())
 }
@@ -61,7 +58,6 @@ pub fn read(path: &Path) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|error| message(&error, "open", path))
 }
 
-// A byte order mark stays in the text, as it does for hog's sourcemap reader.
 pub fn read_text(path: &Path) -> Result<String, String> {
     utf8(read(path)?)
 }

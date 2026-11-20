@@ -8,10 +8,8 @@ import { parseOrThrow, type Schema } from '@/core/schema'
 import { classifyPath } from '@/updates/install-method'
 import { workerName } from '@/updates/targets'
 
-// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output. It
-// runs the code posthog-cli runs, so the bytes match, and it holds a large build in a fraction of
-// the memory a JavaScript heap needs. hog starts one worker per command, sends it one JSON line per
-// request and reads one JSON line back. hog/worker/src/main.rs describes the requests.
+// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
+// the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
 
 // Must equal PROTOCOL in hog/worker/src/main.rs. hog and the worker are two files, so an upgrade
 // that replaced only one of them is caught here instead of in a request the other can't read.
@@ -68,7 +66,6 @@ const PairState = z.object({
     mapReleaseId: z.string().nullable(),
     mapDebugId: z.string().nullable(),
 })
-// A bundle and its sourcemap, held by the worker. hog keeps only what its decisions read.
 export type PairState = z.output<typeof PairState>
 
 const Detected = z.object({
@@ -98,7 +95,6 @@ const Prepared = z.object({
                 releaseId: z.string().nullable(),
                 contentHash: z.string(),
                 size: z.number(),
-                // Null in a dry run, which writes nothing.
                 path: z.string().nullable(),
             }),
         ])
@@ -141,8 +137,6 @@ const NativeBinary = z.object({
     format: z.enum(['elf', 'macho']),
     size: z.number(),
 })
-// One ELF or Mach-O binary with debug info and an ID, held by the worker. A fat Mach-O gives one
-// for each architecture.
 export type NativeBinary = z.output<typeof NativeBinary>
 
 const NativeFiles = z.object({
@@ -167,7 +161,6 @@ const SourcePaths = z.object({
 const NativeContainer = z.object({
     contentHash: z.string(),
     size: z.number(),
-    // Null in a dry run, which writes nothing.
     path: z.string().nullable(),
 })
 const Packed = z.object({
@@ -191,7 +184,6 @@ export type PackedNative = z.output<typeof Packed>
 export type NativeContainer = z.output<typeof NativeContainer>
 export type WrappedPayload = z.output<typeof Wrapped>
 
-// A binary to pack, with its place in the request's lists of source files. Null packs it alone.
 export interface PackItem {
     id: number
     sources: number | null
@@ -302,8 +294,6 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    // Which files discovery counts: bundles whose sourcemap exists, maps the Hermes compiler
-    // composed, ProGuard mappings, and ELF and Mach-O files. Every answer needs the file's contents.
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
         const asked = files.filter((file) => file.bundle || file.map || file.mapping || file.native)
         if (asked.length === 0) {
@@ -354,7 +344,6 @@ export class Worker {
         }
     }
 
-    // Records what the files of each pair hold, and answers one cleanup target for each pair.
     async fingerprint(ids: number[]): Promise<number[]> {
         if (ids.length === 0) {
             return []
@@ -368,8 +357,7 @@ export class Worker {
         }
     }
 
-    // Builds the symbol set of each pair and writes it into `folder`. The worker lets the pairs
-    // go, so this is the last request that names them. Without a folder nothing is written.
+    // The worker lets the pairs go, so this is the last request that names them.
     async prepare(ids: number[], mode: 'event' | 'symbol-set', folder: string | null): Promise<PreparedPair[]> {
         if (ids.length === 0) {
             return []
@@ -377,7 +365,6 @@ export class Worker {
         return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared)).prepared
     }
 
-    // The stylesheets that have a sourcemap, or a reference to one that can't be read.
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
         if (files.length === 0) {
             return []
@@ -393,7 +380,6 @@ export class Worker {
         return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
     }
 
-    // Checks a ProGuard mapping and writes its symbol set to `out`. Without `out` nothing is written.
     async proguard(path: string, out: string | null): Promise<ProguardContainer> {
         return this.call({ op: 'proguard', path, out }, ProguardContainer)
     }
@@ -428,7 +414,6 @@ export class Worker {
         return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers)).containers
     }
 
-    // What each ELF or Mach-O file holds: its binaries, and the problems that keep others out.
     async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {
         if (paths.length === 0) {
             return []
@@ -436,7 +421,6 @@ export class Worker {
         return (await this.call({ op: 'native_candidates', paths }, NativeFiles)).files
     }
 
-    // The architectures of each file inside a dSYM bundle, with their UUIDs.
     async dsymSlices(paths: string[]): Promise<DsymMemberAnswer[]> {
         if (paths.length === 0) {
             return []
@@ -444,7 +428,7 @@ export class Worker {
         return (await this.call({ op: 'dsym_slices', paths }, DsymMembers)).members
     }
 
-    // The source files the DWARF of each binary names. A dSYM slice answers for its whole file.
+    // A dSYM slice answers for its whole file.
     async sourcePaths(ids: number[]): Promise<SourcePathsAnswer[]> {
         if (ids.length === 0) {
             return []
@@ -452,9 +436,7 @@ export class Worker {
         return (await this.call({ op: 'source_paths', ids }, SourcePaths)).sources
     }
 
-    // Builds the symbol set of each binary and writes it into `folder`, with the source files of
-    // the list the item names. The worker lets every binary go, so this is the last request that
-    // names one. Without a folder nothing is written.
+    // The worker lets every binary go, so this is the last request that names one.
     async packNative(sources: string[][], items: PackItem[], folder: string | null): Promise<PackedNative> {
         if (items.length === 0) {
             return { unreadable: sources.map(() => []), containers: [] }
@@ -462,12 +444,10 @@ export class Worker {
         return this.call({ op: 'pack_native', sources, items, folder }, Packed)
     }
 
-    // Puts the bytes of a file into a container of one type, as they are.
     async wrap(path: string, kind: ContainerKind, out: string | null): Promise<WrappedPayload> {
         return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }
 
-    // Closing stdin ends the worker. A worker that never started has nothing to close.
     async close(): Promise<void> {
         const running = await this.running?.catch(() => undefined)
         if (running) {
@@ -477,8 +457,6 @@ export class Worker {
     }
 }
 
-// Runs a command's file work with one worker, and ends the worker when the work is over, however
-// it ends.
 export async function withWorker<T>(work: (worker: Worker) => Promise<T>): Promise<T> {
     const worker = new Worker()
     try {

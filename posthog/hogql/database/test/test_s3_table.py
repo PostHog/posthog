@@ -12,7 +12,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.s3_table import build_function_call, compression_for_url_pattern
+from posthog.hogql.database.s3_table import S3Table, build_function_call, compression_for_url_pattern
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -102,6 +102,34 @@ class TestS3Compression(SimpleTestCase):
     def test_empty_format_is_preserved(self) -> None:
         result = build_function_call("http://url.com", "", access_key="key", access_secret="secret")
         assert result == "s3('http://url.com', 'key', 'secret', '')"
+
+    @parameterized.expand(
+        [
+            ("key_and_secret", "key", "secret", False),
+            ("no_credential", None, None, True),
+            ("blank_key", "", "secret", True),
+            ("blank_secret", "key", "", True),
+        ]
+    )
+    def test_table_with_a_credential_prints_only_with_its_key_and_secret(
+        self, _name: str, access_key: str | None, access_secret: str | None, rejected: bool
+    ) -> None:
+        table = S3Table(
+            name="orders",
+            url="https://bucket.s3.us-east-1.amazonaws.com/orders/data.parquet",
+            format="Parquet",
+            access_key=access_key,
+            access_secret=access_secret,
+            credential_required=True,
+            fields={},
+        )
+        for print_table in (table.to_printed_clickhouse, table.to_printed_duckdb):
+            context = HogQLContext(team_id=1)
+            if rejected:
+                with self.assertRaisesMessage(ExposedHogQLError, "access key"):
+                    print_table(context)
+            else:
+                print_table(context)
 
 
 class TestS3Table(BaseTest):

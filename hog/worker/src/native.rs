@@ -1,7 +1,5 @@
-// Native debug symbols: ELF files, Mach-O files and the slices of dSYM bundles. Copied from
-// posthog-cli's `debug_symbols/mod.rs` and `dsym/mod.rs`, and parsed, zipped and wrapped with the
-// crates posthog-cli uses, so a symbol set and its content hash are the ones PostHog stores for a
-// posthog-cli upload.
+// Copied from posthog-cli's `debug_symbols/mod.rs` and `dsym/mod.rs`, so a symbol set and its
+// content hash are the ones PostHog stores for a posthog-cli upload.
 
 use anyhow::Result;
 use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo};
@@ -57,8 +55,7 @@ pub fn magic_format(path: &Path) -> Option<Format> {
     }
 }
 
-// One binary that uploads as one symbol set: a whole ELF or thin Mach-O file, or one architecture
-// of a fat Mach-O. The file is shared, so the slices of a fat file hold it once.
+// The file is shared, so the slices of a fat file hold it once.
 pub struct Binary {
     file: Arc<Vec<u8>>,
     range: Range<usize>,
@@ -114,17 +111,13 @@ pub enum Candidate {
     Valid { debug_id: String, binary: Binary },
 }
 
-// Where `part` sits inside `whole`. symbolic hands out an object's bytes as a slice of the bytes
-// it parsed.
+// symbolic hands out an object's bytes as a slice of the bytes it parsed.
 pub fn range_within(whole: &[u8], part: &[u8]) -> Range<usize> {
     let start = (part.as_ptr() as usize).saturating_sub(whole.as_ptr() as usize);
 
     start..start + part.len()
 }
 
-// What one file holds: a candidate for each architecture of a fat Mach-O, and none for an object
-// that is not an executable, a library or a debug companion. An error means the file can't be
-// read or parsed at all.
 pub fn candidates(path: &Path) -> Result<Vec<Candidate>, String> {
     let file = Arc::new(node::read(path)?);
     let archive = Archive::parse(&file).map_err(|error| error.to_string())?;
@@ -201,12 +194,10 @@ fn problem(object: &Object<'_>, format: Format) -> Option<Problem> {
 pub struct Built {
     content_hash: String,
     size: usize,
-    // Null in a dry run, which writes nothing.
     path: Option<String>,
 }
 
-// A zip with the binary as `dwarf` and the sources after it, wrapped in the container of the
-// binary's format, and written to `<folder>/native-<id>.symbolset`.
+// A zip with the binary as `dwarf` and the sources after it, in the container of its format.
 pub fn pack(
     id: usize,
     binary: &Binary,
