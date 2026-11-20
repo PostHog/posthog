@@ -215,7 +215,9 @@ class TestSendGridImport(BaseTest):
         email = receipt.content["email"]
         assert receipt.transactional_hog_flow_id is None
         assert receipt.content["templating"] == "liquid"
-        assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
+        assert email["subject"] == (
+            'Your order {{ variables.order.id | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" }}'
+        )
         assert "Old" not in email["html"]
         # The receipt uses formatDate, so its body stays as text for a person to rewrite.
         assert "{{ unsubscribe_url }}" not in email["html"]
@@ -288,7 +290,9 @@ class TestSendGridImport(BaseTest):
         assert str(scheduled.message_category_id) == str(
             MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
         )
-        assert templates["From a design"].content["email"]["html"] == "<p>News</p>{{ unsubscribe_url }}"
+        assert (
+            templates["From a design"].content["email"]["html"] == "<p>News</p>{% raw %}{{{unsubscribe}}{% endraw %}}"
+        )
         items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
         assert any("still scheduled" in note for note in items["November news"]["notes"])
         assert any("first_name" in note for note in items["November news"]["notes"])
