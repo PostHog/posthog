@@ -27,6 +27,7 @@ from posthog.date_util import start_of_day
 from posthog.schema_enums import PersonsOnEventsMode
 
 if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
 
 # The physical read table is the Distributed `flag_evaluations` on the DATA nodes, defined in
@@ -34,6 +35,10 @@ if TYPE_CHECKING:
 # posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
+
+# The Distributed table that holds the same rows in the native JSON schema. A query reads it as `flag_evaluations`,
+# so every field reference keeps its prefix.
+FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE = "flag_evaluations_json"
 
 # FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
 # The TTL constant lives in posthog/models/flag_evaluations/sql.py.
@@ -306,8 +311,23 @@ class FlagEvaluationsTable(EventsRetentionTable):
     def to_printed_clickhouse(self, context):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if not context.reads_flag_evaluations_json():
+            return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+        if use_logical_alias:
+            return f"{FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE} AS {FLAG_EVALUATIONS_CLICKHOUSE_TABLE}"
+        return FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE
+
     def to_printed_hogql(self):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+FLAG_EVALUATIONS_TABLE_TYPES = (FlagEvaluationsTable, FlagEvaluationsPersonSubTable, FlagEvaluationsGroupKeySubTable)
+
+
+def reads_flag_evaluations_json_table(table: object, context: "HogQLContext") -> bool:
+    """Whether `table` is a flag_evaluations table that this query reads from flag_evaluations_json."""
+    return isinstance(table, FLAG_EVALUATIONS_TABLE_TYPES) and context.reads_flag_evaluations_json()
 
 
 # The fields an events list reads from flag_evaluations that join another table.
