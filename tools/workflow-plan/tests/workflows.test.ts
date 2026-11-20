@@ -1100,6 +1100,29 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.simulator?.outcome).toBe(runs ? 'success' : 'skipped')
     })
 
+    it('groups mobile simulator requests by requester and keeps ordinary comments out of the queue', () => {
+        const concurrency = workflow('mobile-pr-simulator.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (actorId: string, pr: number, runId: number, body = `/ios-smoke ${'a'.repeat(40)}`): unknown =>
+            evaluateValue(
+                concurrency?.group,
+                {
+                    github: {
+                        actor_id: actorId,
+                        run_id: runId,
+                        run_attempt: 1,
+                        event: { issue: { number: pr, state: 'open', pull_request: {} }, comment: { body } },
+                    },
+                },
+                functions
+            )
+        const first = groupFor('123', 42, 1)
+        expect(groupFor('123', 43, 2)).toBe(first)
+        expect(groupFor('456', 42, 3)).not.toBe(first)
+        expect(groupFor('123', 42, 4, 'Looks good')).not.toBe(first)
+        expect(concurrency?.['cancel-in-progress']).toBe(false)
+    })
+
     it.each([
         {
             name: 'mobile PR',

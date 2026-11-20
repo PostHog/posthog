@@ -8,6 +8,13 @@ on:
 permissions: {}
 cache-mode: none
 
+concurrency:
+    # Other comments must not replace a requester's pending simulator run.
+    group: >-
+        ios-smoke-${{ github.run_attempt == 1 && github.event.issue.pull_request && github.event.issue.state == 'open' &&
+        startsWith(github.event.comment.body, '/ios-smoke ') && format('requester-{0}', github.actor_id) || github.run_id }}
+    cancel-in-progress: false
+
 jobs:
     authorize:
         if: >-
