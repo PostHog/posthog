@@ -810,17 +810,21 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             self.resend.failures["/contacts"] = [(500, {})] * 10
         run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "automations"], API_KEY, self.user.id)
 
-        with (
-            patch.object(resend, "import_resend_automation", wraps=resend.import_resend_automation) as automation,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
+        with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
                 try:
                     runs.run_step(self.team.id, run.id, step, attempt=1)
                 except (ImportProviderUnavailable, ImportStepBlocked):
                     pass
+        run.refresh_from_db()
 
-        assert {call.kwargs["segment_members_imported"] for call in automation.call_args_list} == {filled}
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        expected = (
+            "This import also added the segment's contacts to it."
+            if filled
+            else "Import Contacts too to add the people already in the segment."
+        )
+        assert any(expected in note for note in notes)
 
     def test_segments_stay_unfilled_when_the_contacts_cohort_cannot_be_imported(self) -> None:
         Cohort.objects.create(

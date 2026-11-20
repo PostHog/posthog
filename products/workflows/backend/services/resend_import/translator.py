@@ -76,7 +76,6 @@ class SegmentCohort:
 class TranslationContext:
     step_emails: Mapping[str, ImportedStepEmail] = dataclass_field(default_factory=dict)
     segment_cohorts: Mapping[str, SegmentCohort] = dataclass_field(default_factory=dict)
-    # The same import also fills each segment's cohort with the segment's contacts.
     segment_members_imported: bool = False
     # Pre-release steps this team can't enable yet.
     unavailable_templates: frozenset[str] = frozenset()
