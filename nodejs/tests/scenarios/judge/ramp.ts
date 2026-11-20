@@ -174,6 +174,20 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
 const offeredBefore = (entry: JournalEntry, kept: JournalEntry): boolean =>
     entry.offeredAt - kept.offeredAt < 0 || (entry.offeredAt === kept.offeredAt && (entry.step ?? 0) < (kept.step ?? 0))
 
+const insertionOf = (kept: readonly JournalEntry[], entry: JournalEntry): number => {
+    let low = 0
+    let high = kept.length
+    while (low < high) {
+        const middle = (low + high) >> 1
+        if (offeredBefore(entry, kept[middle])) {
+            high = middle
+        } else {
+            low = middle + 1
+        }
+    }
+    return low
+}
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
@@ -182,7 +196,7 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     let refusedCount = 0
     const settled = new Map<number, readonly BarResult[]>()
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
-    const crossingAt = Math.floor(gate)
+    const crossingAt = Math.max(0, Math.floor(gate))
     let stop: RampStop | undefined
     const judging: Promise<void>[] = []
 
@@ -201,15 +215,15 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
             await Promise.all(judging)
         },
         record: (entry) => {
-            if (!live.judgesRefusals || refusalsOf([entry]).length === 0) {
+            if (signal.aborted || !live.judgesRefusals || refusalsOf([entry]).length === 0) {
                 return
             }
             refusedCount += 1
-            const at = earliestRefused.findIndex((kept) => offeredBefore(entry, kept))
-            if (at === -1 && earliestRefused.length > crossingAt) {
+            const at = insertionOf(earliestRefused, entry)
+            if (at > crossingAt) {
                 return
             }
-            earliestRefused.splice(at === -1 ? earliestRefused.length : at, 0, entry)
+            earliestRefused.splice(at, 0, entry)
             earliestRefused.length = Math.min(earliestRefused.length, crossingAt + 1)
             const index = earliestRefused[crossingAt]?.step
             if (index !== undefined) {

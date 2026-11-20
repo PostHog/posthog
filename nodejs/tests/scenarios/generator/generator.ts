@@ -250,7 +250,7 @@ export async function drive(
             Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
                 (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs < step.endedAt).length,
                 0
-            ) + sentAt.filter((at) => at === step.endedAt).length
+            ) + sentAt.filter((at) => at >= step.endedAt).length
         )
         if (halted.aborted || context.gate === undefined || index === planned.length - 1) {
             continue

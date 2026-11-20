@@ -280,7 +280,9 @@ describe('ramp', () => {
             {
                 bars: [PICKUP],
                 samples: () => scrapedEvery5s(135, (atS) => ({ processed: {}, lateness: pickups(atS) })),
-                writerCpu: () => Promise.reject(new Error('no writer bar on this card')),
+                writerCpu: () => {
+                    throw new Error('no writer bar on this card')
+                },
             },
             0,
             UNITS_PER_STEP[0],
@@ -295,6 +297,16 @@ describe('ramp', () => {
         await verdict
 
         expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual(expected)
+    })
+
+    it('takes no refusal recorded after the run was cancelled', () => {
+        const run = new AbortController()
+        const watch = watchRamp(live(), run.signal)
+        run.abort()
+
+        watch.record(unit(1, 3, false))
+
+        expect({ halted: watch.halt.aborted, stop: watch.stopped() }).toEqual({ halted: false, stop: undefined })
     })
 
     it('leaves no verdict when the run is cancelled while a writer CPU read is pending', async () => {
@@ -334,6 +346,7 @@ describe('ramp', () => {
     it.each<[string, number, JournalEntry[], number | undefined]>([
         ['the first refusal over a gate of 0, in the last step', 0, [unit(2, 3, false)], 2],
         ['the first refusal over a fractional gate', 0.5, [unit(1, 3, false)], 1],
+        ['the first refusal over a negative gate', -1, [unit(1, 3, false)], 1],
         [
             'the refusal that crossed the gate by offer time, not the one journaled last',
             1,

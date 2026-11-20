@@ -658,7 +658,7 @@ describe('drive', () => {
         )
     })
 
-    it.each<[string, (startedAt: number) => Promise<void>, object]>([
+    it.each<[string, (startedAt: number) => Promise<void>, object, number?]>([
         [
             'the gate answered in its second extra cycle',
             () => jest.advanceTimersByTimeAsync(3500),
@@ -698,36 +698,49 @@ describe('drive', () => {
             },
             { targetUnits: 34, offeredUnits: 25, held: { dueUnits: 18, offeredUnits: 9 }, burst: 1 },
         ],
-    ])('while a step holds for the gate of the step before it, %s', async (_story, wait, expected) => {
-        let answer = (): void => undefined
-        const gate: StepGate = ({ index }) =>
-            index === 0 ? new Promise<void>((resolve) => (answer = resolve)) : Promise.resolve()
-        const ramped = rampedCard(
-            4,
-            [
-                { scale: 1, for: '1s' },
-                { scale: 2, for: '1s' },
-                { scale: 3, for: '1s' },
-            ],
-            '3s',
-            true
-        )
-        const startedAt = Date.now()
-        const { driving, journal } = startDrive(ramped, ACKNOWLEDGED, { gate })
+        [
+            'the gate answered in the millisecond a unit went out just before its slot after a stall',
+            async (startedAt) => {
+                await jest.advanceTimersByTimeAsync(2100)
+                jest.setSystemTime(startedAt + 3050)
+                await jest.advanceTimersByTimeAsync(137)
+            },
+            { targetUnits: 135, offeredUnits: 107, held: { dueUnits: 71, offeredUnits: 43 }, burst: 3 },
+            16,
+        ],
+    ])(
+        'while a step holds for the gate of the step before it, %s',
+        async (_story, wait, expected, ratePerSecond = 4) => {
+            let answer = (): void => undefined
+            const gate: StepGate = ({ index }) =>
+                index === 0 ? new Promise<void>((resolve) => (answer = resolve)) : Promise.resolve()
+            const ramped = rampedCard(
+                ratePerSecond,
+                [
+                    { scale: 1, for: '1s' },
+                    { scale: 2, for: '1s' },
+                    { scale: 3, for: '1s' },
+                ],
+                '3s',
+                true
+            )
+            const startedAt = Date.now()
+            const { driving, journal } = startDrive(ramped, ACKNOWLEDGED, { gate })
 
-        await wait(startedAt)
-        answer()
-        await jest.advanceTimersByTimeAsync(2000)
-        const { targetUnits, offeredUnits, steps } = await driving
-        const heldOfferedAt = journal.filter(({ step }) => step === 1).map(({ offeredAt }) => offeredAt)
+            await wait(startedAt)
+            answer()
+            await jest.advanceTimersByTimeAsync(2000)
+            const { targetUnits, offeredUnits, steps } = await driving
+            const heldOfferedAt = journal.filter(({ step }) => step === 1).map(({ offeredAt }) => offeredAt)
 
-        expect({
-            targetUnits,
-            offeredUnits,
-            held: { dueUnits: steps[1].dueUnits, offeredUnits: steps[1].offeredUnits },
-            burst: Math.max(...heldOfferedAt.map((at) => heldOfferedAt.filter((other) => other === at).length)),
-        }).toEqual(expected)
-    })
+            expect({
+                targetUnits,
+                offeredUnits,
+                held: { dueUnits: steps[1].dueUnits, offeredUnits: steps[1].offeredUnits },
+                burst: Math.max(...heldOfferedAt.map((at) => heldOfferedAt.filter((other) => other === at).length)),
+            }).toEqual(expected)
+        }
+    )
 
     it('keeps the window open until the drive duration ends, after its last unit was offered', async () => {
         const { driving } = startDrive(cardWith({ ratePerSecond: 1, driveFor: '2s' }), ACKNOWLEDGED)
