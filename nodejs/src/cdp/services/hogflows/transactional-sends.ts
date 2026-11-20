@@ -535,6 +535,9 @@ export class TransactionalSends {
         if (hogFlow.status !== 'active') {
             return whole('not_sendable')
         }
+        if (hogFlow.email_sending_paused_at) {
+            return whole('sending_paused')
+        }
         const sandbox =
             senderKind === 'email_sandbox'
                 ? this.deps.refuseSandboxSends(
@@ -554,9 +557,6 @@ export class TransactionalSends {
         }
         if (await suspension) {
             return whole('sending_suspended')
-        }
-        if (hogFlow.email_sending_paused_at) {
-            return whole('sending_paused')
         }
         if ((await quota).isLimited) {
             return whole('quota_limited')
