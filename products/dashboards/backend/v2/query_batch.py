@@ -30,7 +30,7 @@ from pydantic import BaseModel
 
 from posthog.schema import CacheMissResponse, DateRange, HogQLFilters, IntervalType
 
-from posthog.hogql.constants import LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import LimitContext, get_default_limit_for_context, get_max_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.filters import resolve_date_range
 
@@ -49,6 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
@@ -325,6 +326,43 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
         swr=item.swr,
         cache_only=item.cache_only,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+    )
+
+
+def _fetch_span(
+    team: Team,
+    user: User,
+    dashboard_id: Optional[int],
+    query: ResolvedQuery,
+    query_id: Optional[str],
+    start: datetime,
+    end: datetime,
+) -> SpanRows:
+    span = {
+        **query.query,
+        "filters": {
+            **query.query.get("filters", {}),
+            "dateRange": {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
+        },
+    }
+    response = process_query_dict(
+        team,
+        span,
+        variables_override_json=query.variables,
+        limit_context=_limit_context(query.query),
+        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        user=user,
+        query_id=query_id,
+        dashboard_id=dashboard_id,
+    )
+    data = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
+    if data.get("error"):
+        raise BucketContractError(str(data["error"]))
+    return SpanRows(
+        columns=list(data.get("columns") or []),
+        types=list(data.get("types") or []),
+        rows=list(data.get("results") or []),
+        has_more=bool(data.get("hasMore")),
     )
 
 
@@ -711,6 +749,8 @@ class QueryBatch:
         self, index: int, checked: BucketedQuery, query: ResolvedQuery, query_id: str
     ) -> dict[str, Any]:
         team = self._team
+        if events_retention_months_for_team(team, team.pk) is not None:
+            raise NotBucketable("the project's events retention moves which rows a stored bucket may hold")
         grid = checked.grid(team.timezone_info)
         started = now()
         date_range = query.query["filters"]["dateRange"]
@@ -735,8 +775,11 @@ class QueryBatch:
         if planned is None:
             raise NotBucketable("the query does not plan")
         key = store_key(team.pk, planned.cache_key, grid)
-        default_limit = get_default_limit_for_context(planned.query_runner.limit_context or LimitContext.QUERY)
-        fetch = partial(self._fetch_span, query, query_id)
+        limit_context = planned.query_runner.limit_context or LimitContext.QUERY
+        # As HogQL prints it: its own LIMIT, held to the context's maximum.
+        row_cap = None if checked.limit is None else min(checked.limit, get_max_limit_for_context(limit_context))
+        limit = get_default_limit_for_context(limit_context) if row_cap is None else row_cap
+        fetch = partial(_fetch_span, team, self._user, self._dashboard_id, query, query_id)
         answer = assemble(
             query=checked,
             grid=grid,
@@ -745,7 +788,8 @@ class QueryBatch:
             now=started,
             store=BucketStore(key),
             fetch=fetch,
-            default_limit=default_limit,
+            limit=limit,
+            row_cap=row_cap,
         )
         BUCKETED_RUNS.labels(outcome="far" if answer.far else "served").inc()
         maybe_shadow_check(
@@ -755,7 +799,7 @@ class QueryBatch:
             date_from=resolved.date_from,
             date_to=date_to,
             now=started,
-            fetch=partial(self._fetch_span, query, None),
+            fetch=partial(_fetch_span, team, self._user, self._dashboard_id, query, None),
             store_key=key,
             on_done=connections.close_all,
         )
@@ -764,41 +808,13 @@ class QueryBatch:
             "columns": answer.columns,
             "types": answer.types,
             "hasMore": answer.has_more,
-            "limit": checked.limit if checked.limit is not None else default_limit,
+            "limit": limit,
             "is_cached": False,
             "cache_key": key,
             "last_refresh": started,
             "provenance": provenance(answer, grid),
         }
         return _result_line(index, result, hit=False, stale=False)
-
-    def _fetch_span(self, query: ResolvedQuery, query_id: Optional[str], start: datetime, end: datetime) -> SpanRows:
-        span = {
-            **query.query,
-            "filters": {
-                **query.query.get("filters", {}),
-                "dateRange": {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
-            },
-        }
-        response = process_query_dict(
-            self._team,
-            span,
-            variables_override_json=query.variables,
-            limit_context=_limit_context(query.query),
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            user=self._user,
-            query_id=query_id,
-            dashboard_id=self._dashboard_id,
-        )
-        data = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
-        if data.get("error"):
-            raise BucketContractError(str(data["error"]))
-        return SpanRows(
-            columns=list(data.get("columns") or []),
-            types=list(data.get("types") or []),
-            rows=list(data.get("results") or []),
-            has_more=bool(data.get("hasMore")),
-        )
 
     def _emit(self, line: dict[str, Any]) -> None:
         if self._is_cancelled():

@@ -9,10 +9,12 @@ from parameterized import parameterized
 from products.dashboards.backend.v2.buckets import (
     EVENTS_SETTLE,
     FAST_SETTLE,
+    UNBOUNDED_RANGE_END,
     BucketContractError,
     BucketedQuery,
     BucketGrid,
     BucketStore,
+    BucketStoreError,
     NotBucketable,
     SpanRows,
     assemble,
@@ -32,11 +34,14 @@ class _Events:
     """A table of event timestamps and a query over it that counts per bucket, as ClickHouse would answer
     `SELECT toStartOfHour(timestamp), count() ... WHERE {filters} GROUP BY 1 ORDER BY 1`."""
 
-    def __init__(self, unit: str, tz: ZoneInfo) -> None:
+    def __init__(self, unit: str, tz: ZoneInfo, row_limit: int | None = None, own_limit: bool = False) -> None:
         self.unit = unit
         self.tz = tz
         self.timestamps: list[datetime] = []
         self.runs: list[tuple[datetime, datetime]] = []
+        # Rows past `row_limit` are cut off: with hasMore like the paginator, or silently like the query's own LIMIT.
+        self.row_limit = row_limit
+        self.own_limit = own_limit
 
     def bucket(self, ts: datetime) -> datetime:
         return _local_hour(ts, self.tz) if self.unit == "hour" else _local_day(ts, self.tz)
@@ -50,7 +55,14 @@ class _Events:
 
     def fetch(self, start: datetime, end: datetime) -> SpanRows:
         self.runs.append((start, end))
-        return SpanRows(columns=["t", "count"], types=[], rows=self.whole(start, end), has_more=False)
+        rows = self.whole(start, end)
+        cut = self.row_limit is not None and len(rows) > self.row_limit
+        return SpanRows(
+            columns=["t", "count"],
+            types=[],
+            rows=rows[: self.row_limit] if cut else rows,
+            has_more=cut and not self.own_limit,
+        )
 
 
 def _as_json(rows: list[list]) -> list[list]:
@@ -71,7 +83,16 @@ class TestAssembleBuckets(SimpleTestCase):
     def _store(self) -> BucketStore:
         return BucketStore(f"test_buckets:{uuid.uuid4().hex}")
 
-    def _run(self, events: _Events, store: BucketStore, date_from: datetime, date_to: datetime, now: datetime):
+    def _run(
+        self,
+        events: _Events,
+        store: BucketStore,
+        date_from: datetime,
+        date_to: datetime,
+        now: datetime,
+        limit: int = 10_000,
+        row_cap: int | None = None,
+    ):
         grid = BucketGrid(unit=events.unit, size=1, tz=events.tz)  # type: ignore[arg-type]
         return assemble(
             query=_query(events.unit),
@@ -81,7 +102,8 @@ class TestAssembleBuckets(SimpleTestCase):
             now=now,
             store=store,
             fetch=events.fetch,
-            default_limit=10_000,
+            limit=limit,
+            row_cap=row_cap,
         )
 
     @parameterized.expand(
@@ -166,8 +188,66 @@ class TestAssembleBuckets(SimpleTestCase):
                 now=start + timedelta(hours=10),
                 store=self._store(),
                 fetch=events.fetch,
-                default_limit=10_000,
+                limit=10_000,
+                row_cap=None,
             )
+
+    def test_a_query_with_its_own_limit_stores_only_whole_spans(self) -> None:
+        # LIMIT 10 reports no hasMore, so a run that returns 10 rows may have been cut short.
+        events = _Events("hour", ZoneInfo("UTC"), row_limit=10, own_limit=True)
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        events.timestamps = [start + timedelta(minutes=20 * i) for i in range(3 * 48)]
+        now = start + timedelta(hours=50)
+        store = self._store()
+
+        warm = self._run(events, store, start, start + timedelta(hours=48), now, limit=10, row_cap=10)
+        later = self._run(
+            events, store, start + timedelta(hours=24), start + timedelta(hours=36), now, limit=10, row_cap=10
+        )
+
+        self.assertEqual(_answer_json(warm.rows), _as_json(events.whole(start, start + timedelta(hours=48))[:10]))
+        self.assertEqual(
+            _answer_json(later.rows),
+            _as_json(events.whole(start + timedelta(hours=24), start + timedelta(hours=36))[:10]),
+        )
+
+    def test_a_range_with_no_end_splits_at_now_instead_of_walking_to_its_far_end(self) -> None:
+        events = _Events("hour", ZoneInfo("UTC"), row_limit=4)
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        events.timestamps = [start + timedelta(minutes=10 * i) for i in range(6 * 6)]
+        now = start + timedelta(hours=6)
+
+        answer = self._run(events, self._store(), start, UNBOUNDED_RANGE_END, now)
+
+        self.assertEqual(_answer_json(answer.rows), _as_json(events.whole(start, now)))
+        self.assertLessEqual(len(events.runs), 8, events.runs)
+
+    def test_a_range_ending_mid_bucket_before_the_store_counts_each_bucket_once(self) -> None:
+        events = _Events("hour", ZoneInfo("UTC"))
+        day = datetime(2026, 5, 1, tzinfo=UTC)
+        events.timestamps = [day + timedelta(minutes=7 * i) for i in range(400)]
+        now = day + timedelta(days=2)
+        store = self._store()
+        self._run(events, store, day + timedelta(hours=12), now, now)
+
+        earlier = self._run(events, store, day, day + timedelta(hours=11, minutes=30), now)
+
+        self.assertEqual(_answer_json(earlier.rows), _as_json(events.whole(day, day + timedelta(hours=11, minutes=30))))
+
+    def test_a_store_that_expires_while_a_range_runs_is_not_read_as_empty_buckets(self) -> None:
+        class _ExpiresMidRun(BucketStore):
+            def read(self, buckets):
+                return None, {}
+
+        events = _Events("hour", ZoneInfo("UTC"))
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        events.timestamps = [start + timedelta(minutes=13 * i) for i in range(400)]
+        now = start + timedelta(days=3)
+        store = _ExpiresMidRun(f"test_buckets:{uuid.uuid4().hex}")
+        self._run(events, store, start, now, now)
+
+        with self.assertRaises(BucketStoreError):
+            self._run(events, store, start, now + timedelta(hours=2), now + timedelta(hours=2))
 
 
 class TestCheckBucketed(SimpleTestCase):
@@ -227,6 +307,18 @@ class TestCheckBucketed(SimpleTestCase):
                 "ordered_by_count",
                 "SELECT toStartOfHour(timestamp) AS t, count() AS c FROM events WHERE {filters} GROUP BY t ORDER BY c DESC",
                 "ORDER BY",
+            ),
+            (
+                "clock_alias",
+                "SELECT toStartOfHour(timestamp) AS t, count() FROM events WHERE {filters} "
+                "AND timestamp > current_timestamp() - INTERVAL 1 DAY GROUP BY t",
+                "clock",
+            ),
+            (
+                "range_in_select",
+                "SELECT toStartOfHour(timestamp) AS t, {filters.dateRange.from} AS since, count() FROM events "
+                "WHERE {filters} GROUP BY t, since",
+                "outside its WHERE",
             ),
             (
                 "subquery_over_range",
