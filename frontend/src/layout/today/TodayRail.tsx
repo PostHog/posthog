@@ -30,7 +30,7 @@ const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'tod
 
 const RAIL_PREVIEWS = Object.fromEntries(
     Object.keys(TODAY_PANES)
-        .filter((pane) => pane !== 'settings')
+        .filter((pane) => pane !== 'home' && pane !== 'settings')
         .map((pane) => [pane, { kind: 'rail', pane }])
 ) as Partial<Record<TodayRailPane, TodayRailPreview>>
 
