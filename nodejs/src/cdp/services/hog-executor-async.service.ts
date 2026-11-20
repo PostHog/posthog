@@ -140,7 +140,6 @@ export class HogExecutorAsyncService {
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
-                const earlierOutputs: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = result
 
                 // Queue-aware routing: each worker can execute some actions inline
                 // and routes others to a specialized queue. The email worker sends
@@ -199,6 +198,7 @@ export class HogExecutorAsyncService {
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
                     }
                 } else if (queueParamsType === 'classify') {
+                    const earlierOutputs = result
                     // The classify queue is rate limited, so a run only calls the model from there. A test
                     // run executes in-process and never enqueues, so it calls inline.
                     if (invocation.queue !== 'classify' && !options?.isTest) {
@@ -214,13 +214,13 @@ export class HogExecutorAsyncService {
                             this.returnFromClassifyQueue(result, invocation)
                         }
                     }
+                    // The classification starts a fresh result, so keep what the Hog code captured before it.
+                    if (earlierOutputs) {
+                        result.capturedPostHogEvents.unshift(...earlierOutputs.capturedPostHogEvents)
+                        result.warehouseWebhookPayloads.unshift(...earlierOutputs.warehouseWebhookPayloads)
+                    }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
-                }
-                // Each async step starts a fresh result, so the Hog code before it would lose what it captured.
-                if (earlierOutputs && earlierOutputs !== result) {
-                    result.capturedPostHogEvents.unshift(...earlierOutputs.capturedPostHogEvents)
-                    result.warehouseWebhookPayloads.unshift(...earlierOutputs.warehouseWebhookPayloads)
                 }
             } else {
                 // Finish execution, carrying forward previous execResult
