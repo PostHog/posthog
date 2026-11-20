@@ -542,8 +542,17 @@ class TestInboxSummary(APIBaseTest):
         existing = self.make_pr(4, participant_ids=[10], pk=UUID(int=5))
         SignalReportPullRequest.objects.for_team(self.team.id).filter(id=existing.id).update(participant_logins=None)
         with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
-            call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, dry_run=True, stdout=StringIO())
+            output = StringIO()
+            call_command(
+                "backfill_inbox_summary",
+                team_id=self.team.id,
+                after=unverified.id,
+                limit=1,
+                dry_run=True,
+                stdout=output,
+            )
             enqueue.assert_not_called()
+            assert "Would queue 1 pull requests" in output.getvalue()
             output = StringIO()
             call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, stdout=output)
             enqueue.assert_not_called()
