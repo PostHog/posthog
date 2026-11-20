@@ -84,9 +84,9 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert "{{" not in converted.text.replace('{{ "{{" }}', "").replace('{{ "{%" }}', "")
 
     def test_a_template_kept_as_text_has_a_note(self) -> None:
-        converted = convert_version({"template": "{{#if a}}x{{/if}}", "headers": {"Subject": "Hi"}})
+        converted = convert_version({"template": "{{#if a}}<p>yes</p>{{/if}}", "headers": {"Subject": "Hi"}})
 
-        assert any("only converts plain values" in note and "{{#if a}}" in note for note in converted.notes)
+        assert any("this template uses {{#if a}}. It appears" in note for note in converted.notes)
 
     @parameterized.expand(
         [

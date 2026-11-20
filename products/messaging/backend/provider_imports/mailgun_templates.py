@@ -210,7 +210,8 @@ class _Converter:
             # Handlebars prints a tag after a backslash as it's written.
             escaped = self.engine == "handlebars" and self.text[opening - 1 : opening] == "\\"
             if tag is None or value is None or escaped:
-                raise _Unsupported(self.text[opening : opening + 60].split("\n", 1)[0])
+                shown = tag.group(0) if tag else self.text[opening : opening + 60].split("\n", 1)[0]
+                raise _Unsupported(shown)
             values.append(
                 _Value(
                     start=opening,
