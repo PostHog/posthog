@@ -97,16 +97,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohortmembership.sql import (
-    COHORT_MEMBERSHIP_MV_SQL,
-    COHORT_MEMBERSHIP_TABLE_SQL,
-    COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_MV_SQL,
-    DROP_COHORT_MEMBERSHIP_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
-)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
@@ -2250,7 +2240,6 @@ def _kafka_tables_for_tests() -> list[str]:
         return []
     return [
         KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
         KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
         KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
     ]
@@ -2301,10 +2290,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
         DROP_WEB_BOUNCES_SQL(),
         DROP_WEB_STATS_STAGING_SQL(),
         DROP_WEB_BOUNCES_STAGING_SQL(),
-        DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_MV_SQL(),
         DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
         DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -2354,7 +2339,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
         WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
         SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
-        COHORT_MEMBERSHIP_TABLE_SQL(),
         PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
         SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
@@ -2380,7 +2364,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             *_kafka_tables_for_tests(),
-            COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
@@ -2403,7 +2386,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
             *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
-            COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             QUERY_LOG_ARCHIVE_V3_MV_SQL(),

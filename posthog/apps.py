@@ -53,6 +53,7 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.checks  # noqa: F401, PLC0415
+        import posthog.user_analytics_deletion  # noqa: F401, PLC0415
         import posthog.request_log_signal_handlers  # noqa: F401, PLC0415
         import posthog.workos_radar_signal_handlers  # noqa: F401, PLC0415
         import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
@@ -81,8 +82,7 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
-        posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.enable_full_ai_capture = True  # ty: ignore[invalid-assignment]
         # Retained trial data still needs privacy when new launches are disabled.
         before_send = default_before_send(
             private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,

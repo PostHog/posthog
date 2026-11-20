@@ -26,9 +26,8 @@ def is_api_key_request(authenticator: object) -> bool:
 
     "As a user" is the load-bearing half. Callers use this to decide things that are
     charged or attributed to a person, so a key that resolves to a team or a project
-    rather than a user — ``TeamSecretTokenAuthentication`` hands back a synthetic
-    ``TeamSecretTokenUser``, ``ProjectSecretAPIKeyAuthentication`` is project-scoped —
-    must not qualify, however server-to-server it looks.
+    rather than a user — ``ProjectSecretAPIKeyAuthentication`` is project-scoped and
+    hands back a synthetic user — must not qualify, however server-to-server it looks.
 
     Takes the authenticator rather than the request itself: the facade boundary must not
     put a DRF type on its signature (products/architecture.md § Facades: The Public

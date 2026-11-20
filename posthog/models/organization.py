@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, Typ
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Upper
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -178,7 +180,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 fields=["id"],
                 condition=Q(is_active=False),
                 name="org_inactive_id_idx",
-            )
+            ),
+            # The admin console looks teams up by any part of their organization name. Django compiles icontains
+            # to UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_org_name_trgm"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -266,6 +271,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also checked by agents before they query production data, see
     # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_data_processing_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.",
+    )
     is_ai_training_opted_in = models.BooleanField(
         default=True,
         null=True,
@@ -815,7 +826,14 @@ class OrganizationAITerms(Organization):
         verbose_name_plural = "AI terms and conditions"
 
 
+class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
+    def with_effective_level(self) -> "QuerySet[Any]":
+        return self.annotate(resolved_level=models.F("level"))
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
+    objects = OrganizationMembershipQuerySet.as_manager()
+
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -868,6 +886,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    @property
+    def effective_level(self) -> Level:
+        return self.Level(self.level)
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
@@ -902,7 +924,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
         if not can_edit:
             raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-        if membership_being_updated.level == OrganizationMembership.Level.OWNER and not can_manage_owners:
+        if membership_being_updated.effective_level == OrganizationMembership.Level.OWNER and not can_manage_owners:
             raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     def get_scoped_api_keys(self):

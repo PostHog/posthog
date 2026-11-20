@@ -102,7 +102,7 @@ S3_WRITE_NON_RETRYABLE_ERROR_TYPES = (
     # TLS handshake failed against a custom S3 endpoint
     "SSLError",
     # User provided an invalid S3 key
-    "InvalidS3Key",
+    "InvalidKeyError",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
     # Invalid file_format input
@@ -248,13 +248,6 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, file_na
         include_file_number=bool(inputs.max_file_size_mb),
         file_name_prefix=file_name_prefix,
     )
-
-
-class InvalidS3Key(Exception):
-    """Exception raised when an invalid S3 key is provided."""
-
-    def __init__(self, err):
-        super().__init__(f"An invalid S3 key was provided: {err}")
 
 
 class UploadAlreadyInProgressError(Exception):

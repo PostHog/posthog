@@ -61,6 +61,7 @@ import {
     parseBIEditorState,
 } from './biEditorTypes'
 import type { BIQueryBuildResult } from './biEditorTypes'
+import type { BIEditorState } from './biEditorTypes'
 import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
 import { getBIVisualizationSource } from './biQueryResults'
@@ -140,8 +141,8 @@ export interface biSceneLogicActions {
     resetConfig: () => {
         value: true
     } // biEditorLogic
-    restoreState: (state: import('./biEditorTypes').BIEditorState) => {
-        state: import('./biEditorTypes').BIEditorState
+    restoreState: (state: BIEditorState) => {
+        state: BIEditorState
     } // biEditorLogic
     runAfterChange: () => {
         value: true

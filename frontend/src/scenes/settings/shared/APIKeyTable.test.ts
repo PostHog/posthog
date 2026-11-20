@@ -1,4 +1,4 @@
-import { formatCreatedBy } from './APIKeyTable'
+import { formatCreatedBy } from './apiKeyTableUtils'
 
 describe('formatCreatedBy', () => {
     it.each([

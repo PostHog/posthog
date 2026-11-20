@@ -1,6 +1,6 @@
 import math
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from functools import cached_property
 
@@ -39,6 +39,13 @@ class TreeNode:
         )
 
 
+@frozen
+class _Visit:
+    event: TraceEvent
+    pending: Iterator[TraceEvent]
+    children: list[TreeNode]
+
+
 def build_tree(events: Sequence[TraceEvent], trace_id: str) -> tuple[TreeNode, ...]:
     nodes = [event for event in events if not event.is_trace_event]
     known_keys = {event.node_key for event in nodes}
@@ -55,12 +62,26 @@ def build_tree(events: Sequence[TraceEvent], trace_id: str) -> tuple[TreeNode, .
 
     reached: set[str] = set()
 
-    def build(event: TraceEvent) -> TreeNode:
+    def visit(event: TraceEvent) -> _Visit:
         reached.add(event.id)
         # Popping the bucket hands every child to the first node built with this key, so events that share
         # the key never scan it again.
-        bucket = children_of.pop(event.node_key, [])
-        return TreeNode(event=event, children=tuple(build(child) for child in bucket if child.id not in reached))
+        return _Visit(event=event, pending=iter(children_of.pop(event.node_key, [])), children=[])
+
+    def build(root: TraceEvent) -> TreeNode:
+        # A loop over an explicit stack, because a chain of nested spans can be deeper than Python's recursion limit.
+        stack = [visit(root)]
+        while True:
+            current = stack[-1]
+            child = next((candidate for candidate in current.pending if candidate.id not in reached), None)
+            if child is not None:
+                stack.append(visit(child))
+                continue
+            stack.pop()
+            node = TreeNode(event=current.event, children=tuple(current.children))
+            if not stack:
+                return node
+            stack[-1].children.append(node)
 
     roots = [
         event

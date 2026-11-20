@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -399,7 +400,7 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        instanceSocialProviders: (preflight: PreflightStatus | null) => SSOProvider[]
+        instanceSocialProviders: (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet) => SSOProvider[]
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -682,7 +683,6 @@ export const loginLogic = kea<loginLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
-                        email: values.login.email,
                     })
                 } catch (e) {
                     const { detail } = e as Record<string, any>
@@ -762,13 +762,14 @@ export const loginLogic = kea<loginLogicType>([
                     : null,
         ],
         instanceSocialProviders: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus | null): SSOProvider[] => {
+            (s) => [s.preflight, s.featureFlags],
+            (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet): SSOProvider[] => {
                 const order = Object.keys(SSO_PROVIDER_NAMES)
                 return (
                     (Object.entries(preflight?.available_social_auth_providers ?? {}) as [SSOProvider, boolean][])
                         // SAML and OIDC are domain-configured and never render as a social button.
                         .filter(([provider, available]) => available && provider !== 'saml' && provider !== 'oidc')
+                        .filter(([provider]) => !isSocialProviderHeldBack(provider, featureFlags))
                         .map(([provider]) => provider)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                 )
@@ -869,7 +870,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // The IdP round trip returns here with a code already emailed; continue that login.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

@@ -27,6 +27,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from pydantic import BaseModel, model_validator
@@ -47,6 +48,13 @@ from products.tasks.backend.logic.services.sandbox_config import (
     DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
+    agent_egress_staging_probe_enabled,
+)
+from products.tasks.backend.logic.services.sandbox_housekeeping import (
+    HOUSEKEEPING_TIMEOUT_SECONDS,
+    SandboxHousekeeping,
+    build_housekeeping_script,
+    parse_housekeeping_output,
 )
 from products.tasks.backend.logic.services.startup_failure import raise_startup_failure
 from products.tasks.backend.model_catalog import CLAUDE, is_anthropic_served_model
@@ -296,7 +304,7 @@ class SandboxConfig(BaseModel):
     @model_validator(mode="after")
     def validate_agent_egress_probe(self) -> Self:
         if self.agent_egress_probe and (
-            not (settings.DEBUG or settings.TEST)
+            not (settings.DEBUG or settings.TEST or agent_egress_staging_probe_enabled())
             or not self.vm_runtime
             or self.template != SandboxTemplate.SLIM_BASE
             or self.memory_gb < 2
@@ -312,7 +320,7 @@ class SandboxConfig(BaseModel):
             or self.outbound_domain_allowlist is not None
             or self.block_network
         ):
-            raise ValueError("Egress probes require a fresh, credential-free development VM")
+            raise ValueError("Egress probes require a fresh, credential-free development or staging VM")
         return self
 
     @model_validator(mode="after")
@@ -542,6 +550,7 @@ AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
 AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
     "auto_publish": "autoPublish",
     "exec_permission_regex": "posthogExecPermissionRegex",
+    "launch_before_repo_ready": "launchBeforeRepoReady",
     "pi_runtime": "POSTHOG_AGENT_RUNTIME",
     "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
 }
@@ -913,6 +922,20 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
+
+    def _cpu_billing_request_cores(self) -> float | None:
+        return None
+
+    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
+        request_cores = self._cpu_billing_request_cores()
+        try:
+            result = self.execute(
+                build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS
+            )
+        except Exception as e:
+            _logger.warning("sandbox_housekeeping_failed", sandbox_id=self.id, error=str(e))
+            return parse_housekeeping_output("", request_cores, timezone.now())
+        return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
         try:

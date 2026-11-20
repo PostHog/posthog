@@ -12,8 +12,7 @@ import (
 // so a table filled from this mode holds what a batch export of the events table sends. That read is the cleaner's
 // output, cast into the JSON column type, then printed by the document builder in
 // posthog/hogql/printer/events_json_document.py. The rules in this file are the behavior of that cast and of that
-// builder. A change to either one needs the matching change here. The parity test in
-// posthog/hogql/printer/test/test_events_json_document.py runs both paths over the same documents and compares them.
+// builder. A change to either one needs the matching change here.
 
 const (
 	// The parser behind ClickHouse's isValidJSON refuses a value below this many levels. A scalar counts as a level.
@@ -389,6 +388,16 @@ func hasOverflowingNumber(v *value) bool {
 	return false
 }
 
+// A Go map never shrinks, and clearing one costs time in proportion to its largest size, so one wide document must
+// not leave its map behind for every later document to clear.
+func (p *processor) releaseExportKeys() {
+	if len(p.exportKeys) > maxRecycledValues {
+		p.exportKeys = nil
+		return
+	}
+	clear(p.exportKeys)
+}
+
 func (p *processor) writeExportMembers(buf *bytes.Buffer, document *value, isDeclaredString func(string) bool, hasMember bool) bool {
 	decodeDots := false
 	for _, member := range document.entries {
@@ -399,10 +408,10 @@ func (p *processor) writeExportMembers(buf *bytes.Buffer, document *value, isDec
 	}
 	if decodeDots {
 		if p.exportKeys == nil {
-			p.exportKeys = make(map[string]struct{}, len(document.entries))
+			p.exportKeys = make(map[string]struct{}, min(len(document.entries), maxRecycledValues))
 		}
 		// The keys can borrow the input row, so the set must not outlive this document.
-		defer clear(p.exportKeys)
+		defer p.releaseExportKeys()
 	}
 	for _, member := range document.entries {
 		key := member.key

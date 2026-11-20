@@ -62,7 +62,10 @@ __all__ = [
     "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
+    "TRINO_INSTANCE_REPLACED_ERROR_PREFIX",
 ]
+
+TRINO_INSTANCE_REPLACED_ERROR_PREFIX = "Trino restarted while it was building this model"
 
 
 class CPUnavailableError(RuntimeError):

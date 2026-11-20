@@ -66,7 +66,7 @@ def oai_sdk_config(request) -> OpenAISDKTestConfig:
         return OpenAISDKTestConfig(client=client, model="gpt-4o-mini", provider="openai")
     else:
         client = request.getfixturevalue("cloudflare_openai_client")
-        return OpenAISDKTestConfig(client=client, model="@cf/moonshotai/kimi-k2.6", provider="cloudflare")
+        return OpenAISDKTestConfig(client=client, model="@cf/zai-org/glm-5.3", provider="cloudflare")
 
 
 class TestOpenAIModelsEndpoint:

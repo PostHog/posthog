@@ -232,9 +232,12 @@ FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    cluster_setting="CLICKHOUSE_FLAGS_CLUSTER",
+    node_role=NodeRole.FLAGS,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
-    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
+    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard while both tables
+    # are on one cluster. A request with a HogQL predicate refuses when they are on different clusters.
     copied_from=EVENTS_DATA_TABLE(),
     uncopied_rows_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),

@@ -1,7 +1,7 @@
 """Prove one pull request's dependency update from the default branch and the merge base.
 
-This is the shell: it reads git, the GitHub API and the registry, and runs pnpm. Every refusal
-is decided in `change_prover.core`.
+This is the shell: it reads git, the GitHub API, the npm registry and PyPI, and runs pnpm. Every
+refusal is decided in `change_prover.core`.
 """
 
 from __future__ import annotations
@@ -20,12 +20,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from change_prover.core import identity, issuer, policy
+from change_prover.core import identity, issuer, policy, python_sdk
 from change_prover.core.lockfile_yaml import comparable, load_yaml
 from change_prover.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
 from change_prover.core.replay import replay_commands
 
 REGISTRY = "https://registry.npmjs.org/"
+PYPI = "https://pypi.org/"
 PAGE_SIZE = 100
 # Every file pnpm reads to write a lockfile without installing.
 REPLAY_FILES = (MANIFEST, LOCKFILE, WORKSPACE_FILE, ".npmrc", "*.patch")
@@ -47,12 +48,14 @@ class ProveRequest:
     workflow_sha: str
     merge_base: str
     merge_base_dir: Path
+    lane: str
 
 
 @dataclass(frozen=True)
 class Identified:
     pr: int
     merge_base: str
+    lane: str
 
 
 @dataclass(frozen=True)
@@ -161,7 +164,7 @@ def fetch(request: urllib.request.Request, attempts: int = 3) -> bytes:
         raise ValueError(f"refusing a non-https URL: {request.full_url}")
     for attempt in range(attempts):
         try:
-            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the scheme is checked above, and both callers build the URL from a constant https origin
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the scheme is checked above, and every caller builds the URL from a constant https origin
             with OPENER.open(request, timeout=60) as response:
                 return response.read()
         # A body cut short raises IncompleteRead, which is an HTTPException and not an OSError.
@@ -206,8 +209,34 @@ class GitHub:
         pushes = self.get(f"activity?ref={ref}&per_page={PAGE_SIZE}")
         return next(((push.get("actor") or {}).get("id") for push in pushes if push["after"] == head_sha), None)
 
+    def changed_paths(self, number: int) -> list[str]:
+        """The paths a pull request changes."""
+        return identity.changed_paths(self.get(f"pulls/{number}/files?per_page={PAGE_SIZE}"), PAGE_SIZE)
+
     def merge_base(self, base_branch: str, head_sha: str) -> str:
         return self.get(f"compare/{base_branch}...{head_sha}?per_page=1")["merge_base_commit"]["sha"]
+
+
+class PyPI:
+    """Reads PyPI's JSON API and the provenance of each release file."""
+
+    def get(self, path: str) -> Any | None:
+        """A PyPI JSON document, or None when PyPI has none at that path."""
+        request = urllib.request.Request(PYPI + path, headers={"Accept": "application/json"})
+        try:
+            return json.loads(fetch(request))
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+
+    def release(self, name: str, version: str) -> Any:
+        path = f"pypi/{name}/{version}/json"
+        return python_sdk.require_document(path, self.get(path))
+
+    def provenance(self, name: str, version: str, filename: str) -> Any:
+        path = f"integrity/{name}/{version}/{urllib.parse.quote(filename)}/provenance"
+        return python_sdk.require_document(path, self.get(path))
 
 
 def registry_metadata(name: str) -> Mapping[str, Any]:
@@ -262,9 +291,12 @@ def identify(request: IdentifyRequest, github: GitHub) -> Identified | None:
     pr = identity.pick_pull_request(github.pull_requests(head, request.base_branch))
     if pr is None:
         return None
+    lane = identity.author_lane(pr, github.changed_paths(pr["number"]))
+    if lane is None:
+        return None
     identity.check_head_repository(pr, request.repository)
     identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
-    return Identified(pr["number"], github.merge_base(request.base_branch, head))
+    return Identified(pr["number"], github.merge_base(request.base_branch, head), lane)
 
 
 def issuer_pins(git: Git, workflow_sha: str) -> dict[str, str]:
@@ -369,10 +401,37 @@ def prove_group(
     return set(settings)
 
 
+def prove_python_sdk(
+    files: list[str], read: Callable[[str, str], bytes], merge_base: str, head: str, pypi: PyPI
+) -> None:
+    """Proves a first-party Python SDK bump across ``files``, or raises Refused.
+
+    It reads no setting besides the files it changes, and PyPI.
+    """
+    moves: dict[str, python_sdk.Move] = {}
+    locked: dict[str, list[tuple[str, Mapping[str, Any]]]] = {}
+    for path in files:
+        changed = python_sdk.check_file(path, read(merge_base, path), read(head, path))
+        for name, entry in changed.entries.items():
+            locked.setdefault(name, []).append((path, entry))
+        for name, move in changed.moves.items():
+            python_sdk.add_move(moves, path, name, move.old, move.new)
+    python_sdk.check_one_version(moves)
+    for name, move in sorted(moves.items()):
+        held = locked.get(name, [])
+        release = pypi.release(name, move.new)
+        # A lockfile holds the old release's requirements. A package no lockfile holds has none to go stale.
+        old_release = pypi.release(name, move.old) if held else None
+        served = python_sdk.check_release(name, move.new, held, release, old_release)
+        for filename, sha256 in served.items():
+            python_sdk.check_provenance(filename, sha256, pypi.provenance(name, move.new, filename))
+
+
 def prove(
     request: ProveRequest,
     git: Git,
     registry: Callable[[str], Mapping[str, Any]],
+    pypi: PyPI,
     run: Runner,
     now: datetime,
 ) -> Proof:
@@ -382,7 +441,14 @@ def prove(
 
     git.fetch(merge_base, head)
     pins = issuer_pins(git, workflow_sha)
-    files = policy.eligible_paths(git.changed_files(merge_base, head))
+    files = policy.eligible_paths(git.changed_files(merge_base, head), request.lane)
+    if request.lane == policy.PYTHON_SDK_LANE:
+
+        def read(ref: str, path: str) -> bytes:
+            return policy.require_file(path, git.show(ref, path))
+
+        prove_python_sdk(files, read, merge_base, head, pypi)
+        return Proof(files, dict(sorted(pins.items())))
     groups = lockfile_groups(files, git, merge_base)
     worktree = request.merge_base_dir
     git.add_worktree(worktree, merge_base)

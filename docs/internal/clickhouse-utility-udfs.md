@@ -105,7 +105,6 @@ The function applies the rules of that cast and of the builder in `posthog/hogql
 - A number with a fraction or an exponent that ClickHouse prints as an integer outside the `Int64` and `UInt64` ranges is a string, such as `2e19`. Every other number keeps the text it was sent with, so the document can spell a number differently from a read of the events table while the value is the same.
 - A top-level number outside the `Float64` range, or one anywhere in the flags map, fails the cast in the events view. The document is then `{"$unparseable_properties": ...}` with the raw input, and for temporary properties it is `{}`.
 
-`test_export_cleaner_matches_a_read_of_the_stored_columns` in `posthog/hogql/printer/test/test_events_json_document.py` runs the function and the cast-and-build path over the same documents and compares the JSON values.
 A change to the declared paths, the JSON column types, or the builder needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 
 ```sql

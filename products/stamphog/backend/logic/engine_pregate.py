@@ -37,7 +37,9 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.policy_files import effective_policy_files
 
 logger = structlog.get_logger(__name__)
 
@@ -101,6 +103,12 @@ class GateAttestation:
     lifted: bool = True
 
 
+@frozen
+class AttestationProof:
+    checks: tuple[PendingCheck, ...]
+    proven: bool
+
+
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
     """Why the stored context cannot stand in for the sandbox's own file list, or None when it can.
 
@@ -157,7 +165,8 @@ def fetch_folder_policy_files(
             client.installation_token(),
             installation_id=client.installation_id,
             refresh=client.refresh_installation_token,
-            priority=Priority.NORMAL,
+            # The fetcher sends its own requests, so it follows the client's lane when the caller set one.
+            priority=client.lane or Priority.NORMAL,
         )
         exists = fetcher.files_exist(repo, head_sha, candidates, deadline)
         found: dict[str, str] = {}
@@ -215,6 +224,28 @@ def fetch_manifest_contents(
         for path in paths
         if path in base_texts and path in head_texts
     }
+
+
+def engine_gate_inputs(
+    *, context_json: str, repository: str, policy_files: dict[str, str], folder_policy_files: object
+) -> tuple[dict, dict[str, str]]:
+    """The engine context and the tree's policy files for a gate-only run on the worker.
+
+    ``policy_files`` are the default-branch policy files as read, and ``folder_policy_files`` the
+    result of ``fetch_folder_policy_files``, where None means unknown.
+    """
+    context = json.loads(context_json)
+    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
+    tree_files = effective_policy_files(repository, policy_files)
+    if isinstance(folder_policy_files, dict):
+        tree_files = {**tree_files, **folder_policy_files}
+        context["folder_policies_known"] = True
+    return context, tree_files
+
+
+def engine_default_policy_text() -> str:
+    """The policy.yml the engine ships, which a repository's own policy.yml overlays."""
+    return (ENGINE_DIR / _ENGINE_DEFAULTS_SUBDIR / "policy.yml").read_text()
 
 
 def engine_source_files() -> dict[str, str]:
@@ -286,16 +317,22 @@ def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def _parse_outcome(stdout: str) -> PregateOutcome:
+def _last_json_object(stdout: str, what: str) -> dict:
+    """The JSON object on the last non-empty line of an engine run. ``what`` names the run in the error."""
     lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
-        raise EnginePregateError("the engine pre-check printed nothing")
+        raise EnginePregateError(f"the engine {what} printed nothing")
     try:
         parsed = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine pre-check printed no JSON result") from exc
+        raise EnginePregateError(f"the engine {what} printed no JSON result") from exc
     if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine pre-check result is not an object")
+        raise EnginePregateError(f"the engine {what} result is not an object")
+    return parsed
+
+
+def _parse_outcome(stdout: str) -> PregateOutcome:
+    parsed = _last_json_object(stdout, "pre-check")
     result = parsed.get("result")
     return PregateOutcome(
         final=parsed.get("final") is True and isinstance(result, dict),
@@ -357,13 +394,7 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     It takes the same inputs as ``run_engine_pregate``. It emits no analytics event.
     """
     stdout = _run_engine_gates_only(context, policy_files, "--attest", {})
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    try:
-        parsed = json.loads(lines[-1]) if lines else None
-    except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine attestation printed no JSON result") from exc
-    if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine attestation result is not an object")
+    parsed = _last_json_object(stdout, "attestation")
     gates = parsed.get("gates")
     manifests = parsed.get("manifests")
     return GateAttestation(
@@ -372,4 +403,26 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
         gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
         manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
         lifted=parsed.get("lifted") is not False,
+    )
+
+
+def _pending_check(entry: object) -> PendingCheck:
+    check = PendingCheck.from_entry(entry)
+    if check is None:
+        raise EnginePregateError("the engine attestation proof names a check without a name or an App id")
+    return check
+
+
+def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Mapping[str, str]) -> AttestationProof:
+    """Run ``review_local.py --attestation-proof`` on ``context`` under ``policy_files`` and parse its answer.
+
+    ``context`` needs the PR, its files, its check runs with their pins and its merge base. Without check
+    runs, the answer still names the checks to wait for. It emits no analytics event.
+    """
+    stdout = _run_engine_gates_only(context, policy_files, "--attestation-proof", {})
+    parsed = _last_json_object(stdout, "attestation proof")
+    if not isinstance(parsed.get("checks"), list):
+        raise EnginePregateError("the engine attestation proof result has no list of checks")
+    return AttestationProof(
+        checks=tuple(_pending_check(entry) for entry in parsed["checks"]), proven=parsed.get("proven") is True
     )
