@@ -1,0 +1,92 @@
+---
+name: exporting-recordings-to-customer-s3
+description: >
+  Runs a paid, staff-triggered export of a team's session recordings into an S3 bucket the customer owns,
+  with the export_recordings_to_s3 management command.
+  Use when a customer needs recordings kept past retention (litigation, legal hold, forensics, compliance archive),
+  when asked to quote, price, start, monitor or check an export of recordings to a customer's bucket,
+  or when a customer asks how to play back an exported .phrec file.
+  Covers the quote, the customer's S3 integration and KMS setup, starting the run, monitoring it and handing over the result.
+---
+
+# Exporting recordings to a customer's S3 bucket
+
+Read [the export README](../../../products/replay/backend/temporal/export_recordings/README.md) first.
+It explains the run, the bucket layout, the file format and what the customer sets up.
+
+The export costs us real money and the customer pays for it.
+So the job has two halves with a person in between: quote, then wait for a go-ahead, then start.
+
+## Decisions that are not yours
+
+Stop and ask the person you work for before you:
+
+- **Start an export.** Only start one when a person confirms the customer accepted the quote and billing cleared it.
+  A request to "export recordings for X" means quote first.
+- **Name a price or share the quote with anyone.** The command prints our cost. Sales sets the price.
+- **Pass `--allow-cross-region`.** Cross-region transfer adds cost the customer must have agreed to.
+- **Raise `--max-parallel-shards` above the default** on a large export. More shards load recording-api harder.
+
+## Steps
+
+### 1. Pin down the selection
+
+You need the team ID, the region (US or EU), the date range (UTC days, inclusive) or a file of session IDs, and the bucket's AWS region.
+A session belongs to the day it started on.
+Recordings past their retention are gone and cannot be exported.
+
+### 2. Quote
+
+Run in the production environment for the team's region:
+
+```sh
+python manage.py export_recordings_to_s3 --quote --team-id <id> --region <bucket region> \
+    --date-from <yyyy-mm-dd> --date-to <yyyy-mm-dd> [--session-ids-file ids.txt]
+```
+
+Report the quote ID, the session count, our cost, the estimated duration, the best-effort session count and the valid-until time.
+Best-effort sessions expire within days and may expire before their shard runs. Say so plainly.
+A quote is valid for 7 days. After that, quote again: more data moves to Glacier IR and the cost rises.
+
+### 3. Check the customer's setup
+
+Before the start, confirm with the person that the customer has:
+
+- a role-based AWS S3 integration in that project (note its integration ID),
+- a role that allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix,
+- for a KMS-encrypted bucket, KMS permissions on the role and a key policy that allows the role, plus the key ID or ARN.
+
+The README lists the exact requirements to send them.
+
+### 4. Start, after the go-ahead
+
+```sh
+python manage.py export_recordings_to_s3 --quote-id <quote id> --integration-id <id> --bucket <bucket> \
+    --region <bucket region> --prefix <prefix> [--kms-key-id <key id or ARN>]
+```
+
+The command prints the quote and the destination again and asks for confirmation.
+Show that to the person and let them confirm. Do not pass `--yes` unless they tell you to.
+Keep the printed workflow ID.
+
+### 5. Monitor
+
+```sh
+python manage.py export_recordings_to_s3 --status <workflow id>
+```
+
+A large export runs for hours or days.
+A failure on credentials or a missing integration is permanent: the customer must fix the role, then you start a new run from a fresh quote.
+Other shard failures retry on their own and resume from their last checkpoint.
+
+### 6. Hand over
+
+When the status is completed, `summary.json` is in the bucket under `{prefix}/{team_id}/manifests/{run_id}/`.
+Report its session totals: exported, deleted, expired, missing, and `deleted_before_run`.
+Explain any non-zero count other than exported.
+Tell the customer they can check each file against the `sha256` in the manifests, and play a file back in Replay's file playback page.
+
+## Done means
+
+- The person has the quote figures, and you started nothing without their go-ahead.
+- Or the run completed and you reported the summary totals.
