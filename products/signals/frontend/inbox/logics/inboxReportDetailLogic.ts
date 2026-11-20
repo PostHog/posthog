@@ -106,7 +106,11 @@ import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
-const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+export const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [
+    TaskRunStatus.COMPLETED,
+    TaskRunStatus.FAILED,
+    TaskRunStatus.CANCELLED,
+]
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'

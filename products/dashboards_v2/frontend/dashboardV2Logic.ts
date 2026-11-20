@@ -1,11 +1,9 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
+import { type DashboardV2Action, dashboardV2DisabledReason } from './access/dashboardV2Access'
 import { kitchenSinkDashboard } from './fixtures/kitchenSinkDashboard'
 import { type DashboardEdit, applyEdit, settleDashboard } from './layout/dashboardEdits'
 import type { Dashboard, DashboardTab } from './layout/dashboardTypes'
@@ -32,11 +30,12 @@ function commit(history: History, next: Dashboard): History {
 export interface dashboardV2LogicValues {
     activeTab: DashboardTab
     activeTabId: string | null
-    canEditLayout: boolean
     canRedo: boolean
     canUndo: boolean
     dashboard: Dashboard
+    disabledReasonFor: (action: DashboardV2Action) => string | null
     dropTarget: DropTarget | null
+    hasPermission: (action: DashboardV2Action) => boolean
     history: History
 }
 
@@ -71,6 +70,10 @@ export interface dashboardV2LogicMeta {
         dashboard: (history: History) => Dashboard
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
+        disabledReasonFor: (dashboard: Dashboard) => (action: DashboardV2Action) => string | null
+        hasPermission: (
+            disabledReasonFor: (action: DashboardV2Action) => string | null
+        ) => (action: DashboardV2Action) => boolean
         activeTab: (dashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
 }
@@ -128,10 +131,19 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         dashboard: [(s) => [s.history], (history: History): Dashboard => history.present],
         canUndo: [(s) => [s.history], (history: History): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: History): boolean => history.future.length > 0],
-        // PostHog's access control for dashboards decides who may edit, until dashboards v2 has its own resource.
-        canEditLayout: [
-            () => [],
-            (): boolean => userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor),
+        disabledReasonFor: [
+            (s) => [s.dashboard],
+            (dashboard: Dashboard): ((action: DashboardV2Action) => string | null) =>
+                (action) =>
+                    dashboardV2DisabledReason(action, dashboard.user_access_level),
+        ],
+        hasPermission: [
+            (s) => [s.disabledReasonFor],
+            (
+                disabledReasonFor: (action: DashboardV2Action) => string | null
+            ): ((action: DashboardV2Action) => boolean) =>
+                (action) =>
+                    disabledReasonFor(action) === null,
         ],
         activeTab: [
             (s) => [s.dashboard, s.activeTabId],
@@ -141,7 +153,7 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
     }),
     listeners(({ actions, values }) => ({
         applyDashboardEdit: ({ edit }) => {
-            if (!values.canEditLayout) {
+            if (values.disabledReasonFor(edit.edit)) {
                 return
             }
             const next = applyEdit(values.dashboard, edit)
@@ -155,12 +167,12 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             }
         },
         undo: () => {
-            if (values.canEditLayout) {
+            if (!values.disabledReasonFor('undo')) {
                 actions.stepHistory('back')
             }
         },
         redo: () => {
-            if (values.canEditLayout) {
+            if (!values.disabledReasonFor('redo')) {
                 actions.stepHistory('forward')
             }
         },

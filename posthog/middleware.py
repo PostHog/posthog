@@ -44,7 +44,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
-from posthog.api.current_alias_usage import record_current_alias_use
+from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -719,12 +719,13 @@ class CHQueries:
             return response
         finally:
             if is_api_request and (route := request.resolver_match) is not None:
+                api_route = request_route(request)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
-                    route=request_route(request),
+                    route=api_route,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -732,7 +733,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_current_alias_use(request, route=request_route(request), status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class)
             reset_query_tags()
 
     def process_view(

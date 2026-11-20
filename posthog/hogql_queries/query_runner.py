@@ -3270,6 +3270,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **notes_outcome.event_properties(),
+                **self._query_executed_event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(
@@ -3648,6 +3649,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         A runner that recomputes only part of a result calls `previous_entry` to read the entry this
         calculation replaces, with any extra keys that `_cache_entry_with_freshness` stored in it.
         """
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        """Runner-specific properties for the `query executed` event of a run that computed its result."""
+        return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.
