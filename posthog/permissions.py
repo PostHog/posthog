@@ -1709,3 +1709,17 @@ class DenyWorkloadAccessToken(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
+class DenyIDJagAccessToken(BasePermission):
+    """For views that act on a person's own connections to other accounts. The organization's identity provider
+    mints an ID-JAG token without the person approving it, and confines it to one organization. A connection
+    reaches another organization or region with the person's own grant, so the token must not borrow it."""
+
+    message = (
+        "ID-JAG tokens can't use this endpoint, because it acts on a person's own connections. "
+        "Sign in to PostHog with OAuth to use it."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication)
