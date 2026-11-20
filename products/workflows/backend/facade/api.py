@@ -6,6 +6,7 @@ from django.db.models import F, Q, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
@@ -178,6 +179,20 @@ def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set
     return opt_out_category_ids(actions)
 
 
+def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
+    """Whether the user is active, still in the team's organization, and may edit its workflows."""
+    user = User.objects.filter(id=user_id, is_active=True).first() if user_id else None
+    team = Team.objects.get(id=team_id)
+    # Access rules alone don't say whether the person is still in the organization.
+    if (
+        user is None
+        or not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
+    ):
+        return False
+    access = UserAccessControl(user=user, team=team)
+    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+
+
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
     return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
 
@@ -293,6 +308,24 @@ def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list
         WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
         for row in _team_workflows(team_id, workflow_ids).values("id", "name", "status")
     ]
+
+
+def get_workflow_batch_job_ids(*, team_id: int, workflow_id: str) -> list[str]:
+    """The ids, as strings, of every batch job (broadcast send) of one workflow."""
+    return [
+        str(pk)
+        for pk in HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=workflow_id).values_list("id", flat=True)
+    ]
+
+
+def get_batch_job_workflow_ids(*, team_id: int, batch_job_ids: Iterable[str]) -> dict[str, str]:
+    """The workflow id of each of the team's batch jobs, both as strings. Unknown ids are left out."""
+    return {
+        str(pk): str(hog_flow_id)
+        for pk, hog_flow_id in HogFlowBatchJob.objects.filter(team_id=team_id, id__in=list(batch_job_ids)).values_list(
+            "id", "hog_flow_id"
+        )
+    }
 
 
 def get_recent_batch_jobs(

@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
@@ -24,6 +24,7 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.date_util import start_of_day
+from posthog.schema_enums import PersonsOnEventsMode
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -52,32 +53,33 @@ def flag_evaluations_coverage_start(now: datetime) -> datetime:
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
-# The expression the events table uses under the persons-on-events modes that apply overrides. This table
-# applies it for every team instead of following the mode. A team on
-# `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore reads a merge-aware person here, and from `events` the
-# write-time person until the squash rewrites it.
+# The expression the events table uses under the persons-on-events modes that apply overrides.
+# `follow_persons_on_events_mode` replaces it under the other modes, so that a query that HogQL moves from events to
+# this table reads the same person.
 # The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
 # `person_id` and `person.id` together, so the two drifting apart fails there.
-def _person_id() -> ExpressionField:
+def _person_id(name: str = "person_id", hidden: bool = False) -> ExpressionField:
     return ExpressionField(
-        name="person_id",
+        name=name,
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
             "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
             start=None,
         ),
         isolate_scope=True,
+        hidden=hidden,
         description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
         "`uniq(person_id)` counts a merged person once.",
     )
 
 
 class FlagEvaluationsPersonSubTable(VirtualTable):
-    """The person the flag-evaluation row resolves to, corrected by `person_distinct_id_overrides`.
+    """The person the flag-evaluation row resolves to.
 
-    `properties` and `created_at` read the columns stored at evaluation time, as events does under
-    persons-on-events. EventsPersonSubTable does not fit, because its `id` reads the stored person and
-    the printer treats it as part of `events`.
+    `person_distinct_id_overrides` corrects `id`, as it corrects `events.poe.id` under
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS. `follow_persons_on_events_mode` makes `id` read the stored column under
+    the other modes, as events does. `properties` and `created_at` read the columns stored at evaluation time.
+    EventsPersonSubTable does not fit, because the printer treats it as part of `events`.
     """
 
     fields: dict[str, FieldOrTable] = {
@@ -168,11 +170,11 @@ class FlagEvaluationsTable(EventsRetentionTable):
             name="person_id",
             nullable=False,
             description="The person written onto the row at ingestion time, before any later identify or "
-            "merge. Unlike `person_id` it is a stored column, so filtering on it can use the table's index; "
-            "it stays stale until the person-overrides squash rewrites it.",
+            "merge. It is a stored column, so filtering on it can use the table's index. It stays stale until the "
+            "person-overrides squash rewrites it.",
         ),
-        # Joined only when a query reads `person_id`, so every other query pays nothing for it. Hidden
-        # because it is an implementation detail of that correction: it carries person columns the row
+        # Joined only when a query reads the merge-corrected `person_id`, so every other query pays nothing for it.
+        # Hidden because it is an implementation detail of that correction: it carries person columns the row
         # does not store, and `person` is the documented way to reach the person.
         "override": LazyJoin(
             from_field=["distinct_id"],
@@ -181,6 +183,8 @@ class FlagEvaluationsTable(EventsRetentionTable):
             hidden=True,
         ),
         "person_id": _person_id(),
+        # `follow_persons_on_events_mode` leaves this field as it is, so the events list joins persons on it.
+        "merged_person_id": _person_id(name="merged_person_id", hidden=True),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -310,9 +314,12 @@ class FlagEvaluationsTable(EventsRetentionTable):
 EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
 
-def join_persons_to_flag_evaluations(database: "Database") -> None:
-    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on the merge-corrected
-    `person_id`, as `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+def join_persons_to_flag_evaluations(database: "Database", person_id_field: str = "person_id") -> None:
+    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on `person_id_field`, as
+    `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+
+    `person_id_field` defaults to `person_id`, so the join matches the one on `events` under that mode. A caller that
+    needs the merge-corrected person under every mode passes `merged_person_id`.
 
     This changes the table instance that `database` holds. Every later query compiled against `database` reads each
     person's current properties instead of the stored ones.
@@ -320,10 +327,53 @@ def join_persons_to_flag_evaluations(database: "Database") -> None:
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
     # The join is lazy. A query that reads no person field skips it.
     flag_evaluations.fields["person"] = LazyJoin(
-        from_field=["person_id"],
+        from_field=[person_id_field],
         join_table=database.get_table("persons"),
         resolver=PERSONS,
-        description="The person the evaluation is attributed to, joined on `person_id`, which is corrected for any "
-        "later identify or merge. `person.properties` and `person.created_at` are the person's current values, not "
-        "the values stored at evaluation time.",
+        description="The person the evaluation is attributed to, corrected for any later identify or merge. "
+        "`person.properties` and `person.created_at` are the person's current values, not the values stored at "
+        "evaluation time.",
     )
+
+
+def follow_persons_on_events_mode(database: "Database", mode: PersonsOnEventsMode | None) -> None:
+    """Make the person fields of `posthog.flag_evaluations` in `database` read as the fields of `events` do under
+    `mode`, so that a query that HogQL moves from events to this table reads the same person.
+
+    This changes the table instance that `database` holds. The table's own fields already match
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.
+    """
+    if mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS or not database.has_table(
+        ["posthog", "flag_evaluations"]
+    ):
+        return
+    flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
+    # events.poe.id reads the stored column in every mode except PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.
+    cast(VirtualTable, flag_evaluations.fields["poe"]).fields["id"] = UUIDDatabaseField(
+        name="person_id", nullable=False
+    )
+    if mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        join_persons_to_flag_evaluations(database)
+    elif mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        flag_evaluations.fields["person_id"] = UUIDDatabaseField(
+            name="person_id",
+            nullable=False,
+            description="The person written onto the row at ingestion time, as `events.person_id` is for this "
+            "project. A later identify or merge shows here once the person-overrides squash rewrites the column.",
+        )
+        flag_evaluations.fields["person"] = FieldTraverser(
+            chain=["poe"],
+            description="The person the evaluation is attributed to. `person.id` reads the same stored column as "
+            "`person_id`. `person.properties` and `person.created_at` are the values stored at evaluation time, not "
+            "the person's current ones.",
+        )
+    elif mode == PersonsOnEventsMode.DISABLED:
+        flag_evaluations.fields["person_id"] = FieldTraverser(
+            chain=["pdi", "person_id"],
+            description="The person that `distinct_id` belongs to now, as `events.person_id` is for this project.",
+        )
+        flag_evaluations.fields["person"] = FieldTraverser(
+            chain=["pdi", "person"],
+            description="The person that `distinct_id` belongs to now. `person.properties` and `person.created_at` "
+            "are the person's current values, not the values stored at evaluation time.",
+        )

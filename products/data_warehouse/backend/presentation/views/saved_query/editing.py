@@ -551,7 +551,9 @@ class DataWarehouseSavedQuerySerializer(
         if not downstream_views:
             return None
         # Dependency validation must not depend on which downstream views the editor can open.
-        database = Database.create_for(team=instance.team, bypass_warehouse_access_control=True)
+        database = Database.create_for(
+            team=instance.team, bypass_warehouse_access_control=True, trigger="saved_query_breaking_change_check"
+        )
         current_outputs = {
             view.id: output
             for view in downstream_views
@@ -942,7 +944,9 @@ class DataWarehouseSavedQuerySerializer(
                 raise exceptions.ValidationError(detail=f"Invalid query: {err}")
             return query
 
-        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
+        context = HogQLContext(
+            team_id=team_id, user=user, enable_select_queries=True, database=self.context.get("database")
+        )
         try:
             select_ast = parse_select(query["query"])
 

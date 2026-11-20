@@ -1773,7 +1773,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "no variables, so it can't be rerun. "
             "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
             "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
-            "html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, "
+            "html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, "
             "so it takes no sender, reply-to, template, headers or attachments. Needs text or html. "
             "Only workflows, not broadcasts or templates, can hold it. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
@@ -3358,7 +3358,7 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "True while this workflow's email is paused because its spam complaint or hard bounce rate "
-            "crossed a threshold. Other workflows in the project keep sending."
+            "crossed a threshold."
         ),
     )
     email_sending_paused_at = serializers.DateTimeField(
@@ -4049,7 +4049,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in data.get("actions", stored.actions if stored else None) or []
         ):
             raise serializers.ValidationError(
-                {"actions": "Only workflows can use the sandbox sender. Choose a verified email sender for this step."}
+                {
+                    "actions": "Only workflows can use the PostHog test sender. Choose a verified email sender for this step."
+                }
             )
         require_viewer_access_to_added_actions(
             self.context,
@@ -4438,7 +4440,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
             "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
             "where email and name are optional templated overrides resolved per invocation; the address must "
-            "resolve to the selected sender's verified domain or the send fails. A sandbox step (type "
+            "resolve to the selected sender's verified domain or the send fails. A PostHog test sender step (type "
             "email_sandbox) takes only subject, preheader, text and to. The design is edited via "
             "operations, and html is always re-rendered from it."
         ),
@@ -4447,9 +4449,9 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         choices=EmailStepSender.choices,
         required=False,
         help_text=(
-            "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "
+            "Switch the step's sender. 'sandbox' moves it to the PostHog test sender, which sends only to "
             "verified members of the organization and needs no verified domain; it is set up for the project "
-            "on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in "
+            "on first use. 'own' moves a PostHog test sender step back to one of the project's verified senders, named in "
             "email_patch.from.integrationId. The step keeps its id, recipient, content and category."
         ),
     )
@@ -4457,7 +4459,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or "
+            "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or "
             "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
             "is refused and the error lists them, so confirm with the user before setting it."
         ),
@@ -4646,7 +4648,7 @@ def _apply_action_email_edit(
         if own_only:
             raise exceptions.ValidationError(
                 {
-                    "email_patch": f"A sandbox email step can't set {', '.join(own_only)}. To send from one of "
+                    "email_patch": f"A PostHog test sender step can't set {', '.join(own_only)}. To send from one of "
                     "the project's own senders, set sender: 'own' with email_patch.from.integrationId."
                 }
             )
@@ -4674,7 +4676,7 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     if not valid_sandbox_action_id(action.get("id")):
         raise exceptions.ValidationError(
             {
-                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the sandbox sender, "
+                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the PostHog test sender, "
                 "then remove this one."
             }
         )
@@ -4682,7 +4684,7 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     if dropped and not drop_own_sender_settings:
         raise exceptions.ValidationError(
             {
-                "sender": f"The sandbox sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
+                "sender": f"The PostHog test sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
                 "or send drop_own_sender_settings: true to drop them."
             }
         )
@@ -6369,7 +6371,7 @@ class HogFlowViewSet(
             raise exceptions.ValidationError(
                 {
                     "sender": "That sender's domain isn't verified yet. Verify it in the project's email settings, "
-                    "or keep the sandbox sender until then."
+                    "or keep the PostHog test sender until then."
                 }
             )
 
@@ -6437,10 +6439,10 @@ class HogFlowViewSet(
 
     def _check_sandbox_sender_available(self, request: Request) -> None:
         if not isinstance(request.user, User):
-            raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
+            raise exceptions.ValidationError({"sender": "Switching to the PostHog test sender needs a signed-in user."})
         if not _can_set_up_sandbox_sender(self.team, request.user):
             raise exceptions.PermissionDenied(
-                "Setting up the sandbox sender needs edit access to all workflows in this project."
+                "Setting up the PostHog test sender needs edit access to all workflows in this project."
             )
         try:
             check_sandbox_sender_available(self.team, request.user)

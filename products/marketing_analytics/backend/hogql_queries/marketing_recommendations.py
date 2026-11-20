@@ -1,5 +1,5 @@
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
 from itertools import groupby
@@ -52,6 +52,10 @@ POLICY_REASONS = frozenset(
 )
 LIMITED_APPROVALS = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
 DISAPPROVED = "DISAPPROVED"
+# Google also lists findings that do not restrict an ad, such as the language it detected.
+POLICY_ISSUE_TYPES = frozenset({"PROHIBITED", "LIMITED", "FULLY_LIMITED", "AREA_OF_INTEREST_ONLY"})
+POLICY_ADS_SHOWN = 3
+POLICY_EVIDENCE_SHOWN = 3
 # Modifiers that match almost any search, so they say nothing about whether a query fits the account.
 GENERIC_WORDS = frozenset(
     {
@@ -209,6 +213,7 @@ class RankingPage:
 @frozen
 class TermKeywordStats:
     term: str
+    campaign_id: str
     keyword: str
     match_type: str
     cost: float
@@ -238,6 +243,21 @@ class Ad:
 
 
 @frozen
+class PolicyTopic:
+    topic: str
+    type: str
+    texts: tuple[str, ...] = ()
+
+
+@frozen
+class FlaggedAd:
+    campaign_id: str
+    ad_id: str
+    headline: str
+    policy_topics: tuple[PolicyTopic, ...]
+
+
+@frozen
 class PolicyAds:
     campaign_id: str
     disapproved: int
@@ -260,6 +280,7 @@ class RecommendationInputs:
     keywords: tuple[Keyword, ...] = ()
     excluded_searches: frozenset[ExcludedSearch] = frozenset()
     policy_ads: tuple[PolicyAds, ...] = ()
+    flagged_ads: tuple[FlaggedAd, ...] = ()
 
 
 @frozen
@@ -271,6 +292,9 @@ class _Term:
     conversions: float
     status: str
     excluded_everywhere: bool
+    # Spend in the campaigns that still serve the search, or all of it once every campaign blocks it.
+    serving_clicks: float
+    serving_cost: float
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -336,6 +360,30 @@ def _singular(word: str) -> str:
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
         return word[:-1]
     return word
+
+
+def _policy_issues(ad: FlaggedAd) -> tuple[PolicyTopic, ...]:
+    return tuple(topic for topic in ad.policy_topics if topic.type in POLICY_ISSUE_TYPES)
+
+
+def _policy_issue_text(topic: PolicyTopic) -> str:
+    # Google names a policy by its topic id, such as TRADEMARKS_IN_AD_TEXT.
+    name = topic.topic.replace("_", " ").capitalize()
+    # Only a prohibited topic is a violation. The other types restrict where the ad can show.
+    verb = "breaks" if topic.type == "PROHIBITED" else "is limited by"
+    if not topic.texts:
+        return f'{verb} the policy "{name}"'
+    quoted = ", ".join(f'"{text}"' for text in topic.texts[:POLICY_EVIDENCE_SHOWN])
+    return f'{verb} the policy "{name}" (flagged text: {quoted})'
+
+
+def _policy_fix(ad: FlaggedAd, headline_repeats: bool) -> Step:
+    issues = " and ".join(_policy_issue_text(topic) for topic in _policy_issues(ad))
+    if ad.headline and not headline_repeats:
+        return Step(text=f'The ad "{ad.headline}" {issues}.', copyValue=ad.headline)
+    # Ads often share a pinned first headline, and searching Ads for it would list all of them.
+    named = f'The ad "{ad.headline}" with ID {ad.ad_id}' if ad.headline else f"The ad with ID {ad.ad_id}"
+    return Step(text=f"{named} {issues}.", copyValue=ad.ad_id or None)
 
 
 def _word_stems(text: str) -> frozenset[str]:
@@ -484,17 +532,22 @@ class _Recommender:
             self.term_cost_by_campaign[row.campaign_id] += row.cost
         self.terms = self._aggregate_terms()
         self.brand_terms = {term.term for term in self.terms.values() if self._is_brand(term)}
-        self.top_keyword: dict[str, TermKeywordStats] = {}
+        self.top_keyword: dict[str, dict[str, TermKeywordStats]] = defaultdict(dict)
         self.keyword_stems: dict[str, set[str]] = defaultdict(set)
         for keyword_row in inputs.term_keywords:
-            current = self.top_keyword.get(keyword_row.term)
+            by_campaign = self.top_keyword[keyword_row.term]
+            current = by_campaign.get(keyword_row.campaign_id)
             if current is None or keyword_row.cost > current.cost:
-                self.top_keyword[keyword_row.term] = keyword_row
+                by_campaign[keyword_row.campaign_id] = keyword_row
             self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
         self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
         self.policy_ads = {row.campaign_id: row for row in inputs.policy_ads}
+        self.policy_issue_ads: dict[str, list[FlaggedAd]] = defaultdict(list)
+        for flagged_ad in inputs.flagged_ads:
+            if _policy_issues(flagged_ad):
+                self.policy_issue_ads[flagged_ad.campaign_id].append(flagged_ad)
         for ad in inputs.ads:
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
@@ -864,7 +917,11 @@ class _Recommender:
                     text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
                     "ROAS. Then save."
                 ),
-                Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
+                Step(
+                    text="Open Asset groups and add assets to the ones with Poor or Average ad strength.",
+                    url=ADS_ASSET_GROUPS_URL,
+                    linkText="Asset groups",
+                ),
             ),
         )
 
@@ -1014,10 +1071,10 @@ class _Recommender:
                 term,
                 benchmark,
                 advice.action,
-                f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:,.0f} clicks with no conversions"
+                f"Spent {self._money(term.serving_cost)} ({term.serving_cost / benchmark.cpa:.1f}x {benchmark.label}) "
+                f"on {term.serving_clicks:,.0f} clicks with no conversions"
                 + (self._off_topic_reason(term) if term.term in off_topic else ""),
-                term.cost,
+                term.serving_cost,
                 "save",
                 "measured",
                 steps=advice.steps,
@@ -1027,7 +1084,7 @@ class _Recommender:
             if (benchmark := benchmarks.get(term.term))
             and term.term not in self.brand_terms
             and term.conversions == 0
-            and term.cost >= 2 * benchmark.cpa
+            and term.serving_cost >= 2 * benchmark.cpa
             and (term.excluded_everywhere or not _is_keyword(term.status))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
@@ -1088,8 +1145,12 @@ class _Recommender:
             and not stems & (copy | self.keyword_stems.get(term.term, set()))
         )
 
+    def _campaign_keyword(self, term: _Term) -> TermKeywordStats | None:
+        # Steps open the top campaign, so a keyword that matched in another campaign is not there to edit.
+        return self.top_keyword.get(term.term, {}).get(term.top_campaign_id)
+
     def _off_topic_reason(self, term: _Term) -> str:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         if keyword:
             return (
                 ". None of the main words in this search appear in the ads that showed on it "
@@ -1098,7 +1159,7 @@ class _Recommender:
         return ". None of the main words in this search appear in the ads that showed on it."
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         match_type = MATCH_TYPES.get(keyword.match_type, keyword.match_type).lower() if keyword else ""
         open_campaign = self._open_campaign(self._campaign_name(term))
         exact = f"[{term.term}]"
@@ -1275,7 +1336,12 @@ class _Recommender:
                         campaign.name if campaign else None,
                         fallback="In Google Ads, open Campaigns and pick your Performance Max campaign.",
                     ),
-                    Step(text="Open the asset group and add this search theme.", copyValue=query.query),
+                    Step(
+                        text="Open Asset groups, pick the one closest to this search, and add the search as a search theme.",
+                        copyValue=query.query,
+                        url=ADS_ASSET_GROUPS_URL,
+                        linkText="Asset groups",
+                    ),
                 )
             recommendations.append(
                 self._recommendation(
@@ -1368,22 +1434,24 @@ class _Recommender:
         for row in self.inputs.search_terms:
             if not self._is_excluded(row):
                 serving_campaigns[row.term].add(row.campaign_id)
+        serving_spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in self.inputs.search_terms:
-            # Spend in a campaign that already blocks the search is not recoverable, so it only counts once every
-            # campaign blocks it and the recommendation is applied.
-            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
-                continue
             total = totals[row.term]
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
             total[3] += row.impressions
-            statuses.setdefault(row.term, row.status)
-            cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
                 top_impressions[row.term][0] += row.absolute_top_percentage * row.impressions
                 top_impressions[row.term][1] += row.impressions
+            # A campaign that already blocks the search needs no change, so it decides nothing while another serves it.
+            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
+                continue
+            serving_spend[row.term][0] += row.clicks
+            serving_spend[row.term][1] += row.cost
+            statuses.setdefault(row.term, row.status)
+            cost_by_campaign[row.term][row.campaign_id] += row.cost
         return {
             term: _Term(
                 term=term,
@@ -1393,6 +1461,8 @@ class _Recommender:
                 conversions=conversions,
                 status=statuses[term],
                 excluded_everywhere=term not in serving_campaigns,
+                serving_clicks=serving_spend[term][0],
+                serving_cost=serving_spend[term][1],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
@@ -1656,6 +1726,7 @@ class _Recommender:
             if counts
             else "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach."
         )
+        fix: tuple[Step, ...]
         if campaign.channel_type == "PERFORMANCE_MAX":
             find = Step(
                 text="Open Asset groups and look for assets whose status shows a policy issue. "
@@ -1663,7 +1734,25 @@ class _Recommender:
                 url=ADS_ASSET_GROUPS_URL,
                 linkText="Asset groups",
             )
-            fix = Step(text="Replace each affected asset with one that follows the policy.")
+            fix = (Step(text="Replace each affected asset with one that follows the policy."),)
+        elif flagged := self.policy_issue_ads[campaign.id]:
+            find = Step(
+                text="Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. "
+                "Saving sends the ad to review again. A limited ad may need a certification from Google instead.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            shown = flagged[:POLICY_ADS_SHOWN]
+            headlines = Counter(ad.headline for ad in flagged)
+            fix = tuple(_policy_fix(ad, headlines[ad.headline] > 1) for ad in shown)
+            # Some affected ads come without findings, so the count comes from the approval totals.
+            if (others := disapproved + limited - len(shown)) > 0:
+                fix += (
+                    Step(
+                        text=f"Filter Ads by the status Disapproved or Eligible (limited) to find {others} more "
+                        f"{'ad' if others == 1 else 'ads'}. Hover the status of each ad to see which policy it breaks."
+                    ),
+                )
         else:
             find = Step(
                 text="Open Ads and filter by the status Disapproved or Eligible (limited). "
@@ -1671,13 +1760,15 @@ class _Recommender:
                 url=ADS_ADS_URL,
                 linkText="Ads",
             )
-            fix = Step(
-                text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+            fix = (
+                Step(
+                    text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+                ),
             )
         steps = (
             self._open_campaign(campaign.name),
             find,
-            fix,
+            *fix,
             Step(
                 text="If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.",
                 url=ADS_POLICY_ISSUES_URL,
