@@ -70,6 +70,11 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "cited": BooleanDatabaseField(
             name="cited", description="A target-domain URL appears in the answer's citations."
         ),
+        "names_brand": BooleanDatabaseField(
+            name="names_brand",
+            nullable=True,
+            description="The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+        ),
         "num_citations": IntegerDatabaseField(name="num_citations", description="How many URLs the answer cited."),
         "target_best_position": IntegerDatabaseField(
             name="target_best_position",

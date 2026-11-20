@@ -16,6 +16,8 @@ import type {
     SignalScoutConfigApi,
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/scoutDetailLogic'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
@@ -156,24 +158,20 @@ export interface scannerScoutLogicValues {
 export interface scannerScoutLogicActions {
     deleteScout: (
         configId: string,
-        surface?: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface | undefined
+        surface?: ScoutSurface | undefined
     ) => {
         configId: string
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface
+        surface: ScoutSurface
     } // scoutFleetLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
     loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
     patchScoutConfigLocally: (
         configId: string,
-        updates:
-            | Partial<SignalScoutConfigApi>
-            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates:
-            | Partial<SignalScoutConfigApi>
-            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     runScoutNow: (
         configId: string,
@@ -184,10 +182,10 @@ export interface scannerScoutLogicActions {
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     closeCreateModal: () => {
         value: true

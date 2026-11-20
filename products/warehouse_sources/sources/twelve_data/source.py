@@ -120,7 +120,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
             name=ExternalDataSourceType.TWELVEDATA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Twelve Data",
-            caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, company profiles, fundamentals, dividends, splits, and earnings.",
+            caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, company profiles, fundamentals, market capitalization, ownership, dividends, splits, earnings, and event calendars.",
             docsUrl="https://posthog.com/docs/cdp/sources/twelve-data",
             iconPath="/static/services/twelve_data.png",
             releaseStatus=ReleaseStatus.BETA,
@@ -144,7 +144,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                         required=True,
                         placeholder="AAPL, MSFT, EUR/USD",
                         secret=False,
-                        caption=f"Comma-separated list of up to {MAX_SYMBOLS} symbols to sync in the per-symbol tables (time series, quotes, profiles, statistics, balance sheets, cash flows, dividends, splits, and earnings). Each Twelve Data request is charged per symbol, so a longer list uses more of your plan's API credits.",
+                        caption=f"Comma-separated list of up to {MAX_SYMBOLS} symbols to sync in the per-symbol tables (time series, quotes, profiles, statistics, balance sheets, cash flows, income statements, market cap, holders, dividends, splits, and earnings). Each Twelve Data request is charged per symbol, so a longer list uses more of your plan's API credits.",
                     ),
                     SourceFieldSelectConfig(
                         name="interval",

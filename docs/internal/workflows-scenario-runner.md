@@ -43,8 +43,40 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `truth.json`      | Every request the provider edge received and how it answered                      |
 | `logs/<role>.log` | Each role's log lines from this run                                               |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
+| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used          |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
+
+The runner touches `live.jsonl` every second until it writes the run's `end` record, and stops when the run ends on any other path, so a file that stops changing without an `end` record marks a run that died.
+
+Before the drive, the runner reads the topology again until every part a valve targets and every consumer group its roles run shows in it and two reads agree, for up to 30 seconds. A target that never shows makes the run invalid. A topology still changing at the deadline does not, because pooled sessions keep moving between roles on the cloud host, and the run records the last read. Databases come from the sessions each role holds open under its scenario session name.
+
+### Run a card in the cloud
+
+`cyclotron-failover-under-load`, `cyclotron-scale` and `cyclotron-breaking-point` get a full verdict only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card. A local run of one of them leaves part of the card unjudged, as the **Locally** line below says.
+A controller on a person's machine starts the run and ends it:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile> <card id>
+pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>
+```
+
+- **Who runs it:** a person with write access to the dev AWS account, on a machine with the `aws` CLI and the `nodejs` package installed. Not a worktree box.
+- **Before the first run:** the dev baseline infrastructure is applied, and the cloud profile names a measured runner profile kept outside this repository.
+- **Run host disk:** the host launches from the baseline's launch template, which sets its root disk and requires IMDSv2. The profile's `baseline` names that template by `hostLaunchTemplateId` and a version number in `hostLaunchTemplateVersion`, and `hostRootVolumeGb` repeats the template's root disk size, which prices the disk.
+- **Which card:** a card id under `tests/scenarios/cards`, committed at the run's commit, because the host runs the cards of that commit. The controller reads the card at that commit and loads it with the runner profile before it leases anything, so a card that is missing there or does not load costs nothing. The run manifest names the card, and the host reads it from there.
+- **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
+- **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
+- **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
+- **Each run:** one profile, one lease, one cap.
+- **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
+- **Reader idle limit:** `readerAcu.idleMax` in the cloud profile is the highest ACU at which the reader still counts as idle. The controller refuses to run under a value below `readerAcu.min`, because no reader could pass it, and refuses a failover card under a value at or above `readerAcu.max`, because every reader would pass it. It still cleans up with that profile. The field is optional, so a profile without it still loads and runs other cards, but the controller refuses a failover card before it leases anything. The lease copies it into the run manifest as `readerIdleMaxAcu`, and `readerAcu.min` as `readerMinAcu`, and the host's `pg.failover` valve reads both from there.
+- **Live log:** while the card runs, the host copies the run's `live.jsonl` to `live.jsonl` under the run's prefix, whole lines only, waiting 5 seconds between copies, and once more when the card ends. That last copy can land after the run is marked done, and teardown can cut it short, so the run's evidence is the complete log. A failed copy never fails the run, and each copy has a time limit. `SCENARIO_LIVE_COPY=off` in the host's environment turns the copy off, and the run behaves as it did before the copy existed.
+- **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request, T0. Only the 5 minutes right before T0 are judged. The run is `invalid` when the average of one of them is above `readerAcu.idleMax`, when its maximum or its average is under `readerAcu.min`, or its average is above its maximum, since a running reader cannot report either, when it has a maximum above the limit but no average, so nothing shows it stayed under the limit, when CloudWatch has no capacity at all for one of them, or when the minute right before T0 has no maximum. A maximum above the limit with an average under it is a short burst and passes. The scorecard's `acu_pre_t0_above_idle` lists every minute before T0 whose maximum or average was above the limit, and `acu_pre_t0_max` keeps the highest maximum before T0. Any cloud run, failover or not, ends `invalid` when CloudWatch's capacity answer is malformed, because its capacity read fails. The run controller and the `pg.failover` valve read that answer through one check: every series asked for comes back once with a `Complete` status and no `NextToken`, with one finite value of at least 0 per timestamp, and every timestamp is an ISO time on the read's one-minute period, inside the window it asked for, in ascending order. Both reads go through the AWS CLI, which follows `NextToken` itself and merges the pages, so the check sees the whole series; its `NextToken` refusal covers an answer that still carries one. The failover is measured onto the reader as it sits, not onto a reader at its minimum: the scorecard's `reader_acu_at_t0` is the reader's maximum ACU in the last full minute before the minute of T0, and the controller prints it. It is `null` when the run has no T0, when CloudWatch has no maximum for that minute, or when the capacity read failed, which the controller prints as such. Other cards skip that judgment, and the reader's capacity still prices the run.
+- **Enhanced Monitoring:** the stack monitors the writer every second and the reader at the production setting, so the failover card measures the reader as production runs it. The profile's optional `readerMonitoringIntervalSeconds` sets another reader interval: 1, 5, 10, 15, 30 or 60 seconds. The admission estimate prices each instance's monitoring logs at its interval.
+  An older controller rejects a profile that sets `readerMonitoringIntervalSeconds`, so remove the field from the profile before you clean up a stack with an older controller.
+- **Locally:** the failover card is `invalid` at its valve and the scale card at its CPU bar, because only a run host carries the run manifest. The local stack has no Aurora writer, so `writer_cpu_under` is not judged there. A local ramp still runs through its steps on its other bars and checks. It is `failed` when one of them breaks and `invalid` when all of them hold, and its status reason names the bar that was not judged.
 
 ## Glossary
 
@@ -142,6 +174,7 @@ nodejs/tests/scenarios/
   judge/           journal, convergence, invariants, measurements
   probe/           the Cyclotron probe
   scorecard/       properties, provenance, capture and read back
+  store/           the run store: one HTTP service over Postgres that keeps every run
 ```
 
 The CLI runs with `tsx`, as `pnpm --dir nodejs exec tsx tests/scenarios/main.ts`; there is no package script.
@@ -172,15 +205,21 @@ The first slice is local only, on real time.
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                     | Traffic                                               | Valves                                                                                                   | Invariants                                                                             | Failure class                                |
-| ------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                  | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)              | Baseline: proves the judging loop            |
-| `email-worker-killed`    | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                            | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                       | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`  | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                       | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                       | A frozen pod losing sends                    |
-| `pg-connections-dropped` | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                       | A dropped Postgres connection stranding jobs |
-| `destination-errors`     | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | Destination 429 and 503 retry storms         |
-| `ses-throttled`          | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | SES throttling                               |
-| `ses-bounce-suppresses`  | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed` | Dropped SES feedback, so no suppression      |
+| Card                            | Traffic                                               | Valves                                                                                                                                                 | Invariants                                                                                           | Failure class                                |
+| ------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                            | Baseline: proves the judging loop            |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A dropped Postgres connection stranding jobs |
+| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | Destination 429 and 503 retry storms         |
+| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | SES throttling                               |
+| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`               | Dropped SES feedback, so no suppression      |
+| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | A Cyclotron writer failover under load       |
+| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | Cyclotron falling behind at 10x load         |
+| `cyclotron-breaking-point`      | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x, 5x, 10x, 20x, 30x and 40x for 5 minutes each and stop at the first break, with the same bars as `cyclotron-scale` | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks     |
+
+A `cyclotron-breaking-point` run that holds every step through 40x ends as a ceiling at 40x, which is a valid result and not a failure of the card.
+On `cyclotron-breaking-point`, a broken bar or a refusal over the `refused_at_intake` gate at step N halts the drive by the end of step N+1, step N+2 never starts before step N is judged, and the run places the break at step N. The other invariants are judged after convergence: they place a break at its step but do not stop the drive.
 
 ## Call paths
 
@@ -288,7 +327,6 @@ sequenceDiagram
 ```
 
 The janitor puts a stalled job back as `available` with a future `scheduled` time, so convergence waits for every unfinished job, not only the due ones.
-That is why `load` rejects a kill, freeze or connection-drop card whose `convergeWithin` cannot cover the janitor's stall recovery.
 
 ### SES feedback: a bounce reaches suppression
 
@@ -347,7 +385,10 @@ sequenceDiagram
     else an invariant broke
         J-->>R: first violation, unit ids
         Note over R: failed
-    else only a valve was never observed
+    else a bar failed at a ramp step
+        J-->>R: breaking point: step, offered rate, value
+        Note over R: failed
+    else only a valve was never observed, or a bar could not be read or its step was over the host CPU ceiling
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -385,6 +426,37 @@ The other interfaces are internal seams; each module keeps the responsibilities 
 The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
 `drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
+`drive.ramp` splits the drive into steps, each with a `scale` that multiplies every traffic kind's profile rate and a `for`; the steps add up to `drive.for`, and each scales higher than the one before.
+Each step starts and ends at a fixed offset from the drive's start, so a stalled generator cannot move a later step past the drive's end.
+A card without a ramp drives at 1x throughout.
+`bars` lists pass bars that every ramp step must stay under:
+
+- `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. After the run converges, the read waits up to 5 minutes for CloudWatch to publish the drive's last whole minute, a read in flight included, and stops at once when the run is interrupted. It reads only on a run host. On a run host, a missing or unreadable minute ends a ramp at a harness limit.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket breaks a bar at or under that bucket and leaves a higher bar unread, and a named queue with no pickup in a step reads as the step's length, or as no lateness on a card that stops on a break when the intake accepted no unit in that step, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread. A scrape interval that straddles a step boundary counts in both steps, so late pickups at a step's end break that step rather than hide in the next step's larger volume.
+
+The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
+A ramped card is admitted on its first step, at the profile's own rates.
+When the profile sets `host.cpuCeiling`, each step is also checked against it before its bars are read.
+A step whose run host was busy at or over the ceiling is not judged, and neither is any later step, because a saturated run host starves the roles it runs.
+A step with fewer than two host CPU samples inside it is not judged either, and each step reads only the samples inside it.
+A breaking point from an earlier step still stands.
+
+`drive.stopOnBreak: true` makes a ramp of two or more steps stop at its first break, so the run records where the system breaks rather than a pass or fail at one load.
+
+- The generator offers no unit of a step after the step's end. A unit it could not offer in time still counts as due, so a stalled generator shows as a shortfall rather than as load in the next step. A card without `stopOnBreak` keeps one schedule: a unit that fell due during a stall is offered late, up to the drive's end.
+- The generator moves to the next step at the planned boundary while the verdict of the step before is in. When it is not, the generator keeps driving the current step at its own rate until that verdict is in, so a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged. The stretched step keeps its real start and end, and `ramp_steps` says it waited. Later steps start that much later and keep their planned length.
+- After each step but the last, once 15 seconds of scrapes past its end are in, the runner judges the step's bars over the step, while the generator drives the next step. A broken bar stops the drive when the judge returns, so the drive stops no later than the end of the step after the one that broke, and the break is placed at the step that broke. The first step's admission is checked first, over the window the first step actually ran, so a ramp that fails its admission stops no later than the second step. The final judge checks the admission over the same window. A live judge that fails stops the drive as a `run_host` harness limit. A stop does not cancel the judgment of a step that already ended: the run converges from the drive's end, the runner then waits for that judgment, and then judges the invariants on the delivery records it pulls. A delivery that missed the convergence deadline but arrived before that pull counts as delivered: the run still fails convergence, but no step is named for that delivery. The lowest step that broke or could not be read is where the drive stopped.
+- The final judge keeps each live break, and keeps a live pass for a step unless its own read breaks it, so a final read that fails after the drive does not undo a verdict the live judge already reached.
+- A refusal at intake over the card's `refused_at_intake` gate stops the drive inside its step, without waiting for the step to end.
+- An event counts as offered in its step once Kafka acknowledged it by the step's end, or by the stop when the drive stopped early, however late the generator's last timer ran. The live judge counts a transactional unit once it was sent, and the final count once cdp-api answered. A broken bar and the ramp report the step's rate from the same count, whether the live or the final judge read the break.
+- A step whose generator offered fewer than `minOffered` of its units, or had none to offer, or whose bar could not be read, stops the drive as a harness limit, except a last step that a stop ended before its planned length: `ramp_broke_by` names the `generator` that could not offer the step, or the `run_host` that could not read it.
+- The units already in flight are still journaled, and the run converges and is judged as usual. Steps after the stop are not driven and not judged.
+- Invariants are judged after convergence. A failed invariant breaks at the step that offered the unit that took its count over its gate. Units offered at the same moment are ordered by step.
+- The run's breaking point is the earliest break across bars, gates, invariants and harness limits, and the scale before it is the last sustained scale. Within one step, a generator shortfall comes first, then a bar, then a gate or invariant, then a metric the run host could not read.
+- A failed invariant whose crossing unit falls in no step leaves no sustained scale, also beside a break in a step, because it could have failed at any scale.
+- A first step that fails its admission is a harness limit at that step, with no sustained scale, because no scale was measured against the profile.
+- A drive that ends partway through a step, such as an interrupted one, is a harness limit at that step, never a ceiling, and that limit outranks a bar the run host could not read in the step.
+- A run that broke is `failed`, a run that held through its last step is `passed`, and a run that stopped at a harness limit with nothing broken is `invalid`. The ramp judges the bars, the invariants a unit crossed and the offered share step by step, so its end sets the status, and a later step that fell short or could not be read does not make a run that broke earlier `invalid`. An invariant no unit crossed, such as `resident_backlog_intact`, still fails the run. When `at_least_once` places a lost unit in a step, the ramp owns the convergence too, so a unit that never delivered does not make a run that stopped at a harness limit `failed`. A run that held through every step but did not converge reaches no ceiling: `ramp_end` is `broke` with no scale, and `ramp_broke_by` is `convergence`.
 
 ```yaml
 id: email-worker-killed
@@ -415,7 +487,7 @@ invariants:
   - name: duplicate_sends
   - name: refused_at_intake
 gates:
-  duplicate_sends: 3
+  duplicate_sends: 0
   refused_at_intake: 0
 measure:
   - name: role_cpu_seconds
@@ -429,9 +501,11 @@ A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.exa
 `load` returns the card, the profile and their hashes, or throws one `CardError` that lists every problem at once.
 It rejects:
 
-- unknown valve, traffic kind, invariant and measurement names, and parameters or doses that fail their definition's schema;
-- a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
-- a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
+- unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
+- a bar declared twice on a `stopOnBreak` card, because each live verdict is looked up by the bar's name;
+- ramp steps that do not add up to `drive.for`, or a step that does not scale higher than the one before;
+- a `stopOnBreak` card with valves, because its drive can stop before they are due;
+- a `stopOnBreak` ramp with a step of `0ms`, because a held step repeats its own length;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
@@ -442,7 +516,8 @@ The card hash is the SHA-256 of the card without `gates` and the profile hash, s
 Gates stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
-Every other committed edit under `nodejs/tests/scenarios/` outside `generator/` and `valves/` still changes `runner_version`, a test file or the loader included.
+Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/` and `store/` still changes `runner_version`, a test file or the loader included.
+The run store only records runs, so its edits leave `runner_version` alone; the calls that report to it live in `runner/` and `cloud/` and still count.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
@@ -455,21 +530,24 @@ A scorecard records the profile's name and hash, never its numbers.
 ```ts
 // nodejs/tests/scenarios/runner/runner.ts
 export interface Runner {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
   down(): Promise<void>
 }
 ```
 
+- **Run id.** A fresh UUID per run, or the `runId` of the run manifest at `SCENARIO_RUN_MANIFEST` on a run host, which then runs one card.
 - **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `main.ts run` process. Runs on one stack are sequential.
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed. A refused failover request outranks each of them except an interrupted run, because it ends the drive early.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
+    A role that exits with a code, not a signal, while a valve with `roleExitGraceMs` holds, or up to that grace after its release, counts as caused by it. A valve that names the roles it can restart counts only their exits. `pg.drop_connections` sets 5 seconds: a consumer that loses its connection mid-write exits on purpose, restarts and replays. `pg.failover` sets 5 seconds after the fail-back finished, for every role that writes to Cyclotron. The scorecard's `role_restarts` lists each exit a valve caused this way, with when the supervisor relaunched the role. A signal, or an exit code of 128 or more that reports one, such as a SIGKILL or an out-of-memory kill that `tsx` passes on as code 137, still fails the run, and so does any exit after a valve that failed to apply.
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
-    An exit while `pg.drop_connections` is applied still counts as unexplained; its reason names the drop.
+    An exit no valve's grace covers, while another database valve, such as `pg.failover` on `cyclotron`, was applied, still fails the run, and its reason names that valve.
+  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
@@ -478,7 +556,7 @@ export interface Runner {
 ```ts
 // nodejs/tests/scenarios/environment/environment.ts
 export interface Environment {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   reset(settings: Profile['settings']): Promise<void>
   edgeUrl(): string
   role(name: Role): RoleHandle
@@ -503,7 +581,9 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - It takes a lock on its state directory, so one runner uses it at a time.
   - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
   - It refuses to start, exit 2, and names the command that stops each one, when a stranger runs: a CDP process without its marker, or another runner's roles. It also refuses while a port it needs is held, and while the events consumer group keeps a member it did not start.
-  - When the dev stack is not up, it writes a dev config with `hogli dev:generate --with workflows --without nodejs` into its state directory and starts it with `hogli up -d --custom <config>`, which leaves the box's saved settings alone. It always waits with `hogli wait`. The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
+  - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
+    - The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
+    - The frontend, the `ingestion` unit and the tunnel unit are left out because no card uses them. The cards produce their events straight to the CDP events topic, and `ingestion` would race the migrations of a fresh database.
   - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
 - **`reset` is complete.** It runs before every card, so a failed or crashed run never poisons the next. In order:
   1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.
@@ -519,8 +599,8 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 - **Killed roles come back.** After any exit the Environment restarts the role after 2 seconds, as Kubernetes would, and records the exit, marked as caused by a valve or not.
 - **Actuation.** Each action is observed within 10 seconds or not at all.
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
-  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`. Overlapping freezes of one role resume it only when the last of them releases.
-  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It is observed when at least one backend was terminated.
+  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
+  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
@@ -575,7 +655,7 @@ export type TruthRecord = {
   - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
 - **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
   - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
-  - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`, and `hold` throws the same problem.
+  - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
 - **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action, and returns `observed` and `release`.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
@@ -589,13 +669,17 @@ export type ValveContext = {
   environment: Pick<Environment, 'actuate'>
   probe: Pick<CyclotronProbe, 'runningJobs'>
   teams: number[]
+  commits: () => readonly WriterSample[] // the writer probe's samples so far
 }
 
 export type ValveDefinition = Definition & {
   // Definition holds the name and the params schema
   target: z.ZodType<string>
   strandsRunningJobs: boolean // re-check `when` after apply
-  apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+  roleExitGraceMs?: number // a role exit with a code while applied, or this long after release, is the valve's
+  restarts?: readonly CdpRole[] // when set, only these roles' exits are the valve's
+  journalsIntent?: true // the actuation records its own intent, right before its request
+  apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
 }
 
 export interface Valves {
@@ -610,6 +694,7 @@ export interface Valves {
 | `role.kill`           | a role              | none                                                 | `actuate`, `kill`         |
 | `role.freeze`         | a role              | none                                                 | `actuate`, `freeze`       |
 | `pg.drop_connections` | `postgres`          | `share`                                              | `actuate`, `pg.terminate` |
+| `pg.failover`         | `cyclotron`         | none                                                 | `actuate`, `rds.failover` |
 | `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`  | `actuate`, `edge.fault`   |
 | `ses.throttle`        | `ses`               | `rate` per second                                    | `actuate`, `edge.fault`   |
 | `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default | `actuate`, `edge.fault`   |
@@ -618,6 +703,11 @@ export interface Valves {
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
 - **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`, unless an unexplained exit, a failed invariant or a stack that did not converge already fails it. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
+- **`pg.failover`** runs only on a run host: the runner reads `SCENARIO_RUN_MANIFEST` once and hands it to the valve, which throws without it, so the run is `invalid`. It acts only on the manifest's run cluster, `scn-<run id>`, through the `aws` port.
+  - **Preconditions.** The caller is in the manifest's account, the lease outlasts the hold plus twice the 5-minute observation deadline, one to settle and one to fail back, the cluster is `available`, carries `scenario-run=<run id>` and has exactly two members, the run's writer, still writing, and its reader, and the reader's capacity read passes. That read asks CloudWatch for the reader's one-minute `ServerlessDatabaseCapacity` averages over the last 10 complete minutes. The answer passes the check under **Reader capacity**, and every minute it returns is at or above the manifest's `readerMinAcu`. Its last five minutes are consecutive, and the newest ended at most 3 minutes ago. Each of them inside the 5 minutes before the minute of the check is at or under the manifest's `readerIdleMaxAcu`, the window the controller judges before T0. A manifest without `readerIdleMaxAcu` refuses and names `readerAcu.idleMax`, the cloud profile field it comes from. A manifest without `readerMinAcu` comes from a lease before the field, and refuses. The lease is checked last, right before the request, because the reads before it can take up to 5 minutes. A failed precondition throws before any request, so the timeline records no intent. So does a precondition read AWS has not answered when the valves release or 5 minutes pass.
+  - **Apply.** It records `intentAt` right before one `failover-db-cluster` request to the reader, sent once with no retry, and sends none once the valves released. Observation runs from the intent, so a promotion counts while the answer to the request is still pending. A client error code is a refusal, and a refusal ends the drive at once: the run is `invalid`, with the refusal as its reason, whatever the judge finds. A server fault, a response lost in transit, or no answer by the valves' release or 5 minutes may have started the promotion, so it is observed, never resent.
+  - **Observation.** Three instants, each in the entry's `observations`: the control plane shows the reader as writer (`cluster_writer`), the pooler's SQL session reaches the reader out of recovery (`sql_writer`), and the writer probe commits its first row on the reader (`first_probe_commit`). A commit that still lands on the old writer does not count. Each stage polls on its own, so a stalled cluster read never delays the other two. Each instant is stamped when the answer arrives, and one that arrives more than 5 minutes after the intent does not count. The card measures each as `seconds_to_<name>` from the intent.
+  - **Release.** It first waits up to 5 minutes for the cluster to be `available`, so a promotion still in flight lands before it decides. When the promotion was not refused and the control plane never showed the reader as writer, it also waits for the writer to move, since the control plane can show the old writer for a while after it accepted the request; a writer that never moves is recorded as `releaseError`, because the request may still land. It never waits for the answer to the failover request. Then a fail-back to the original writer under the same load, unless it already writes, with its own `releaseIntentAt` and `releaseObservations`. The fail-back phase starts at `releaseIntentAt`, and its observation runs from there while the answer to its request is still pending. A cluster that never settles, or a fail-back that is refused or not observed, is recorded as `releaseError` and makes the run `invalid`. The run host gives a stopped card the full 10 minutes of settle and fail-back, plus 5 minutes for its scorecard and evidence, before systemd kills it.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
 ### Generator
@@ -638,7 +728,7 @@ export function drive(
 - **Intakes.** Events go to the topic the events consumer reads. Transactional sends go to cdp-api's template route.
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
 - **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
-- **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged before the drive ended. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
+- **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged by the drive's scheduled end. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
 - **Follow-ups.** `bounce_followup` sends a follow-up only after its unit was accepted. It waits up to 60 seconds for cdp-api's 200 to the bounce feedback in the edge's truth, then for `Environment.groupLag` of the `cdp-ses-webhooks` group to reach zero. It stops waiting at once when the edge took the unit's send without a fault, as it does for a send that reaches SES after the runner released its faults at the drive's end. When the feedback was refused, the send went through or the bound passes, the journal records why the follow-up was not sent.
 - **Stopping.** When the drive stops, pending follow-ups send nothing, and the drive returns only after every follow-up it started has settled.
 
@@ -650,7 +740,7 @@ export interface Judge {
   open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+  check(invariants: Named[], gates: Record<string, number>, run: { janitorResets: number }): Promise<InvariantResult[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
@@ -673,15 +763,18 @@ export type InvariantResult = {
 
     A retried SES code that answers every attempt still counts as missed.
 
-  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under the jobs the janitor reset during the run plus `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+    A lease queue replays a job whose holder stalled after its send landed, so each reset allows one resend. One unit can take more than one: a job can be reset again, and an email unit passes through a hogflow job and an email job.
+    The runner reads the resets from the janitor's `cdp_cyclotron_v2_janitor_stalled` counter in the sampled metrics, summed over its replicas and restarts, and passes them to the Judge as `janitorResets`. The counter also counts jobs that stalled before they sent, so the bound is loose on a card that stalls many jobs; the scorecard's `janitor_resets` shows how loose.
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
 
-- **Measurements.** Each has a unit in its definition. Every measurement so far is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
+- **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
+  - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe
 
@@ -738,39 +831,63 @@ A property is added without a version change; a rename, a removal or a change of
 | `run_id`            | string          | The run's UUID, also the event's `uuid`                                                                                                                                    |
 | `card_id`           | string          | The card's `id`                                                                                                                                                            |
 | `card_version`      | number          | The card's `version`                                                                                                                                                       |
-| `card_hash`         | string          | SHA-256 of the card without `gates`, and the profile hash                                                                                                                  |
+| `card_hash`         | string          | SHA-256 of the card without `gates`, and the profile hash. The ramp steps are part of the card                                                                             |
 | `profile_name`      | string          | The profile's `name`                                                                                                                                                       |
 | `profile_hash`      | string          | SHA-256 of the profile                                                                                                                                                     |
+| `topology_hash`     | string or null  | 12-hex SHA-256 prefix of the processes and consumer groups by adapter and role, and databases by adapter and name. `null` when the run stopped before it read the topology |
 | `head_sha`          | string or null  | The checkout's `HEAD` commit                                                                                                                                               |
 | `head_dirty`        | boolean or null | Whether the `nodejs` package has uncommitted changes                                                                                                                       |
 | `origin`            | string          | Who started the run: `local-agent`                                                                                                                                         |
 | `target`            | string          | Where it ran: `local`                                                                                                                                                      |
+| `adapters`          | string list     | The adapters the run drove: `workflows`                                                                                                                                    |
+| `owners`            | string list     | The teams whose adapters ran; empty until adapters declare owners                                                                                                          |
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`; test files count                               |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, `store/`, and the YAML files in `cards/` and `profiles/`; test files count                     |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
 
 The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirty` flags local edits they do not cover.
+A cloud run also publishes its environment, such as `writer_class`, `reader_acu_min`, `reader_acu_max`, `reader_monitoring_interval_seconds`, `host_class`, `engine_version` and `pooler_replicas`.
+Its `fingerprint` hashes that environment with the pooler settings and the local fingerprint.
+A failover run also publishes `reader_acu_idle_max`, and its fingerprint hashes it. A scale run leaves it out, so a profile that gains an idle limit keeps its scale fingerprints.
+Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and they fingerprint apart from later runs at any interval, because the fingerprint now hashes the field.
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                     |
-| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                             |
-| `status_reason`     | string          | Why, in one line                                                                                            |
-| `started_at`        | string          | ISO 8601 time the run started                                                                               |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                     |
-| `duration_s`        | number          | Seconds from start to end                                                                                   |
-| `units_target`      | number or null  | Units the profile asked for                                                                                 |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                         |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error        |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                         |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                  |
+| Property            | Type            | Meaning                                                                                                                                                                                                                                                                                                   |
+| ------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                                                                                                                                           |
+| `status_reason`     | string          | Why, in one line                                                                                                                                                                                                                                                                                          |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                                                                                                                                             |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                                                                                                   |
+| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                                                                                                 |
+| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                                                                                                               |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged by the drive's scheduled end                                                                                                                                                                                         |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                                                                                       |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                                                                                              |
+| `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                                                                                         |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                                                                                      |
+| `bars`              | array           | One entry per bar: its name, unit, `limit` (a number in that unit, absent from older scorecards) and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                                                                                       |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                                                                                |
+
+**Ramp**, only on the scorecard of a card with `drive.stopOnBreak`. A card without it stores none of these properties. Each property is `null` when it has no value:
+
+| Property                   | Type           | Meaning                                                                                                                                          |
+| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ramp_steps`               | array or null  | One entry per step the drive ran: its `scale`, its real `started_at` and `ended_at`, and `stretched`, why it ran past its planned end, or `null` |
+| `ramp_end`                 | string or null | `broke`, `ceiling` when every step held, or `harness_limit` when the harness could not drive or read a step                                      |
+| `ramp_sustained_scale`     | number or null | The scale of the last step that held, `null` when the first step broke or a failure falls in no step                                             |
+| `ramp_broke_scale`         | number or null | The scale of the step that broke                                                                                                                 |
+| `ramp_broke_offered_per_s` | number or null | Units offered per second in the step that broke                                                                                                  |
+| `ramp_broke_by`            | string or null | The bar, gate or invariant that broke, `convergence` for a run that did not converge, or `generator` or `run_host` for a harness limit           |
+| `ramp_broke_kind`          | string or null | `bar`, `gate`, `invariant` or `harness`                                                                                                          |
+| `ramp_broke_part`          | string or null | The part of the system the bar read, such as `db:cyclotron` or `role:<role>`; `null` for a whole-system invariant or gate                        |
+| `ramp_broke_at`            | string or null | ISO 8601 start of the step that broke, or the bar's breaking point                                                                               |
+| `ramp_end_reason`          | string or null | Why the ramp ended, in one line                                                                                                                  |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
@@ -783,7 +900,7 @@ A run that stops before judging has no groups, so a missing group means not judg
 | `inv_<name>_violation` | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
 | `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                                                                                              |
 
-**Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, and `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`.
+**Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`, and `m_<name>_<queue>_<scale>x` per queue and ramp step, such as `m_step_claims_per_second_hogflow_10x`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.
 The unit is in the measurement's definition and in the evidence.
 A per-role value that may be short also carries `m_<name>_<role>_incomplete: true`. For `role_rss_max_bytes`, a scrape of that role was missed. For `role_cpu_seconds`, the role restarted, or a scrape after its last sample was missed.
@@ -799,6 +916,78 @@ The runner works without it and reports `recorded: false`.
 3. Create a personal API key scoped to that project only, with only the `query:read` scope. The runner uses it only to read its scorecard back.
 4. Put the four `SCENARIO_RUNS_*` variables in the environment of the box that runs cards. Keep the token and the key out of the repository and out of shell history.
 5. Run `smoke` and check that it prints `scorecard: recorded`.
+
+## Run store
+
+The run store keeps every run, local or cloud, in one place.
+The runners report to it, and the hosted viewer reads from it in a later change.
+It is one Node HTTP service over Postgres, in `store/`, and it runs nowhere in production.
+The scorecard event stays the durable record: everything in the store can be rebuilt from scorecard events and the evidence bucket.
+The store names no product: a run lists the adapters it drove, and each series names its adapter, so a new adapter needs no store change.
+
+**What a run stores**, keyed by `run_id`:
+
+| Column                                                                           | Holds                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased                                                                                                                                      |
+| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none                                                                                                                                         |
+| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                                                                                                                                                    |
+| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                                                                                                                                                        |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run                                                                                                                                     |
+| `host`                                                                           | The box that reported the run, when the report names it                                                                                                                                                                             |
+| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, labels, points: [{ at, value }] }`; `labels` maps strings to strings, default `{}`, and keeps apart series that share a name, such as one per process; never raw evidence |
+| `topology`                                                                       | The systems the run saw, when the report has them                                                                                                                                                                                   |
+| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes                                                                                                                               |
+
+**Routes**
+
+| Route                   | Who can call it                                               | Does                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, manifest?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
+| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `scorecard`, `series`, `topology` and `manifest`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100              |
+| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `scorecard`, `series`, `topology` and `manifest`, by its id in any letter case                                                                           |
+
+A report for a run the store already has replaces its scorecard and the columns copied from it, `adapters` and `owners` included, and keeps the `series`, `topology`, `manifest` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
+The ingest route takes scorecards of schema version 1 or 2, and keeps the scorecard opaque past the columns above.
+It accepts a gzipped body with `Content-Encoding: gzip`, and answers `413` to a body over 32 MiB, zipped or unzipped.
+
+Ingest has its own path because the hosted app opens paths past its sign-in by path, for every method.
+Only `/api/ingest/runs` is opened; the read routes stay behind the sign-in.
+The store routes on the path as sent, so a path that starts with the ingest path and climbs out of it with `..` gets `404`.
+
+**Run it locally**
+
+```bash
+DATABASE_URL=postgres://... SCENARIO_STORE_TOKEN=<a long random token> PORT=8080 HOST=127.0.0.1 \
+  pnpm --dir nodejs exec tsx tests/scenarios/store/main.ts
+```
+
+It listens on `127.0.0.1` unless `HOST` names another address, such as `0.0.0.0` in a container.
+It applies its schema before it opens the port, and refuses to start without `SCENARIO_STORE_TOKEN`.
+The schema is a list of idempotent statements in `store/schema.ts` that runs on every start under an advisory lock.
+Once a store runs somewhere, a change is a new statement at the end of the list, such as `ALTER TABLE runs ADD COLUMN IF NOT EXISTS`, never an edit to the `CREATE TABLE`, which an existing table skips.
+Changes only add, because the old revision keeps serving while a new one starts.
+On `SIGTERM` it stops taking connections and finishes the requests in flight before it exits.
+It holds at most 5 database connections and stops any statement after 25 seconds.
+
+**Report runs to it**
+
+The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token.
+They post the event's properties as the scorecard, and a local run adds the host name of its box.
+The event and the store post are two independent writes from one payload, so the event stays the durable record when the store is down.
+A failed report prints `store: <problem>`, or a warning from the cloud controller, and never changes the status or the exit code.
+Without `SCENARIO_STORE_URL` the runner posts nothing and prints `store: not reported, SCENARIO_STORE_URL is not set`.
+
+`publish` posts saved runs from the state directory, such as runs the store missed:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>...
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish --all
+```
+
+It posts the scorecard event each run saved in its `scorecard.json`, and names `workflows` as the adapter of a run saved before runs named their adapters.
+`--all` skips run directories without a scorecard.
+It exits 3 when a run is not stored, and 2 when `SCENARIO_STORE_URL` is not set.
 
 ## Decisions
 

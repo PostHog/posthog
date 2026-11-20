@@ -9,9 +9,10 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
+from ..traces.tool_calls import called_tool_names
 from . import adapters
 from .adapters import AdaptedCheck
-from .measure import SampledTrace, TraceSample
+from .measure import SampledTrace, TraceSample, captures_output
 from .profile import DISPATCHER_SHARE, TeamProfile
 
 MIN_TOOL_CALL_SHARE = 0.1
@@ -25,13 +26,14 @@ MIN_DISPATCHER_TRACES = 5
 # Judges that a decision model can screen from the visible text of a turn. Hallucination, claimed
 # success and task outcome need evidence the text does not show, so they are never screened.
 PERSON_FACING_JUDGES = ("user_correction", "sentiment")
-INJECTION_JUDGE = "prompt_injection"
 
 
 @frozen
 class ContentProfile:
     traces: int
     text_share: float
+    # Traces whose model sent any output, a text answer or a tool call, so agents that end on a tool count.
+    output_share: float
     multi_turn_share: float
     spanning_days_share: float
     dispatcher_tools: tuple[str, ...]
@@ -40,10 +42,7 @@ class ContentProfile:
 def _tool_calls(sampled: SampledTrace) -> Counter[str]:
     calls: Counter[str] = Counter()
     for event in sampled.trace.events:
-        if event.event == "$ai_generation":
-            calls.update(
-                tool.strip() for tool in str(event.properties.get("$ai_tools_called") or "").split(",") if tool.strip()
-            )
+        calls.update(called_tool_names(event.event, event.properties.get("$ai_tools_called")))
     return calls
 
 
@@ -83,6 +82,7 @@ def content_profile(sample: TraceSample) -> ContentProfile:
     return ContentProfile(
         traces=count,
         text_share=share([bool(t.final_text.strip()) for t in traces]),
+        output_share=share([captures_output(t) for t in traces]),
         multi_turn_share=share([t.user_messages >= 2 for t in traces]),
         spanning_days_share=share([t.spans_days for t in traces]),
         dispatcher_tools=trace_dispatcher_tools(traces),
@@ -105,13 +105,14 @@ def applicable(profile: TeamProfile, content: ContentProfile) -> Applicability:
             adapters.repeated_tool_calls(adapters.skipped_repeat_tools(profile.tool_counts, sorted(dispatchers)))
         )
     if content.text_share >= MIN_TEXT_SHARE:
-        checks += [adapters.refusals(), adapters.sensitive_data()]
+        checks.append(adapters.refusals())
 
     judges: list[str] = []
     if content.text_share >= MIN_TEXT_SHARE:
         if content.multi_turn_share >= MIN_MULTI_TURN_SHARE:
             judges += PERSON_FACING_JUDGES
-        judges.append(INJECTION_JUDGE)
+        # Prompt injection is not screened: on real agent traffic the decision model flagged prompts and documents
+        # the model was asked to read, so its examples need the card's own judge to confirm them first.
     multi_turn_sessions = (
         profile.session_share >= MIN_SESSION_SHARE and content.multi_turn_share >= MIN_MULTI_TURN_SHARE
     )

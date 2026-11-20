@@ -24,6 +24,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -53,12 +54,9 @@ from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
-from products.replay_vision.backend.temporal.activities.check_scanner_budget import (
-    check_scanner_budget,
-    check_scanner_budget_activity,
-)
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
-from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
+from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates
 from products.replay_vision.backend.temporal.activities.sweep_scanner_tick import sweep_scanner_tick_activity
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
@@ -92,6 +90,7 @@ from products.replay_vision.backend.tests.helpers import (
     create_experiment,
     seed_scanner_spend,
     snapshot_for,
+    unsynced_allowance,
     update_experiment,
 )
 
@@ -183,13 +182,13 @@ def _seed_in_flight_observations(scanner: ReplayScanner, *, count: int) -> None:
     )
 
 
-# find_scanner_candidates_activity
+# find_scanner_candidates
 
 
 @pytest.mark.django_db(transaction=True)
 class TestFindScannerCandidatesActivity:
     def test_returns_empty_when_scanner_missing(self) -> None:
-        result = find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
+        result = find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     def test_an_experiment_scanner_without_a_creator_skips_before_any_read(self) -> None:
@@ -201,7 +200,7 @@ class TestFindScannerCandidatesActivity:
         scanner.save()
 
         with _patched_queries() as (fast_query, deep_query):
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -235,7 +234,7 @@ class TestFindScannerCandidatesActivity:
             _patched_queries() as (fast_query, deep_query),
             patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
         ):
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -274,7 +273,7 @@ class TestFindScannerCandidatesActivity:
             _patched_queries() as (fast_query, deep_query),
             patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
         ):
-            result = find_scanner_candidates_activity(inputs)
+            result = find_scanner_candidates(inputs)
 
         assert result.candidates == []
         assert not fast_query.called and not deep_query.called
@@ -282,7 +281,7 @@ class TestFindScannerCandidatesActivity:
         assert scanner.enabled is True
 
         with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
-            find_scanner_candidates_activity(inputs)
+            find_scanner_candidates(inputs)
 
         assert pause_scouts.called
         scanner.refresh_from_db()
@@ -311,7 +310,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (fast_query, _deep_query):
             fast_query.return_value.settle_cutoff = end
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -331,25 +330,21 @@ class TestFindScannerCandidatesActivity:
         )
 
         with _patched_queries():
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         scanner.refresh_from_db()
         assert scanner.enabled is True
 
     def test_returns_empty_when_scanner_belongs_to_other_team(self) -> None:
         scanner = _make_scanner()
-        result = find_scanner_candidates_activity(
+        result = find_scanner_candidates(
             FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id + 1)
         )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     def test_returns_empty_when_scanner_is_disabled(self) -> None:
         scanner = _make_scanner(enabled=False)
-        result = find_scanner_candidates_activity(
-            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     @parameterized.expand([("creator_left_org",), ("creator_deactivated",), ("no_ai_consent",)])
@@ -366,7 +361,7 @@ class TestFindScannerCandidatesActivity:
             Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
 
         with _patched_queries() as (fast_query, deep_query):
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -385,9 +380,7 @@ class TestFindScannerCandidatesActivity:
         # raise out of the activity and fail every scheduled tick forever. The skip also keeps the
         # watermark still, so access restored later resumes from where scanning stopped.
         scanner = _make_scanner(created_by=None, experiment_targeting={"experiment_id": 12345})
-        result = find_scanner_candidates_activity(
-            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     def test_proceeds_when_created_by_is_null(self) -> None:
@@ -397,7 +390,7 @@ class TestFindScannerCandidatesActivity:
         ) as MockQuery:
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert result.saturated is False
@@ -418,7 +411,7 @@ class TestFindScannerCandidatesActivity:
         ) as MockQuery:
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_a, candidate_b]
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -453,7 +446,7 @@ class TestFindScannerCandidatesActivity:
         ) as MockQuery:
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_ok, candidate_stuck]
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -467,9 +460,7 @@ class TestFindScannerCandidatesActivity:
         ) as MockQuery:
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         _, query_kwargs = MockQuery.call_args
         assert query_kwargs["last_seen_session_id"] == "prev-id"
@@ -489,7 +480,7 @@ class TestFindScannerCandidatesActivity:
         ) as MockQuery:
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = candidates
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -514,7 +505,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.matches_on_events.return_value = matches_on_events
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -547,9 +538,7 @@ class TestFindScannerCandidatesActivity:
         _settle_edit_clock(scanner)
 
         with _patched_queries() as (MockQuery, MockDeep):
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert MockDeep.called is expect_run
 
@@ -581,9 +570,7 @@ class TestFindScannerCandidatesActivity:
                         CandidateSession(session_id=f"deep-{i}", session_end=dt.datetime(2026, 5, 1, tzinfo=dt.UTC))
                         for i in range(DEFAULT_CANDIDATE_LIMIT)
                     ]
-                find_scanner_candidates_activity(
-                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-                )
+                find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
                 return bool(MockDeep.called)
 
         assert run_tick() is True
@@ -605,7 +592,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = batch
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -619,7 +606,7 @@ class TestFindScannerCandidatesActivity:
         _settle_edit_clock(scanner)
 
         with _patched_queries() as (MockQuery, MockDeep):
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -640,9 +627,7 @@ class TestFindScannerCandidatesActivity:
         assert scanner.deep_attempted_at is not None and scanner.updated_at > scanner.deep_attempted_at
 
         with _patched_queries() as (MockQuery, MockDeep):
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert MockDeep.call_args.kwargs["cursor_session_id"] is None
         assert MockDeep.call_args.kwargs["cursor_end_time"] is None
@@ -658,9 +643,7 @@ class TestFindScannerCandidatesActivity:
             _patched_queries() as (MockQuery, MockDeep),
             patch(f"{_ACTIVITY}._seconds_left", return_value=60.0),
         ):
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         MockDeep.assert_not_called()
         scanner.refresh_from_db()
@@ -680,9 +663,7 @@ class TestFindScannerCandidatesActivity:
         ReplayScanner.objects.filter(pk=scanner.pk).update(updated_at=attempted - dt.timedelta(hours=1))
 
         with _patched_queries() as (MockQuery, MockDeep):
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert MockDeep.call_args.kwargs["cursor_session_id"] == "stopped-here"
 
@@ -696,7 +677,7 @@ class TestFindScannerCandidatesActivity:
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
             MockDeep.return_value.run.side_effect = Exception("clickhouse timeout")
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -714,9 +695,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.matches_on_events.return_value = False
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         MockDeep.assert_called_once()
 
@@ -729,7 +708,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = [straggler]
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -752,7 +731,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockDeep.return_value.run.return_value = [straggler]
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
             )
 
@@ -774,7 +753,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
             )
 
@@ -800,7 +779,7 @@ class TestFindScannerCandidatesActivity:
 
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast
-            find_scanner_candidates_activity(
+            find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=limit)
             )
 
@@ -826,7 +805,7 @@ class TestFindScannerCandidatesActivity:
             )
 
         with _patched_queries() as (MockQuery, MockDeep):
-            find_scanner_candidates_activity(
+            find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
             )
 
@@ -864,7 +843,7 @@ class TestFindScannerCandidatesActivity:
         with _patched_queries() as (MockQuery, MockDeep):
             MockQuery.return_value.run.return_value = fast_batch
             MockDeep.return_value.run.return_value = batch
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -891,7 +870,7 @@ class TestFindScannerCandidatesActivity:
         ):
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = fetched
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -921,9 +900,7 @@ class TestFindScannerCandidatesActivity:
                 CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
             ]
             with pytest.raises(raised):
-                find_scanner_candidates_activity(
-                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-                )
+                find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
         scanner.refresh_from_db()
         assert (scanner.filter_error is not None) is (raised is ApplicationError)
 
@@ -935,9 +912,7 @@ class TestFindScannerCandidatesActivity:
         scanner.save(update_fields=["query"])
 
         with pytest.raises(ApplicationError) as exc_info:
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
+            find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
         assert exc_info.value.non_retryable is True
 
     @parameterized.expand(
@@ -958,7 +933,7 @@ class TestFindScannerCandidatesActivity:
         with _patched_queries() as (fast_query, _):
             fast_query.return_value.run_batch.side_effect = error
             with pytest.raises(ApplicationError if is_filter_error else type(error)) as exc_info:
-                find_scanner_candidates_activity(inputs)
+                find_scanner_candidates(inputs)
             scanner.refresh_from_db()
             if not is_filter_error:
                 assert scanner.filter_error is None
@@ -967,7 +942,7 @@ class TestFindScannerCandidatesActivity:
             assert scanner.filter_error == filter_error_message(error)
 
             fast_query.reset_mock()
-            find_scanner_candidates_activity(inputs)
+            find_scanner_candidates(inputs)
             assert not fast_query.return_value.run_batch.called
             scanner.refresh_from_db()
             assert scanner.sweep_pause_reason == SweepPauseReason.FILTER_ERROR
@@ -978,7 +953,7 @@ class TestFindScannerCandidatesActivity:
                 filter_error_at=timezone.now() - FILTER_ERROR_RECHECK - dt.timedelta(minutes=1)
             )
             _wire_batch(fast_query)
-            find_scanner_candidates_activity(inputs)
+            find_scanner_candidates(inputs)
             assert fast_query.return_value.run_batch.called
         scanner.refresh_from_db()
         assert scanner.filter_error is None
@@ -1009,7 +984,7 @@ class TestFindScannerCandidatesActivity:
             _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
             MockWindowed.return_value.run.return_value = primed
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
@@ -1033,7 +1008,7 @@ class TestFindScannerCandidatesActivity:
         ):
             _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert result.priming_candidates == []
@@ -1057,7 +1032,7 @@ class TestFindScannerCandidatesActivity:
         ):
             _wire_batch(MockFast)
             MockFast.return_value.run.return_value = fast
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
             )
         assert result.priming_candidates == []
@@ -1079,7 +1054,7 @@ class TestFindScannerCandidatesActivity:
         ):
             _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
-            result = find_scanner_candidates_activity(
+            result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert result.priming_candidates == []
@@ -1220,7 +1195,7 @@ class TestAdvanceScannerWatermarkActivity:
         assert scanner.scanner_version == original_version
 
 
-# check_scanner_budget_activity
+# check_scanner_budget
 
 
 @pytest.mark.parametrize(
@@ -1242,7 +1217,7 @@ class TestAdvanceScannerWatermarkActivity:
     ],
 )
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
+def test_check_scanner_budget_caps_and_advances_the_watermark(
     limit: int | None, spent_observations: int, free_only: bool, expect_capped: bool, org_limit: int
 ) -> None:
     scanner = _make_scanner(credit_limit=limit, free_only=free_only)
@@ -1254,8 +1229,8 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
     )
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
 
-    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+    with unsynced_allowance(credit_limit=org_limit):
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
     assert output.capped is expect_capped
@@ -1271,6 +1246,21 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
         assert scanner.last_swept_at == stale
         assert scanner.last_seen_session_id == "sess-old"
         assert scanner.deep_swept_through == stale
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unsynced_org_skips_the_tick_without_turning_off_or_skipping_sessions() -> None:
+    scanner = _make_scanner(free_only=True)
+    stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=stale, deep_swept_through=stale)
+
+    with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert output.capped is True
+    assert scanner.enabled and not scanner.sweep_pause_reason
+    assert (scanner.last_swept_at, scanner.deep_swept_through) == (stale, stale)
 
 
 @pytest.mark.parametrize(
@@ -1305,11 +1295,11 @@ def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
     inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
     ):
-        first = check_scanner_budget_activity(inputs)
-        second = check_scanner_budget_activity(inputs)
+        first = check_scanner_budget(inputs)
+        second = check_scanner_budget(inputs)
 
     assert first.capped is True and second.capped is True
     scanner.refresh_from_db()
@@ -1336,20 +1326,20 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
     inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
     ):
-        check_scanner_budget_activity(inputs)
+        check_scanner_budget(inputs)
     scanner.refresh_from_db()
     assert scanner.enabled is True
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
     ):
-        check_scanner_budget_activity(inputs)
+        check_scanner_budget(inputs)
     assert pause_scouts.called
     scanner.refresh_from_db()
     assert scanner.disabled_reason == ScannerDisabledReason.FREE_CREDITS_USED
@@ -1358,9 +1348,7 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
 @pytest.mark.parametrize("ceiling", ["scanner_limit", "org_limit"])
 @pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_turned_off(
-    case: str, ceiling: str
-) -> None:
+def test_check_scanner_budget_lets_an_unrunnable_scanner_through_to_be_turned_off(case: str, ceiling: str) -> None:
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit if ceiling == "scanner_limit" else None)
     if case == "creator_left_org":
@@ -1372,14 +1360,14 @@ def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
 
     org_limit = 1_000_000 if ceiling == "scanner_limit" else limit
-    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+    with unsynced_allowance(credit_limit=org_limit):
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is False
 
 
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advance_the_watermark() -> None:
+def test_check_scanner_budget_capped_by_in_flight_alone_does_not_advance_the_watermark() -> None:
     # Only adding in-flight reservations pushes this over the limit: a transient spike must skip
     # the tick without burning the permanent watermark advance.
     limit = 20 * _OBSERVATION_CREDITS
@@ -1393,7 +1381,7 @@ def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advanc
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=10)
     _seed_in_flight_observations(scanner, count=10)
 
-    output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+    output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
     assert output.capped is True
@@ -1403,7 +1391,7 @@ def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advanc
 
 
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_notify() -> None:
+def test_check_scanner_budget_capped_by_in_flight_alone_does_not_notify() -> None:
     # A transient in-flight-only cap may clear itself within minutes as reservations release;
     # notifying there could tell a user their scanner stopped when it's about to resume on its own.
     limit = 20 * _OBSERVATION_CREDITS
@@ -1412,21 +1400,21 @@ def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_notify
     _seed_in_flight_observations(scanner, count=10)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is True
     mock_notify.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_notifies_once_per_period_on_settled_exhaustion() -> None:
+def test_check_scanner_budget_notifies_once_per_period_on_settled_exhaustion() -> None:
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        first = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
-        second = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        first = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        second = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     # The pause is not conditional on the notification: both calls still report capped.
     assert first.capped is True
@@ -1456,7 +1444,7 @@ def test_limit_notification_mentions_a_running_backfill_only_when_there_is_one(h
         )
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     mock_notify.assert_called_once()
     body = mock_notify.call_args[0][0].body
@@ -1475,14 +1463,14 @@ def test_scanner_capped_last_period_is_uncapped_after_the_period_resets() -> Non
     ReplayObservationUsage.objects.filter(scanner_id=scanner.id).update(observation_created_at=last_period)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is False
     mock_notify.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
-def test_check_scanner_budget_activity_notifies_again_after_period_rolls_over() -> None:
+def test_check_scanner_budget_notifies_again_after_period_rolls_over() -> None:
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
@@ -1490,7 +1478,7 @@ def test_check_scanner_budget_activity_notifies_again_after_period_rolls_over() 
     ReplayScanner.objects.filter(pk=scanner.pk).update(limit_notified_period_start=prior_period)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is True
     mock_notify.assert_called_once()
@@ -1526,7 +1514,7 @@ def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
     )
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     mock_notify.assert_called_once()
     data = mock_notify.call_args[0][0]
@@ -1554,7 +1542,7 @@ def test_limit_notification_is_delivered_end_to_end() -> None:
         patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True),
         patch("products.notifications.backend.logic._publish_to_kafka"),
     ):
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is True
     event = stored_notification_for_resource(resource_type="replay_scanner", resource_id=str(scanner.id))
@@ -1573,7 +1561,7 @@ def test_failed_send_returns_the_notification_to_the_next_tick() -> None:
     with patch(
         "products.notifications.backend.facade.api.create_notification", side_effect=RuntimeError("pipeline down")
     ):
-        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
     assert scanner.limit_notified_period_start is None
@@ -1581,7 +1569,7 @@ def test_failed_send_returns_the_notification_to_the_next_tick() -> None:
     assert scanner.sweep_paused_until is None
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     mock_notify.assert_called_once()
     scanner.refresh_from_db()
@@ -1597,7 +1585,7 @@ def test_raising_the_limit_rearms_the_notification_for_the_same_period() -> None
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
     mock_notify.assert_called_once()
 
     # The user raises the limit; the serializer clears the stamp alongside.
@@ -1605,7 +1593,7 @@ def test_raising_the_limit_rearms_the_notification_for_the_same_period() -> None
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
-        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is True
     mock_notify.assert_called_once()
@@ -1633,7 +1621,7 @@ def test_first_sweep_after_a_pause_skips_the_window_only_where_blocked_ticks_use
     )
 
     with _patched_queries() as (MockQuery, _):
-        find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     swept_from = MockQuery.call_args.kwargs["last_swept_at"]
     if expect_skipped_window:
@@ -1689,7 +1677,7 @@ def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
 
     with (
         _patched_queries() as (MockQuery, _),
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch(
             "products.replay_vision.backend.temporal.activities.sweep_scanner_tick.check_scanner_budget",
             side_effect=RuntimeError("db down") if gate == "budget_check_fails" else check_scanner_budget,

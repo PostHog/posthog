@@ -5,6 +5,7 @@ import type {
     HeatmapFixedPositionMode,
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
+import type { ToolbarProject } from 'lib/toolbar/toolbarProject'
 
 import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCountContext'
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
@@ -81,6 +82,7 @@ export interface PageToolbarTokens {
     accessToken: string
     refreshToken: string | null
     clientId: string
+    project: ToolbarProject
 }
 
 export interface PageToolbarSession extends PageToolbarTokens {

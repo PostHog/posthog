@@ -15,8 +15,11 @@ from ..logic.eval_suggestions import (
     accept as eval_suggestion_accept,
     suggestions as eval_suggestions,
 )
+from ..logic.eval_suggestions.runs import OBSERVATION_KEYS
 from ..models.eval_suggestions import (
+    EvalFixProblem,
     EvalSuggestion as EvalSuggestionModel,
+    EvalSuggestionKind,
     EvalSuggestionRun as EvalSuggestionRunModel,
 )
 from ..temporal.eval_suggestions_client import TEAM_TIMEOUT, start_first_visit_run
@@ -79,7 +82,7 @@ def dismiss_eval_suggestion(
 ) -> contracts.EvalSuggestion:
     _find_eval_suggestion(team, access, suggestion_id)
     dismissed = eval_suggestion_accept.dismiss(
-        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team.pk, access)
+        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team, access)
     )
     return _to_eval_suggestion(dismissed)
 
@@ -104,7 +107,7 @@ def apply_eval_suggestion_fix(
 
 
 def _find_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: UUID) -> EvalSuggestionModel:
-    suggestion = eval_suggestions.find_suggestion(team.pk, access, suggestion_id)
+    suggestion = eval_suggestions.find_suggestion(team, access, suggestion_id)
     if suggestion is None:
         raise contracts.EvalSuggestionNotFoundError
     return suggestion
@@ -114,6 +117,12 @@ def _to_eval_suggestion_run(run: EvalSuggestionRunModel) -> contracts.EvalSugges
     return contracts.EvalSuggestionRun(
         id=run.id, trigger=run.trigger, created_at=run.created_at, completed_at=run.completed_at
     )
+
+
+def _fix_problem(suggestion: EvalSuggestionModel) -> str | None:
+    # fix_dedupe_key ends the key with the problem.
+    problem = suggestion.dedupe_key.rpartition(":")[2]
+    return problem if suggestion.kind == EvalSuggestionKind.FIX_EVAL and problem in EvalFixProblem.values else None
 
 
 def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSuggestion:
@@ -128,7 +137,9 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         headline=suggestion.headline,
         outcome=suggestion.outcome,
         reason=suggestion.reason,
-        draft=suggestion.draft,
+        observation=str(suggestion.draft.get("observation", "")),
+        observation_scope=str(suggestion.draft.get("observation_scope", "")),
+        draft={key: value for key, value in suggestion.draft.items() if key not in OBSERVATION_KEYS},
         filters=suggestion.filters,
         rollout_percentage=suggestion.rollout_percentage,
         measured_failure_rate=suggestion.measured_failure_rate,
@@ -140,6 +151,7 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         created_evaluation=suggestion.created_evaluation_id,
         target_evaluation=suggestion.target_evaluation_id,
         target_evaluation_name=target.name if target else None,
+        fix_problem=_fix_problem(suggestion),
         similar_evaluation=suggestion.similar_evaluation_id,
         similar_evaluation_name=similar.name if similar else None,
         dismiss_reason=suggestion.dismiss_reason,

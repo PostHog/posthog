@@ -24,8 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     build_capture_kwargs,
 )
 
-UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID  # type: ignore[attr-defined]
-TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
+UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID
+TIMED_OUT = KafkaError._TIMED_OUT
 
 hang = threading.Event()
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"

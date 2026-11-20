@@ -58,7 +58,6 @@ function DashboardImageTileInternal(
         <>
             <DashboardTileShell
                 transparent={isTransparent}
-                showResizeHandles={showResizeHandles}
                 className={clsx('DashboardTileCard DashboardImageTile flex flex-col', className)}
                 data-attr="image-tile"
                 {...divProps}

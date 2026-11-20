@@ -46,6 +46,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -59,6 +60,7 @@ _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
 _PINNED_KEY = "pinned"
+_PLAN_CLAMP_KEY = "plan_clamp"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -89,6 +91,10 @@ def node_identity(node: Node) -> NodeIdentity:
         warehouse_table_id=str(table_id) if table_id else None,
         is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
     )
+
+
+def nodes_declared_finer_than(interval: timedelta) -> QuerySet[Node]:
+    return Node.objects.filter(properties__system__frequency__target_seconds__lt=int(interval.total_seconds()))
 
 
 def get_declared_target(node: Node) -> timedelta | None:
@@ -178,9 +184,42 @@ def stage_declared_target(node: Node, target: timedelta | None) -> None:
     if target is None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
         frequency.pop(_PINNED_KEY, None)
+        frequency.pop(_PLAN_CLAMP_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
+
+
+def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -> None:
+    """Set the target to the plan floor and record the cadence it replaced, so the rewrite can be undone.
+
+    A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
+    """
+    previous = target_before_plan_floor_clamp(node.properties) or get_declared_target(node)
+    stage_declared_target(node, plan_floor)
+    frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
+    frequency[_PLAN_CLAMP_KEY] = {
+        "previous_target_seconds": int(previous.total_seconds()) if previous is not None else None,
+        "plan_floor_seconds": int(plan_floor.total_seconds()),
+        "at": at.isoformat(),
+    }
+
+
+def drop_plan_floor_clamp(node: Node) -> None:
+    (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
+
+
+def target_before_plan_floor_clamp(properties: Mapping[str, Any] | None) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced, or None when the node's target was not rewritten."""
+    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
+    seconds = clamp.get("previous_target_seconds")
+    return timedelta(seconds=seconds) if seconds is not None else None
+
+
+def target_before_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced on any of the saved query's nodes, or None when none was rewritten."""
+    nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
+    return next((target for node in nodes if (target := target_before_plan_floor_clamp(node.properties))), None)
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:
@@ -307,6 +346,7 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
     stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
 
@@ -318,6 +358,7 @@ class FrequencyGraph:
             declared_targets=self.declared_targets,
             source_intervals=self.source_intervals,
             pinned=self.pinned,
+            plan_floor=self.plan_floor,
         )
 
         def real(blocker: str | None) -> str | None:
@@ -426,6 +467,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         best_effort_source_ids=best_effort,
         names=names,
         identities=identities,
+        plan_floor=read_plan_refresh_floor(dag.team_id),
         managed_node_ids=managed_node_ids,
         stand_ins=stand_ins,
     )

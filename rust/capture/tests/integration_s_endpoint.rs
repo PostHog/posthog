@@ -139,6 +139,33 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::BAD_REQUEST,
             Box::new(form_data_base64_payload),
         ),
+        TestCase::new(
+            "post-form-data-base64-hinted-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            Some("base64"),
+            None,
+            "application/x-www-form-urlencoded",
+            StatusCode::OK,
+            Box::new(form_data_base64_payload),
+        ),
+        // posthog-js #5735 beacons: bare base64 text/plain body with the compression=base64 hint
+        TestCase::new(
+            "post-base64-text-plain-hinted-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            Some("base64"),
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(base64_payload),
+        ),
         // single event JSON payload submitted as POST form
         TestCase::new(
             "post-form-urlencoded-event-payload".to_string(),

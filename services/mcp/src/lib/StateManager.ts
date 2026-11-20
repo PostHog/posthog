@@ -13,9 +13,17 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogPermissionError,
     wrapError,
 } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
+import {
+    isProjectSecretKey,
+    PROJECT_SECRET_KEY_SCOPES,
+    PROJECT_SECRET_KEY_TOOLS,
+    PROJECT_SECRET_KEY_ACCESS_PATH,
+    PROJECT_SECRET_KEY_REMEDIATION,
+} from '@/lib/project-secret-key'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type {
@@ -23,6 +31,7 @@ import type {
     CachedOrg,
     CachedProject,
     CachedUser,
+    MetricCatalogContent,
     PinnedActiveContext,
     SessionScopedState,
     State,
@@ -39,6 +48,7 @@ const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
+const METRIC_CATALOG_TIMEOUT_MS = 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -112,7 +122,50 @@ export class StateManager {
         return this.lookups.get(this._cache.scope, 'user', () => this._fetchUser())
     }
 
+    private get _usesProjectSecretKey(): boolean {
+        return isProjectSecretKey(this._api.config?.apiToken)
+    }
+
+    private async _fetchProjectSecretKey(): Promise<NonNullable<State['apiKey']>> {
+        const projectId = this._pinned?.pin.projectId
+        if (!projectId) {
+            throw new MissingProjectContextError()
+        }
+        try {
+            await this._api.request({ method: 'GET', path: PROJECT_SECRET_KEY_ACCESS_PATH })
+        } catch (error) {
+            const denied = findPostHogPermissionError(error)
+            // The API answers 404 for a project ID that does not exist, which is the same mistake
+            // as naming a project the key does not belong to.
+            const refused = error instanceof PostHogApiError && (error.status === 403 || error.status === 404)
+            if (!denied && !refused) {
+                throw error
+            }
+            throw new PostHogPermissionError({
+                detail: denied?.detail ?? 'The project secret API key cannot read this project.',
+                missingScope: denied?.missingScope,
+                url: denied?.url ?? '',
+                method: denied?.method ?? '',
+                remediation: PROJECT_SECRET_KEY_REMEDIATION,
+            })
+        }
+        return {
+            scopes: [...PROJECT_SECRET_KEY_SCOPES],
+            scoped_teams: [Number(projectId)],
+            scoped_organizations: [],
+            is_impersonated: false,
+            suppress_analytics: false,
+            mcp_allowed_tools: [...PROJECT_SECRET_KEY_TOOLS],
+            user_distinct_id: `psak-${projectId}-${this._cache.scope.slice(0, 16)}`,
+            current_organization_id: null,
+            current_team_id: Number(projectId),
+        }
+    }
+
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
+        if (this._usesProjectSecretKey) {
+            return this._fetchProjectSecretKey()
+        }
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
             const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
@@ -188,8 +241,15 @@ export class StateManager {
             refreshable ? this._cache.get('apiKeyFetchedAt') : undefined,
         ])
 
-        if (cached && (!refreshable || !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS))) {
-            return cached
+        // The cache is keyed by token, so a project secret API key sent with another project ID
+        // would reuse the answer for the first project. The key belongs to one project only.
+        const usable =
+            cached && !(this._usesProjectSecretKey && String(cached.scoped_teams[0]) !== this._pinned?.pin.projectId)
+                ? cached
+                : undefined
+
+        if (usable && (!refreshable || !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS))) {
+            return usable
         }
 
         try {
@@ -202,7 +262,7 @@ export class StateManager {
             ])
             return apiKey
         } catch (error) {
-            if (!cached) {
+            if (!usable) {
                 throw error
             }
             // A failed refresh must not end a live session. Every API call is authorized again
@@ -213,7 +273,7 @@ export class StateManager {
                 this._reportException(error, 'api_key_refresh_failed')
             }
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
-            return cached
+            return usable
         }
     }
 
@@ -302,6 +362,9 @@ export class StateManager {
     }
 
     private async _fetchDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
+        if (this._usesProjectSecretKey) {
+            return { projectId: (await this.getApiKey()).scoped_teams[0] }
+        }
         // The owner's current project changes, and the OAuth key cache lives for the token's life.
         const [{ scoped_organizations, scoped_teams }, owner] = await Promise.all([
             this.getApiKey(),
@@ -393,13 +456,15 @@ export class StateManager {
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                team: 'posthog_ai',
-                context,
-                transport_failure: findTransportError(error)?.failure,
-                ...extra,
-                suppress_analytics: apiKey?.suppress_analytics === true,
+            getPostHogClient().captureException(error, {
+                properties: {
+                    tag: 'mcp',
+                    team: 'posthog_ai',
+                    context,
+                    transport_failure: findTransportError(error)?.failure,
+                    ...extra,
+                    suppress_analytics: apiKey?.suppress_analytics === true,
+                },
             })
         } catch {
             // Never let observability break the request.
@@ -554,6 +619,7 @@ export class StateManager {
         ttlMs?: number | ((cached: State[D]) => number)
         /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
         expectTimeouts?: boolean
+        discardOnError?: (cached: State[D]) => boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -581,6 +647,10 @@ export class StateManager {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            if (opts.discardOnError?.(cached)) {
+                await this._cache.delete(opts.cacheKey).catch(() => {})
+                return undefined as State[D]
+            }
             return cached
         }
     }
@@ -632,6 +702,10 @@ export class StateManager {
     }
 
     private async _getCachedOrFetchProjectById(projectId: string): Promise<CachedProject | undefined> {
+        // No project secret API key scope reads the project itself.
+        if (this._usesProjectSecretKey) {
+            return undefined
+        }
         return this.getOrFetchCached({
             name: 'project',
             cacheKey: `cachedProject:${projectId}` as const,
@@ -707,6 +781,26 @@ export class StateManager {
         })
     }
 
+    async getOrFetchMetricCatalog(projectId: string): Promise<MetricCatalogContent | undefined> {
+        return this.getOrFetchCached({
+            name: 'metric_catalog',
+            cacheKey: `metricCatalog:${projectId}` as const,
+            fetchedAtKey: `metricCatalogFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const availability = await this._api.request<Schemas.MetricAvailability>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/data_catalog/metric_availability/`,
+                    timeoutMs: METRIC_CATALOG_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(METRIC_CATALOG_TIMEOUT_MS),
+                })
+                return { hasMetrics: availability.has_metrics }
+            },
+            expectTimeouts: true,
+            // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
+            discardOnError: (cached) => cached?.hasMetrics === false,
+        })
+    }
+
     /**
      * The third-party MCP tools this user can reach, from the gateway.
      *
@@ -735,6 +829,9 @@ export class StateManager {
         projectUuid?: string
         projectName?: string
     }> {
+        if (this._usesProjectSecretKey) {
+            return { projectId: await this.getProjectId() }
+        }
         const [orgId, project] = await Promise.all([
             this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
             this.getCachedOrFetchProject().catch(() => undefined),
@@ -764,6 +861,9 @@ export class StateManager {
      * Any failure resolves to `undefined` so callers keep failing closed.
      */
     private async getOrgField<T>(extract: (org: OrgEntitlementFields) => T): Promise<T | undefined> {
+        if (this._usesProjectSecretKey) {
+            return undefined
+        }
         try {
             const org = await this.getCachedOrFetchOrg()
             if (org) {

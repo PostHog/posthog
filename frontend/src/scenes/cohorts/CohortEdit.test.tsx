@@ -14,7 +14,9 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -797,6 +799,82 @@ describe('cohortEditLogic', () => {
                 expect(dropzone).not.toBeInTheDocument()
                 expect(addUsersMenu).toBeInTheDocument()
             }
+        })
+    })
+
+    describe('remove person from a static cohort', () => {
+        const personId = '0190f2a4-5c03-0000-0000-000000000001'
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        function staticCohortMocks(cohortId: number, select: string[], row: unknown[]): Mocks {
+            return {
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count: 1,
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': {
+                        columns: select,
+                        results: [row],
+                        hasMore: false,
+                    },
+                },
+            }
+        }
+
+        async function renderStaticCohortWithColumns(cohortId: number, select: string[]): Promise<HTMLElement> {
+            render(<CohortEdit id={cohortId} />)
+            const logic = cohortEditLogic({ id: cohortId })
+            act(() => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...logic.values.query.source, select },
+                } as DataTableNode)
+            })
+
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="remove-person-from-cohort"]')).toBeInTheDocument()
+            )
+            return document.querySelector('[data-attr="remove-person-from-cohort"]') as HTMLElement
+        }
+
+        it('removes the person when the ID column comes first', async () => {
+            const select = ['id', 'person_display_name -- Person', 'created_at', 'person.$delete']
+            const row = [personId, { display_name: 'someone@example.com', id: personId }, '2024-01-01T00:00:00Z', null]
+            let removedPersonId: string | undefined
+            useMocks({
+                ...staticCohortMocks(31, select, row),
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/remove_person_from_static_cohort/': async ({ request }) => {
+                        removedPersonId = ((await request.json()) as { person_id: string }).person_id
+                        return { success: true }
+                    },
+                },
+            })
+            const removeButton = await renderStaticCohortWithColumns(31, select)
+
+            await userEvent.click(removeButton)
+            const dialog = await screen.findByRole('dialog')
+            expect(within(dialog).getByText(/Are you sure you want to remove/)).toHaveTextContent('someone@example.com')
+            await userEvent.click(within(dialog).getByText('Remove'))
+
+            await waitFor(() => expect(removedPersonId).toEqual(personId))
+        })
+
+        it('disables Remove when no column identifies the person', async () => {
+            const select = ['created_at', 'person.$delete']
+            useMocks(staticCohortMocks(32, select, ['2024-01-01T00:00:00Z', null]))
+            const removeButton = await renderStaticCohortWithColumns(32, select)
+
+            expect(removeButton).toHaveAttribute('aria-disabled', 'true')
         })
     })
 

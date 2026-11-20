@@ -73,7 +73,7 @@ SkipReason = Literal[
 
 SKIP_REASON_LABELS: dict[SkipReason, str] = {
     "function_not_replayable": "Disabled, deleted, or of a type that cannot be re-run",
-    "sends_sensitive_email": "Workflow sends sensitive email, whose message data is not stored",
+    "sends_sensitive_email": "Workflow sends a sensitive email or push notification, whose message data is not stored",
     "already_rerun": "Already re-run once",
     "already_delivered": "The same event was delivered by a later run",
     "superseded_by_later_success": "A later run for the same person succeeded",

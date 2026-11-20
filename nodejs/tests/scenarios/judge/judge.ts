@@ -3,11 +3,13 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import type { ResidentBacklog } from '../backlog/backlog'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
-import { INVARIANTS, deliveryKey } from './invariants'
+import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
+import type { JudgeEvidence } from './invariants'
 
 export type IntakeAnswer =
     | { accepted: true }
@@ -21,6 +23,7 @@ export type JournalEntry = {
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
+    step?: number
     answer: IntakeAnswer
     expect: { deliveries: string[] }
     followUp?: FollowUpAnswer
@@ -35,13 +38,16 @@ export type InvariantResult = {
     gate?: number
     violation?: string
     unitIds: string[]
+    crossedBy?: string
 }
+
+export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
 
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
 }
 
@@ -49,11 +55,19 @@ export type JudgeOptions = {
     edgeUrl: string
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
+    residentBacklog?: () => Promise<ResidentBacklog>
     pollMs?: number
     now?: () => number
 }
 
-export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
+export function createJudge({
+    edgeUrl,
+    probe,
+    fetchRetries,
+    residentBacklog,
+    pollMs = 1000,
+    now = Date.now,
+}: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -124,14 +138,18 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now =
             }
         },
 
-        async check(invariants, gates) {
+        async check(invariants, gates, run) {
             await pullTruth()
+            const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
+                ? await residentBacklog?.()
+                : undefined
             return invariants.map(({ name }) => {
                 const definition = INVARIANTS.find((invariant) => invariant.name === name)
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                return { name, gate: gates[name], ...definition.check({ journal, truth, fetchRetries }, gates[name]) }
+                const evidence = { journal, truth, fetchRetries, resident, ...run }
+                return { name, gate: gates[name], ...definition.check(evidence, gates[name]) }
             })
         },
 

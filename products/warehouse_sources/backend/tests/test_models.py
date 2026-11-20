@@ -161,6 +161,40 @@ class TestExternalDataSchemaSave(BaseTest):
         schema.refresh_from_db()
         assert schema.should_sync is True
 
+    @parameterized.expand(
+        [
+            ("warehouse_disable_pauses", ExternalDataSource.AccessMethod.WAREHOUSE, False, True, True),
+            ("direct_disable_pauses_leftover_schedule", ExternalDataSource.AccessMethod.DIRECT, False, True, True),
+            ("direct_disable_without_schedule", ExternalDataSource.AccessMethod.DIRECT, False, False, False),
+            ("direct_enable_leaves_schedule_paused", ExternalDataSource.AccessMethod.DIRECT, True, True, False),
+        ]
+    )
+    def test_disabling_pauses_an_existing_schedule(
+        self, _name, access_method, should_sync, schedule_exists, expect_pause
+    ) -> None:
+        source = self._source()
+        source.access_method = access_method
+        source.save()
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=source, name="orders", should_sync=not should_sync
+        )
+        service = "products.data_warehouse.backend.logic.data_load.service"
+
+        with (
+            patch(f"{service}.external_data_workflow_exists", return_value=schedule_exists),
+            patch(f"{service}.pause_external_data_schedule") as mock_pause,
+            patch(f"{service}.unpause_external_data_schedule") as mock_unpause,
+            patch(f"{service}.sync_external_data_job_workflow") as mock_create,
+        ):
+            update_should_sync(schema_id=str(schema.id), team_id=self.team.pk, should_sync=should_sync)
+
+        assert mock_pause.called is expect_pause
+        if access_method == ExternalDataSource.AccessMethod.DIRECT:
+            assert not mock_unpause.called
+            assert not mock_create.called
+        schema.refresh_from_db()
+        assert schema.should_sync is should_sync
+
 
 class TestExternalDataSchemaActivityLogging(BaseTest):
     """Internal pipeline-driven bookkeeping saves must bypass ModelActivityMixin so they neither

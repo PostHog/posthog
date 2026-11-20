@@ -61,6 +61,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
+_SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
@@ -1127,12 +1128,22 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param("x", id="plain_prompt"),
+        pytest.param(
+            "Run: SELECT toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS h, count() FROM events WHERE {{date_range}} GROUP BY h",
+            id="interval_used_for_bucketing",
+        ),
+    ],
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
 async def test_unfrozen_run_returns_plan_to_persist(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock, prompt: str
 ) -> None:
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
     # so the next delivery is deterministic. The envelope must carry the plan AND the relevant_events it
@@ -1152,7 +1163,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist == {
         "version": AI_QUERY_PLAN_VERSION,
@@ -1163,16 +1174,19 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
 
 @pytest.mark.parametrize(
-    "total_steps,failed_count,should_freeze",
+    "total_steps,failed_count,coverage_complete,should_freeze",
     [
-        (12, 0, True),  # all succeeded
-        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
-        (12, 6, False),  # half failed
-        (12, 12, False),  # all failed
-        (1, 1, False),  # the single step failed
+        (12, 0, True, True),  # all succeeded
+        (12, 1, True, False),  # a single step failed — re-plan rather than replay one broken query every run
+        (12, 6, True, False),  # half failed
+        (12, 12, True, False),  # all failed
+        (1, 1, True, False),  # the single step failed
+        (12, 0, False, False),  # all succeeded, but the plan still misses a coverage item
     ],
 )
-def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+def test_plan_to_freeze_requires_no_failures(
+    total_steps: int, failed_count: int, coverage_complete: bool, should_freeze: bool
+) -> None:
     # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
     # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
     # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
@@ -1191,6 +1205,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         total_steps=total_steps,
         relevant_events=["export created"],
         trace_correlation_id=None,
+        coverage_complete=coverage_complete,
     )
     if should_freeze:
         assert result == {
@@ -1315,13 +1330,19 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
-    "spec,run_result",
+    "spec,run_result,prompt",
     [
         # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
-        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, "x", id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
-        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
-        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
+        pytest.param(_spec(steps=1), _OK_RUN, "x", id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, "x", id="no_step_found_data"),
+        pytest.param(
+            _spec_with_window_placeholder(),
+            _OK_RUN,
+            "Run exactly: SELECT count() FROM ci_jobs WHERE created_at >= today() - INTERVAL 21 DAY",
+            id="prompt_sets_own_date_bounds",
+        ),
     ],
 )
 @patch(_SLO_CAPTURE)
@@ -1335,6 +1356,7 @@ async def test_unfreezable_plans_are_not_frozen(
     _mock_capture: MagicMock,
     spec: EnrichedPromptSpec,
     run_result: tuple,
+    prompt: str,
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
@@ -1344,7 +1366,7 @@ async def test_unfreezable_plans_are_not_frozen(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist is None
     assert result.query_plan_status == AIQueryPlanStatus.NOT_FROZEN

@@ -264,6 +264,7 @@ describe('DashboardItems', () => {
                     isEditablePlacement: canEditDashboard,
                     canEditLayout: canEditDashboard,
                     tileGroupSections: [],
+                    tileDisplayOptionsSavingIds: [],
                 }
             }
 
@@ -385,7 +386,7 @@ describe('DashboardItems', () => {
         it.each([
             { name: 'with nothing over the grid', overrides: {}, undoes: true },
             { name: 'while the text tile modal is open', overrides: { showTextTileModal: true }, undoes: false },
-            { name: 'while a tile is carried', overrides: { carryingTile: true }, undoes: false },
+            { name: 'while a tile is carried', overrides: { carryingTile: 'move' }, undoes: false },
             {
                 name: 'on an embedded dashboard',
                 overrides: { placement: DashboardPlacement.ProjectHomepage },
@@ -839,9 +840,10 @@ describe('DashboardItems', () => {
         )
 
         it.each([
-            { layout: 'bands', overrides: {}, item: 'Rename group' },
-            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab' },
-        ])('renames a group from the group menu in $layout', async ({ overrides, item }) => {
+            { layout: 'bands', overrides: {}, item: 'Rename group', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'menu' },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, item: 'Rename tab', opener: 'right-click' },
+        ])('renames a group from the $opener in $layout', async ({ overrides, item, opener }) => {
             showBands(overrides)
             const bandValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) =>
@@ -853,7 +855,11 @@ describe('DashboardItems', () => {
             )
 
             const { container, findByText, findByDisplayValue, rerender, unmount } = render(<DashboardItems />)
-            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            if (opener === 'right-click') {
+                fireEvent.contextMenu(within(container).getByText('Plans'))
+            } else {
+                fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
+            }
             fireEvent.click(await findByText(item))
             expect(mockSetRenamingTileGroupKey).toHaveBeenCalledWith('plans')
 

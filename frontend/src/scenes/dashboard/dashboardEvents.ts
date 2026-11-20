@@ -202,6 +202,13 @@ export function reportDashboardEmptyWebAnalyticsClicked(dashboardId: number | un
     })
 }
 
+export function reportDashboardEmptyWriteSqlClicked(dashboardId: number): void {
+    posthog.capture('dashboard empty write sql clicked', {
+        dashboard_id: dashboardId,
+        source: 'web',
+    })
+}
+
 export function reportDashboardAddMenuOpened(source: 'header', dashboardId: number): void {
     posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
 }

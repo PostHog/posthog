@@ -18,20 +18,18 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
-from posthog.scopes import (
-    API_SCOPE_ACTIONS,
-    API_SCOPE_OBJECTS,
-    INTERNAL_API_SCOPE_OBJECTS,
-    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
-)
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
+from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
@@ -41,7 +39,7 @@ if EE_AVAILABLE:
 
 logger = structlog.get_logger(__name__)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -72,6 +70,28 @@ def _enforce_caller_may_grant_billing_read(request: Request, organization: Organ
             "Only someone with full access to the organization's billing can give a project secret API key "
             "the billing:read scope."
         )
+
+
+def _enforce_caller_may_grant_business_knowledge_read(request: Request, team: Team, scopes: Iterable[str]) -> None:
+    """A key reads business knowledge with no user to check, so the access rules that apply to people
+    run here, on the person who grants the scope."""
+    if "business_knowledge:read" not in scopes:
+        return
+    # The parent project owns the knowledge, so its rules decide for every environment.
+    access = UserAccessControl(
+        user=cast(User, request.user), team=team.parent_team or team, organization_id=str(team.organization_id)
+    )
+    if not access.check_access_level_for_resource("business_knowledge", "viewer"):
+        raise PermissionDenied(
+            "You need access to business knowledge in this project to give a project secret API key "
+            "the business_knowledge:read scope."
+        )
+
+
+def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
+    team = key.team
+    tokens = (team.secret_api_token, team.secret_api_token_backup)
+    return any(token and key.secure_value == hash_key_value(token) for token in tokens)
 
 
 def _enforce_gateway_bans(request: Request, team) -> None:
@@ -177,6 +197,15 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         added = [scope for scope in scopes if scope not in existing]
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
+        _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
+        # Every project member can read the legacy secret token, so the check on the person who grants
+        # the scope does not limit who ends up holding this key.
+        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
+            raise serializers.ValidationError(
+                "This key is the project's legacy secret token, which every project member can read. "
+                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
+            )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
         return scopes
@@ -242,26 +271,40 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     )
 
 
+def retire_leaked_team_secret_token(team_id: int, token: str) -> bool:
+    """Record a leaked legacy token's hash and replace a widget signing secret still
+    carrying it. The hash keeps the pre-drop rerun of the #63111 backfill from minting a
+    fresh mirror row for the value. Returns whether the signing secret was replaced."""
+    # Lazy: conversations imports posthog.api modules at load time.
+    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
+    # One transaction: the revoked hash and the signing secret change commit together.
+    with transaction.atomic():
+        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
+            team_id=team_id, secure_value=hash_key_value(token)
+        )
+        return retire_leaked_signing_secret(team_id, token)
+
+
 def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:
     """Revoke an exposed key the right way for what it actually is, and return whether it
     was a mirrored legacy team token.
 
     A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
-    is the revocation (rolling would mint an unrelated key that later rotation cannot
-    clean up), and the admins must still rotate the legacy token itself. Any other key
-    gets the ordinary roll-and-notify.
+    is the revocation (rolling would leave a new live key the team never asked for).
+    Any other key gets the ordinary roll-and-notify.
     """
     team = project_secret_api_key.team
     for token in (team.secret_api_token, team.secret_api_token_backup):
         if token and project_secret_api_key.secure_value == hash_key_value(token):
             with transaction.atomic():
-                # Remember the hash: the pre-drop rerun of the #63111 backfill must not
-                # give this still-unrotated leaked token a fresh mirror row.
-                RevokedTeamSecretToken.objects.for_team(team.id).get_or_create(
-                    team_id=team.id, secure_value=project_secret_api_key.secure_value
-                )
                 project_secret_api_key.delete()
-            send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+                # In the same transaction: once the row is gone a retried report finds no
+                # PSAK and would never retire a signing secret still mirroring the value.
+                signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+            send_feature_flags_secure_api_key_exposed(
+                team.id, mask_key_value(token), more_info, signing_secret_replaced
+            )
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
     return False
@@ -290,6 +333,7 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         _enforce_caller_holds_scopes(request, instance.scopes or [])
         # Rolling hands back a usable secret, so it needs what granting the scopes needs.
         _enforce_caller_may_grant_billing_read(request, self.team.organization, instance.scopes or [])
+        _enforce_caller_may_grant_business_knowledge_read(request, self.team, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

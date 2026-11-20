@@ -82,6 +82,9 @@ tools:
         exclude_params:
             - client_secret
             - account_id
+            - created_via
+        inject_body:
+            created_via: mcp
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -195,7 +198,7 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Refresh candidate incremental fields for a schema
@@ -353,6 +356,33 @@ tools:
                 aliases:
                     - schema_id
                     - schemaId
+    external-data-sources-add-table:
+        operation: external_data_sources_add_table_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add a table to an object storage source
+        description: >
+            Add one table to an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare
+            R2) from the path of its files. Use this for object storage sources, where a table is a folder, a file or a
+            wildcard pattern in the bucket, and always for a source whose source refresh
+            ('external-data-sources-refresh-schemas') fails because it reads tables from anywhere in its bucket. The
+            path is relative to the folder of the source's files URL (such as events/ or events/2026/*.parquet), or a
+            full URL inside that folder. A source whose files URL names one file or a pattern can't add tables (its
+            supports_adding_tables is false). PostHog lists only that location to check that it holds files the key can
+            read. It does not sync data. The new table is created turned off: to start syncing it, set should_sync to
+            true with 'external-data-schemas-partial-update' on the returned schema id. A 400 names the field to fix in
+            'attr': 'name' when another table of the source has the name, 'path' when the location is outside the
+            source's bucket or folder, holds no importable files, or can't be read.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-bulk-update-schemas:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: true
@@ -414,7 +444,7 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Check Postgres CDC prerequisites
@@ -759,7 +789,10 @@ tools:
         description: >
             Fetch the latest table list from the remote database and create schema entries for any new tables found.
             This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for
-            that). Use this after adding new tables to a source database to make them available for syncing.
+            that). Use this after adding new tables to a source database to make them available for syncing. It fails
+            with a 400 for an object storage source that reads tables from anywhere in its bucket (the source's
+            supports_table_discovery is false): add each table of such a source by its path with
+            'external-data-sources-add-table' instead.
         exclude_params:
             - client_secret
             - account_id

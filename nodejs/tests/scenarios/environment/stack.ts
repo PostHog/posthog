@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync } from 'fs'
+import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
@@ -8,9 +8,11 @@ import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
+import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
-import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
+import { signal as sendSignal } from './processes'
+import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
 
@@ -29,60 +31,112 @@ export const STACK = {
 
 export type Hogli = { command: string; cwd: string }
 
+const HOGLI_STOP_GRACE_MS = 5000
+
 async function hogliExit(
     hogli: Hogli,
     args: string[],
     logFile: string,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
 ): Promise<number | null> {
+    signal.throwIfAborted()
     const log = openSync(logFile, 'a')
-    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log] })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], detached: true })
     closeSync(log)
-    return await new Promise<number | null>((resolve, reject) => {
-        child.once('error', reject)
-        child.once('exit', resolve)
-    })
+    const stopGroup = (sig: NodeJS.Signals): void => {
+        if (child.pid !== undefined) {
+            sendSignal(-child.pid, sig)
+        }
+    }
+    let kill: NodeJS.Timeout | undefined
+    const abort = (): void => {
+        stopGroup('SIGTERM')
+        kill = setTimeout(() => stopGroup('SIGKILL'), HOGLI_STOP_GRACE_MS)
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+            child.once('error', reject)
+            child.once('exit', resolve)
+        })
+        if (signal.aborted) {
+            stopGroup('SIGKILL')
+            signal.throwIfAborted()
+        }
+        return code
+    } finally {
+        signal.removeEventListener('abort', abort)
+        clearTimeout(kill)
+    }
 }
 
-async function runHogli(hogli: Hogli, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
-    const code = await hogliExit(hogli, args, logFile, env)
+async function runHogli(
+    hogli: Hogli,
+    args: string[],
+    logFile: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    const code = await hogliExit(hogli, args, logFile, env, signal)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
 }
 
 const NOT_REACHABLE = 3
+const FIRST_START_TIMEOUT_S = 3600
 
-export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+const STACK_UNITS = {
+    intents: ['product_analytics', 'workflows'],
+    exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
+}
+
+export async function startStack(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv)
+    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
     }
     if (waited !== NOT_REACHABLE) {
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
-    await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
-    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await runHogli(hogli, ['wait'], logFile, hogliEnv)
+    writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
+    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
 }
 
-export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+export async function syncTemplates(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env, signal)
 }
 
 export async function withPostgres<T>(
     run: (client: Client) => Promise<T>,
-    connectionString = STACK.postgresUrl
+    connectionString = STACK.postgresUrl,
+    statementTimeoutMs = PROBE_TIMEOUT_MS
 ): Promise<T> {
     const client = new Client({
         connectionString,
         connectionTimeoutMillis: PROBE_TIMEOUT_MS,
-        query_timeout: PROBE_TIMEOUT_MS,
-        statement_timeout: PROBE_TIMEOUT_MS,
+        query_timeout: statementTimeoutMs,
+        statement_timeout: statementTimeoutMs,
     })
+    // The server can end the connection between queries, as a failover or a terminated backend does. Without
+    // a listener the client throws that from an event handler and takes the process down.
+    client.on('error', () => undefined)
     try {
         await client.connect()
         return await run(client)
@@ -108,6 +162,16 @@ export function scratchSchema(connectionString: string, schema: string, tables: 
                 for (const table of tables) {
                     await client.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
                 }
+                const { rows } = await client.query<{ type: string }>(
+                    `SELECT DISTINCT t.typname AS type
+                     FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+                     WHERE a.attrelid = ANY($1::regclass[]) AND t.typtype = 'e'
+                       AND t.typnamespace = 'public'::regnamespace`,
+                    [tables.map((table) => `public.${table}`)]
+                )
+                for (const { type } of rows) {
+                    await client.query(`CREATE DOMAIN ${schema}.${type} AS public.${type}`)
+                }
             }, connectionString),
         drop: async () => {
             await withPostgres((client) => client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`), connectionString)
@@ -131,16 +195,19 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(docker: string, args: string[]): Promise<string> {
-    try {
-        const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
-            timeout: 10_000,
-        })
-        return stdout
-    } catch (error) {
+export async function rpkOrThrow(docker: string, args: string[], signal?: AbortSignal): Promise<string> {
+    const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        timeout: 10_000,
+        signal,
+    })
+    return stdout
+}
+
+export function rpk(docker: string, args: string[]): Promise<string> {
+    return rpkOrThrow(docker, args).catch((error: unknown) => {
         const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string }
         return `${stdout}${stderr}` || String(error)
-    }
+    })
 }
 
 export async function groupMembers(group: string, docker: string): Promise<number> {
@@ -230,20 +297,33 @@ export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
+export const RESIDENT_TEAMS_FROM = TEST_IDS_BELOW
+
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
-        (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),
+        (client) =>
+            client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running') AND team_id < $1", [
+                RESIDENT_TEAMS_FROM,
+            ]),
         cyclotronUrl
     )
 }
 
-export async function terminateRoleConnections(postgresUrl: string, share: number): Promise<number> {
+export type Sessions = { names: string[]; prefix: string }
+
+const ROLE_SESSIONS: Sessions = { names: Object.keys(ROLE_PORTS), prefix: SCENARIO_SESSION_PREFIX }
+
+export async function terminateRoleConnections(
+    postgresUrl: string,
+    share: number,
+    { names, prefix }: Sessions = ROLE_SESSIONS
+): Promise<number> {
     return await withPostgres(async (client) => {
         const { rows } = await client.query<{ pid: number }>(
             `SELECT pid FROM pg_stat_activity
-             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
+             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR starts_with(application_name, $2))
              ORDER BY random()`,
-            [Object.keys(ROLE_PORTS)]
+            [names, prefix]
         )
         const chosen = rows.slice(0, Math.ceil(share * rows.length)).map(({ pid }) => pid)
         const terminated = await client.query<{ terminated: number }>(
@@ -254,16 +334,16 @@ export async function terminateRoleConnections(postgresUrl: string, share: numbe
     }, postgresUrl)
 }
 
-export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
+export async function rolesNotReady(specs: RoleSpec[]): Promise<RoleSpec[]> {
     const results = await Promise.all(
-        specs.map(({ role }) =>
-            expectOk(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`).then(
+        specs.map((spec) =>
+            expectOk(`http://127.0.0.1:${spec.port}/_health`).then(
                 () => null,
-                () => role
+                () => spec
             )
         )
     )
-    return results.filter((role): role is Role => role !== null)
+    return results.filter((spec): spec is RoleSpec => spec !== null)
 }
 
 export async function forgetSesBucket({ host, port }: { host: string; port: number }): Promise<void> {

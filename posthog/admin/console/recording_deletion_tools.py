@@ -472,7 +472,7 @@ class RecordingDeletionsTool(ConsoleTool):
     key = TOOL_KEY
     title = "Recording deletions"
     owner = REPLAY
-    group = "Data"
+    group = "Data deletion"
     description = "The recording deletions of one team, followed in Temporal, and their deletion certificates."
 
     def _team(self, request: HttpRequest) -> Team | None:

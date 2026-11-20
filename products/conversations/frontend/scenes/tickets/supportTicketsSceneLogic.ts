@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { todayPeopleRowLabel } from '~/layout/today/todayPeopleRows'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Breadcrumb, TeamType } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import { assigneeSelectLogic } from '../../components/Assignee'
 import {
@@ -211,7 +212,7 @@ export interface SupportTicketsSceneLogicProps {
 export interface supportTicketsSceneLogicValues {
     unreadCount: number // supportTicketCounterLogic
     peoplePaneLinksTabs: boolean // todayShellLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     activeView: SavedTicketView | null
     aiEnabled: boolean
     aiTriageResultFilter: AITriageFilterValue[]
@@ -366,13 +367,13 @@ export interface supportTicketsSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (activeView: SavedTicketView | null, peoplePaneLinksTabs: boolean) => Breadcrumb[]
-        aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
+        aiEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         deletableSelectedTicketIds: (
             selectedTickets: Ticket[],
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => string[]
         bulkDeleteDisabledReason: (
             selectedTicketIds: string[],

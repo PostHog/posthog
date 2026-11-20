@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='tombstone_persons_by_ids_lock_distinct_ids' */\n        SELECT id FROM posthog_persondistinctid\n        WHERE team_id = $1 AND person_id = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "42f445598aed10737bac26ecc1f04c3aef42f2ff54709bdc84c600427ce4a282"
+}

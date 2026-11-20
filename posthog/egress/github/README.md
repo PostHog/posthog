@@ -22,6 +22,8 @@ GraphQL routes to `core`. GitHub meters GraphQL by points, which a request count
 
 ## Lanes and callers
 
+Tasks validates PR links for Slack runs without a preset repository on `NORMAL`, with source `tasks_slack_pr` and the run's GitHub credentials.
+
 All three budgets use the default reserve ladder.
 Every GitHub client (`GitHubIntegration`, `UserGitHubIntegration`, `GitHubIntegration.first_for_team_repository`) and every `github_request` call must pass `priority` and `source`.
 There is no default lane and no default source, so a new caller has to pick both.

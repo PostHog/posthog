@@ -145,6 +145,32 @@ REVERB_ENDPOINTS: dict[str, ReverbEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "Negotiations": ReverbEndpointConfig(
+        name="Negotiations",
+        path="/my/listings/negotiations",
+        # Reverb groups active offers under the listing they are for, so select every listing's
+        # negotiations to get one row per offer.
+        response_key="listings[*].negotiations[*]",
+        primary_keys=["id"],
+        partition_key="created_at",
+        # Reverb returns only active offers here and documents no date window, so it stays full
+        # refresh: the table is a snapshot of the open offers.
+    ),
+    "Conversations": ReverbEndpointConfig(
+        name="Conversations",
+        path="/my/conversations",
+        response_key="conversations",
+        primary_keys=["id"],
+        # A conversation has no creation time of its own, only the time of its last message.
+        partition_key=None,
+    ),
+    "ReceivedFeedback": ReverbEndpointConfig(
+        name="ReceivedFeedback",
+        path="/my/feedback/received",
+        response_key="feedbacks",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
 }
 
 ENDPOINTS = tuple(REVERB_ENDPOINTS.keys())

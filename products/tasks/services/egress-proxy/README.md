@@ -1,8 +1,259 @@
 # Agent egress
 
-This module verifies run capabilities and relays HTTP requests to one configured endpoint.
+The regional proxy verifies run capabilities against the Tasks registry.
+The relay forwards HTTP requests to one configured regional endpoint using mTLS.
+The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
+The probe rejects declared or streaming request bodies without waiting for their contents.
 Tasks owns registration and capability issuance.
-The registry client and cache are available; the runnable service, sandbox wiring and credential injection are still to come.
+A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. An opt-in observation mode runs the same probe on an existing Tasks VM. Agent traffic and upstream credentials still use their current paths.
+
+## Probe a real development VM
+
+`probe_agent_egress` runs synthetic requests for an active development TaskRun without repositories or an existing sandbox.
+It requires `DEBUG=1` and `SANDBOX_PROVIDER=MODAL_DOCKER`. It does not start an agent or mint upstream credentials.
+
+```text
+Trusted controller -> Modal control API -> relay generates key and CSR
+Trusted controller -> sign CSR -> register execution -> deliver guest capability
+Guest -> private sidecar HTTP -> mTLS -> regional /v1/probe
+Trusted controller -> renew lease / replace capability file -> revoke on exit
+```
+
+Build the relay image directly from this checkout using a development Modal app:
+
+```bash
+python products/tasks/services/egress-proxy/scripts/build_modal_relay.py --app agent-egress-dev --env <worker-environment>
+```
+
+Put the printed `im-...` ID in `relay_image_id` below. The build uses `Dockerfile.relay`; no local Go build or registry push is needed.
+Use the Tasks worker's Modal workspace and environment. The script prints the selected environment before building; the worker's Modal credentials must be able to load the image ID.
+Run the regional proxy and registry first, using development signing keys and an ephemeral client CA.
+The CA key stays with the controller; the relay key stays in its sidecar.
+The mounted verifier bundle must include the run's signing key.
+
+Set `AGENT_EGRESS_PROBE_CONFIG_DIR` to a dedicated directory containing only probe configuration files, writable only by the worker operator. Keep certificate keys outside it.
+Pass a JSON file from that directory to `python manage.py probe_agent_egress --config /path/to/probes/probe.json`:
+
+```json
+{
+  "team_id": 1,
+  "run_id": "00000000-0000-4000-8000-000000000001",
+  "endpoint": "https://run-a.egress.example.com",
+  "relay_image_id": "im-example",
+  "server_ca_file": "/run/egress/server-ca.pem",
+  "client_ca_file": "/run/egress/client-ca.pem",
+  "client_ca_key_file": "/run/egress/client-ca-key.pem",
+  "duration_seconds": 360,
+  "concurrency": 16,
+  "requests_per_round": 128
+}
+```
+
+The main VM has an empty CIDR allowlist and can reach the sidecar over Modal's private bridge.
+The sidecar allows the exact regional hostname on port 443; its admin listener stays on loopback.
+The development-only `dev_proxy_ipv4` option instead allows one public `/32` and pins endpoint resolution to that address, for TCP test tunnels on other ports. This does not prove the production domain restriction.
+Modal 1.6.4 supplies the VM sidecar memory-allocation API; the VM reserves 1 GiB for the relay.
+This SDK defaults to the V2 backend unless configuration selects V1. The default also applies to ordinary Tasks sandboxes.
+
+The controller renews the registration every ten seconds during requests and refreshes the capability every three minutes.
+Each guest request reads the current capability file. Changing startup environment variables is unnecessary.
+Authority or delivery failure stops renewal and revokes that execution. Process loss leaves the lease to expire; there is no direct-network fallback.
+Replacement uses a fresh VM, relay key and execution. Expired executions cannot resume; old cleanup cannot revoke a replacement.
+Snapshots and normal agent startup are refused in this profile. Filesystem restore and production certificate renewal need later integration.
+
+DNS remains outside this route. The probe does not establish complete containment, production ingress, durable audit delivery or product-workflow compatibility.
+Output contains status counts and sandbox/execution IDs. Proxy audit events still use the stdout contract below.
+
+### Run the probe through Temporal
+
+Start a development Tasks worker, then add `--temporal --task-queue <worker-queue>` to the probe command.
+The worker needs the same configuration directory setting, file and certificate paths. Both command modes reject file access unless development probes are enabled, and reject paths or symlinks outside that directory. Configuration errors omit file contents. Private keys and capabilities never enter workflow history.
+Ctrl+C cancels the workflow and requests cleanup. A rejected probe response fails the run without retrying it.
+
+```text
+Temporal workflow
+  create or recover VM and relay -> enroll execution
+  renew lease every 10s alongside probe requests
+  on completion, cancellation or failure -> revoke execution -> destroy VM
+```
+
+Both command modes use the same lifecycle and persist an owner, execution, VM and sidecar IDs under `state.agent_egress_probe`.
+Each activity reads that binding again. A restarted worker can renew a live lease; an expired execution needs a fresh VM and key.
+Old cleanup targets its own execution and VM, leaving a replacement alone. An already-deleted VM counts as cleaned up; other cleanup failures remain retryable and do not replace the original workflow failure.
+Revocation records its timestamp, initiating service and reason. Existing registrations have no invented audit history.
+
+Enrollment retries within a fixed three-minute window. A stable provider name recovers the VM even if the worker died before saving its ID. Retries keep the relay key and running process; expired or revoked authority stays denied. Heartbeats let Temporal detect worker loss before the 30-second lease expires, though recovery still depends on a worker being available in time.
+Retries reject changes to the registered configuration. They do not reload the running relay; changing certificates or settings requires a new execution.
+The workflow or command runner owns terminal cleanup. A failed preparation attempt cannot tear down a successful retry.
+Cleanup can find an unsaved VM by name. Cancellation markers expire after their enrollment deadline; requests past that deadline are rejected even after the marker is removed.
+Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
+The workflow sends synthetic probes and uses the same environment checks as the command.
+
+### Probe the staging deployment
+
+Run the same command from a trusted controller using the staging database, Modal credentials and sandbox signing key. A local database registration cannot authorize a request through a proxy reading the staging registry.
+
+Staging requires `CLOUD_DEPLOYMENT=DEV`, `DEBUG=0`, `SANDBOX_PROVIDER=modal`, and `AGENT_EGRESS_STAGING_PROBE_RUN_ID` set to the one TaskRun being tested. Keep that setting on the probe controller only. Production deployments remain excluded, and normal Tasks launches do not enroll.
+
+```text
+Controller using staging DB -> existing enrollment / renewal / cleanup lifecycle
+Synthetic VM -> isolated relay -> regional TCP ingress -> proxy -> staging registry
+```
+
+Use a dedicated active TaskRun with an eligible actor, no repositories and no sandbox. The configuration must name that run and its exact regional hostname. Staging rejects `sandbox_id` and `dev_proxy_ipv4`: each probe creates its own VM and uses the hostname's real network path. The existing ten-minute duration and request-concurrency limits still apply.
+
+Mount the operator-owned configuration directory and CA material on the controller. The proxy must trust that client CA and the controller's public verification keys. Only the controller receives the client CA private key; only the relay holds its generated private key. Use an image visible in the controller's Modal environment.
+
+```bash
+AGENT_EGRESS_STAGING_PROBE_RUN_ID=<run-uuid> \
+  python manage.py probe_agent_egress --config /run/egress/probes/probe.json
+```
+
+For `--temporal`, use a dedicated worker queue with the same run opt-in, configuration and mounted files. Workflow inputs still contain only IDs and a configuration path.
+
+Before sending traffic, verify the deployed registry, network policy, log redaction, TLS material and load-balancer readiness. Start with the default 60-second probe, then run for 360 seconds to cross capability refresh. Check 204 counts alongside proxy admission/completion events and the registry's final revocation record. Clearing or changing the opt-in blocks enrollment and renewal; the owning workflow can still revoke and clean up its existing probe. A controller crash leaves authority bounded by the 30-second lease and the VM by its TTL.
+
+This proves synthetic enrollment against deployed infrastructure. It does not establish general forwarding, upstream credential injection, DNS containment or production readiness. Denial tests, replica loss and certificate rotation still need separate deployment checks.
+
+### Observe a development Tasks run
+
+Set `AGENT_EGRESS_OBSERVATION_CONFIG` on the Tasks worker to a probe JSON file under `AGENT_EGRESS_PROBE_CONFIG_DIR`. Its `team_id` and `run_id` must match the run. Set it before the workflow loads its context; leave `sandbox_id` out of the file.
+
+Observation is off by default. It requires `DEBUG=1`, `MODAL_DOCKER`, a noninteractive cloud run, full network access and an already-selected Modal VM runtime. Resumed VMs are excluded, and selected runs skip repository snapshots.
+An invalid observation configuration logs a warning and disables observation for that launch. Fixing the file lets later launches try again.
+
+```text
+Tasks creates VM and starts agent using existing routing
+  child workflow attaches isolated relay -> enrolls -> sends synthetic probes
+  completion or cancellation -> revokes execution -> stops only that relay
+Tasks retains ownership of the VM
+```
+
+The sidecar reserve takes 1 GiB from the main VM for its whole lifetime, even if observation never starts. A 2 GiB VM leaves the guest 1 GiB. Match guest memory allocations before comparing performance with an unobserved run. [Modal resource configuration](https://modal.com/docs/guide/sandbox-sidecars#resource-configuration).
+
+Each execution has its own relay name and capability file, so delayed writes or cleanup cannot affect a replacement. Observation lasts at most the configured 600 seconds. Tasks stops it before teardown, VM rotation or workflow continuation; it does not restart on the replacement or continuation. Attached cleanup gets one attempt and a ten-second activity deadline, including queue time. Failure is logged so Tasks can continue; authority expires with its lease if revocation cannot finish.
+
+Cleanup stops the relay and removes its guest capability file when Modal is reachable. The guest deliberately holds a bounded run capability; relay keys and upstream credentials belong outside it. This probe only authorizes `/v1/probe` and does not demonstrate an upstream credential adapter. An actor change invalidates its authorization through the registry.
+
+Observation failures stop that probe and are logged. They do not change the agent's network path. This tests lifecycle integration; it does not enforce agent egress, remove guest credentials or remove agentsh. Named-VM recovery applies to standalone probes, not to ordinary Tasks VM creation. Production certificates, credential adapters and enforced routing remain separate work.
+
+## Run the processes
+
+### Container images
+
+From the repository root:
+
+```bash
+docker build -t agent-egress-proxy -f products/tasks/services/egress-proxy/Dockerfile products/tasks/services/egress-proxy
+docker build -t agent-egress-relay -f products/tasks/services/egress-proxy/Dockerfile.relay products/tasks/services/egress-proxy
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -p 127.0.0.1:8443:8443 \
+  --mount type=bind,src=/run/egress,dst=/run/egress,readonly \
+  agent-egress-proxy -config /run/egress/proxy.json
+```
+
+The proxy runs as UID/GID 65532 with no shell. Give that user read access to its mounted configuration and keys. Its admin listener stays on loopback inside the container; do not publish it.
+The relay image includes Python and OpenSSL for enrollment; the controller locks with Python's `fcntl.flock`. The image defaults to `sleep infinity` for manual runs. Modal's controller supplies its own sleep command, then starts `/usr/local/bin/egress-relay` after installing its configuration and certificate.
+It runs as root inside the isolated sidecar because the controller writes `/run/egress` and may pin the development endpoint in `/etc/hosts`. Moving those writes to a user-owned directory and removing the hosts-file override must precede running the relay as UID/GID 65532.
+
+Local Docker builds target the host architecture and are for smoke tests. Use the Modal builder above for the sandbox image.
+
+Both builds cross-compile Go for the target architecture, use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
+CI starts both images with temporary TLS material, checks readiness and verifies that a request through the relay reaches the proxy and is rejected without a capability. Run the same check locally with `bash products/tasks/services/egress-proxy/scripts/smoke_images.sh` after building the images above.
+After tests and image smoke checks pass, the `Agent Egress` workflow publishes multi-architecture images from GitHub-hosted Ubuntu runners on master in the repository with `CD_DEPLOY_ENABLED=true`:
+
+- `posthog-agent-egress`: the regional service.
+- `posthog-agent-egress-relay`: the Modal sidecar.
+
+Each shared-services ECR image has an immutable full-commit tag and an ordered `r<position>-<short-sha>` alias for Kargo. The workflow verifies that the alias resolves to the published digest and prints the digest in its summary. Push and manual runs for the same commit serialize, and retries reuse an existing commit image. `ORDERED_IMAGE_ALIAS_PAUSED=true` pauses publication of both tags. Pull requests only build and test; manual publication also requires master.
+
+The ECR repositories and their publisher permissions must exist before enabling publication. Consume images by digest; a release does not update the development probe's `relay_image_id` or deploy the service. Certificate delivery and regional deployment remain separate work.
+
+### Local binaries
+
+From the repository root:
+
+```bash
+go -C products/tasks/services/egress-proxy build -o /tmp/agent-egress/ ./cmd/...
+/tmp/agent-egress/egress-proxy -config /run/egress/proxy.json
+/tmp/agent-egress/egress-relay -config /run/egress/relay.json
+```
+
+Run each command in its own process.
+The proxy configuration names its TLS material, verification bundle and regional registry:
+
+```json
+{
+  "certificate_file": "/run/egress/server.pem",
+  "private_key_file": "/run/egress/server-key.pem",
+  "client_ca_file": "/run/egress/relay-ca.pem",
+  "verification_keys_file": "/run/egress/verification-keys.json",
+  "registry_url": "https://registry.example.com",
+  "registry_region": "test-region",
+  "registry_signing_key_file": "/run/egress/registry-key"
+}
+```
+
+The relay configuration names the exact run authority and its own client certificate:
+
+```json
+{
+  "endpoint": "https://run-a.egress.example.com",
+  "admin_address": "127.0.0.1:9091",
+  "certificate_file": "/run/egress/relay.pem",
+  "private_key_file": "/run/egress/relay-key.pem"
+}
+```
+
+Use `registry_ca_file` or `server_ca_file` for a private registry or regional CA, respectively.
+Keep relay private-key files outside the guest's filesystem.
+The relay receives the capability from the guest's `Authorization` header.
+Neither process accepts CONNECT or general upstream destinations.
+
+| Setting                    | Proxy default    | Relay default    |
+| -------------------------- | ---------------- | ---------------- |
+| `listen_address`           | `:8443`          | `127.0.0.1:8080` |
+| `admin_address`            | `127.0.0.1:9090` | `127.0.0.1:9090` |
+| `request_timeout_seconds`  | 30               | 300              |
+| `shutdown_timeout_seconds` | 10               | 10               |
+
+The relay's request budget includes connecting to the proxy and forwarding its response.
+The proxy's budget covers its own request handling; its only operation is currently the probe.
+The relay also waits at most 30 seconds for response headers.
+Before adding streaming adapters, set and test these budgets together, leaving room in the relay's budget for connection and forwarding time.
+
+Listener addresses must use IP literals. Administration must bind to loopback.
+It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
+The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
+Readiness checks local material and audit health, not registry or upstream availability.
+Keep a relay's plaintext HTTP listener on a provider-isolated bridge if it must be reachable outside loopback.
+
+Proxy limits default to `lookup_timeout_seconds=2`, `cache_entries=10000`, `cache_lookups=64` and `audit_capacity=4096`.
+The limits are configurable; unknown configuration fields and invalid limits stop startup.
+
+Send SIGHUP to the proxy after replacing its referenced TLS, CA, verification-key or registry-key files.
+It loads them together and retains the active configuration if any file is invalid.
+Failed reloads log the reason to stderr without exposing file contents.
+Every request checks the current client CA, including requests on reused TLS connections.
+Listener addresses and limits require a restart. Relay credentials also require a restart.
+SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
+
+### Audit output
+
+The proxy writes versioned admission and completion events as JSON lines to stdout; lifecycle logs go to stderr.
+Events include a generated request ID, trusted run identity when authorization succeeds, operation, outcome, status and duration.
+They exclude tokens, raw URLs, headers and bodies.
+Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
+
+Each request reserves room for both events before authorization.
+A full queue returns 503 without running the operation.
+An output error stops new admissions and makes readiness and liveness fail until restart.
+The `egress_audit_export_failed` gauge is 1 after an output error and 0 otherwise.
+Configure the supervisor to restart on liveness failure and send SIGTERM for normal shutdown.
+Queue pressure and planned draining do not fail liveness.
+Shutdown attempts to drain accepted events; a crash or drain timeout can lose buffered events.
+This is bounded asynchronous output, not a durable audit guarantee. Deployment must connect stdout to the regional log collector.
 
 ## Adapter contract
 
@@ -31,7 +282,7 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 `Lookup` receives the verified team, run and execution IDs and returns their current registration.
 The registry cache serves entries within their authorization lease; reads cannot extend that lease.
 A missing run returns `ErrUnauthorized`; lookup failures and timeouts return `ErrUnavailable`.
-Production callers must return HTTP 503 for unavailable authorization and count it separately from rejected identities, without token values or per-run metric labels. Only the test handler does this mapping today.
+The regional handler returns HTTP 503 for unavailable authorization and counts it separately from rejected identities, without token values or per-run metric labels.
 
 `LookupTimeout` must be positive. An earlier request deadline wins, and lookup code must honor cancellation.
 The verifier rejects late results.
@@ -42,12 +293,22 @@ Tests allow three seconds. Capability, certificate-chain and lease expiry stay s
 
 Trusted workers use `AgentEgressRegistry` in `backend/logic/services/agent_egress.py` to register, renew, revoke and issue capabilities.
 Registration binds one execution to its team, actor, relay key, exact hostname and region, with a 30-second lease.
+It also binds the execution to its sandbox. Lookup, renewal and capability issuance check that the run still owns that sandbox. Standalone development probes use their saved execution state; registrations without a sandbox binding are denied.
+Workers must save the new sandbox binding before registering its execution. Registration rejects a sandbox that the run does not yet own. Saving the same binding again leaves the registration active.
 It keeps the run's exact team ID, including for child environments.
 Reads and registration retries do not renew it. Renewal requires a live lease; an expired or revoked execution cannot be reused.
 Replacement requires the previous execution ID and keeps the old registration revoked.
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+
+Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
+
+Sandbox cleanup revokes matching registrations before contacting the provider; delayed cleanup of an old sandbox leaves its replacement alone. A revocation failure is logged and provider teardown still runs. Connection metadata stays in run state until cleanup succeeds; strict cleanup reports the failure for retry. A later retry can revoke and clear that state even when the VM is already gone. The proxy can still use a cached lease until its existing deadline.
+
+Registrations created before sandbox binding was added remain unbound and are denied, even if their stored `revoked` flag is false. In-flight development probes need a fresh execution after deployment. Replacement revokes the old row without inventing a historical revocation timestamp.
+
+These checks apply to the current development enrollment path. Production enrollment still needs regional deployment, private registry access and managed certificate issuance and renewal. They do not route agent traffic through the proxy or remove agentsh.
 
 Capabilities last five minutes, with `iss=posthog:tasks`, `aud=posthog:agent_egress`, `sub` set to the run ID and a separate `execution_id`.
 Issuance checks current registration and pins the signing key in the run's existing `sandbox_jwt_kid` state.
@@ -69,6 +330,17 @@ The `/internal/` route also needs private ingress when the service is deployed.
 ### Registry client and cache
 
 `registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+
+For a registry in the same Kubernetes cluster, `registry_allow_cluster_http: true` permits
+HTTP to a fully qualified `<service>.<namespace>.svc.cluster.local` origin. It is off by
+default. This sends lookup tokens and responses without transport encryption; the hostname
+check is not a network boundary. Use it only with trusted cluster networking and an enforced
+L7 policy that limits the destination pods, port, method and registry path. Keep HTTPS for
+other origins. The registry must serve this internal endpoint over HTTP without an
+HTTP-to-HTTPS redirect. Django's `SECURE_SSL_REDIRECT` can cause such a redirect; keep
+HTTPS unless the internal route is configured to accept HTTP. The client refuses
+redirects in both modes and reports them as unavailable.
+
 It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
 It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
 It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.
@@ -107,7 +379,7 @@ python manage.py export_sandbox_jwt_public_keys > sandbox-jwt-public-keys.json
 The export includes all configured signing keys' public halves and any explicit verification keys.
 `identity.ParseKeyBundle` accepts RSA public keys only. Private signing keys stay with the issuer.
 Publish the new public key before switching signing keys, and keep the old key while pinned runs still use it.
-Mounting and reloading this bundle belongs to the runnable-service deployment; it is not wired here yet.
+Mount the bundle through `verification_keys_file`; SIGHUP reloads it without restarting the proxy.
 Launch integration must revoke the old registration before resume or restore, then register the new execution and relay key.
 
 ## General forwarding decision

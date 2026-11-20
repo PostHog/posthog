@@ -21,6 +21,12 @@ _WRONG_REGION_MARKERS = (
     "must be addressed using the specified endpoint",
 )
 
+# S3 answers InvalidArgument, and s3fs leaves that as a plain OSError, when the access key sent for
+# signing doesn't match the provider's expected length, such as a secret or token pasted into the
+# access key field. The code alone (InvalidArgument) isn't specific enough to mean bad credentials,
+# so this matches on the message instead.
+_INVALID_CREDENTIAL_FORMAT_MARKER = "access key has length"
+
 
 class ObjectStorageError(Exception):
     """A problem the user has to fix: rejected credentials, a missing bucket, an unreadable file."""
@@ -43,6 +49,10 @@ def translate_storage_error(error: Exception, location: str) -> Exception:
     if isinstance(error, FileNotFoundError):
         return ObjectStorageError(f"{NO_SUCH_BUCKET_ERROR}: '{location}'. Check the bucket name.")
     message = str(error)
+    if _INVALID_CREDENTIAL_FORMAT_MARKER in message:
+        return ObjectStorageError(
+            f"{INVALID_CONFIG_ERROR}: the access key or secret isn't in the format this provider expects."
+        )
     if any(marker in message for marker in _WRONG_REGION_MARKERS):
         return ObjectStorageError(f"{WRONG_REGION_ERROR} from the one configured for '{location}'. Fix the region.")
     return error

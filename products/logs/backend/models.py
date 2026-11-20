@@ -8,7 +8,9 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Value
 
+from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
@@ -169,6 +171,51 @@ class TeamLogsConfig(models.Model):
     )
 
 
+class LogsSigningSecret(UUIDModel):
+    """Per-team secret that a customer's server uses to sign log requests (HMAC).
+
+    The check needs the raw value on the server, so the secret is encrypted at rest and
+    not hashed. It is valid for signing only and never for API authentication, so a
+    leaked value cannot call any API.
+
+    Environment-scoped because log ingestion resolves a team from its own project token.
+    Read it with `objects.for_team(team.id)` and the environment's own id.
+    """
+
+    PREVIOUS_SECRET_GRACE = timedelta(hours=48)
+
+    objects = EnvironmentScopedManager()
+
+    # db_constraint=False so that CreateModel takes no lock on posthog_team.
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # The ciphertext is different on each write. Never filter by this value: fetch by team and compare.
+    secret = EncryptedTextField()
+    # The secret that `secret` replaced. It stays valid for PREVIOUS_SECRET_GRACE after
+    # previous_secret_rotated_at, because customers need a deploy window to move their
+    # servers to the new value. Readers judge the expiry at read time.
+    previous_secret = EncryptedTextField(null=True)
+    previous_secret_rotated_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "logs_logssigningsecret"
+
+    def __str__(self) -> str:
+        return f"LogsSigningSecret(team={self.team_id})"
+
+    @property
+    def previous_secret_valid_until(self) -> datetime | None:
+        if not self.previous_secret or not self.previous_secret_rotated_at:
+            return None
+        return self.previous_secret_rotated_at + self.PREVIOUS_SECRET_GRACE
+
+    @property
+    def previous_secret_active(self) -> bool:
+        valid_until = self.previous_secret_valid_until
+        return valid_until is not None and datetime.now(UTC) < valid_until
+
+
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
@@ -303,12 +350,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def from_platform_view(
         cls, view: PlatformAlertConfigurationView, *, team_id: int, now: datetime
     ) -> LogsAlertConfiguration:
-        """An unsaved alert that presents a platform alert with no logs row the way a logs row does.
-        Its `save` and `delete` raise, because every write goes to the platform."""
+        """An unsaved alert that presents a platform alert with no logs row the way a logs row does, under
+        the id its clients know it by. Its `save` and `delete` raise, because every write goes to the platform."""
         condition = view.source_config[SOURCE_CONDITION_KEY]
         snoozed = view.snooze_until is not None and view.snooze_until > now
         alert = cls(
-            id=view.id,
+            id=view.destination_alert_id,
             team_id=team_id,
             name=view.name,
             enabled=view.enabled,

@@ -110,8 +110,15 @@ function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[
 
 function AIObservabilityTagsContent(): JSX.Element {
     const taggersLogic = llmTaggersLogic()
-    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
-        useValues(taggersLogic)
+    const {
+        filteredTaggers,
+        taggersLoading,
+        taggersFilter,
+        dateFilter,
+        runStatsMap,
+        tagDistributionMap,
+        someTaggersMigrated,
+    } = useValues(taggersLogic)
     const { providerKeys } = useValues(llmProviderKeysLogic)
     const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -139,6 +146,16 @@ function AIObservabilityTagsContent(): JSX.Element {
             title: 'Status',
             key: 'enabled',
             render: (_, tagger) => {
+                if (tagger.migrated_to_evaluation_id) {
+                    return (
+                        <Link
+                            to={urls.aiObservabilityEvaluation(tagger.migrated_to_evaluation_id)}
+                            data-attr="tagger-status-moved-to-evaluation"
+                        >
+                            Moved to evaluation
+                        </Link>
+                    )
+                }
                 const providerKeyIssue = tagger.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
                 if (providerKeyIssue) {
                     return (
@@ -292,6 +309,7 @@ function AIObservabilityTagsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <TaggersDeprecationBanner someMigrated={someTaggersMigrated} />
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <TaggerMetrics />
@@ -381,7 +399,6 @@ export function AIObservabilityTagsScene(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            <TaggersDeprecationBanner />
             <AIObservabilityTagsContent />
             <TaggerCreationRetiredModal
                 isOpen={isCreationRetiredModalOpen}

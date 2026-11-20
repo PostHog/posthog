@@ -78,6 +78,11 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
+
+
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):
@@ -110,6 +115,10 @@ class HogFlowState(LabeledStrEnum):
     ARCHIVED = "archived"
 
 
+class HogFlowWarningCode(LabeledStrEnum):
+    TEST_SENDER_LIVE = "test_sender_live", "Test sender live"
+
+
 class HogFlowOriginProduct(LabeledStrEnum):
     """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
 
@@ -117,6 +126,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
     TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
+    TRANSACTIONAL_PUSH = "transactional_push", "Transactional push notifications"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):

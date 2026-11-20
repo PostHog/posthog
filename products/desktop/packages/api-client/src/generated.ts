@@ -217,6 +217,7 @@ export namespace Schemas {
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
+        optimizeCrossJoins: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -2348,17 +2349,20 @@ export namespace Schemas {
         | "preset-13"
         | "preset-14"
         | "preset-15";
+    export type YAxisPosition2 = "auto" | "left" | "right";
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
         label: string | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         hidden: boolean | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type YAxisScaleType = "log10" | "linear";
     export type TrendsFilter = Partial<{
@@ -2693,6 +2697,7 @@ export namespace Schemas {
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showSummaryOnDashboards: boolean | null;
         showTrendLines: boolean | null;
         showValuesOnSeries: boolean | null;
         useUdf: boolean | null;
@@ -5019,6 +5024,7 @@ export namespace Schemas {
         valueColumn: string | null;
         xAxisColumn: string | null;
         xAxisLabel: string | null;
+        xAxisSortOrder: HeatmapSortOrder | null;
         yAxisColumn: string | null;
         yAxisLabel: string | null;
     }>;
@@ -5067,11 +5073,13 @@ export namespace Schemas {
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
+        colorBarsByCategory: boolean | null;
         goalLines: Array<GoalLine> | null;
         heatmap: HeatmapSettings | null;
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
         metric: MetricChartSettings | null;
+        movingAverageIntervals: number | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -5079,6 +5087,7 @@ export namespace Schemas {
         seriesBreakdownColumn: string | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showMovingAverage: boolean | null;
         showNullsAsZero: boolean | null;
         showPieTotal: boolean | null;
         showTotalRow: boolean | null;
@@ -5088,6 +5097,8 @@ export namespace Schemas {
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
         valueLabelBackground: boolean | null;
+        valueLabelBackgroundColor: string | null;
+        valueLabelColor: string | null;
         valueLabelFontSize: number | null;
         valueLabelPosition: ValueLabelPosition | null;
         valueLabelRotation: number | null;
@@ -5940,6 +5951,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -5949,6 +5961,7 @@ export namespace Schemas {
         | "static"
         | "person_properties"
         | "daily"
+        | "off"
         | "building"
         | "rebuilding"
         | "ready"
@@ -5989,11 +6002,12 @@ export namespace Schemas {
         | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
          * * `daily` - Daily
+         * * `off` - Off
          * * `building` - Building
          * * `rebuilding` - Rebuilding
          * * `ready` - Ready
@@ -6009,14 +6023,14 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -6057,6 +6071,7 @@ export namespace Schemas {
          * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
          */
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled?: boolean | undefined;
         experiment_set: Array<number>;
         /**
          * How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
@@ -7510,6 +7525,7 @@ export namespace Schemas {
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
+        | "motherduck"
         | "youtube-analytics"
         | "twitter-ads";
     export type ErrorTrackingExternalReferenceIntegration = {
@@ -9385,6 +9401,10 @@ export namespace Schemas {
         | "clickhouse"
         | "motherduck"
         | "trino";
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = "issue_summaries";
     export type ErrorTrackingExternalReferenceIntegrationResult = {
         /**
          * ID of the integration backing this external reference.
@@ -9505,6 +9525,7 @@ export namespace Schemas {
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
      * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_rate_limited` - upstream_rate_limited
      * * `upstream_request_rejected` - upstream_request_rejected
      * * `content_block_rejection` - content_block_rejection
      * * `turn_ended_without_response` - turn_ended_without_response
@@ -9524,6 +9545,7 @@ export namespace Schemas {
         | "upstream_connection_error"
         | "upstream_timeout"
         | "upstream_provider_failure"
+        | "upstream_rate_limited"
         | "upstream_request_rejected"
         | "content_block_rejection"
         | "turn_ended_without_response"
@@ -10707,6 +10729,8 @@ export namespace Schemas {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10765,6 +10789,8 @@ export namespace Schemas {
         | "changed_setting"
         | "before"
         | "after"
+        | "before_filters"
+        | "after_filters"
         | "flag_service_call_percentage"
         | "event"
         | "event_received"
@@ -10834,6 +10860,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10901,6 +10929,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10996,9 +11026,21 @@ export namespace Schemas {
          */
         rule: ExperimentHealthCheckRule | null;
         /**
-         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list.
          */
-        rows: Array<Record<string, string | number | boolean | null>>;
+        rows: Array<
+            Record<
+                string,
+                | string
+                | number
+                | boolean
+                | {
+                      groups: Array<Record<string, unknown>>;
+                      aggregation_group_type_index: number | null;
+                  }
+                | null
+            >
+        >;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -12047,6 +12089,7 @@ export namespace Schemas {
             api_version: string | null;
             supported_api_versions: Array<string>;
             file_name: string | null;
+            supports_table_discovery: boolean;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12284,6 +12327,18 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern.
+         */
+        supports_adding_tables: boolean;
+        /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+         */
+        table_root: string | null;
+        /**
+         * Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path.
+         */
+        supports_table_discovery: boolean;
         /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          */
@@ -12566,12 +12621,14 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
         | "transactional_emails"
-        | "transactional_email_keys";
+        | "transactional_email_keys"
+        | "transactional_push";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -12723,7 +12780,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -12813,6 +12870,22 @@ export namespace Schemas {
          * When the run started, or when the task was created if it has no run yet.
          */
         ran_at: string;
+    };
+    /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = "test_sender_live";
+    export type HogFlowWarning = {
+        /**
+         * test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+         *
+         * * `test_sender_live` - Test sender live
+         */
+        code: HogFlowWarningCodeEnum & unknown;
+        /**
+         * What to tell the user, with the link that fixes it.
+         */
+        message: string;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -12924,6 +12997,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -12972,6 +13049,10 @@ export namespace Schemas {
          * Whether someone turned suggestions on for this workflow. Read on the list only.
          */
         suggestions_enabled: boolean | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -13015,6 +13096,7 @@ export namespace Schemas {
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
          * * `transactional_email_keys` - Transactional email keys
+         * * `transactional_push` - Transactional push notifications
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -13097,6 +13179,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -15192,6 +15278,9 @@ export namespace Schemas {
     };
     export type Organization = {
         id: string;
+        /**
+         * Name of the organization.
+         */
         name: string;
         slug: string;
         logo_media_id?: (string | null) | undefined;
@@ -16403,6 +16492,7 @@ export namespace Schemas {
         cohort_type: CohortTypeEnum | BlankEnum | NullEnum;
         condition_type: CohortConditionTypeFlags | null;
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled: boolean;
         experiment_set: Array<number>;
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder: string;
@@ -16550,6 +16640,9 @@ export namespace Schemas {
         supports_webhooks: boolean;
         webhook_not_registered: boolean;
         supports_column_selection: boolean;
+        supports_adding_tables: boolean;
+        table_root: string | null;
+        supports_table_discovery: boolean;
         file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
@@ -16632,6 +16725,7 @@ export namespace Schemas {
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
         last_run: HogFlowLastRun | null;
+        warnings: Array<HogFlowWarning>;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -17215,6 +17309,28 @@ export namespace Schemas {
      * * `1` - Monday
      */
     export type WeekStartDayEnum = 0 | 1;
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = "off" | "serving";
+    export type TeamRealtimeCohorts = {
+        /**
+         * `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+         *
+         * * `off` - Off
+         * * `serving` - Serving
+         */
+        access: RealtimeCohortsAccessEnum;
+        /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         */
+        cohorts_used: number | null;
+        /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         */
+        max_cohorts: number | null;
+    };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
         events: unknown;
@@ -17258,6 +17374,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         email_utm_tags_enabled: boolean;
         email_utm_params: EmailUtmParams;
+        email_workflow_run_link_tag_enabled: boolean;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;
@@ -17652,8 +17769,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         flags_persistence_default?: (boolean | null) | undefined;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
         /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          */
@@ -17719,9 +17834,21 @@ export namespace Schemas {
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
         /**
+         * Realtime cohorts as the request's user sees them in this project.
+         */
+        realtime_cohorts: TeamRealtimeCohorts & unknown;
+        /**
+         * Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none.
+         */
+        available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
+        /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table.
+         */
+        flag_calls_only_in_flag_evaluations: boolean;
         /**
          * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
          */
@@ -19458,6 +19585,7 @@ export namespace Endpoints {
                 filters_override: string;
                 format: "json" | "txt";
                 include_dashboards: boolean;
+                omit_tile_results: boolean;
                 variables_override: string;
             }>;
             path: { id: number; project_id: string };
@@ -19948,7 +20076,11 @@ export namespace Endpoints {
                 name: string;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops" | "transactional_emails";
+                origin_product:
+                    | "broadcasts"
+                    | "loops"
+                    | "transactional_emails"
+                    | "transactional_push";
                 search: string;
                 source_record: string;
                 status: "active" | "archived" | "draft";
