@@ -45,7 +45,8 @@ class QueryBatchTargetSerializer(serializers.Serializer):
         choices=QueryBatchLanguage.choices,
         help_text=(
             "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends "
-            "to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`."
+            "to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and "
+            "'logql': `query` is the expression, run as a range query over the panel's time range."
         ),
     )
     query = serializers.CharField(max_length=200_000, help_text="The query text, read according to `language`.")
@@ -76,7 +77,16 @@ class QueryBatchQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         max_length=20,
-        help_text="For insight targets that have an interval: minute, hour, day, week, month, quarter or year.",
+        help_text=(
+            "For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For "
+            "promql and logql targets, the smallest step, as a duration such as 1m or 5m."
+        ),
+    )
+    maxDataPoints = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=10_000,
+        help_text="For promql and logql targets: the most points per series. Sets the step with `interval`.",
     )
     swr = serializers.BooleanField(
         required=False,
@@ -121,7 +131,9 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         scopes = {"query:read"}
         for item in queries:
             target = item.get("target") if isinstance(item, dict) else None
-            if isinstance(target, dict):
+            if isinstance(target, dict) and target.get("language") == QueryBatchLanguage.LOGQL:
+                scopes.add("logs:read")
+            elif isinstance(target, dict):
                 scopes.update(required_scopes_for_query_payload(_scoped_node(target)) or [])
         return sorted(scopes)
 
@@ -180,6 +192,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 interval=item.get("interval"),
                 swr=item["swr"],
                 cache_only=item["cacheOnly"],
+                max_data_points=item.get("maxDataPoints"),
             )
             for item in request.validated_data["queries"]
         ]
@@ -204,6 +217,8 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 def _scoped_node(target: dict[str, Any]) -> object:
     if target.get("language") == QueryBatchLanguage.HOGQL:
         return {"kind": "HogQLQuery"}
+    if target.get("language") == QueryBatchLanguage.PROMQL:
+        return {"kind": "MetricsQuery"}
     text = target.get("query")
     if not isinstance(text, str):
         return None

@@ -52,6 +52,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
+from products.dashboards.backend.v2.telemetry import TelemetryTargetError, promql_interval, run_logql
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +108,13 @@ _TIMED_OUT = "The dashboard took too long to load. Try again."
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
-_EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
+_EXPOSED_ERRORS = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    ResolutionError,
+    UserAccessControlError,
+    TelemetryTargetError,
+)
 
 
 class InvalidTarget(ValueError):
@@ -145,6 +152,26 @@ def to_posthog_date(expression: str) -> Optional[str]:
 def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
+    if target.language == QueryBatchLanguage.PROMQL:
+        try:
+            interval = promql_interval(
+                item.date_from, item.date_to, max_data_points=item.max_data_points, min_interval=item.interval
+            )
+        except TelemetryTargetError as e:
+            raise InvalidTarget(str(e))
+        # The range stays relative and the step depends only on its span, so a refresh reuses the cache entry.
+        return ResolvedQuery(
+            query={
+                "kind": "MetricsQuery",
+                "language": "promql",
+                "promql": target.query,
+                "clauses": [],
+                "dateRange": {"date_from": date_from, "date_to": date_to},
+                "interval": interval,
+            },
+            filters=None,
+            variables=None,
+        )
     if target.language == QueryBatchLanguage.HOGQL:
         return ResolvedQuery(
             query={
@@ -324,7 +351,10 @@ class QueryBatch:
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
+        logql = self._logql_to_run(inputs)
         for index, item in enumerate(inputs):
+            if item.target.language == QueryBatchLanguage.LOGQL:
+                continue
             try:
                 resolved[index] = resolve_query(item)
             except InvalidTarget as e:
@@ -361,6 +391,22 @@ class QueryBatch:
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+        for index in logql:
+            self._jobs.append(
+                (index, f"{self._client_query_id}-{index}", partial(self._run_logql, index, inputs[index]))
+            )
+
+    def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
+        """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
+        to_run: list[int] = []
+        for index, item in enumerate(inputs):
+            if item.target.language != QueryBatchLanguage.LOGQL:
+                continue
+            if item.cache_only:
+                self._add_ready(_miss_line(index, None))
+            else:
+                to_run.append(index)
+        return to_run
 
     def _read_chunk(
         self,
@@ -491,6 +537,23 @@ class QueryBatch:
                 user=self._user,
                 query_id=query_id,
                 dashboard_id=self._dashboard_id,
+            )
+        except Exception as e:
+            return _error_line(index, e, team=self._team)
+        return _result_line(index, response, hit=False, stale=False)
+
+    def _run_logql(self, index: int, item: QueryBatchInput) -> dict[str, Any]:
+        if self._cancelled:
+            return {"i": index, "error": _FAILED}
+        try:
+            response = run_logql(
+                team=self._team,
+                user=self._user,
+                logql=item.target.query,
+                date_from=item.date_from,
+                date_to=item.date_to,
+                min_interval=item.interval,
+                max_data_points=item.max_data_points,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)

@@ -1,15 +1,18 @@
 import json
+import datetime as dt
 from collections.abc import Iterator
 from typing import Any, cast
 
+import time_machine
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -23,6 +26,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.query_batch import InvalidTarget, resolve_query, to_posthog_date
+from products.dashboards.backend.v2.telemetry import Step, pick_step
 from products.event_definitions.backend.models import PropertyDefinition
 
 _LAST_7_DAYS = {"from": "now-7d", "to": "now"}
@@ -52,6 +56,8 @@ class _QueryBatchMixin:
 
     def _flag_enabled(self, flag: str, distinct_id: str, **kwargs: Any) -> bool:
         groups = kwargs.get("groups") or {}
+        if flag in ("metrics", "logs-metrics-snuffle-api"):
+            return True
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
     def _batch(self, queries: list[dict], **body: Any) -> Any:
@@ -182,6 +188,8 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self._enable_flag()
@@ -207,6 +215,100 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
+
+
+_NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)
+_LAST_HOUR = {"from": "now-1h", "to": "now"}
+
+
+def _telemetry(language: str, query: str, **options: Any) -> dict:
+    return {"target": {"refId": language, "language": language, "query": query}, "time": _LAST_HOUR, **options}
+
+
+def _snuffle(status_code: int, payload: dict) -> MagicMock:
+    response = MagicMock(spec=requests.Response)
+    response.status_code = status_code
+    response.json.return_value = payload
+    response.headers = {}
+    return response
+
+
+def _matrix(start: int) -> dict:
+    return {
+        "status": "success",
+        "data": {"resultType": "matrix", "result": [{"metric": {"job": "api"}, "values": [[start, "2"]]}]},
+    }
+
+
+class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._enable_flag()
+        self.enterContext(
+            override_settings(SNUFFLE_METRICS_URL="http://metrics.test", SNUFFLE_APM_URL="http://logs.test")
+        )
+
+    def _snuffle_calls(self, request: MagicMock) -> dict[str, dict]:
+        return {call.args[1]: call.kwargs["data"] for call in request.call_args_list}
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_runs_promql_through_the_metrics_query_cache_and_logql_uncached(self) -> None:
+        queries = [
+            _telemetry("promql", "sum(rate(http_requests_total[5m]))"),
+            _telemetry("logql", 'sum(count_over_time({service_name="api"}[1m]))'),
+        ]
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request",
+            return_value=_snuffle(200, _matrix(int(_NOW.timestamp()) - 3600)),
+        ) as request:
+            promql, logql = self._lines(queries)
+            sent = self._snuffle_calls(request)
+            request.reset_mock()
+            cached_promql, rerun_logql = self._lines(queries)
+
+        self.assertEqual(promql["result"]["cache"]["hit"], False)
+        self.assertEqual(promql["result"]["result"]["results"][0]["labels"], {"job": "api"})
+        self.assertEqual(sent["http://metrics.test/api/v1/query_range"]["step"], "60")
+        self.assertEqual(logql["result"]["result"]["results"]["resultType"], "matrix")
+        logql_sent = sent["http://logs.test/loki/api/v1/query_range"]
+        self.assertEqual(logql_sent["step"], "15")
+        self.assertEqual(float(logql_sent["end"]), _NOW.timestamp() - 7)
+        self.assertEqual(cached_promql["result"]["cache"], {**promql["result"]["cache"], "hit": True})
+        self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
+        self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
+
+    @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
+    def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:
+        rejected = _snuffle(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"})
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=rejected):
+            lines = self._lines([_telemetry(language, query)])
+
+        self.assertEqual(lines, [{"i": 0, "error": "parse error at char 5"}])
+
+    def test_a_relative_logql_range_moves_with_the_clock(self) -> None:
+        sent_ends = []
+        for moment in (_NOW, _NOW + dt.timedelta(minutes=5)):
+            with (
+                time_machine.travel(moment, tick=False),
+                patch(
+                    "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))
+                ) as request,
+            ):
+                self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+            sent_ends.append(float(request.call_args.kwargs["data"]["end"]))
+
+        self.assertEqual(sent_ends[1] - sent_ends[0], 300)
+
+    @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])
+    def test_flag_off_runs_nothing(self, language: str, query: str) -> None:
+        self.flag_on_for_project = self.team.pk + 1
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            response = self._batch([_telemetry(language, query)])
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        request.assert_not_called()
 
 
 class TestResolveQuery(SimpleTestCase):
@@ -237,3 +339,38 @@ class TestResolveQuery(SimpleTestCase):
     def test_rejects_an_unknown_time_expression(self) -> None:
         with self.assertRaises(InvalidTarget):
             to_posthog_date("yesterday")
+
+    @parameterized.expand(
+        [
+            # (name, time from, min interval, max data points, MetricsQuery interval)
+            ("an_hour_stays_on_the_scrape_interval", "now-1h", None, None, "minute"),
+            ("a_week_coarsens_to_fit_the_points", "now-7d", None, None, "hour"),
+            ("more_points_give_a_finer_step", "now-7d", None, 3000, "minute_5"),
+            ("the_min_interval_wins", "now-1h", "5m", None, "minute_5"),
+        ]
+    )
+    def test_promql_keeps_its_range_relative_and_picks_a_stable_step(
+        self, _name: str, date_from: str, interval: str | None, max_points: int | None, expected: str
+    ) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        resolved = resolve_query(
+            QueryBatchInput(
+                target=target, date_from=date_from, date_to="now", interval=interval, max_data_points=max_points
+            )
+        )
+
+        self.assertEqual(resolved.query["dateRange"], {"date_from": to_posthog_date(date_from), "date_to": None})
+        self.assertEqual(resolved.query["interval"], expected)
+
+    def test_logql_has_no_scrape_interval_floor(self) -> None:
+        self.assertEqual(
+            pick_step(dt.timedelta(hours=1), max_data_points=None, min_interval=None, is_promql=False),
+            Step(seconds=15, interval="second_15"),
+        )
+
+    def test_rejects_an_unknown_min_interval(self) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        with self.assertRaises(InvalidTarget):
+            resolve_query(QueryBatchInput(target=target, date_from="now-1h", date_to="now", interval="hour"))
