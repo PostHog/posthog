@@ -39,7 +39,9 @@ export const scene: SceneExport<LogsAlertNotificationDetailSceneLogicProps> = {
 export function LogsAlertNotificationDetailScene(): JSX.Element {
     const {
         alert,
+        alertError,
         alertLoading,
+        alertSettled,
         destinationGroup,
         hogFunctionsLoading,
         hasLoaded,
@@ -56,9 +58,17 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         eventLabelByHogFunctionId,
     } = useValues(logsAlertNotificationDetailSceneLogic)
     const customizationEnabled = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
-    const { deleteDestination, loadHogFunctions, loadRecentSends, setHogFunctionEnabled } = useActions(
+    const { deleteDestination, loadAlert, loadHogFunctions, loadRecentSends, setHogFunctionEnabled } = useActions(
         logsAlertNotificationDetailSceneLogic
     )
+    const retryFailedLoads = (): void => {
+        if (hogFunctionsError) {
+            loadHogFunctions()
+        }
+        if (alertError) {
+            loadAlert()
+        }
+    }
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
     const { slackChannels } = useValues(slackLogic)
@@ -90,7 +100,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         })
     }
 
-    if (hogFunctionsError) {
+    if (hogFunctionsError || alertError) {
         return (
             <SceneContent>
                 <SceneTitleSection
@@ -105,7 +115,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                                 >
                                     Back to alert
                                 </Button>
-                                <Button variant="primary" onClick={() => loadHogFunctions()}>
+                                <Button variant="primary" onClick={retryFailedLoads}>
                                     Retry
                                 </Button>
                             </div>
@@ -114,7 +124,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                                 <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
                                     Back to alert
                                 </LemonButton>
-                                <LemonButton type="primary" onClick={() => loadHogFunctions()}>
+                                <LemonButton type="primary" onClick={retryFailedLoads}>
                                     Retry
                                 </LemonButton>
                             </div>
@@ -122,13 +132,15 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                     }
                 />
                 <div className="p-8 text-muted text-center">
-                    Failed to load destination details: {hogFunctionsError}
+                    {hogFunctionsError
+                        ? `Failed to load destination details: ${hogFunctionsError}`
+                        : "Couldn't load the alert this destination belongs to."}
                 </div>
             </SceneContent>
         )
     }
 
-    if (hasLoaded && !destinationGroup) {
+    if (hasLoaded && alertSettled && !destinationGroup) {
         return (
             <SceneContent>
                 <SceneTitleSection

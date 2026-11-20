@@ -45,7 +45,12 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        ;(logsAlertsRetrieve as jest.Mock).mockResolvedValue(null)
+        ;(logsAlertsRetrieve as jest.Mock).mockResolvedValue({
+            destinations: [
+                { id: null, hog_function_ids: ['fn-firing', 'fn-resolved'] },
+                { id: null, hog_function_ids: ['fn-other'] },
+            ],
+        })
         mockList.mockResolvedValue({
             results: [
                 webhookFunction('fn-firing', '$logs_alert_firing'),
@@ -96,6 +101,19 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
         expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual([
             ['fn-firing', 'fn-resolved'],
         ])
+    })
+
+    it.each([
+        ['is pending', (): Promise<unknown> => new Promise(() => {})],
+        ['failed', (): Promise<unknown> => Promise.reject(new Error('boom'))],
+    ])('offers no destination to remove while the alert %s', async (_name, alertResponse) => {
+        ;(logsAlertsRetrieve as jest.Mock).mockImplementation(alertResponse)
+        const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadHogFunctions()).toDispatchActions(['loadHogFunctionsSuccess'])
+
+        expect(logic.values.destinationGroup).toBeNull()
     })
 
     it.each([

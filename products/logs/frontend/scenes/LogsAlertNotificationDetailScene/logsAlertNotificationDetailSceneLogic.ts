@@ -43,6 +43,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     currentTeamId: number | null // teamLogic
     alert: LogsAlertConfigurationDetailApi | null
     alertId: string
+    alertError: boolean
     alertLoading: boolean
     alertSettled: boolean
     breadcrumbs: Breadcrumb[]
@@ -203,6 +204,13 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 loadAlertFailure: () => true,
             },
         ],
+        alertError: [
+            false,
+            {
+                loadAlert: () => false,
+                loadAlertFailure: () => true,
+            },
+        ],
         hasLoaded: [
             false,
             {
@@ -300,18 +308,17 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 hogFunctionId: string,
                 alert: LogsAlertConfigurationDetailApi | null
             ): LogsAlertDestinationGroup | null => {
-                const groups = groupLogsAlertDestinations(hogFunctions, () => null)
-                const group = groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
-                // The alert's own list decides which functions form this destination. A URL input is secret,
-                // so the HogFunction API masks it and the functions cannot be grouped by URL here.
+                // Only the alert's own list says which functions form this destination. A URL input is secret,
+                // so the HogFunction API masks it and grouping by URL would split one destination per function,
+                // which would let Remove delete one function and leave the rest sending.
                 const listed = alert?.destinations.find((d) => d.hog_function_ids.includes(hogFunctionId))
-                if (!group || !listed) {
-                    return group
+                const members = listed ? hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)) : []
+                const selected = members.find((hf) => hf.id === hogFunctionId)
+                if (!selected) {
+                    return null
                 }
-                return {
-                    ...group,
-                    hogFunctions: hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)),
-                }
+                const [identity] = groupLogsAlertDestinations([selected], () => null)
+                return { ...identity, hogFunctions: members, enabled: members.every((hf) => hf.enabled) }
             },
         ],
         // Due once per page: a pause or enable reloads the functions but changes no past send, and a
