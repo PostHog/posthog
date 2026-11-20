@@ -38,6 +38,12 @@ const githubIntegration = (overrides: Partial<IntegrationType> = {}): Integratio
 const emailRow = (verified: boolean): IntegrationType =>
     ({ id: 50, kind: 'email', display_name: 'hello@example.com', config: { verified } }) as IntegrationType
 
+function heldResponse(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void
+    const promise = new Promise<void>((done) => (resolve = done))
+    return { promise, resolve }
+}
+
 describe('integrationsLogic', () => {
     let logic: ReturnType<typeof integrationsLogic.build>
     let createSpy: jest.SpyInstance
@@ -380,31 +386,38 @@ describe('integrationsLogic', () => {
             ])
         })
 
-        it('drops its rows when a full load finished while it waited', async () => {
-            let releaseEmailRows!: () => void
-            const emailRowsHeld = new Promise<void>((resolve) => (releaseEmailRows = resolve))
+        it.each<[string, 'full' | 'email', boolean]>([
+            ['a full load that started later', 'email', false],
+            ['a full load that started earlier', 'full', true],
+        ])('lands after %s, and the later request wins', async (_, startsFirst, kindRowsWin) => {
+            const held = { full: heldResponse(), email: heldResponse() }
             useMocks({
                 get: {
                     '/api/projects/:team_id/integrations/': async ({ request }) => {
                         if (new URL(request.url).searchParams.get('kind') === 'email') {
-                            await emailRowsHeld
-                            return [200, { results: [emailRow(false)] }]
+                            await held.email.promise
+                            return [200, { results: [emailRow(true)] }]
                         }
-                        return [200, { results: [githubIntegration(), emailRow(true)] }]
+                        await held.full.promise
+                        return [200, { results: [githubIntegration(), emailRow(false)] }]
                     },
                 },
             })
+            const start = {
+                full: () => logic.actions.loadIntegrations(),
+                email: () => logic.actions.loadIntegrationsOfKind('email'),
+            }
+            start[startsFirst]()
+            start[startsFirst === 'full' ? 'email' : 'full']()
 
-            logic.actions.loadIntegrationsOfKind('email')
-            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
-                'loadIntegrationsSuccess',
-            ])
-            releaseEmailRows()
-            await expectLogic(logic).toDispatchActions(['loadIntegrationsOfKindSuccess'])
+            held.full.resolve()
+            await waitFor(() => expect(logic.values.integrations?.map(({ kind }) => kind)).toContain('github'))
+            held.email.resolve()
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.integrations?.map(({ kind, config }) => [kind, config])).toEqual([
                 ['github', githubIntegration().config],
-                ['email', { verified: true }],
+                ['email', { verified: kindRowsWin }],
             ])
         })
     })

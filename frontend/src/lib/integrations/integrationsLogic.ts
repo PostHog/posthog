@@ -363,10 +363,10 @@ export interface integrationsLogicActions {
         errorObject?: any
     }
     loadIntegrationsOfKindSuccess: (
-        integrations: IntegrationType[] | null,
+        integrations: IntegrationType[],
         payload?: IntegrationsListKind
     ) => {
-        integrations: IntegrationType[] | null
+        integrations: IntegrationType[]
         payload?: IntegrationsListKind
     }
     loadIntegrationsSuccess: (
@@ -885,18 +885,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
         integrations: [
             null as IntegrationType[] | null,
             {
-                loadIntegrations: async (_ = undefined, breakpoint) =>
-                    fetchIntegrations(String(values.currentProjectId), undefined, breakpoint),
+                loadIntegrations: async (_ = undefined, breakpoint) => {
+                    const started = (cache.integrationLoadsStarted = (cache.integrationLoadsStarted ?? 0) + 1)
+                    const rows = await fetchIntegrations(String(values.currentProjectId), undefined, breakpoint)
+                    cache.landedFullLoad = started
+                    return rows
+                },
                 loadIntegrationsOfKind: async (kind: IntegrationsListKind, breakpoint) => {
-                    const loaded = values.integrations
-                    if (!loaded) {
+                    if (!values.integrations) {
                         return fetchIntegrations(String(values.currentProjectId), undefined, breakpoint)
                     }
+                    const started = (cache.integrationLoadsStarted = (cache.integrationLoadsStarted ?? 0) + 1)
                     const rows = await fetchIntegrations(String(values.currentProjectId), kind, breakpoint)
-                    if (values.integrations !== loaded) {
-                        return values.integrations
+                    const current = values.integrations ?? []
+                    if ((cache.landedFullLoad ?? 0) > started) {
+                        return current
                     }
-                    return [...loaded.filter((integration) => integration.kind !== kind), ...rows]
+                    return [...current.filter((integration) => integration.kind !== kind), ...rows]
                 },
                 newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {
