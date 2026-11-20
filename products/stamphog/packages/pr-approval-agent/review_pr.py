@@ -42,6 +42,7 @@ from attestations import (
     lifted_files,
     pending_attestations,
     pending_check_names,
+    pending_entry,
     pinned_files,
 )
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
@@ -653,8 +654,8 @@ class Pipeline:
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
             # The server polls GitHub for these checks after a WAIT, so the list names each one by the
-            # check name and App id that a check run carries.
-            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
+            # check name and its publisher: the App id a check run carries, or the workflow that signs it.
+            "attestations": {"pending": [pending_entry(a) for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
