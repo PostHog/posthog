@@ -104,6 +104,8 @@ class TestTeamLogsConfig(APIBaseTest):
 
         get_response = self.client.get(self._url(prefix))
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.json(), DEFAULT_CONFIG)
+        self.assertFalse(TeamLogsConfig.objects.filter(team=self.team).exists())
 
         patch_response = self.client.patch(
             self._url(prefix),
