@@ -26,7 +26,6 @@ import type {
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
-import type { CIEngineEnumApi } from '../generated/api.schemas'
 import { CIActivityCommit, CIActivityDay, activityDays, commitRows } from '../lib/ciExplorerActivity'
 import {
     CIExplorerShareLevel,
@@ -183,7 +182,7 @@ export interface ciExplorerLogicValues {
     syncedAt: string | null
     totalJobSeconds: number
     view: CIExplorerView
-    workflowRunUrl: (runId: number, ciEngine: CIEngineEnumApi | null | undefined) => string
+    workflowRunUrl: (runId: number, ciEngine: WorkflowRunDetailApi['ci_engine']) => string
     workflowRuns: WorkflowRun[]
     workflows: CIExplorerWorkflow[]
 }
@@ -358,7 +357,7 @@ export interface ciExplorerLogicMeta {
             repoName: string,
             sourceId: string | null,
             searchParams: Record<string, any>
-        ) => (runId: number, ciEngine: CIEngineEnumApi | null | undefined) => string
+        ) => (runId: number, ciEngine: WorkflowRunDetailApi['ci_engine']) => string
         locationUrl: (
             location: {
                 hash: string

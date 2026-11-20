@@ -12475,6 +12475,38 @@
         },
         "feature_flag": "metrics-dashboard-import"
     },
+    "notebooks-app-get": {
+        "description": "Read a notebook's app draft, published layout, and app_revision. Use notebooks-get to discover source cells, their stable component IDs, variables, dependencies, and results. An app arranges live notebook cells, text, variable inputs, and dividers into tabs and a 12-column layout. Before building or changing an app, read the building-notebook-apps skill. Save with notebooks-app-update using the returned revision.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook app",
+        "title": "Get notebook app",
+        "required_scopes": ["notebook:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-app-builder"
+    },
+    "notebooks-app-update": {
+        "description": "Create or update an app by replacing its complete app_draft layout. Read notebooks-app-get first and pass its app_revision; a stale revision returns 409, so re-read and reconcile rather than overwrite. Preserve existing tabs and blocks when making targeted edits. Cell blocks reference stable component node IDs returned by notebooks-get or notebooks-add-cell. Input blocks reference existing notebook variable names; use notebooks-set-variables to create or change those first. Never invent source IDs. To publish when the user asks, send the complete layout as app_published; null unpublishes it. Publishing snapshots the layout, not cell data or variable values. Omitted app fields stay unchanged. This tool does not edit notebook content or run cells. It works with collaborative notebooks.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update notebook app",
+        "title": "Update notebook app",
+        "required_scopes": ["notebook:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-app-builder"
+    },
     "notebooks-compute-options": {
         "description": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
         "category": "Notebooks",
@@ -15969,8 +16001,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-settings-update": {
         "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates replaces the whole mapping, so include every type to keep. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the setting-up-supabase-auth-emails skill before you set up or change the connection.",
@@ -15985,8 +16016,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-starter-templates-create": {
         "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up the connection.",
@@ -16001,8 +16031,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "suppressions-add": {
         "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. An address that already has an entry keeps it. A bounce also makes that entry block transactional email, unless someone removed it from the list. Repeating a call is safe.",

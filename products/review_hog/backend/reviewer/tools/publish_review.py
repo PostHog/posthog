@@ -9,7 +9,11 @@ from django.db import transaction
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.artefact_content import (
+    PRSnapshotArtefact,
+    ReviewIssueFinding,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     REVIEW_MODE_FLASH,
@@ -81,6 +85,13 @@ def _mark_report_idle(team_id: int, report_id: str) -> None:
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
 
 
+def _findings_footer(snapshot: PRSnapshotArtefact | None, *, draft_notice: str, ready_notice: str) -> str:
+    """The note for the PR's draft state. An unknown state gets neither note, because each one promises something."""
+    if snapshot is None:
+        return ""
+    return draft_notice if snapshot.pr_metadata.draft else ready_notice
+
+
 def publish_persisted_review(
     *,
     team_id: int,
@@ -97,6 +108,7 @@ def publish_persisted_review(
     capped_lens_parts: int | None = None,
     footer: str = "",
     draft_notice: str = "",
+    ready_notice: str = "",
     first_review_note: str = "",
     comment_commands_on: bool = False,
     answers_request: bool = False,
@@ -114,7 +126,8 @@ def publish_persisted_review(
     threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
     event loop.
 
-    `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
+    `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft, and
+    `ready_notice` closes one otherwise.
     `first_review_note` closes the first review that posts findings on the pull request (see `publish_review`).
     `comment_commands_on` picks the trigger the finding budget note points to.
     `answers_request` is set when a person asked for this turn (see `publish_review`).
@@ -149,7 +162,7 @@ def publish_persisted_review(
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
         footer=footer,
-        findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
+        findings_footer=_findings_footer(snapshot, draft_notice=draft_notice, ready_notice=ready_notice),
         first_review_note=first_review_note,
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",

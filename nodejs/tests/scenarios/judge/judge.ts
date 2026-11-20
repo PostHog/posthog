@@ -23,6 +23,7 @@ export type JournalEntry = {
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
+    step?: number
     answer: IntakeAnswer
     expect: { deliveries: string[] }
     followUp?: FollowUpAnswer
@@ -37,6 +38,7 @@ export type InvariantResult = {
     gate?: number
     violation?: string
     unitIds: string[]
+    crossedBy?: string
 }
 
 export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
