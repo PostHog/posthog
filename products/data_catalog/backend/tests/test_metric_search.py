@@ -66,12 +66,12 @@ class TestMetricSearchFixtureCatalog(BaseTest):
         output = run_case(self.team.id, case, LEXICAL)
         assert output["confident_match"] is False, output
 
-    @parameterized.expand(_cases(CaseType.RELATED_WORD))
-    def test_related_word_case_shares_no_word_with_its_metric(self, _name: str, case: SearchCase) -> None:
+    @parameterized.expand(_cases(CaseType.RELATED_WORD, CaseType.SHARED_WORD))
+    def test_meaning_case_shares_no_word_with_its_metrics(self, _name: str, case: SearchCase) -> None:
         with team_scope(self.team.id):
             expected = Metric.objects.for_team(self.team.id).filter(name__in=case.expected)
             assert search_metrics(expected, case.queries).hits == [], (
-                "A related-word case must not match its metric's stored text, or it only tests word matching again"
+                "A meaning case must not match its metrics' stored text, or it only tests word matching again"
             )
 
     def test_semantic_lane_adds_a_hit_and_falls_back_when_embedding_fails(self) -> None:
@@ -213,6 +213,24 @@ class TestScoreCase(SimpleTestCase):
         scores = score_case(case, ranked, confident_match=True)
         assert (scores["recall"], scores["sibling_ranked_above"]) == (recall, sibling)
 
+    @parameterized.expand(
+        [
+            ("all_above", ["a", "b", "shared"], 1.0),
+            ("one_below", ["a", "shared", "b"], 0.5),
+            ("all_below", ["shared", "a", "b"], 0.0),
+            ("one_missing_and_no_shared_hit", ["a"], 0.5),
+        ]
+    )
+    def test_shared_word_scores(self, _name: str, ranked: list[str], expected: float) -> None:
+        case = SearchCase(
+            name="shared",
+            case_type=CaseType.SHARED_WORD,
+            queries=("q",),
+            expected=("a", "b"),
+            shared_word_metrics=("shared",),
+        )
+        assert score_case(case, ranked, confident_match=True)["meaning_above_shared_word"] == expected
+
     @parameterized.expand([("confident", True, 0.0), ("not_confident", False, 1.0)])
     def test_real_gap_scores_only_the_no_match_call(self, _name: str, confident: bool, expected: float) -> None:
         case = next(case for case in SEARCH_CASES if case.case_type == CaseType.REAL_GAP)
@@ -221,6 +239,7 @@ class TestScoreCase(SimpleTestCase):
             "recall": None,
             "correct_no_match": expected,
             "sibling_ranked_above": None,
+            "meaning_above_shared_word": None,
             "confident_when_present": None,
         }
 
