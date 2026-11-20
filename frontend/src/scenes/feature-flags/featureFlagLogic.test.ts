@@ -3719,6 +3719,40 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.scheduleFormState).toEqual('expanded')
         })
+
+        describe('cron next run in the create form', () => {
+            beforeEach(() => {
+                jest.useFakeTimers()
+                jest.setSystemTime(new Date('2026-11-12T15:27:00.000Z'))
+            })
+
+            it('keeps a day picked before choosing Custom (cron) and typing the cron', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(dayjs('2026-12-04 09:00'))
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-12-04 13:00')
+            })
+
+            it('searches from now when no day was picked', () => {
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-11-13 13:00')
+            })
+
+            it('forgets the picked day when the form resets', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(null)
+
+                expect(logic.values.schedulePickedDay).toBeNull()
+            })
+        })
     })
 
     describe('default release conditions', () => {

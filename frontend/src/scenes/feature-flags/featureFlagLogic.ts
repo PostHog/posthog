@@ -31,7 +31,7 @@ import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLog
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { describeCron } from 'lib/cron'
+import { describeCron, nextCronOccurrence } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -538,14 +538,15 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
-// Never search from a previously computed next run: after a second cron edit that skips the first match.
-export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null = null): Dayjs {
+// Returns the first cron match after now, or on or after `fromDay` when that day is later, or null for an invalid cron.
+// `fromDay` is a browser-local Dayjs whose wall clock shows project time, so `.tz(timezone, true)` reinterprets it.
+// Searching from a previously computed run would skip the first match after a second cron edit.
+export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null = null): Dayjs | null {
     const now = new Date()
     // Step back 1 ms so that a match at exactly midnight of the picked day counts.
     const dayStart = fromDay?.startOf('day').tz(timezone, true).subtract(1, 'millisecond').toDate()
-    const currentDate = dayStart && dayStart > now ? dayStart : now
-    const nextDate = CronExpressionParser.parse(cron, { currentDate, tz: timezone }).next().toDate()
-    return scheduleDateFromStoredISO(nextDate.toISOString(), timezone)
+    const nextDate = nextCronOccurrence(cron, timezone, dayStart && dayStart > now ? dayStart : now)
+    return nextDate ? scheduleDateFromStoredISO(nextDate.toISOString(), timezone) : null
 }
 
 // Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
@@ -1474,6 +1475,7 @@ export interface featureFlagLogicValues {
     rulesV2DraftDirty: boolean
     savedVariantKeys: string[]
     scheduleDateMarker: any
+    schedulePickedDay: Dayjs | null
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
     scheduleFormManuallyExpanded: boolean | null
@@ -2042,12 +2044,8 @@ export interface featureFlagLogicActions {
     setCopySchedule: (copySchedule: boolean) => {
         copySchedule: boolean
     }
-    setCronExpression: (
-        cronExpression: string | null,
-        fromDay?: Dayjs | null
-    ) => {
+    setCronExpression: (cronExpression: string | null) => {
         cronExpression: string | null
-        fromDay: Dayjs | null
     }
     setCustomPairCron: (
         which: 'disable' | 'enable',
@@ -2204,6 +2202,9 @@ export interface featureFlagLogicActions {
     }
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
+    }
+    setSchedulePickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
     }
     setScheduleFormExpanded: (expanded: boolean) => {
         expanded: boolean
@@ -2745,6 +2746,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setSchedulePickedDay: (day: Dayjs | null) => ({ day }),
         setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
         resetScheduleFormExpanded: true,
         setSchedulePayload: (
@@ -2757,10 +2759,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
-        setCronExpression: (cronExpression: string | null, fromDay: Dayjs | null = null) => ({
-            cronExpression,
-            fromDay,
-        }),
+        setCronExpression: (cronExpression: string | null) => ({ cronExpression }),
         setRepeatsValue: (value: RecurrenceInterval | 'none' | 'cron') => ({ value }),
         setEndDate: (endDate: Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
@@ -3222,6 +3221,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        // The day last picked in the date picker. Kept apart from scheduleDateMarker, which each
+        // cron edit overwrites, so a cron typed after picking a day still searches from that day.
+        schedulePickedDay: [
+            null as Dayjs | null,
+            {
+                setSchedulePickedDay: (_, { day }) => day,
+                // Clearing the marker resets the form
+                setScheduleDateMarker: (state, { dateMarker }) => (dateMarker ? state : null),
             },
         ],
         // Null until the user opens or closes the form; the default is derived from
@@ -4349,20 +4358,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        setCronExpression: ({ cronExpression, fromDay }) => {
+        setCronExpression: ({ cronExpression }) => {
             if (!cronExpression) {
                 return
             }
-            // Only compute next run for valid 5-field cron expressions
-            const fields = cronExpression.trim().split(/\s+/)
-            if (fields.length !== 5) {
-                return
-            }
-            try {
-                const timezone = values.currentTeam?.timezone || 'UTC'
-                actions.setScheduleDateMarker(nextCronRunDate(cronExpression, timezone, fromDay))
-            } catch {
-                // Invalid expression — don't update the date picker
+            const timezone = values.currentTeam?.timezone || 'UTC'
+            const nextRun = nextCronRunDate(cronExpression, timezone, values.schedulePickedDay)
+            // Invalid expression: leave the date picker as it is
+            if (nextRun) {
+                actions.setScheduleDateMarker(nextRun)
             }
         },
         setRepeatsValue: ({ value }) => {
