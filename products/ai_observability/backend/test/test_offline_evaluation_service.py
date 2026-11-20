@@ -20,7 +20,6 @@ from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.ai_observability.backend.logic.offline_evaluations.mutations import mutate_offline_evaluation
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
@@ -32,6 +31,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     PayloadState,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.offline_evaluation_mutations import mutate_offline_evaluation
 from products.ai_observability.backend.offline_evaluation_service import (
     ExperimentReceipt,
     OfflineEvaluationConflict,

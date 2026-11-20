@@ -28,9 +28,8 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultValueField,
     _identifier_field,
 )
-from products.ai_observability.backend.facade import api as aio
-from products.ai_observability.backend.logic.offline_evaluations.mutations import Target
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult
+from products.ai_observability.backend.offline_evaluation_mutations import Target, mutate_offline_evaluation
 from products.ai_observability.backend.offline_evaluation_types import JSONValue
 
 if TYPE_CHECKING:
@@ -38,18 +37,16 @@ if TYPE_CHECKING:
     from drf_spectacular.utils import Direction
 
 MUTATION_ERRORS = {**READ_ERROR_RESPONSES, 409: READ_ERROR_RESPONSES[400]}
-MUTATION_ACTIONS = frozenset(
-    {
-        "update_item",
-        "delete_item",
-        "update_result",
-        "delete_result",
-        "update_item_payload",
-        "delete_item_payload",
-        "update_result_payload",
-        "delete_result_payload",
-    }
-)
+MUTATION_SCOPES = {
+    "update_item": ["evaluation:write"],
+    "delete_item": ["evaluation:write", "llm_analytics:read"],
+    "update_result": ["evaluation:write", "llm_analytics:read"],
+    "delete_result": ["evaluation:write", "llm_analytics:read"],
+    "update_item_payload": ["evaluation:write"],
+    "delete_item_payload": ["evaluation:write"],
+    "update_result_payload": ["evaluation:write", "llm_analytics:read"],
+    "delete_result_payload": ["evaluation:write", "llm_analytics:read"],
+}
 
 
 class OfflineRevisionSerializer(serializers.Serializer):
@@ -110,11 +107,8 @@ class OfflineResultPayloadUpdateSerializer(OfflineUpdateSerializer):
 
 class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
-        if self.action in MUTATION_ACTIONS:
-            scopes = ["evaluation:write"]
-            if "result" in self.action or self.action == "delete_item":
-                scopes.append("llm_analytics:read")
-            return scopes
+        if self.action in MUTATION_SCOPES:
+            return MUTATION_SCOPES[self.action]
         return super().dangerously_get_required_scopes(request, view)
 
     def _mutate_resource(self, request: ValidatedRequest, target: Target) -> Response:
@@ -123,7 +117,7 @@ class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
             raise PermissionDenied("Use the direct project API with an evaluation editor credential.")
         data = dict(request.validated_query_data if deleting else request.validated_data)
         expected_revision = data.pop("revision")
-        current_revision = aio.mutate_offline_evaluation(
+        current_revision = mutate_offline_evaluation(
             team_id=self.team_id,
             experiment_id=self._path_id(),
             resource_id=self._path_id("item_id" if target.startswith("item") else "result_id"),

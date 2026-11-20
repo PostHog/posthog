@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import F, Func, Q, Value
@@ -244,6 +246,10 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
                 name="aio_result_payload_expiry_idx",
             ),
         ]
+
+    @property
+    def effective_score_time(self) -> datetime:
+        return self.score_updated_at or self.evaluated_at or self.accepted_at
 
     @property
     def value(self) -> float | bool | list[str] | None:

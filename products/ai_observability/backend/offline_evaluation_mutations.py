@@ -35,6 +35,8 @@ from products.ai_observability.backend.offline_evaluation_types import (
     ResultStatus,
     ResultSubmission,
     ResultValue,
+    reported_score_errors,
+    result_payload_error,
 )
 
 type Target = Literal["item", "result", "item_payload", "result_payload"]
@@ -87,10 +89,8 @@ def _update_score(
     status = cast(ResultStatus, changes.get("status", result.status))
     value = changes.get("value", result.value if status == "ok" else None)
     error_code = changes.get("error_code", result.error_code if status == "error" else None)
-    if (status == "ok") != (value is not None):
-        raise OfflineEvaluationValidationError("value", "Supply a value only for a successful result.")
-    if status != "error" and error_code is not None:
-        raise OfflineEvaluationValidationError("error_code", "Supply an error code only for an error result.")
+    if errors := reported_score_errors(status, value, error_code):
+        raise OfflineEvaluationValidationError.from_errors(errors)
     builder = OfflineResultBuilder(result.team_id)
     submission = ResultSubmission(
         item_id=result.item_id,
@@ -154,6 +154,8 @@ def _write_payload(owner: Owner, *, patch: dict[str, JSONValue] | None, now: dat
     deadline = owner.accepted_at + timedelta(days=30)
     fields = ["revision", "payload_state", "payload_expires_at"]
     if patch is None:
+        if owner.payload_state != PayloadState.AVAILABLE:
+            raise OfflineEvaluationConflict("payload_unavailable", "There is no stored payload to delete.")
         rows.filter(pk=owner.pk).delete()
         owner.payload_deleted_at = now
         owner.payload_state = PayloadState.EXPIRED
@@ -167,12 +169,8 @@ def _write_payload(owner: Owner, *, patch: dict[str, JSONValue] | None, now: dat
         merged = {**existing, **patch}
         if len(json.dumps(merged, ensure_ascii=False, separators=(",", ":")).encode()) > max_bytes:
             raise OfflineEvaluationValidationError("payload", f"The updated payload must fit within {max_bytes} bytes.")
-        if (
-            isinstance(owner, OfflineEvaluationResult)
-            and owner.status != "error"
-            and merged.get("error_message") is not None
-        ):
-            raise OfflineEvaluationValidationError("payload", "Only an error result may have an error message.")
+        if isinstance(owner, OfflineEvaluationResult) and (message := result_payload_error(owner.status, merged)):
+            raise OfflineEvaluationValidationError("payload", message)
         rows.update_or_create(pk=owner.pk, defaults={"team_id": owner.team_id, "data": merged})
         owner.payload_state = PayloadState.AVAILABLE
         if isinstance(owner, OfflineExperimentItem) and any(

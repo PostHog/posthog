@@ -413,7 +413,11 @@ class OfflineEvaluationReadService:
         )
 
     def _result_read(
-        self, result: OfflineEvaluationResult, *, scorer: OfflineScorerVersionRead | None = None
+        self,
+        result: OfflineEvaluationResult,
+        *,
+        content_updated_at: datetime | None,
+        scorer: OfflineScorerVersionRead | None = None,
     ) -> OfflineResultRead:
         return OfflineResultRead(
             id=result.id,
@@ -423,6 +427,7 @@ class OfflineEvaluationReadService:
             input_result_ids=result.input_result_ids,
             revision=result.revision,
             score_updated_at=result.score_updated_at,
+            is_stale=content_updated_at is not None and content_updated_at > result.effective_score_time,
             value=result.value,
             error_code=result.error_code,
             evaluator_trace_id=result.evaluator_trace_id,
@@ -482,13 +487,20 @@ class OfflineEvaluationReadService:
             }
         cells: dict[UUID, list[OfflineResultRead]] = defaultdict(list)
         if scorers and page.results:
+            item_edit_times = {item.id: item.content_updated_at for item in page.results}
             results = (
                 self._results(query)
-                .filter(item_id__in=[item.id for item in page.results], scorer_version_id__in=scorers)
+                .filter(item_id__in=item_edit_times, scorer_version_id__in=scorers)
                 .order_by("scorer_version_id")
             )
             for result in results:
-                cells[result.item_id].append(self._result_read(result, scorer=scorers[result.scorer_version_id]))
+                cells[result.item_id].append(
+                    self._result_read(
+                        result,
+                        content_updated_at=item_edit_times[result.item_id],
+                        scorer=scorers[result.scorer_version_id],
+                    )
+                )
         return OfflineItemPage(
             count=page.count,
             next_cursor=page.next_cursor,
@@ -502,7 +514,8 @@ class OfflineEvaluationReadService:
     def result_cells(self, experiment_id: UUID, query: OfflineResultCellQuery) -> OfflineResultCells:
         self._require_experiment(experiment_id)
         items = self._items().filter(experiment_id=experiment_id, id__in=query.item_ids)
-        if items.count() != len(query.item_ids):
+        item_edit_times = dict(items.values_list("id", "content_updated_at"))
+        if len(item_edit_times) != len(query.item_ids):
             raise OfflineEvaluationNotFound
         versions = list(
             self._versions().filter(id__in=query.scorer_version_ids).select_related("definition").order_by("id")
@@ -517,7 +530,12 @@ class OfflineEvaluationReadService:
         )
         return OfflineResultCells(
             scorer_versions=list(scorers.values()),
-            results=[self._result_read(result, scorer=scorers[result.scorer_version_id]) for result in results],
+            results=[
+                self._result_read(
+                    result, content_updated_at=item_edit_times[result.item_id], scorer=scorers[result.scorer_version_id]
+                )
+                for result in results
+            ],
         )
 
     def list_item_results(
@@ -525,7 +543,7 @@ class OfflineEvaluationReadService:
     ) -> CursorPage[OfflineResultRead]:
         if not self.can_read_scores:
             raise OfflineEvaluationNotFound
-        self._require_item(experiment_id, item_id)
+        item = self._require_item(experiment_id, item_id)
         self._validate_scorer_selection(query)
         scope = f"results:{experiment_id}:{item_id}"
         results = self._results(query).filter(item_id=item_id)
@@ -543,7 +561,7 @@ class OfflineEvaluationReadService:
         return CursorPage(
             count=page.count,
             next_cursor=page.next_cursor,
-            results=[self._result_read(result) for result in page.results],
+            results=[self._result_read(result, content_updated_at=item.content_updated_at) for result in page.results],
         )
 
     def get_item_payload(self, experiment_id: UUID, item_id: UUID) -> OfflinePayloadRead:

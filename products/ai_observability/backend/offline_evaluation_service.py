@@ -407,9 +407,7 @@ class OfflineResultBuilder:
             )
         row.input_result_ids = [source.id for source in source_rows]
         row.receipt_requires_read = any(source.original_status is not None for source in source_rows)
-        row.score_updated_at = min(
-            source.score_updated_at or source.evaluated_at or source.accepted_at for source in source_rows
-        )
+        row.score_updated_at = min(source.effective_score_time for source in source_rows)
         return row
 
 

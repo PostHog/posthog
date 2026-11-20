@@ -30,7 +30,7 @@ from products.ai_observability.backend.api.offline_experiment_access import (
 )
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_mutations import (
-    MUTATION_ACTIONS,
+    MUTATION_SCOPES,
     OfflineExperimentMutationViewSet,
 )
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
@@ -156,7 +156,7 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
         return super().dangerously_get_required_scopes(request, view)
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self.psak_allowed_actions or self.action in MUTATION_ACTIONS:
+        if self.action in self.psak_allowed_actions or self.action in MUTATION_SCOPES:
             return [throttle() for throttle in self.ingestion_throttle_classes]
         return super().get_throttles()
 

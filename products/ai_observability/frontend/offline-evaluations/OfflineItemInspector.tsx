@@ -114,18 +114,11 @@ export function OfflineItemInspector({
                             ) : (
                                 selectedResult && (
                                     <div className="flex flex-col gap-3">
-                                        {item?.content_updated_at &&
-                                            Date.parse(item.content_updated_at) >
-                                                Date.parse(
-                                                    selectedResult.score_updated_at ??
-                                                        selectedResult.evaluated_at ??
-                                                        selectedResult.accepted_at
-                                                ) && (
-                                                <LemonBanner type="warning">
-                                                    The item’s input, output, or expected output changed after this
-                                                    score.
-                                                </LemonBanner>
-                                            )}
+                                        {selectedResult.is_stale && (
+                                            <LemonBanner type="warning">
+                                                The item’s input, output, or expected output changed after this score.
+                                            </LemonBanner>
+                                        )}
                                         <LemonCard hoverEffect={false} className="p-4 space-y-3">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div className="min-w-0">

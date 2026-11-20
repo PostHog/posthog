@@ -310,6 +310,9 @@ class PayloadState(models.TextChoices):
 
 
 class OfflineResultFieldsSerializer(serializers.Serializer):
+    is_stale = serializers.BooleanField(
+        help_text="Whether the item's input, output, or expected output changed after this score."
+    )
     revision = serializers.IntegerField(required=False, help_text="Current revision for updates and deletes.")
     score_updated_at = serializers.DateTimeField(
         required=False,

@@ -137,6 +137,7 @@ class OfflineScorerVersionRead:
 
 @frozen
 class OfflineResultRead:
+    is_stale: bool
     revision: int = 0
     score_updated_at: datetime | None = None
     input_result_ids: list[UUID] | None = None

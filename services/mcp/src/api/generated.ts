@@ -77753,6 +77753,8 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineResultCell {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
       /** Current revision for updates and deletes. */
       revision?: number;
       /**
@@ -77939,6 +77941,8 @@ export namespace Schemas {
     }
 
     export interface OfflineResultRead {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
       /** Current revision for updates and deletes. */
       revision?: number;
       /**

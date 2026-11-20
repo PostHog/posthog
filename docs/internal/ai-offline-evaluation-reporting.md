@@ -569,9 +569,10 @@ Calculating a new composite from an edited input, or retrying that calculation, 
 
 The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later. Recreating a hard-deleted item or result starts a new window for that record.
 An edit cannot extend the deadline or restore a deleted or expired payload.
+Only a stored payload can be deleted. If it was never provided, already deleted, or removed by retention, DELETE returns HTTP 409 (`payload_unavailable`) and preserves the revision. A first payload can still be added within the original window.
 Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
-Changing an item's input, output, or expected output leaves its reported scores in place. The inspector identifies scores that predate the change.
-It compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
+Changing an item's input, output, or expected output leaves its reported scores in place. Item results and result cells expose `is_stale`, which the inspector uses to identify scores that predate the change.
+The API compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
 
 Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
 Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.
