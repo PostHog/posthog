@@ -87,6 +87,10 @@ const SECOND_SENDER = {
     config: { verified: true },
 } as unknown as IntegrationType
 const VERIFYING_SENDER = { ...OWN_SENDER, config: { email: 'hello@example.com', verified: false } } as IntegrationType
+const STOPPED_SENDER = {
+    ...OWN_SENDER,
+    config: { email: 'hello@example.com', domain: 'example.com', verified: true, ses_sending_status: 'failed' },
+} as IntegrationType
 
 const EMAIL_TEMPLATE = {
     id: 'template-email',
@@ -295,9 +299,10 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
-    it.each<[string, IntegrationType[], string | null]>([
-        ['a sender is still verifying', [VERIFYING_SENDER], "hello@example.com isn't verified yet."],
-        ['the project has no sender', [], null],
+    it.each<[string, IntegrationType[], RegExp]>([
+        ['a sender is still verifying', [VERIFYING_SENDER], /^hello@example\.com isn't verified yet\.$/],
+        ['the only verified sender stopped sending', [STOPPED_SENDER], /^Sending stopped for example\.com: /],
+        ['the project has no sender', [], /^$/],
     ])('shows the PostHog test sender without a choice while %s', async (_, senders, warning) => {
         useSenderMocks(senders)
         showSenderRow()
@@ -305,7 +310,7 @@ describe('SandboxSenderChoiceProvider', () => {
 
         const row = screen.getByTestId('workflow-email-test-sender')
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
-        expect(within(row).queryByText(/verified yet\./)?.textContent ?? null).toEqual(warning)
+        expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
         expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/workflows\/channels$/)
