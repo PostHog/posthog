@@ -23,6 +23,10 @@ describe('notebook filters', () => {
     } as const
     const dateRange = { date_from: '-30d', date_to: null }
 
+    it.each([NodeKind.DataTableNode, NodeKind.InsightVizNode])('ignores an authored %s missing its source', (kind) => {
+        expect(getFilteredNotebookQuery({ kind } as DataTableNode | InsightVizNode, { properties: [] })).toBeNull()
+    })
+
     it('combines authored OR conditions with multiple notebook properties', () => {
         const original: InsightVizNode = {
             kind: NodeKind.InsightVizNode,

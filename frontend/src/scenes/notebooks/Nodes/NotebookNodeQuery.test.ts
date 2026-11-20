@@ -106,10 +106,18 @@ describe('NotebookNodeQuery', () => {
             const unmountQuery = query.mount()
             try {
                 expect(await screen.findByLabelText('Notebook filters')).toBeTruthy()
+                act(() =>
+                    notebookFilterLogic({ shortId: notebook.props.shortId }).actions.setFilters({
+                        properties: [],
+                        dateRange: { date_from: '-7d' },
+                    })
+                )
             } finally {
                 act(unmountQuery)
             }
             await waitFor(() => expect(screen.queryByLabelText('Notebook filters')).toBeNull())
+            fireEvent.click(screen.getByRole('button', { name: 'Clear notebook filters' }))
+            expect(screen.queryByRole('button', { name: 'Clear notebook filters' })).toBeNull()
         } finally {
             cleanup()
             unmountNotebook()

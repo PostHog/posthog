@@ -31,12 +31,17 @@ export function NotebookFiltersBar(): JSX.Element | null {
     const logic = notebookFilterLogic({ shortId })
     const { filters } = useValues(logic)
     const { setFilters } = useActions(logic)
-    if (
-        isShared ||
-        mode === 'canvas' ||
-        (!filters && !Object.values(nodeLogics).some((node) => isFilterableBlock(node.props)))
-    ) {
+    if (isShared || mode === 'canvas') {
         return null
+    }
+
+    const clearFiltersButton = filters && (
+        <LemonButton size="small" onClick={() => setFilters(null)}>
+            Clear notebook filters
+        </LemonButton>
+    )
+    if (!Object.values(nodeLogics).some((node) => isFilterableBlock(node.props))) {
+        return clearFiltersButton
     }
 
     return (
@@ -78,11 +83,7 @@ export function NotebookFiltersBar(): JSX.Element | null {
                     TaxonomicFilterGroupType.Cohorts,
                 ]}
             />
-            {filters && (
-                <LemonButton size="small" onClick={() => setFilters(null)}>
-                    Clear notebook filters
-                </LemonButton>
-            )}
+            {clearFiltersButton}
         </div>
     )
 }

@@ -81,6 +81,16 @@ describe('Playlist', () => {
         expect(screen.queryByTestId('mock-troubleshooting')).not.toBeInTheDocument()
     })
 
+    it('keeps a read-only list scoped to its selected sessions', async () => {
+        logic.actions.setFilters({ session_ids: ['s1', 's2'] })
+        renderPlaylist({ readOnlyFilters: true })
+
+        await waitFor(() => expect(logic.values.sessionRecordingsResponseLoading).toBe(false))
+        expect(screen.queryByRole('button', { name: 'Show all' })).not.toBeInTheDocument()
+        expect(screen.queryByTestId('mock-filters-embed-button')).not.toBeInTheDocument()
+        expect(logic.values.filters.session_ids).toEqual(['s1', 's2'])
+    })
+
     it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {
         logic.actions.setFilters({ session_ids: ['s1', 's2'] })
 

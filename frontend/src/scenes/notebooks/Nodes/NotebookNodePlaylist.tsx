@@ -104,6 +104,9 @@ function NotebookPlaylistView({
                 personUUID={personUUIDFromCanvasOverride ?? undefined}
                 autoPlay={false}
                 updateSearchParams={false}
+                resetToCallerFilters
+                readOnlyFilters
+                listEmptyState={<span>No recordings match the notebook filters.</span>}
             />
         </div>
     )
@@ -187,6 +190,10 @@ const PlaylistContent = ({
                 }, 100)
             },
         })
+        return () => {
+            setActions([])
+            setMessageListeners({})
+        }
     })
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />

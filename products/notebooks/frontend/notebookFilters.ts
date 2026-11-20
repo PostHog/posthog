@@ -45,7 +45,7 @@ function filterPeople<T extends ActorsQuery | PersonsNode>(
 
 function filterTable(table: DataTableNode, { properties, dateRange }: NotebookFilters): DataTableNode | null {
     const source = table.source
-    switch (source.kind) {
+    switch (source?.kind) {
         case NodeKind.EventsQuery:
             return {
                 ...table,
@@ -101,7 +101,7 @@ export function getFilteredNotebookQuery(
     if (isDataTableNode(query)) {
         return filterTable(query, filters)
     }
-    if (!isInsightVizNode(query)) {
+    if (!isInsightVizNode(query) || !query.source) {
         return null
     }
     const source = query.source
