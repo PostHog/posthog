@@ -667,13 +667,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Manage experiment configuration for this project.
  */
 export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PURE__ */ zod
@@ -691,13 +684,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 

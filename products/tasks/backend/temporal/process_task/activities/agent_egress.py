@@ -40,8 +40,8 @@ class AgentEgressCleanupInput:
     reason: Literal["completed", "cancelled", "failed"]
 
 
-def lifecycle(input: AgentEgressExecutionInput) -> AgentEgressLifecycle:
-    config = AgentEgressProbeConfig.load(Path(input.probe.config_path))
+def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> AgentEgressLifecycle:
+    config = AgentEgressProbeConfig.load(Path(input.probe.config_path), cleanup=cleanup)
     if config.team_id != input.probe.team_id or config.run_id != UUID(input.probe.run_id):
         raise ValueError("The worker configuration belongs to another run")
     config = config.model_copy(update={"sandbox_id": input.probe.sandbox_id})
@@ -85,4 +85,4 @@ async def probe_agent_egress(input: AgentEgressExecutionInput) -> dict[int, int]
 @activity.defn
 @asyncify
 def cleanup_agent_egress(input: AgentEgressCleanupInput) -> None:
-    lifecycle(input.execution).close(reason=input.reason, sandbox_id=input.sandbox_id)
+    lifecycle(input.execution, cleanup=True).close(reason=input.reason, sandbox_id=input.sandbox_id)

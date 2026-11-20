@@ -461,7 +461,7 @@ Fillout,api_key api_base_url,,,,,fillout
 Finage,api_key,,,symbols forex_symbols crypto_symbols start_date,,finage
 FinancialModelling,api_key,,,symbols,,financial-modelling
 Finnhub,api_key,,,symbols indices exchange,,finnhub
-Finnworlds,api_key,,,tickers countries,,finnworlds
+Finnworlds,api_key,,,tickers countries currencies,,finnworlds
 Finout,,,,,,finout
 Fintoc,api_key link_tokens,,,,,fintoc
 FireHydrant,api_key region,,,,,fire-hydrant

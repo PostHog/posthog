@@ -576,6 +576,8 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
 Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+Its lint checkout must include shared fixtures outside `rust/` because `clippy --all-targets` compiles tests that embed those files.
+Map those fixtures in the Rust path filter and crate determinator rules too, so fixture-only changes run the compatibility tests.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
