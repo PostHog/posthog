@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
@@ -2619,6 +2620,15 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["key"] for row in response.json()] == ["errors"]
 
+    def test_search_filters_by_key_prefix(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="report:checkout", content="v")
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:checkout", content="filed as report:checkout")
+
+        response = self.client.get(self._list_url(), {"key_prefix": "report:"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["report:checkout"]
+
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
         SignalScratchpad.objects.create(team=self.team, key="another", content="more memory")
@@ -2852,6 +2862,27 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(named.id)
 
+    def test_revisions_name_the_sandbox_run_and_survive_a_forget(self) -> None:
+        # A body `run_id` can name a sibling's run, so a revision must name the token's run instead.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+        for content in ("v1", "v2"):
+            response = self.client.post(
+                self._list_url(), data={"key": "k1", "content": content, "run_id": str(named.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client.post(self._forget_url(), data={"key": "k1"}, format="json").json() == {"deleted": True}
+
+        response = self.client.get(self._list_url(), {"key": "k1", "include_revisions": "true"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [entry] = response.json()
+        assert [(r["content"], r["change"], r["changed_by_run_id"]) for r in entry["revisions"]] == [
+            ("v2", "forget", str(sandbox_run.id)),
+            ("v1", "overwrite", str(sandbox_run.id)),
+        ]
+
     @parameterized.expand(
         [
             ("not_in_use_key", "not-in-use:feature-flags", None, 1),
@@ -2906,6 +2937,25 @@ class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
 
         assert response.status_code == expected, response.content
         assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    @parameterized.expand([("live_entry", True), ("history_only", False)])
+    def test_editor_discard_removes_the_entry_and_its_history(self, _name: str, live: bool) -> None:
+        key = "dedupe:stale"
+        if live:
+            SignalScratchpad.objects.create(team=self.team, key=key, content="current")
+        for history_key in (key, "dedupe:keep"):
+            SignalScratchpadRevision.objects.create(
+                team=self.team, key=history_key, content="previous", change=SignalScratchpadRevision.Change.OVERWRITE
+            )
+
+        response = self.client.post(self._discard_url(), data={"key": key}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key=key).exists()
+        assert list(SignalScratchpadRevision.objects.filter(team=self.team).values_list("key", flat=True)) == [
+            "dedupe:keep"
+        ]
 
     def test_session_discard_requires_skill_editor_rbac(self) -> None:
         from products.access_control.backend.facade.user_access_control import UserAccessControl

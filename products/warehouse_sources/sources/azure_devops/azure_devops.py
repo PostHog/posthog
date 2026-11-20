@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     format_datetime,
     frozen,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -149,6 +150,10 @@ def _with_pull_request_ref(item: dict[str, Any], ref: PullRequestRef) -> dict[st
         "repository_id": ref.repository_id,
         "pull_request_id": ref.pull_request_id,
     }
+
+
+def _with_pull_request_iteration_ref(item: dict[str, Any], ref: PullRequestRef, iteration_id: Any) -> dict[str, Any]:
+    return {**_with_pull_request_ref(item, ref), "iteration_id": iteration_id}
 
 
 def _flatten_thread_comments(thread: dict[str, Any], ref: PullRequestRef) -> list[dict[str, Any]]:
@@ -610,6 +615,24 @@ def get_rows(
             items = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
             if items:
                 yield [_with_pull_request_ref(item, ref) for item in items]
+        return
+
+    if endpoint == "pull_request_iteration_statuses":
+        for ref in pull_request_refs():
+            path = pull_request_child_path(ref)
+            iterations = fetch(path.removesuffix("/{iterationId}/statuses"), {}).json().get("value", []) or []
+            iteration_ids = [iteration["id"] for iteration in iterations if iteration.get("id") is not None]
+            if not iteration_ids:
+                reach_safe_point()
+            for iteration_id in iteration_ids:
+                statuses = (
+                    fetch(path.replace("{iterationId}", quote(str(iteration_id))), {}).json().get("value", []) or []
+                )
+                if statuses:
+                    yield [_with_pull_request_iteration_ref(item, ref, iteration_id) for item in statuses]
+                else:
+                    # This table stages no resume state, so an empty response is a safe point.
+                    reach_safe_point()
         return
 
     if endpoint == "teams":

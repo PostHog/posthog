@@ -7057,6 +7057,7 @@ function MarkdownNotebookEditor({
 
         return (
             <div
+                data-markdown-notebook-node-id={node.id}
                 className={clsx(
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',

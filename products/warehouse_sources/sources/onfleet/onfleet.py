@@ -320,6 +320,8 @@ def onfleet_source(
             job_id=job_id,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
+        if config.drop_rows_without_id:
+            resource.add_filter(lambda row: row.get("id") is not None)
 
     return SourceResponse(
         name=endpoint,
