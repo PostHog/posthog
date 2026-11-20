@@ -1280,9 +1280,27 @@ class InsightResultSerializer(InsightSerializer):
             "derived_name",
             "result",
             "warnings",
+            "error",
             "user_access_level",
         ]
         read_only_fields = fields
+
+    error = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the insight returned no result, for example a feature flag that gates its product or a failed "
+            "query. Null when the run succeeded or the insight is shared."
+        ),
+    )
+
+    def get_error(self, insight: Insight) -> Optional[str]:
+        if self.context.get("is_shared"):
+            return None
+        query_status = self.insight_result(insight).query_status
+        if not isinstance(query_status, dict) or not query_status.get("error"):
+            return None
+        return query_status.get("error_message") or "The insight could not be run."
 
     def to_representation(self, instance: Insight):
         # Skip InsightSerializer.to_representation which references fields

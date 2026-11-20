@@ -318,7 +318,8 @@ tools:
             run of hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or
             more), or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with dashboard_tile_ids. Supports
             variables_override and filters_override query params to run insights with one-off overrides without
-            persisting; see the parameter descriptions for the exact JSON shape required.
+            persisting; see the parameter descriptions for the exact JSON shape required. A tile that could not run has a null `result` and an `error` explaining why, for
+            example a feature flag that gates metrics.
         param_overrides:
             tile_ids:
                 input_schema: DashboardInsightTileIdsSchema
@@ -452,7 +453,7 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, and filters. All viewers see the description at the top of the dashboard. If you change it,
+            status, tags, and filters (including `filters.metricVariables` for PromQL metrics tiles). All viewers see the description at the top of the dashboard. If you change it,
             rewrite it in one or two short sentences, or clear it when the name already says it. Do not append revision
             history or agent notes. After you create or add insight tiles, call dashboard-get to get their tile IDs,
             then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This

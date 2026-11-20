@@ -35362,6 +35362,11 @@ export namespace Schemas {
          * @nullable
          */
       filterTestAccounts?: boolean | null;
+      /**
+         * Variables for PromQL metrics tiles, referenced in a query as `$name`. Each has a name, a source and a current value. Replaces the stored list; null clears it.
+         * @nullable
+         */
+      metricVariables?: MetricsDashboardVariable[] | null;
     }
 
     /**
@@ -35819,6 +35824,11 @@ export namespace Schemas {
       readonly result?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings?: _InsightResultWarnings | null;
+      /**
+         * Why the insight returned no result, for example a feature flag that gates its product or a failed query. Null when the run succeeded or the insight is shared.
+         * @nullable
+         */
+      readonly error?: string | null;
       /**
          * The effective access level the user has for this object
          * @nullable

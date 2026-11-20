@@ -669,6 +669,41 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
+
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -709,6 +744,11 @@ export interface DashboardFiltersOpenApiApi {
      * @nullable
      */
     filterTestAccounts?: boolean | null
+    /**
+     * Variables for PromQL metrics tiles, referenced in a query as `$name`. Each has a name, a source and a current value. Replaces the stored list; null clears it.
+     * @nullable
+     */
+    metricVariables?: MetricsDashboardVariableApi[] | null
 }
 
 export interface _DashboardPatchTileLayoutBoxOpenApiApi {
@@ -10381,41 +10421,6 @@ export interface MetricsQueryFilterApi {
     value: string
 }
 
-export interface MetricsDashboardVariableSelectionApi {
-    all?: boolean | null
-    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
-    values: string[]
-}
-
-export type MetricsDashboardVariableSourceApi =
-    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
-
-export const MetricsDashboardVariableSourceApi = {
-    Custom: 'custom',
-    Promql: 'promql',
-    Sql: 'sql',
-    Textbox: 'textbox',
-} as const
-
-export interface MetricsDashboardVariableApi {
-    /** The text that All puts in a PromQL query. `.*` when it is empty. */
-    allValue?: string | null
-    current?: MetricsDashboardVariableSelectionApi | null
-    /** The options when `source` is `custom`. */
-    customValues?: string[] | null
-    includeAll?: boolean | null
-    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
-    label?: string | null
-    multi?: boolean | null
-    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
-    name: string
-    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
-    query?: string | null
-    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
-    regex?: string | null
-    source: MetricsDashboardVariableSourceApi
-}
-
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
@@ -10832,6 +10837,11 @@ export interface InsightResultApi {
     readonly result?: unknown
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings?: _InsightResultWarningsApi | null
+    /**
+     * Why the insight returned no result, for example a feature flag that gates its product or a failed query. Null when the run succeeded or the insight is shared.
+     * @nullable
+     */
+    readonly error?: string | null
     /**
      * The effective access level the user has for this object
      * @nullable

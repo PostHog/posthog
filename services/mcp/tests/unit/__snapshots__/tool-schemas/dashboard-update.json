@@ -375,6 +375,139 @@
                     ],
                     "description": "Time granularity forced onto every tile that supports one. Null means each tile keeps its own.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year"
                 },
+                "metricVariables": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "properties": {
+                                    "allValue": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "The text that All puts in a PromQL query. `.*` when it is empty."
+                                    },
+                                    "current": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "all": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "values": {
+                                                        "description": "The selected values. Empty when `all` is true: All stands for every option of the variable.",
+                                                        "items": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "required": ["values"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "customValues": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "type": "string"
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "The options when `source` is `custom`."
+                                    },
+                                    "includeAll": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Shown in the dashboard filter bar. The name is shown when it is empty."
+                                    },
+                                    "multi": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "name": {
+                                        "description": "Letters, digits and underscores. Tiles refer to it as `$name`.",
+                                        "type": "string"
+                                    },
+                                    "query": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column."
+                                    },
+                                    "regex": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "RE2 pattern that options must match. When it has a capture group, the option is the first group."
+                                    },
+                                    "source": {
+                                        "enum": ["custom", "promql", "sql", "textbox"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name", "source"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Variables for PromQL metrics tiles, referenced in a query as `$name`. Each has a name, a source and a current value. Replaces the stored list; null clears it."
+                },
                 "properties": {
                     "description": "Dashboard-level property filters applied to every tile (PostHog property filter group)."
                 }
