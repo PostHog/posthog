@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.youtube_analytics.settings import (
     DEMOGRAPHICS,
     DEVICE_TYPES,
     GEOGRAPHY,
+    MEMBERSHIP_CANCELLATIONS,
     OPERATING_SYSTEMS,
     PLAYBACK_LOCATIONS,
     PLAYLIST_DAILY,
@@ -154,6 +155,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "subscribedStatus": "Whether the viewer was subscribed to the channel when the activity occurred.",
             "views": _VIEWS,
             "estimatedMinutesWatched": _ESTIMATED_MINUTES_WATCHED,
+        },
+    },
+    MEMBERSHIP_CANCELLATIONS: {
+        "description": (
+            "Daily count of channel membership cancellation surveys, split by the reason the member gave for canceling."
+        ),
+        "docs_url": _DIMENSIONS_DOCS_URL,
+        "columns": {
+            "day": _DAY,
+            "membershipsCancellationSurveyReason": (
+                "The reason the member gave for canceling, such as FINANCIAL_REASONS or NO_LONGER_INTERESTED. "
+                "UNKNOWN when the member did not complete the survey."
+            ),
+            "membershipsCancellationSurveyResponses": (
+                "The number of surveys completed by users who canceled their channel membership."
+            ),
         },
     },
     TRAFFIC_SOURCE_DETAILS: {

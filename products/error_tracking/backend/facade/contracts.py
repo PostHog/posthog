@@ -167,6 +167,32 @@ class ErrorTrackingIssuePreview:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagDefinition:
+    key: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTag:
+    key: str
+    label: str
+    description: str
+    # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
+    source: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
+    previous_source: str | None
+    previous_applied: bool
+    previous_probability: float | None
+    changed: bool
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str
@@ -177,6 +203,8 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+    # None when the tags were not read, so a response leaves the field out.
+    tags: list[ErrorTrackingIssueTag] | None = None
 
 
 @dataclass(frozen=True)
@@ -219,6 +247,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ai_issue_summaries_enabled: bool
     ingestion_enabled: bool
 
 
@@ -308,6 +337,20 @@ class ErrorTrackingSeverityRule:
     id: UUID
     filters: dict
     severity: Literal["low", "medium", "high", "critical"]
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagRule:
+    id: UUID
+    key: str
+    label: str
+    description: str
+    filters: dict
+    version: int
     order_key: int
     disabled_data: dict | None
     created_at: datetime
@@ -505,6 +548,10 @@ class ErrorTrackingIssueSummary:
     generated_at: datetime
     # When generation last wrote the summary.
     checked_at: datetime
+
+
+class ErrorTrackingAIFeature(LabeledStrEnum):
+    ISSUE_SUMMARIES = "issue_summaries"
 
 
 class IssueSummaryStatus(LabeledStrEnum):

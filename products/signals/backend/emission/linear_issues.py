@@ -145,6 +145,7 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     scope_field="JSONExtractString(team, 'id')",
     scope_config_key=SCOPE_CONFIG_KEYS[(SignalSourceProduct.LINEAR, SignalSourceType.ISSUE)],
     max_records=1000,
+    cursor_id_field="id",
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,
     summarization_prompt=LINEAR_SUMMARIZATION_PROMPT,

@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react'
 
+import { usePushStore } from '@/features/notifications/pushStore'
+
 import { formatClock, formatMonthDay } from '@/lib/dates'
 import {
     type AppVariant,
@@ -37,8 +39,10 @@ function updateLabel(): string {
 
 /** Internal builds only: which build, update and API host this device runs. */
 export function EnvironmentGroup({ host }: { host: string | null }): ReactElement {
+    const pushToken = usePushStore((state) => state.token)
     return (
         <SettingsGroup title="Environment" testID="settings-environment">
+            {pushToken ? <SettingsRow label="Push token" value={pushToken} monoValue /> : null}
             <SettingsRow label="Build" value={VARIANT_NAMES[appVariant]} />
             <SettingsRow label="Update channel" value={updateChannel ?? (__DEV__ ? 'Metro' : 'None')} />
             <SettingsRow label="Update" value={updateLabel()} monoValue={updateId !== null} />

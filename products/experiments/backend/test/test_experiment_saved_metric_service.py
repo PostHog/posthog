@@ -420,57 +420,6 @@ class TestExperimentSavedMetricService(APIBaseTest):
         saved_metric.refresh_from_db()
         assert saved_metric.query["source"]["kind"] == "EventsNode"
 
-    @parameterized.expand(
-        [
-            (
-                "link_with_breakdowns",
-                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                "The breakdowns it adds to this metric don't work with this change.",
-            ),
-            ("link_without_breakdowns", {"type": "primary"}, None),
-        ]
-    )
-    def test_update_saved_metric_to_percentile_checks_linked_experiments(
-        self,
-        _name: str,
-        link_metadata: dict,
-        expected_error: str | None,
-    ) -> None:
-        saved_metric = ExperimentSavedMetric.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Latency",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "mean",
-                "source": {"kind": "EventsNode", "event": "page_loaded", "math": "avg", "math_property": "load_ms"},
-            },
-        )
-        ExperimentService(team=self.team, user=self.user).create_experiment(
-            name="Checkout speed test",
-            feature_flag_key="saved-metric-percentile-breakdowns",
-            saved_metrics_ids=[{"id": saved_metric.id, "metadata": link_metadata}],
-        )
-        percentile_query = {
-            "kind": "ExperimentMetric",
-            "metric_type": "quantile",
-            "quantile": 0.9,
-            "source": {"kind": "EventsNode", "event": "page_loaded", "math_property": "load_ms"},
-        }
-
-        if expected_error:
-            with self.assertRaises(ValidationError) as ctx:
-                self._service().update_saved_metric(saved_metric, {"query": percentile_query})
-            assert "A linked experiment uses this metric" in str(ctx.exception)
-            assert expected_error in str(ctx.exception)
-            assert "Checkout speed test" not in str(ctx.exception)
-            saved_metric.refresh_from_db()
-            assert saved_metric.query["metric_type"] == "mean"
-        else:
-            self._service().update_saved_metric(saved_metric, {"query": percentile_query})
-            saved_metric.refresh_from_db()
-            assert saved_metric.query["metric_type"] == "quantile"
-
     def test_update_saved_metric_does_not_delete_links_on_validation_error(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,

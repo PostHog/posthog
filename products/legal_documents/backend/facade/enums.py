@@ -33,3 +33,10 @@ class StaffResendOutcome(StrEnum):
     # The document is signed, or it has no PandaDoc envelope.
     NOTHING_TO_SEND = "nothing_to_send"
     NOT_FOUND = "not_found"
+
+
+class StaffUploadOutcome(StrEnum):
+    STORED = "stored"
+    # An organization has at most one document of each type.
+    ALREADY_EXISTS = "already_exists"
+    STORAGE_FAILED = "storage_failed"

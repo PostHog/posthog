@@ -12,8 +12,6 @@ import type {
 
 /** How far before and after the send the page looks for what the person did. */
 export const ACTIVITY_WINDOW_DAYS = 7
-export const ACTIVITY_BEFORE_LIMIT = 50
-export const ACTIVITY_AFTER_LIMIT = 100
 /** A row with no session of its own stays with activity it happened this close to. */
 export const ACTIVITY_JOIN_MINUTES = 30
 

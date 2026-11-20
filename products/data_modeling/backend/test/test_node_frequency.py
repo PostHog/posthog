@@ -8,9 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
-    UnsatisfiableFrequencyError,
     all_source_floor_bounds,
     all_source_floors,
     compute_effective_cadences,

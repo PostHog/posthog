@@ -95,6 +95,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "_doc_id": "Identifier of the parent doc, injected during the fan-out sync.",
         },
     },
+    "pack_analytics": {
+        "description": "Usage analytics for each Pack the API token's owner can edit: one item per pack, with a metrics list of installs, invocations, active docs and workspaces, and revenue over time.",
+        "docs_url": "https://coda.io/developers/apis/v1#tag/Analytics",
+        "columns": {
+            "pack_id": "Identifier of the Pack these analytics describe, lifted from the nested pack object.",
+            "pack": "Metadata about the Pack (id, name, logo, and creation time).",
+            "metrics": "List of per-period metrics (doc and workspace installs, formula, action and sync invocations, active docs and workspaces, trials, subscriptions, and revenue in USD) with the date of each period.",
+        },
+    },
     "folders": {
         "description": "A folder in a workspace, resolving the folder reference each doc carries.",
         "docs_url": "https://coda.io/developers/apis/v1#tag/Folders",
@@ -131,6 +140,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdBy": "Person who created the page.",
             "updatedAt": "Time at which the page content was last modified.",
             "updatedBy": "Person who last modified the page content.",
+            "_doc_id": "Identifier of the parent doc, injected during the fan-out sync.",
+        },
+    },
+    "controls": {
+        "description": "A control in a Coda doc, such as a button, slider, or select list.",
+        "docs_url": "https://coda.io/developers/apis/v1#tag/Controls",
+        "columns": {
+            "id": "Identifier for the control, unique within its doc.",
+            "type": "Type of the object, always 'control'.",
+            "href": "API URL of the control.",
+            "name": "The control's name.",
+            "parent": "Reference to the page that holds the control.",
+            "_doc_id": "Identifier of the parent doc, injected during the fan-out sync.",
+        },
+    },
+    "formulas": {
+        "description": "A named formula in a Coda doc.",
+        "docs_url": "https://coda.io/developers/apis/v1#tag/Formulas",
+        "columns": {
+            "id": "Identifier for the formula, unique within its doc.",
+            "type": "Type of the object, always 'formula'.",
+            "href": "API URL of the formula.",
+            "name": "The formula's name.",
+            "parent": "Reference to the page that holds the formula.",
             "_doc_id": "Identifier of the parent doc, injected during the fan-out sync.",
         },
     },

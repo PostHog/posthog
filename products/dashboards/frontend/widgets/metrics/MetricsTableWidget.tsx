@@ -18,7 +18,7 @@ import {
     metricsTableSparklineDomains,
 } from './metricsTableColumnScales'
 import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
-import { parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
+import { metricsTableGroupByLabels, parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
 
 export type MetricsTableResultColumn = {
     label: string
@@ -26,15 +26,23 @@ export type MetricsTableResultColumn = {
     unit?: string | null
 }
 
+export function metricsTableRowName(row: MetricsTableResultRow): string {
+    return row.labels?.join(' · ') ?? row.key
+}
+
 export type MetricsTableResultRow = {
+    /** Identifies the row: its one label value, or a JSON list of the values when grouped by several labels. */
     key: string
+    /** The value of each group-by label. */
+    labels?: string[]
     values: (number | null)[]
     sparklines: (number | null)[][]
 }
 
 export type MetricsTableWidgetResult = {
     needsConfiguration?: boolean
-    groupBy?: string | null
+    /** A string in results from before multi-label grouping. */
+    groupBy?: string | string[] | null
     columns?: MetricsTableResultColumn[]
     rows?: MetricsTableResultRow[]
     totalCount?: number
@@ -92,7 +100,7 @@ export function MetricsTableView({
     rows,
     selection,
 }: {
-    groupBy: string
+    groupBy: string[]
     columns: MetricsTableResultColumn[]
     rows: MetricsTableResultRow[]
     /** Without it, the table is read-only, as in the add-widget preview. */
@@ -110,7 +118,7 @@ export function MetricsTableView({
                           <LemonCheckbox
                               checked={selection.selected.includes(row.key)}
                               onChange={() => selection.onToggle(row.key)}
-                              aria-label={`Select ${row.key}`}
+                              aria-label={`Select ${metricsTableRowName(row)}`}
                           />
                       ),
                   },
@@ -118,7 +126,7 @@ export function MetricsTableView({
             : []),
         {
             key: 'key',
-            title: groupBy,
+            title: groupBy.join(' · '),
             render: (_, row) =>
                 selection ? (
                     <LemonButton
@@ -128,11 +136,11 @@ export function MetricsTableView({
                         tooltip="Open full charts"
                         data-attr="metrics-table-widget-open-row"
                     >
-                        <span className="truncate">{row.key}</span>
+                        <span className="truncate">{metricsTableRowName(row)}</span>
                     </LemonButton>
                 ) : (
-                    <span className="font-mono text-xs truncate block max-w-[24rem]" title={row.key}>
-                        {row.key}
+                    <span className="font-mono text-xs truncate block max-w-[24rem]" title={metricsTableRowName(row)}>
+                        {metricsTableRowName(row)}
                     </span>
                 ),
         },
@@ -204,8 +212,8 @@ export function MetricsTableWidget({
                     <div className="flex max-w-sm flex-col items-center gap-1 px-2 text-balance">
                         <p className="m-0 text-base font-semibold text-primary">Pick a label and metrics</p>
                         <p className="m-0 text-sm text-muted">
-                            Open the widget settings. Choose a label, such as http.route, and up to 4 metrics. The table
-                            shows one row for each value of the label.
+                            Open the widget settings. Choose one or more labels, such as http.route, and up to 6
+                            metrics. The table shows one row for each value of the labels.
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
@@ -229,6 +237,7 @@ export function MetricsTableWidget({
         )
     }
 
+    const groupBy = metricsTableGroupByLabels(payload.groupBy)
     const rows = payload.rows ?? []
     if (rows.length === 0) {
         return (
@@ -237,8 +246,10 @@ export function MetricsTableWidget({
                     <div className="flex max-w-sm flex-col items-center gap-1 px-2 text-balance">
                         <p className="m-0 text-base font-semibold text-primary">No metrics found</p>
                         <p className="m-0 text-sm text-muted">
-                            No series had the {payload.groupBy} label in this date range. Check the metric names or try
-                            a longer date range.
+                            {groupBy.length > 1
+                                ? `No series had all of the labels ${groupBy.join(', ')} in this date range.`
+                                : `No series had the ${groupBy[0]} label in this date range.`}{' '}
+                            Check the metric names or try a longer date range.
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
@@ -246,26 +257,26 @@ export function MetricsTableWidget({
         )
     }
 
+    // A refresh can drop a selected row, and the drilldown needs every label value of a row.
+    const rowsByKey = new Map(rows.map((row) => [row.key, row]))
+    const shownSelected = selected.filter((key) => rowsByKey.has(key))
+    const openRows = openKeys.flatMap((key) => rowsByKey.get(key) ?? [])
+
     return (
         <>
             <WidgetCardContent>
-                <MetricsTableView
-                    groupBy={payload.groupBy ?? ''}
-                    columns={payload.columns ?? []}
-                    rows={rows}
-                    selection={selection}
-                />
+                <MetricsTableView groupBy={groupBy} columns={payload.columns ?? []} rows={rows} selection={selection} />
             </WidgetCardContent>
             <WidgetContentFooter className="items-center gap-2">
-                {selected.length > 0 ? (
+                {shownSelected.length > 0 ? (
                     <>
                         <LemonButton
                             type="primary"
                             size="xsmall"
-                            onClick={() => openCharts(selected)}
+                            onClick={() => openCharts(shownSelected)}
                             data-attr="metrics-table-widget-open-selected"
                         >
-                            Open {selected.length} in full charts
+                            Open {shownSelected.length} in full charts
                         </LemonButton>
                         <LemonButton size="xsmall" onClick={() => setSelected([])}>
                             Clear
@@ -282,8 +293,9 @@ export function MetricsTableWidget({
             </WidgetContentFooter>
             <MetricsTableDrilldownModal
                 config={parseMetricsTableWidgetConfig(config)}
-                keys={openKeys}
+                names={openRows.map(metricsTableRowName)}
                 dashboardFilters={dashboardFilters}
+                labelValues={openRows.map((row) => row.labels ?? [row.key])}
                 onClose={() => setOpenKeys([])}
             />
         </>

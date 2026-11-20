@@ -1,3 +1,4 @@
+use crate::utils::token_log::loggable_token;
 use crate::{
     api::errors::FlagError,
     flags::{
@@ -103,7 +104,11 @@ impl FlagService {
         match self.get_team_from_cache_or_pg(token).await {
             Ok(team) => Ok(team),
             Err(e) => {
-                tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
+                tracing::warn!(
+                    "Token validation failed for token '{}': {:?}",
+                    loggable_token(token),
+                    e
+                );
                 if e.is_token_not_found() {
                     self.team_negative_cache.insert(token.to_string());
                     inc(

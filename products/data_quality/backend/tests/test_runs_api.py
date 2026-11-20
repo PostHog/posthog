@@ -9,13 +9,19 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import (
+    DataQualityRunBurstRateThrottle,
+    DataQualityRunProjectRateThrottle,
+    DataQualityRunSustainedRateThrottle,
+)
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -520,6 +526,73 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert start.call_args.kwargs["check_ids"] == [str(mine.id)]
 
+    @parameterized.expand(
+        [
+            ("per_minute", DataQualityRunBurstRateThrottle, "2/minute"),
+            ("per_hour", DataQualityRunSustainedRateThrottle, "2/hour"),
+            ("project_ceiling", DataQualityRunProjectRateThrottle, "2/hour"),
+        ]
+    )
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_check_runs_and_suite_runs_share_one_run_limit(
+        self, _name: str, throttle: type[SimpleRateThrottle], rate: str, _enabled
+    ) -> None:
+        check = self._check(self.orders)
+        run_check_url = f"{self.checks_url}{check.id}/run/"
+
+        with (
+            patch.object(throttle, "rate", rate),
+            patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())),
+        ):
+            assert self.client.post(run_check_url).status_code == status.HTTP_200_OK
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_200_OK
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            assert self.client.post(run_check_url).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            assert self.client.get(self.url).status_code == status.HTTP_200_OK
+            assert self.client.get(f"{self.checks_url}{check.id}/runs/").status_code == status.HTTP_200_OK
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_one_member_at_their_run_limit_does_not_block_a_teammate_until_the_project_ceiling(self, _enabled) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "2/minute"),
+            patch.object(DataQualityRunProjectRateThrottle, "rate", "3/hour"),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            self.client.force_login(teammate)
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_run_over_several_limits_waits_for_the_longest(self, _enabled) -> None:
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "1/minute"),
+            patch.object(DataQualityRunSustainedRateThrottle, "rate", "1/hour"),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            response = self._run()
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(response["Retry-After"]) > 60
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_run_limit_cache_failure_still_returns_429(self, _enabled) -> None:
+        broken_cache = MagicMock()
+        broken_cache.get.side_effect = ConnectionError("redis unavailable")
+
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "1/minute"),
+            patch.object(DataQualityRunSustainedRateThrottle, "cache", broken_cache),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            response = self._run()
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(response["Retry-After"]) > 0
+
     @parameterized.expand([("every_check_is_denied",), ("named_ids_match_nothing_runnable",)])
     def test_a_run_with_nothing_to_run_starts_no_workflow(self, case: str) -> None:
         # An empty selection is indistinguishable from no selector by the time it reaches the
@@ -582,13 +655,18 @@ class TestDataQualityRunAPI(APIBaseTest):
             assert response.json()["status"] == "empty"
         connect.assert_not_called()
 
-    def test_query_denied_members_cannot_sweep_or_read_runs(self) -> None:
-        AccessControl.objects.create(team=self.team, resource="query", access_level="none")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_query_denied_members_cannot_sweep_or_read_runs_or_spend_the_run_limit(self, _enabled) -> None:
+        denial = AccessControl.objects.create(team=self.team, resource="query", access_level="none")
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
         self.organization.save()
 
-        assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
+        with patch.object(DataQualityRunProjectRateThrottle, "rate", "1/hour"):
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
+            denial.delete()
+            assert self._run().status_code == status.HTTP_200_OK
 
     @parameterized.expand([("unrestricted_member", False), ("restricted_member", True)])
     def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self, _name: str, restricted: bool) -> None:

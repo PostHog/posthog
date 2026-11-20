@@ -7,7 +7,6 @@ import { ComparisonBarRow } from './ComparisonBarRow'
 import { FrictionGroupLegend } from './FrictionGroupLegend'
 import { FrictionGroupSegments } from './FrictionGroupSegments'
 
-/** One merged pull request's friction next to the typical pull request, and what added it. */
 export function PullRequestFrictionCard({
     friction,
     loading,

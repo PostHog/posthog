@@ -28,7 +28,7 @@ def summarize(
         text_repr: Line-numbered text representation to summarize
         team_id: Team ID for cost tracking and analytics
         mode: Summary detail level
-        model: OpenAI model to use (defaults to gpt-4.1-mini)
+        model: OpenAI model to use (defaults to DEFAULT_MODEL_OPENAI)
         user_id: Optional user distinct_id for analytics attribution
         flex: Request the flex service tier, cheaper but slower (gpt-5 family only)
         final_attempt: False when the caller retries a failure, so the failure is not captured

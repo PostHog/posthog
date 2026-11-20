@@ -13,14 +13,16 @@ import uuid
 from collections.abc import Callable
 from functools import partial
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationKind, IntegrationManager
+from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 
 OrganizationId = str | uuid.UUID
 
 
 def organization_has_integration(organization_id: OrganizationId, kind: str) -> bool:
-    return Integration.objects.filter(team__organization_id=organization_id, kind=kind).exists()
+    team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+    return IntegrationManager.kinds(kind, auth_types="any").exists(team_ids=team_ids)
 
 
 def organization_accepted_desktop_beta_terms(organization_id: OrganizationId) -> bool:
@@ -39,8 +41,8 @@ def organization_acted_on_signal(organization_id: OrganizationId) -> bool:
 
 
 SURFACE_ADOPTION_CHECKS: dict[str, Callable[..., bool]] = {
-    ProductKey.POSTHOG_SLACK.value: partial(organization_has_integration, kind=Integration.IntegrationKind.SLACK),
-    ProductKey.POSTHOG_GITHUB.value: partial(organization_has_integration, kind=Integration.IntegrationKind.GITHUB),
+    ProductKey.POSTHOG_SLACK.value: partial(organization_has_integration, kind=IntegrationKind.SLACK),
+    ProductKey.POSTHOG_GITHUB.value: partial(organization_has_integration, kind=IntegrationKind.GITHUB),
     ProductKey.POSTHOG_DESKTOP.value: organization_accepted_desktop_beta_terms,
     ProductKey.SELF_DRIVING.value: organization_acted_on_signal,
 }

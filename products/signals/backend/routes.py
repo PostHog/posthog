@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.signals.backend.views as signals
 from products.signals.backend.presentation.activity_summary import ActivitySummaryMembersViewSet, ActivitySummaryViewSet
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
+from products.signals.backend.presentation.inbox_status import InboxStatusViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
@@ -20,6 +21,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutMembersViewSet,
     SignalScoutMetadataViewSet,
     SignalScoutNoteViewSet,
+    SignalScoutReportDiscussionsViewSet,
     SignalScoutRunViewSet,
     SignalScoutViewSet,
     SignalScratchpadViewSet,
@@ -35,6 +37,7 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/source_spend", SignalSourceSpendViewSet, "project_signals_source_spend", ["team_id"]
     )
     routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(r"signals/inbox_status", InboxStatusViewSet, "project_signals_inbox_status", ["team_id"])
     routers.projects.register(r"signals/trial", SelfDrivingTrialViewSet, "project_signals_trial", ["team_id"])
     routers.projects.register(
         r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
@@ -114,6 +117,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/members",
         SignalScoutMembersViewSet,
         "project_signals_scout_members",
+        ["team_id"],
+    )
+    # Discussions on the calling scout's own reports. Internal scope → sandbox-only, like the roster.
+    routers.projects.register(
+        r"signals/scout/report_discussions",
+        SignalScoutReportDiscussionsViewSet,
+        "project_signals_scout_report_discussions",
         ["team_id"],
     )
     # Scout chat kickoff: server-minted tasks with the reserved SIGNALS_CHAT origin, so the

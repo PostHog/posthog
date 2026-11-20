@@ -156,6 +156,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             ("a_team_switched_off_with_only_disabled_copies", "switched_off_disabled_copies", False, None, None),
             ("an_ai_alert", "running", False, {"type": "llm"}, None),
             ("an_alert_switched_to_ai_after_its_copy", "running", True, {"type": "llm"}, "alert"),
+            ("a_forecast_alert", "running", False, {"type": "forecast"}, None),
         ]
     )
     def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(

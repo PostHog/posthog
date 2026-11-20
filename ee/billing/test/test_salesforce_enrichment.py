@@ -14,6 +14,10 @@ import fakeredis
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from products.growth.backend.enrichment.fit_score import SCORE_VERSION
+from products.growth.backend.enrichment.icp_lists import CuratedLists
+from products.growth.backend.enrichment.scoring_rules import ScoringRules
+
 from ee.billing.salesforce_enrichment.constants import (
     ACCOUNT_FILL_FIELDS,
     HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
@@ -55,6 +59,33 @@ def load_harmonic_fixture():
     with open(fixture_path) as f:
         data = json.load(f)
     return data["response"]
+
+
+FIT_LISTS = CuratedLists(version="test-lists")
+INCOHERENT_FIT_LISTS = CuratedLists(
+    version="incoherent", rules=ScoringRules(source="return {'status': 'scored', 'score': 5};")
+)
+FIT_COMPONENT_FIELDS = (
+    "icp_fit_traction__c",
+    "icp_fit_capital__c",
+    "icp_fit_ai_pilled__c",
+    "icp_fit_headcount_growth__c",
+    "icp_fit_software_relevance__c",
+)
+FIT_FIELDS = (
+    "icp_fit_status__c",
+    "icp_fit_score__c",
+    "icp_fit_dq_reason__c",
+    "icp_fit_version__c",
+    "icp_fit_lists_version__c",
+    "icp_fit_evaluated_at__c",
+    "icp_fit_data_coverage__c",
+    *FIT_COMPONENT_FIELDS,
+)
+
+
+def fit_fields(record: dict[str, Any]) -> dict[str, Any]:
+    return {field: value for field, value in record.items() if field.startswith("icp_fit_")}
 
 
 class TestDomainExclusion(SimpleTestCase):
@@ -1028,6 +1059,33 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         assert result["records_enriched"] == 0
         assert result["enriched_data"] is None
 
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_writes_the_icp_fit_fields_to_every_matching_account(self) -> None:
+        mock_accounts = [
+            {"Id": "001ACCOUNT1", "Name": "Company A", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT2", "Name": "Company B", "Domain__c": "example.com"},
+        ]
+
+        with (
+            mock_harmonic_client() as mock_client,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"),
+            patch("ee.billing.salesforce_enrichment.enrichment.load_active_lists", return_value=FIT_LISTS),
+            patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts") as mock_bulk_update,
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[load_harmonic_fixture()])
+
+            result = await enrich_accounts_async(specific_domain="example.com", score_icp_fit=True)
+
+        first, second = (fit_fields(record) for record in mock_bulk_update.call_args[0][1])
+        assert first["icp_fit_status__c"] == "scored"
+        assert second == first
+        assert result["records_icp_fit_evaluated"] == 2
+
 
 class TestChunkEnrichment(SimpleTestCase):
     SUB_ENTITY = {
@@ -1044,7 +1102,14 @@ class TestChunkEnrichment(SimpleTestCase):
         {"Id": "001MALFORMED", "Name": "Example Org", "Website": "https://example.net"},
     ]
 
-    async def _run_chunk(self, query_all: MagicMock) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    async def _run_chunk(
+        self,
+        query_all: MagicMock,
+        *,
+        normal_company: dict[str, Any] | None = None,
+        score_icp_fit: bool = False,
+        load_lists: MagicMock | None = None,
+    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         with (
             mock_harmonic_client() as mock_client,
             patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
@@ -1054,15 +1119,19 @@ class TestChunkEnrichment(SimpleTestCase):
             ),
             patch("ee.billing.salesforce_enrichment.enrichment.posthoganalytics.capture"),
             patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.load_active_lists",
+                new=load_lists or MagicMock(return_value=FIT_LISTS),
+            ),
         ):
             mock_client.enrich_companies_batch = AsyncMock(
-                return_value=[self.SUB_ENTITY, self.NORMAL, ["not", "a", "company"]]
+                return_value=[self.SUB_ENTITY, normal_company or self.NORMAL, ["not", "a", "company"]]
             )
             mock_sf = mock_get_sf.return_value
             mock_sf.query_all = query_all
             mock_sf.restful.return_value = [{"success": True}, {"success": True}]
 
-            result = await enrich_accounts_async(chunk_number=0, chunk_size=10)
+            result = await enrich_accounts_async(chunk_number=0, chunk_size=10, score_icp_fit=score_icp_fit)
 
         assert mock_client.client_class.call_args.kwargs["query"] == HARMONIC_ACCOUNT_ENRICHMENT_QUERY
         mock_sf.restful.assert_called_once()
@@ -1109,6 +1178,154 @@ class TestChunkEnrichment(SimpleTestCase):
         assert normal_record["Total_Funding__c"] == 900000000
         for fill_field in ACCOUNT_FILL_FIELDS:
             assert fill_field not in normal_record
+
+    @parameterized.expand([("salesforce_connection_fails", True), ("account_query_fails", False)])
+    @pytest.mark.asyncio
+    async def test_chunk_raises_when_accounts_cannot_be_read(self, _name: str, connection_fails: bool) -> None:
+        outage = ConnectionError("Synthetic Salesforce outage")
+
+        with (
+            patch(
+                "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+                return_value=fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()),
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+        ):
+            if connection_fails:
+                mock_get_sf.side_effect = outage
+            else:
+                mock_get_sf.return_value.query_all.side_effect = outage
+
+            with pytest.raises(ConnectionError):
+                await enrich_accounts_async(chunk_number=3, chunk_size=10)
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00.123456Z", tick=False)
+    async def test_chunk_scores_matched_companies_and_clears_sub_entities(self) -> None:
+        result, records = await self._run_chunk(MagicMock(return_value={"records": []}), score_icp_fit=True)
+
+        assert fit_fields(records["001SUB"]) == dict.fromkeys(FIT_FIELDS)
+
+        normal_fit = fit_fields(records["001NORMAL"])
+        components = [normal_fit.pop(field) for field in FIT_COMPONENT_FIELDS]
+        assert isinstance(normal_fit.pop("icp_fit_data_coverage__c"), int)
+        assert normal_fit == {
+            "icp_fit_status__c": "scored",
+            "icp_fit_score__c": sum(components),
+            "icp_fit_dq_reason__c": None,
+            "icp_fit_version__c": SCORE_VERSION,
+            "icp_fit_lists_version__c": FIT_LISTS.version,
+            "icp_fit_evaluated_at__c": "2025-07-29T12:00:00Z",
+        }
+        assert result["records_icp_fit_evaluated"] == 1
+
+    @parameterized.expand(
+        [
+            (
+                "insufficient_data",
+                {"name": "Example Corp", "website": {"url": "https://example.com", "domain": "example.com"}},
+                {"icp_fit_status__c": "insufficient_data"},
+            ),
+            (
+                "disqualified",
+                {**NORMAL, "companyType": "SCHOOL"},
+                {
+                    "icp_fit_status__c": "disqualified",
+                    "icp_fit_score__c": 0,
+                    "icp_fit_dq_reason__c": "company_type=SCHOOL",
+                },
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_sends_the_fields_an_unscored_status_lacks_as_nulls(
+        self, _name: str, company: dict[str, Any], status_fields: dict[str, Any]
+    ) -> None:
+        _, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), normal_company=company, score_icp_fit=True
+        )
+
+        assert fit_fields(records["001NORMAL"]) == {
+            **dict.fromkeys(FIT_FIELDS),
+            "icp_fit_version__c": SCORE_VERSION,
+            "icp_fit_lists_version__c": FIT_LISTS.version,
+            "icp_fit_evaluated_at__c": "2025-07-29T12:00:00Z",
+            **status_fields,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "long_dq_reason",
+                f"return {{'status': 'disqualified', 'score': 0, 'dq_reason': '{'x' * 300}'}};",
+                {"icp_fit_status__c": "disqualified", "icp_fit_dq_reason__c": "x" * 255},
+            ),
+            (
+                "oversized_data_coverage",
+                "return {'status': 'insufficient_data', 'flags': {'data_coverage': 1000000000000000000}};",
+                {"icp_fit_status__c": "insufficient_data", "icp_fit_data_coverage__c": None},
+            ),
+            (
+                "boolean_data_coverage",
+                "return {'status': 'insufficient_data', 'flags': {'data_coverage': true}};",
+                {"icp_fit_data_coverage__c": None},
+            ),
+            (
+                "unknown_component",
+                "return {'status': 'scored', 'score': 10, 'components': {'traction': 4, 'new_signal': 6}};",
+                {"icp_fit_score__c": 10, **dict.fromkeys(FIT_COMPONENT_FIELDS)},
+            ),
+            (
+                "components_on_a_disqualified_result",
+                "return {'status': 'disqualified', 'score': 0, 'dq_reason': 'agency', 'components': "
+                "{'traction': 9, 'capital': 9, 'ai_pilled': 9, 'headcount_growth': 9, 'software_relevance': 9}};",
+                {"icp_fit_score__c": 0, "icp_fit_dq_reason__c": "agency", **dict.fromkeys(FIT_COMPONENT_FIELDS)},
+            ),
+            (
+                "reason_on_a_scored_result",
+                "return {'status': 'scored', 'score': 5, 'dq_reason': 'agency', 'components': "
+                "{'traction': 1, 'capital': 1, 'ai_pilled': 1, 'headcount_growth': 1, 'software_relevance': 1}};",
+                {"icp_fit_dq_reason__c": None, "icp_fit_traction__c": 1},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_fits_formula_output_to_the_salesforce_fields(
+        self, _name: str, formula: str, expected: dict[str, Any]
+    ) -> None:
+        lists = CuratedLists(version="edited", rules=ScoringRules(source=formula))
+
+        _, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), score_icp_fit=True, load_lists=MagicMock(return_value=lists)
+        )
+
+        normal_fit = fit_fields(records["001NORMAL"])
+        assert {field: normal_fit[field] for field in expected} == expected
+
+    @parameterized.expand(
+        [
+            ("switched_off", False, MagicMock(return_value=FIT_LISTS)),
+            ("no_active_lists", True, MagicMock(return_value=None)),
+            ("lists_cannot_be_read", True, MagicMock(side_effect=Exception("database unavailable"))),
+            ("formula_result_is_incoherent", True, MagicMock(return_value=INCOHERENT_FIT_LISTS)),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_writes_the_mirrors_without_fit_fields(
+        self, _name: str, score_icp_fit: bool, load_lists: MagicMock
+    ) -> None:
+        result, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), score_icp_fit=score_icp_fit, load_lists=load_lists
+        )
+
+        normal_record = records["001NORMAL"]
+        assert normal_record["harmonic_company_name__c"] == "Example Corp"
+        assert fit_fields(normal_record) == {}
+        assert result["records_icp_fit_evaluated"] == 0
 
 
 class TestAddUnoccupiedFillFields(SimpleTestCase):

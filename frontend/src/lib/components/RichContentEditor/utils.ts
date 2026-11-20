@@ -195,7 +195,7 @@ function getMentions(editor: TTEditor): number[] {
     const mentions: number[] = []
 
     editor.state.doc.descendants((node) => {
-        if (node.type.name === RichContentNodeType.Mention) {
+        if (node.type.name === RichContentNodeType.Mention && node.attrs.kind !== 'role') {
             mentions.push(node.attrs.id)
         }
     })

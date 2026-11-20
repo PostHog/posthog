@@ -3,14 +3,25 @@ from datetime import datetime, timedelta
 
 from django.utils import timezone
 
+from posthog.models import Team, User
+
 from products.experiments.backend.facade.api import (
     count_enrolled_people,
+    get_stored_primary_result,
     list_ended_experiments_without_conclusion,
+    list_own_running_experiments,
     list_running_experiments,
+    viewable_experiment_names,
 )
-from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment
-from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
-from products.today.backend.facade.enums import HighlightLabel
+from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment, StoredPrimaryResult
+from products.today.backend.facade.contracts import (
+    HighlightCandidate,
+    HighlightContext,
+    HighlightExperimentResult,
+    HighlightFindings,
+    HighlightMetric,
+)
+from products.today.backend.facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit
 from products.today.backend.facade.highlight_helpers import short, users
 
 ENDED = "Experiment ‘{experiment}’ ended {when}"
@@ -22,6 +33,8 @@ ENDED_WINDOW_DAYS = 7
 LONG_RUNNING_DAYS = 60
 JUST_CROSSED_DAYS = 67
 MIN_PEOPLE = 100
+NUMBER_CANDIDATES = 3
+NUMBER_PREFIX = "experiment:"
 
 
 def _days_since(context: HighlightContext, moment: datetime) -> int:
@@ -64,6 +77,57 @@ def _few_users(experiment: RunningExperiment, enrolled: int) -> HighlightCandida
         detail=FEW_USERS_DETAIL,
         url=f"/experiments/{experiment.id}",
     )
+
+
+def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> HighlightMetric | None:
+    direction = -1 if result.goal == "decrease" else 1
+    ranked = sorted(
+        (variant for variant in result.variants if variant.change is not None),
+        key=lambda variant: (variant.change or 0) * direction,
+        reverse=True,
+    )
+    shown = next((variant for variant in ranked if variant.significant), ranked[0] if ranked else None)
+    if shown is None or shown.change is None:
+        return None
+    return HighlightMetric(
+        key=f"{NUMBER_PREFIX}{experiment.id}",
+        name=_name(experiment.name, 60),
+        value=shown.change * 100,
+        unit=HighlightUnit.NUMBER,
+        change_pct=None,
+        series=[],
+        url=f"/experiments/{experiment.id}",
+        reason=HighlightMetricReason.EXPERIMENT,
+        experiment=HighlightExperimentResult(
+            metric_name=result.metric_name,
+            variant=shown.key,
+            control=result.baseline.key,
+            variants=len(result.variants),
+            significant=bool(shown.significant),
+            favorable=shown.change * direction > 0,
+            exposures=result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants),
+        ),
+    )
+
+
+def find_experiment_number(context: HighlightContext) -> HighlightFindings:
+    running = list_own_running_experiments(team_id=context.team.id, user_id=context.user.id, limit=NUMBER_CANDIDATES)
+    for experiment in running:
+        if f"{NUMBER_PREFIX}{experiment.id}" in context.hidden:
+            continue
+        result = get_stored_primary_result(team_id=context.team.id, experiment_id=experiment.id)
+        number = _number(experiment, result) if result is not None else None
+        if number is not None:
+            return HighlightFindings(pulse=(number,))
+    return HighlightFindings()
+
+
+def name_experiment_numbers(team: Team, user: User, keys: list[str]) -> dict[str, str]:
+    ids = {
+        int(id) for key in keys if key.startswith(NUMBER_PREFIX) and (id := key.removeprefix(NUMBER_PREFIX)).isdigit()
+    }
+    names = viewable_experiment_names(team=team, user=user, experiment_ids=ids) if ids else {}
+    return {f"{NUMBER_PREFIX}{id}": _name(name, 60) for id, name in names.items()}
 
 
 def find_experiment_highlights(context: HighlightContext) -> HighlightFindings:

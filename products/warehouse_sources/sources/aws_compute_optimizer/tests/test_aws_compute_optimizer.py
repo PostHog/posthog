@@ -259,7 +259,7 @@ def test_projected_metrics_fan_out_over_recommendations(
     metric: dict[str, Any],
     expected: list[dict[str, Any]],
 ) -> None:
-    arn = expected[0][transport._column(arn_field)]
+    arn = expected[0][transport.camel_to_snake(arn_field)]
     result = driver().run(
         endpoint,
         [

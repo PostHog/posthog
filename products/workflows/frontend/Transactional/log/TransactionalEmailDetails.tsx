@@ -4,7 +4,6 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -54,7 +53,13 @@ function CopyableId({
     )
 }
 
-export function TransactionalEmailDetails({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
+export function TransactionalEmailDetails({
+    email,
+    emailUrl,
+}: {
+    email: TransactionalEmailLogDetailApi
+    emailUrl: string | null
+}): JSX.Element {
     return (
         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold m-0">Details</h3>
@@ -65,10 +70,8 @@ export function TransactionalEmailDetails({ email }: { email: TransactionalEmail
                     </Tooltip>
                 </DetailRow>
                 <DetailRow label="Email">
-                    {email.template_id ? (
-                        <Link to={urls.transactionalTemplate(email.template_id)}>
-                            {email.template_name || 'Unnamed email'}
-                        </Link>
+                    {emailUrl ? (
+                        <Link to={emailUrl}>{email.template_name || 'Unnamed email'}</Link>
                     ) : email.template_name ? (
                         email.template_name
                     ) : (

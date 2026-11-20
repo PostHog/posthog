@@ -25,7 +25,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { NEW_REPLAY_LAYOUTS, ReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -49,17 +49,16 @@ import { SCENE_PLAYLIST_LOGIC_PROPS, humanFriendlyTabName, sessionReplaySceneLog
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 
-const REPLAY_LAYOUT_LABELS: Record<ReplayLayout, string> = {
+const STAFF_REPLAY_LAYOUT_LABELS: Partial<Record<ReplayLayout, string>> = {
     classic: 'Legacy',
     compact: 'Compact',
     youtube: 'YouTube',
-    landing: 'Landing',
 }
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { watchLayoutOffered, replayLayout, canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
+    const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
     const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -69,41 +68,30 @@ function Header(): JSX.Element {
         <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
-                    {canOverrideLayout ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={staffLayoutOverride ?? 'flag'}
-                            onChange={(value) => setStaffLayoutOverride(value === 'flag' ? null : value)}
-                            options={[
-                                {
-                                    value: 'flag' as const,
-                                    label: 'Flag',
-                                    tooltip: 'Follow the feature flag',
-                                    'data-attr': 'replay-layout-override-flag',
-                                },
-                                {
-                                    value: 'classic' as const,
-                                    label: 'Legacy',
-                                    'data-attr': 'replay-layout-override-classic',
-                                },
-                                ...NEW_REPLAY_LAYOUTS.map((layout) => ({
+                    <span className="flex">
+                        {canOverrideLayout ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout}
+                                onChange={setStaffLayoutOverride}
+                                options={STAFF_REPLAY_LAYOUTS.map((layout) => ({
                                     value: layout,
-                                    label: REPLAY_LAYOUT_LABELS[layout],
+                                    label: STAFF_REPLAY_LAYOUT_LABELS[layout] ?? layout,
                                     'data-attr': `replay-layout-override-${layout}`,
-                                })),
-                            ]}
-                        />
-                    ) : watchLayoutOffered ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={replayLayout === 'classic' ? 'classic' : 'new'}
-                            onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
-                            options={[
-                                { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
-                                { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
-                            ]}
-                        />
-                    ) : null}
+                                }))}
+                            />
+                        ) : watchLayoutOffered ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout === 'classic' ? 'classic' : 'new'}
+                                onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
+                                options={[
+                                    { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
+                                    { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
+                                ]}
+                            />
+                        ) : null}
+                    </span>
                     <LiveRecordingsCount />
                     <ScenePanel>
                         <ScenePanelActionsSection>

@@ -40,6 +40,7 @@ function createService(
     route?: GatewayRoute;
     remint?: GatewayTokenService["remint"];
     fetch?: LlmGatewayAuth["fetch"];
+    currentProjectId?: number | null;
   } = {},
 ) {
   const auth: LlmGatewayAuth = {
@@ -54,7 +55,6 @@ function createService(
     messagesUrl: (host) => `${host}/gateway/v1/messages`,
     usageUrl: (host, projectId) =>
       `${host}/api/projects/${projectId}/desktop/usage/`,
-    legacyUsageUrl: (host) => `${host}/gateway/usage`,
     defaultModel: "claude-default",
   };
   const gatewayTokens = {
@@ -74,21 +74,13 @@ function createService(
   };
   const logger = { ...log, scope: () => log };
 
-  const orgListeners: Array<(state: { currentOrgId: string | null }) => void> =
-    [];
+  let currentProjectId =
+    options.currentProjectId === undefined ? 42 : options.currentProjectId;
   const authService = {
-    getState: () => ({ currentOrgId: "org-1", currentProjectId: 42 }),
-    on: (
-      _event: string,
-      listener: (state: { currentOrgId: string | null }) => void,
-    ) => {
-      orgListeners.push(listener);
-    },
+    getState: () => ({ currentOrgId: "org-1", currentProjectId }),
   } as unknown as AuthService;
-  const emitAuthState = (currentOrgId: string | null) => {
-    for (const listener of orgListeners) {
-      listener({ currentOrgId });
-    }
+  const selectProject = (projectId: number | null) => {
+    currentProjectId = projectId;
   };
 
   const service = new LlmGatewayService(
@@ -102,8 +94,8 @@ function createService(
     auth,
     endpoints,
     log,
-    emitAuthState,
     gatewayTokens,
+    selectProject,
   };
 }
 
@@ -235,51 +227,30 @@ describe("LlmGatewayService.fetchUsage", () => {
     is_rate_limited: false,
   };
 
-  it("returns the schema-parsed usage payload from Django", async () => {
+  it("returns Django usage for the project selected once the token is valid", async () => {
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(USAGE_BODY));
-    const { service } = createService(fetchMock);
+    const { service, auth, selectProject } = createService(fetchMock);
+    vi.mocked(auth.getValidAccessToken).mockImplementationOnce(async () => {
+      selectProject(43);
+      return { accessToken: "tok", apiHost: API_HOST };
+    });
 
     const usage = await service.fetchUsage();
 
-    expect(usage.product).toBe("code");
-    expect(usage.sustained.used_percent).toBe(10);
+    expect(usage?.product).toBe("code");
+    expect(usage?.sustained.used_percent).toBe(10);
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API_HOST}/api/projects/42/desktop/usage/`,
-      { headers: { "X-PostHog-Project-Id": "42" } },
+      `${API_HOST}/api/projects/43/desktop/usage/`,
+      { headers: { "X-PostHog-Project-Id": "43" } },
     );
   });
 
-  it("falls back to the legacy usage URL once per org after a 404", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse({ detail: "nope" }, 404))
-      .mockImplementation(async () => createJsonResponse(USAGE_BODY));
-    const { service } = createService(fetchMock);
+  it("returns null without fetching when no project is selected", async () => {
+    const fetchMock = vi.fn();
+    const { service } = createService(fetchMock, { currentProjectId: null });
 
-    await service.fetchUsage();
-    await service.fetchUsage();
-
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      `${API_HOST}/api/projects/42/desktop/usage/`,
-      `${API_HOST}/gateway/usage`,
-      `${API_HOST}/gateway/usage`,
-    ]);
-  });
-
-  it("re-probes Django after the organization changes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse({}, 404))
-      .mockImplementation(async () => createJsonResponse(USAGE_BODY));
-    const { service, emitAuthState } = createService(fetchMock);
-
-    await service.fetchUsage();
-    emitAuthState("org-2");
-    await service.fetchUsage();
-
-    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
-      `${API_HOST}/api/projects/42/desktop/usage/`,
-    );
+    await expect(service.fetchUsage()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("strips the Django body's extra is_pro field", async () => {
@@ -298,18 +269,24 @@ describe("LlmGatewayService.fetchUsage", () => {
     const usage = await service.fetchUsage();
 
     expect(usage).not.toHaveProperty("is_pro");
-    expect(usage.billing_period_end).toBe("2026-10-01T00:00:00Z");
+    expect(usage?.billing_period_end).toBe("2026-10-01T00:00:00Z");
   });
 
-  it("throws a usage_error LlmGatewayError on non-ok response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(createJsonResponse({}, 503));
-    const { service } = createService(fetchMock);
+  it.each([404, 503])(
+    "throws a usage_error LlmGatewayError on HTTP %i without retrying",
+    async (status) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(createJsonResponse({}, status));
+      const { service } = createService(fetchMock);
 
-    await expect(service.fetchUsage()).rejects.toMatchObject({
-      type: "usage_error",
-      statusCode: 503,
-    });
-  });
+      await expect(service.fetchUsage()).rejects.toMatchObject({
+        type: "usage_error",
+        statusCode: status,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("parses the usage-based billing fields when present", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -323,10 +300,10 @@ describe("LlmGatewayService.fetchUsage", () => {
 
     const usage = await service.fetchUsage();
 
-    expect(usage.ai_credits?.exhausted).toBe(true);
-    expect(usage.ai_credits?.used_usd).toBe(12.4);
-    expect(usage.ai_credits?.limit_usd).toBe(50);
-    expect(usage.code_usage_subscribed).toBe(true);
+    expect(usage?.ai_credits?.exhausted).toBe(true);
+    expect(usage?.ai_credits?.used_usd).toBe(12.4);
+    expect(usage?.ai_credits?.limit_usd).toBe(50);
+    expect(usage?.code_usage_subscribed).toBe(true);
   });
 
   it("parses ai_credits with null spend numbers from an unsynced org", async () => {
@@ -340,9 +317,9 @@ describe("LlmGatewayService.fetchUsage", () => {
 
     const usage = await service.fetchUsage();
 
-    expect(usage.ai_credits?.exhausted).toBe(false);
-    expect(usage.ai_credits?.used_usd).toBeNull();
-    expect(usage.ai_credits?.limit_usd).toBeNull();
+    expect(usage?.ai_credits?.exhausted).toBe(false);
+    expect(usage?.ai_credits?.used_usd).toBeNull();
+    expect(usage?.ai_credits?.limit_usd).toBeNull();
   });
 
   it("parses the optional Desktop component breakdown without rounding integers", async () => {
@@ -367,7 +344,7 @@ describe("LlmGatewayService.fetchUsage", () => {
 
     const usage = await service.fetchUsage();
 
-    expect(usage.ai_credits?.breakdown).toEqual(breakdown);
+    expect(usage?.ai_credits?.breakdown).toEqual(breakdown);
   });
 });
 

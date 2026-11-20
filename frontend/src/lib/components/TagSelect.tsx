@@ -70,7 +70,8 @@ export function TagSelect({
             type="secondary"
             active={selectedCount > 0}
             status={borderless && selectedCount === 0 ? 'alt' : 'default'}
-            className="min-w-26 max-w-48 truncate"
+            className="min-w-26 max-w-48"
+            truncate
             {...buttonProps}
         >
             {selectedCount === 0 ? defaultLabel : selectedCount === 1 ? value[0] : `${selectedCount} tags`}

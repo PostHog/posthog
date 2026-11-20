@@ -1,8 +1,5 @@
-// A window-comparison card for the repo hub's headline sections. Each metric's question is "this
-// window vs the previous window", a comparison of exactly two values, so the graphic is two labeled
-// horizontal bars on a shared zero-based scale rather than a time series: the daily buckets behind
-// these metrics are noise at this grain. Rates use a pass/fail split bar per window, where the
-// status colors are the data.
+// The comparison draws two bars on a shared zero-based scale, not a time series, because the daily
+// buckets behind these metrics are noise at this grain.
 
 import { ReactNode } from 'react'
 
@@ -45,7 +42,6 @@ function ComparisonRow({
     value: number
     max: number
     formatValue: (value: number) => string
-    /** Render the value as a pass/fail split of the whole bar instead of a length. */
     share: boolean
     current: boolean
 }): JSX.Element {
@@ -68,7 +64,6 @@ function PreviousWindowNote({ text }: { text: string }): JSX.Element {
     )
 }
 
-/** Why the previous window can't be compared with this one, or null when it can. */
 function previousWindowGap(
     previousValue: number | null | undefined,
     formatValue: (value: number) => string,
@@ -100,21 +95,16 @@ export function WindowComparisonCard({
     emptyText,
 }: {
     title: string
-    /** This window's value. */
     value: number | null | undefined
-    /** The previous window's value; without one the card says the previous window has no data. */
     previousValue: number | null | undefined
     formatValue: (value: number) => string
     goodWhenDown?: boolean
-    /** Rate mode: bars become a full-width pass/fail split instead of a length. */
+    /** Rate mode: each bar becomes a full-width pass/fail split instead of a length. */
     share?: boolean
-    /** 'pt' renders the delta as percentage points; default is relative percent. */
+    /** 'pt' renders the delta as percentage points. The default is relative percent. */
     deltaUnit?: 'pt'
-    /** Decimal places shown in the delta badge. */
     deltaPrecision?: number
-    /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    /** Where the value lands on its DORA ladder: a colored left edge plus the ladder in the title tooltip. */
     benchmark?: DoraBenchmark | null
     loading?: boolean
     emptyText: string

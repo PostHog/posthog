@@ -11,7 +11,6 @@ import {
     ML_IMAGE_FETCH_OUTPUT,
     ML_IMAGE_SCRUB_OUTPUT,
     REPLAY_EVENTS_OUTPUT,
-    SESSION_FEATURES_OUTPUT,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 /** Register all session replay outputs on the builder. Call `.build(registry, config)` to resolve. */
@@ -40,10 +39,6 @@ export function createOutputsRegistry() {
         .register(REPLAY_EVENTS_OUTPUT, {
             topicKey: 'INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_TOPIC',
             producerKey: 'INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER',
-        })
-        .register(SESSION_FEATURES_OUTPUT, {
-            topicKey: 'INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_TOPIC',
-            producerKey: 'INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER',
         })
         .register(ML_BLOCK_METADATA_OUTPUT, {
             topicKey: 'INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC',

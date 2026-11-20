@@ -21,6 +21,7 @@ import {
 const DAY = 24 * 60 * 60
 const HOUR = 60 * 60
 const MB = 1024 ** 2
+const GB = 1024 ** 3
 const TB = 1024 ** 4
 
 function payload(
@@ -86,7 +87,16 @@ describe('suggestionCopy', () => {
         expect(savingSentence(saving)).toEqual(sentence)
     })
 
-    it.each<[string, MainSavingKind | null, number, number, SavingHighlight]>([
+    it.each<
+        [
+            string,
+            MainSavingKind | null,
+            number,
+            number,
+            SavingHighlight,
+            Partial<WarehouseSuggestionMaterializePayloadApi>?,
+        ]
+    >([
         [
             'saves waiting but its refreshes cost background work',
             'waiting',
@@ -134,15 +144,42 @@ describe('suggestionCopy', () => {
                 narrowLabel: 'saved a month, ~3.20 TB less scanned',
             },
         ],
+        [
+            'saves waiting but scans more',
+            'waiting',
+            2 * HOUR,
+            0,
+            {
+                amount: '~2 hours',
+                detail: 'less waiting',
+                narrowLabel: 'less waiting a month',
+                tooltip: ['~21.00 GB more scanned a month'],
+            },
+            { saves_bytes_per_month: -21 * GB },
+        ],
+        [
+            'was measured only up to the time limit',
+            'background',
+            0,
+            9 * HOUR,
+            {
+                amount: 'at least 9 hours',
+                detail: 'less background work',
+                narrowLabel: 'less background work a month',
+                tooltip: ['~3.20 TB less scanned a month'],
+            },
+            { measurement_capped: true },
+        ],
     ])(
         'leads with the saving that earned a materialize suggestion that %s',
-        (_name, main, waiting, background, highlight) => {
+        (_name, main, waiting, background, highlight, overrides = {}) => {
             const input = {
                 ...payload(null),
                 saves_bytes_per_month: 3.2 * TB,
                 waiting_seconds_saved_per_month: waiting,
                 background_seconds_saved_per_month: background,
                 main_saving: main,
+                ...overrides,
             }
 
             expect(materializeHighlight(input)).toEqual(highlight)

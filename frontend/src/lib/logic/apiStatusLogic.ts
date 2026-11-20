@@ -2,11 +2,10 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } fr
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { ACCESS_BLOCKED_ERROR_CODE, PROJECT_ACCESS_DENIED_DETAIL } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -84,9 +83,21 @@ function isCurrentProjectAccessDenial(url: string, responseData: any): boolean {
     return !!projectInPath && [String(currentTeam.id), String(currentTeam.project_id)].includes(projectInPath)
 }
 
-function markCurrentProjectAccessDenied(url: string, responseData: any): void {
-    if (isCurrentProjectAccessDenial(url, responseData)) {
-        teamLogic.findMounted()?.actions.currentProjectAccessDenied()
+// One endpoint can refuse a member with the project-level message, and background polls hit many
+// endpoints. Ask the endpoint that loads the project before the whole app goes behind the screen.
+async function confirmCurrentProjectAccessDenied(): Promise<void> {
+    const team = teamLogic.findMounted()
+    const projectId = team?.values.currentTeam?.project_id
+    if (!team || !projectId || team.values.isCurrentProjectAccessDenied) {
+        return
+    }
+    try {
+        // nosemgrep: prefer-codegen-api -- Same raw project read as teamLogic.loadCurrentTeam. No generated function covers this endpoint yet.
+        await api.get(`api/projects/${projectId}`)
+    } catch (error: any) {
+        if (error?.status === 403 && error?.detail === PROJECT_ACCESS_DENIED_DETAIL) {
+            team.actions.currentProjectAccessDenied()
+        }
     }
 }
 
@@ -201,7 +212,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    markCurrentProjectAccessDenied(response.url, responseData)
+                    // The check request can itself return this 403, so run one check at a time.
+                    if (!cache.projectAccessCheck && isCurrentProjectAccessDenial(response.url, responseData)) {
+                        cache.projectAccessCheck = confirmCurrentProjectAccessDenied().finally(() => {
+                            cache.projectAccessCheck = null
+                        })
+                        await cache.projectAccessCheck
+                    }
                     if (responseData.code === 'ip_not_allowed' && !isOAuthMode()) {
                         if (!cache.ipRestrictionRedirectStarted) {
                             cache.ipRestrictionRedirectStarted = true

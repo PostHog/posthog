@@ -45,9 +45,16 @@ export function TopChrome({
                     <Stack.Toolbar.MenuAction
                         iconRenderingMode="template"
                         icon={nativeIcons.home}
-                        onPress={() => router.navigate('/inbox')}
+                        onPress={() => router.navigate('/live')}
                     >
                         Home
+                    </Stack.Toolbar.MenuAction>
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.inbox}
+                        onPress={() => router.navigate('/inbox')}
+                    >
+                        Inbox
                     </Stack.Toolbar.MenuAction>
                     <Stack.Toolbar.MenuAction
                         iconRenderingMode="template"

@@ -19,6 +19,8 @@ import {
     replaceIntegrationInputsWithRefs,
     signIntegrationRef,
 } from '../../utils/integration-input-refs'
+import { sealInvocation } from '../cyclotron-v2/job-codec'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 
 export const cdpJobSizeKb = new Histogram({
     name: 'cdp_cyclotron_job_size_kb',
@@ -67,15 +69,31 @@ export function observeConsumedBatch(params: {
  * Groups are always stripped. Person is stripped when stripPerson is true.
  * These are large and easily reloaded by the worker, so we avoid storing them.
  * When integrationRefSigner is set, resolved integration inputs become signed references (see integration-input-refs).
+ * When omitRebuildableInputs is set, inputs that the executor can build again are not stored (see rebuildable-inputs).
  * Returns a new object if modifications are needed, otherwise the original.
  */
 export function sanitizeInvocationForPersistence(
     invocation: CyclotronJobInvocation,
-    { stripPerson, integrationRefSigner }: { stripPerson?: boolean; integrationRefSigner?: IntegrationRefSigner } = {}
+    {
+        stripPerson,
+        integrationRefSigner,
+        omitRebuildableInputs,
+    }: { stripPerson?: boolean; integrationRefSigner?: IntegrationRefSigner; omitRebuildableInputs?: boolean } = {}
 ): CyclotronJobInvocation {
     const state = invocation.state
     if (!state) {
         return invocation
+    }
+
+    // The built inputs can hold a typed-in secret, or a secret that a template put into a header or a URL.
+    // The key is removed, not emptied, so a worker without the rebuild builds the inputs on its rerun path
+    // instead of running with no inputs.
+    if (omitRebuildableInputs && state.inputsSource && state.globals?.inputs) {
+        const { inputs: _inputs, ...globals } = state.globals
+        return sanitizeInvocationForPersistence(
+            { ...invocation, state: { ...state, globals, inputsOmitted: true } },
+            { stripPerson, integrationRefSigner }
+        )
     }
 
     const signRef = integrationRefSigner
@@ -144,7 +162,9 @@ function sanitizeGlobals(
  * Call once at construction time, use the returned functions on every queue operation.
  */
 export function createInvocationSanitizer(
-    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> & Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
+    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> &
+        Partial<Pick<CdpConfig, 'CDP_SEAL_TRANSACTIONAL_EMAIL_STATE' | 'CDP_SEALED_STATE_KEYS'>> &
+        Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
     integrationRefsRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout(),
     integrationRefSigner: IntegrationRefSigner = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
 ) {
@@ -153,25 +173,45 @@ export function createInvocationSanitizer(
         true
     )
 
+    if (config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && !config.CDP_SEALED_STATE_KEYS?.split(',').some(Boolean)) {
+        throw new Error('CDP_SEAL_TRANSACTIONAL_EMAIL_STATE is on but CDP_SEALED_STATE_KEYS is not set')
+    }
+    const sealer = new EncryptedFields(config.CDP_SEALED_STATE_KEYS ?? '')
+
+    // Only transactional sends carry login codes and reset links, so only they are stored encrypted. The setting is read
+    // at boot rather than from a flag, because a flag that fails to load would store them in plaintext.
+    const seal = (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
+        config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && inv.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+            ? sealInvocation(inv, sealer)
+            : inv
+
     return {
+        seal,
+
         sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
-            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
+            const enabled = integrationRefsRollout.isEnabled()
             return invocations.map((inv) =>
-                sanitizeInvocationForPersistence(inv, {
-                    stripPerson: stripPersonMatcher(inv.teamId),
-                    integrationRefSigner: signer,
-                })
+                seal(
+                    sanitizeInvocationForPersistence(inv, {
+                        stripPerson: stripPersonMatcher(inv.teamId),
+                        integrationRefSigner: enabled ? integrationRefSigner : undefined,
+                        omitRebuildableInputs: enabled,
+                    })
+                )
             )
         },
 
         sanitizeResults(results: CyclotronJobInvocationResult[]): CyclotronJobInvocationResult[] {
-            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
+            const enabled = integrationRefsRollout.isEnabled()
             return results.map((result) => ({
                 ...result,
-                invocation: sanitizeInvocationForPersistence(result.invocation, {
-                    stripPerson: stripPersonMatcher(result.invocation.teamId),
-                    integrationRefSigner: signer,
-                }),
+                invocation: seal(
+                    sanitizeInvocationForPersistence(result.invocation, {
+                        stripPerson: stripPersonMatcher(result.invocation.teamId),
+                        integrationRefSigner: enabled ? integrationRefSigner : undefined,
+                        omitRebuildableInputs: enabled,
+                    })
+                ),
             }))
         },
     }

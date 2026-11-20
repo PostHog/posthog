@@ -37,7 +37,7 @@
 
     &__when-pricing,
     &__when-refunds,
-    &__when-brand {
+    &__when-docs {
         @include preview-swap-hidden;
     }
 
@@ -142,12 +142,20 @@
         color: var(--color-text-secondary);
     }
 
-    // The mini PostHog AI thread.
+    // The mini thread of an agent the customer built.
     &__thread {
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
         padding: 0.75rem;
+    }
+
+    &__agent {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        align-items: center;
+        justify-content: space-between;
     }
 
     &__bubble {
@@ -184,7 +192,7 @@
         @include preview-accent-text(var(--bk-preview-accent));
     }
 
-    // The ambient bit: PostHog AI is still typing.
+    // The ambient bit: the agent is still typing.
     &__cursor {
         display: inline-block;
         width: 6px;
@@ -200,13 +208,13 @@
 
 #business-knowledge-preview-pricing:checked ~ * .BusinessKnowledgePreview__when-pricing,
 #business-knowledge-preview-refunds:checked ~ * .BusinessKnowledgePreview__when-refunds,
-#business-knowledge-preview-brand:checked ~ * .BusinessKnowledgePreview__when-brand {
+#business-knowledge-preview-docs:checked ~ * .BusinessKnowledgePreview__when-docs {
     @include preview-swap-visible;
 }
 
 #business-knowledge-preview-pricing:checked ~ .BusinessKnowledgePreview__list .BusinessKnowledgePreview__row--pricing,
 #business-knowledge-preview-refunds:checked ~ .BusinessKnowledgePreview__list .BusinessKnowledgePreview__row--refunds,
-#business-knowledge-preview-brand:checked ~ .BusinessKnowledgePreview__list .BusinessKnowledgePreview__row--brand {
+#business-knowledge-preview-docs:checked ~ .BusinessKnowledgePreview__list .BusinessKnowledgePreview__row--docs {
     background: color-mix(in oklab, var(--bk-preview-accent) 8%, transparent);
     border-color: color-mix(in oklab, var(--bk-preview-accent) 40%, transparent);
 }
@@ -217,9 +225,9 @@
 #business-knowledge-preview-refunds:checked
     ~ .BusinessKnowledgePreview__list
     .BusinessKnowledgePreview__vradio--refunds::after,
-#business-knowledge-preview-brand:checked
+#business-knowledge-preview-docs:checked
     ~ .BusinessKnowledgePreview__list
-    .BusinessKnowledgePreview__vradio--brand::after {
+    .BusinessKnowledgePreview__vradio--docs::after {
     transform: scale(1);
 }
 
@@ -231,9 +239,7 @@
 #business-knowledge-preview-refunds:focus-visible
     ~ .BusinessKnowledgePreview__list
     .BusinessKnowledgePreview__row--refunds,
-#business-knowledge-preview-brand:focus-visible
-    ~ .BusinessKnowledgePreview__list
-    .BusinessKnowledgePreview__row--brand {
+#business-knowledge-preview-docs:focus-visible ~ .BusinessKnowledgePreview__list .BusinessKnowledgePreview__row--docs {
     outline: 2px solid var(--bk-preview-accent);
     outline-offset: 1px;
 }

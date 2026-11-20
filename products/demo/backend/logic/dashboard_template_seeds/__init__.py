@@ -12,6 +12,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
+from products.dashboards.backend.facade.enums import DashboardTemplateScope
+
 _SEED_JSON_DIR = Path(__file__).resolve().parent
 
 
@@ -25,27 +29,22 @@ def load_dashboard_template_seeds() -> list[dict[str, Any]]:
 
 def seed_dev_dashboard_templates() -> list[str]:
     """Insert global dashboard templates if missing. Returns names of templates created."""
-    from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
     created: list[str] = []
     for payload in load_dashboard_template_seeds():
         name = payload.get("template_name")
         if not name:
             raise ValueError(f"Dashboard template seed missing or has null 'template_name': {payload}")
-        exists = DashboardTemplate.objects.filter(team_id__isnull=True, template_name=name).exists()
-        if exists:
-            continue
-        DashboardTemplate.objects.create(
-            team_id=None,
+        template = DashboardTemplateDefinition(
             template_name=name,
             dashboard_description=payload.get("dashboard_description"),
             dashboard_filters=payload.get("dashboard_filters"),
-            tiles=payload.get("tiles"),
+            tiles=payload.get("tiles") or [],
             variables=payload.get("variables"),
             tags=payload.get("tags") or [],
             image_url=payload.get("image_url"),
-            scope=payload.get("scope") or DashboardTemplate.Scope.GLOBAL,
+            scope=DashboardTemplateScope(payload.get("scope") or DashboardTemplateScope.GLOBAL),
             availability_contexts=payload.get("availability_contexts"),
         )
-        created.append(name)
+        if dashboards_api.create_global_template_if_missing(template):
+            created.append(name)
     return created

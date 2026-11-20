@@ -8,6 +8,7 @@ import { PostHogErrorBoundary } from '@posthog/react'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { NavSwitchCard } from 'lib/components/NavSwitch/NavSwitchCard'
 import { NotificationsMenu } from 'lib/components/NotificationsMenu/NotificationsMenu'
 import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -31,9 +32,9 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
     const { currentProjectId } = useValues(projectLogic)
 
     return (
-        <div className="p-1 flex flex-col gap-px items-start pb-2">
+        <div className="px-1 flex flex-col gap-px items-start pb-2">
             <div
-                className={cn('flex flex-col gap-px w-full', {
+                className={cn('flex flex-col gap-px w-full empty:hidden', {
                     'items-center': isLayoutNavCollapsed,
                 })}
             >
@@ -44,7 +45,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
             <NavPanelAdvertisement />
 
             {wizardUiEnabled && !isLayoutNavCollapsed && currentProjectId !== null && (
-                <div className="w-full pb-1">
+                <div className="w-full pb-1 empty:hidden">
                     {/* A local boundary keeps a failed widget chunk from reaching the shell's
                         ChunkLoadErrorBoundary, which reloads the whole app. */}
                     <PostHogErrorBoundary fallback={<></>}>
@@ -54,6 +55,8 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     </PostHogErrorBoundary>
                 </div>
             )}
+
+            {!isLayoutNavCollapsed && <NavSwitchCard />}
 
             <div
                 className={cn('flex flex-col gap-px w-full', {

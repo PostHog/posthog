@@ -24,7 +24,7 @@ describe('github event trigger', () => {
             // The editor reads its controls back out of the stored filters, so a mode that encodes
             // to something decode can't recognize silently resets the control on reopen.
             const filters = {
-                repository: 'PostHog/posthog',
+                repositories: ['posthog/posthog', 'posthog/posthog.com'],
                 eventTypes: ['issues', 'issue_comment'],
                 actorMode: mode,
                 actorLogins: logins,
@@ -36,7 +36,7 @@ describe('github event trigger', () => {
         it('keeps filters the native controls do not own', () => {
             const custom = { key: 'title', value: ['fire'], operator: PropertyOperator.IContains, type: 'event' }
             const encoded = encodeGithubFilters({
-                repository: 'PostHog/posthog',
+                repositories: ['posthog/posthog'],
                 eventTypes: ['issues'],
                 actorMode: 'write_access',
                 actorLogins: [],
@@ -51,7 +51,7 @@ describe('github event trigger', () => {
             // A boolean property compared against a filter's string value never matches, so the
             // editor writes this against bot_sender instead.
             const encoded = encodeGithubFilters({
-                repository: null,
+                repositories: [],
                 eventTypes: [],
                 actorMode: 'people',
                 actorLogins: [],
@@ -66,7 +66,7 @@ describe('github event trigger', () => {
             // The control re-derives from the stored filters on every render, so a mode that
             // encodes to nothing snaps straight back the moment you pick it.
             const encoded = encodeGithubFilters({
-                repository: null,
+                repositories: [],
                 eventTypes: [],
                 actorMode: 'specific_people',
                 actorLogins: [],
@@ -79,6 +79,14 @@ describe('github event trigger', () => {
     describe('registry entry', () => {
         it.each([
             { name: 'no repository', properties: [], valid: false },
+            {
+                name: 'an empty repository list',
+                properties: [
+                    { key: 'repository', value: [] },
+                    { key: 'event_type', value: ['issues'] },
+                ],
+                valid: false,
+            },
             {
                 name: 'repository but no event types',
                 properties: [{ key: 'repository', value: ['PostHog/posthog'] }],

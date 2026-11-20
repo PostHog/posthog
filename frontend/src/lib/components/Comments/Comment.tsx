@@ -24,20 +24,14 @@ import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
-import { getCommentText, getRecordingLinkInfo, isViewingRecording, scopeSyncsToSlack } from './commentUtils'
+import {
+    getCommentAuthorName,
+    getCommentText,
+    getRecordingLinkInfo,
+    isViewingRecording,
+    scopeSyncsToSlack,
+} from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
-
-// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
-// rides in item_context.
-export function getCommentAuthorName(comment: CommentType): string {
-    if (comment.created_by) {
-        return comment.created_by.first_name ?? 'Unknown user'
-    }
-    if (comment.item_context?.from_slack) {
-        return comment.item_context.slack_author_name ?? 'Slack user'
-    }
-    return 'Unknown user'
-}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -132,14 +126,9 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | 
 }
 
 const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
-        useValues(commentsLogic)
-    const {
-        setEditingComment,
-        persistEditedComment,
-        setEditingCommentRichContentEditor,
-        onEditingCommentRichContentEditorUpdate,
-    } = useActions(commentsLogic)
+    const { editingComment, isSavingEditedComment, isEditingCommentEmpty } = useValues(commentsLogic)
+    const { setEditingComment, persistEditedComment, setEditingCommentRichContentEditor, syncEditingCommentDraft } =
+        useActions(commentsLogic)
 
     return (
         <div className="deprecated-space-y-2">
@@ -148,15 +137,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 // Seed from the in-progress edit so collapsing/expanding the thread mid-edit loses nothing
                 initialContent={editingComment?.rich_content ?? comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
-                onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor && editingComment) {
-                        setEditingComment({
-                            ...editingComment,
-                            rich_content: editingCommentRichContentEditor.getJSON(),
-                        })
-                        onEditingCommentRichContentEditorUpdate(isEmpty)
-                    }
-                }}
+                onUpdate={syncEditingCommentDraft}
                 onPressCmdEnter={persistEditedComment}
                 disabled={isSavingEditedComment}
             />
@@ -353,7 +334,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 <CommentEditingForm comment={comment} />
                             ) : (
                                 <div className={clsx(comment.completed_at && 'line-through text-secondary')}>
-                                    <LemonMarkdown lowKeyHeadings>{text}</LemonMarkdown>
+                                    <LemonMarkdown lowKeyHeadings disableImages>
+                                        {text}
+                                    </LemonMarkdown>
                                 </div>
                             )}
                         </div>

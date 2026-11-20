@@ -80,3 +80,25 @@ class TestAwsCostExplorerSource:
 
         assert iter(items) is not None
         send.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "endpoint,partition_keys",
+        [
+            ("cost_and_usage_daily", ["period_start"]),
+            ("savings_plans_utilization_details_daily", ["period_start"]),
+            ("cost_forecast_daily", ["period_start"]),
+            ("dimension_values", None),
+            ("rightsizing_recommendations", None),
+            ("reservation_purchase_recommendations", None),
+        ],
+    )
+    def test_only_tables_with_a_period_are_partitioned_on_it(
+        self, endpoint: str, partition_keys: list[str] | None
+    ) -> None:
+        inputs = make_inputs(endpoint)
+
+        response = self.source.source_for_pipeline(
+            self.config, self.source.get_resumable_source_manager(inputs), inputs
+        )
+
+        assert response.partition_keys == partition_keys

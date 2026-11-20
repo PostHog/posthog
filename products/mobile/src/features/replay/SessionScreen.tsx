@@ -21,6 +21,7 @@ import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
@@ -138,8 +139,9 @@ function Frame({ onBack, children }: { onBack: () => void; children: ReactElemen
     const insets = useScreenInsets()
     return (
         <View style={styles.screen}>
-            <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{children}</View>
-            <SessionChrome onBack={onBack} />
+            <ScreenBlur chrome={<SessionChrome onBack={onBack} />}>
+                <View style={[styles.fill, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}>{children}</View>
+            </ScreenBlur>
         </View>
     )
 }
@@ -251,56 +253,61 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
 
     return (
         <View style={styles.screen}>
-            <ScrollView
-                style={styles.fill}
-                contentContainerStyle={[
-                    styles.content,
-                    {
-                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
-                        paddingBottom: bottomOffset(insets, 120),
-                    },
-                ]}
-                onScroll={scrollTitle.onScroll}
-                scrollEventThrottle={16}
-                testID="session-scroll"
-            >
-                <Header
-                    onTitleLayout={scrollTitle.onTitleLayout}
-                    recording={recording}
-                    timeline={timeline}
-                    projectName={projectName}
-                    title={summary?.title ?? null}
-                    keyMomentMs={summary?.keyMomentMs ?? null}
-                    onKeyMoment={keyChapter >= 0 ? () => openChapter(keyChapter) : null}
-                />
-                <SummaryCard
-                    card={flow.card}
-                    aiStatus={aiStatus}
-                    pending={flow.pending}
-                    onSummarize={flow.summarize}
-                    onCheckAgain={flow.checkAgain}
-                    watchLabel={replayVideo ? 'Watch replay' : 'Open full replay'}
-                />
-                {summary ? (
-                    <ChapterList
-                        observationId={summary.observationId}
-                        chapters={chapters}
-                        onOpen={(chapter) => openChapter(chapters.indexOf(chapter))}
+            <ScreenBlur
+                chrome={
+                    <SessionChrome
+                        title={scrollTitle.title}
+                        onBack={onBack}
+                        onOpenFull={!safeWebUrl ? null : replayVideo ? () => setWatching(true) : openFull}
+                        watchInApp={replayVideo}
+                        onMore={() => setMenuOpen(true)}
                     />
-                ) : null}
-                <SessionTimelineSection
-                    timeline={timeline}
-                    highlightMs={t === undefined ? undefined : t * 1000}
-                    onOpenIssue={openIssue}
-                />
-            </ScrollView>
-            <SessionChrome
-                title={scrollTitle.title}
-                onBack={onBack}
-                onOpenFull={!safeWebUrl ? null : replayVideo ? () => setWatching(true) : openFull}
-                watchInApp={replayVideo}
-                onMore={() => setMenuOpen(true)}
-            />
+                }
+            >
+                <ScrollView
+                    style={styles.fill}
+                    contentContainerStyle={[
+                        styles.content,
+                        {
+                            paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                            paddingBottom: bottomOffset(insets, 120),
+                        },
+                    ]}
+                    onScroll={scrollTitle.onScroll}
+                    scrollEventThrottle={16}
+                    testID="session-scroll"
+                >
+                    <Header
+                        onTitleLayout={scrollTitle.onTitleLayout}
+                        recording={recording}
+                        timeline={timeline}
+                        projectName={projectName}
+                        title={summary?.title ?? null}
+                        keyMomentMs={summary?.keyMomentMs ?? null}
+                        onKeyMoment={keyChapter >= 0 ? () => openChapter(keyChapter) : null}
+                    />
+                    <SummaryCard
+                        card={flow.card}
+                        aiStatus={aiStatus}
+                        pending={flow.pending}
+                        onSummarize={flow.summarize}
+                        onCheckAgain={flow.checkAgain}
+                        watchLabel={replayVideo ? 'Watch replay' : 'Open full replay'}
+                    />
+                    {summary ? (
+                        <ChapterList
+                            observationId={summary.observationId}
+                            chapters={chapters}
+                            onOpen={(chapter) => openChapter(chapters.indexOf(chapter))}
+                        />
+                    ) : null}
+                    <SessionTimelineSection
+                        timeline={timeline}
+                        highlightMs={t === undefined ? undefined : t * 1000}
+                        onOpenIssue={openIssue}
+                    />
+                </ScrollView>
+            </ScreenBlur>
             <Pressable44
                 onPress={openChat}
                 accessibilityLabel="Chat about this session"

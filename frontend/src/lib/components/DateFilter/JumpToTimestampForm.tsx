@@ -5,6 +5,7 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import { WindowDirection, WindowSize, computeDateRange, parseTimestampInput } from './jumpToTimestampUtils'
 
@@ -13,19 +14,29 @@ const PLACEHOLDER_UNIX = Math.floor(Date.now() / 1000).toString()
 
 export interface JumpToTimestampFormProps {
     onSubmit: (dateFrom: string, dateTo: string) => void
+    /** Timezone for reading a timestamp without an offset and for showing the window. Defaults to UTC. */
+    timezone?: string
     children: (props: { dateRange: { date_from: string; date_to: string } | null; submit: () => void }) => ReactNode
 }
 
-export function JumpToTimestampForm({ onSubmit, children }: JumpToTimestampFormProps): JSX.Element {
+export function JumpToTimestampForm({ onSubmit, timezone, children }: JumpToTimestampFormProps): JSX.Element {
     const [timestampInput, setTimestampInput] = useState('')
     const [windowSize, setWindowSize] = useState<WindowSize>('5m')
     const [windowDirection, setWindowDirection] = useState<WindowDirection>('around')
 
     const hasInput = timestampInput.trim().length > 0
-    const parsed = hasInput ? parseTimestampInput(timestampInput) : null
+    const parsed = hasInput ? parseTimestampInput(timestampInput, timezone) : null
     const isInvalid = hasInput && !parsed
 
     const dateRange = parsed ? computeDateRange(parsed, windowSize, windowDirection) : null
+
+    const formatTime = (value: string | dayjs.Dayjs, format: string): string => {
+        if (!timezone) {
+            return `${dayjs.utc(value).format(format)} UTC`
+        }
+        const time = dayjs(value).tz(timezone)
+        return `${time.format(format)} ${shortTimeZone(timezone, time.toDate()) ?? timezone}`
+    }
 
     const handleSubmit = (): void => {
         if (dateRange) {
@@ -34,7 +45,7 @@ export function JumpToTimestampForm({ onSubmit, children }: JumpToTimestampFormP
     }
 
     const statusSuffix = parsed ? (
-        <Tooltip title={`Parsed as: ${parsed.utc().format('MMM D, YYYY HH:mm:ss')} UTC`}>
+        <Tooltip title={`Parsed as: ${formatTime(parsed, 'MMM D, YYYY HH:mm:ss')}`}>
             <IconCheck className="text-success text-base" />
         </Tooltip>
     ) : isInvalid ? (
@@ -93,11 +104,11 @@ export function JumpToTimestampForm({ onSubmit, children }: JumpToTimestampFormP
                 <div className="text-xs text-secondary mt-3">
                     Will show events from{' '}
                     <span className="whitespace-nowrap font-medium text-primary bg-fill-highlight-100 rounded px-0.5">
-                        {dayjs.utc(dateRange.date_from).format('MMM D, YYYY HH:mm')} UTC
+                        {formatTime(dateRange.date_from, 'MMM D, YYYY HH:mm')}
                     </span>{' '}
                     to{' '}
                     <span className="whitespace-nowrap font-medium text-primary bg-fill-highlight-100 rounded px-0.5">
-                        {dayjs.utc(dateRange.date_to).format('MMM D, YYYY HH:mm')} UTC
+                        {formatTime(dateRange.date_to, 'MMM D, YYYY HH:mm')}
                     </span>
                 </div>
             )}

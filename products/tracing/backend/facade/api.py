@@ -63,6 +63,11 @@ from products.tracing.backend.service_health_query_runner import (
     service_health_byte_cap_message as _service_health_byte_cap_message,
 )
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
+from products.tracing.backend.trace_summary import (
+    DEFAULT_SUMMARY_LIMIT as _DEFAULT_SUMMARY_LIMIT,
+    MAX_SUMMARY_LIMIT as _MAX_SUMMARY_LIMIT,
+    summarize_trace as _summarize_trace,
+)
 
 from .contracts import ServiceHealthParams
 
@@ -80,6 +85,11 @@ MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
 
 # Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
 MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
+
+# Default and cap on the entries per list of a trace summary. Re-exported so the request
+# serializer can bound `summaryLimit`.
+DEFAULT_SUMMARY_LIMIT = _DEFAULT_SUMMARY_LIMIT
+MAX_SUMMARY_LIMIT = _MAX_SUMMARY_LIMIT
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -220,6 +230,11 @@ def run_latency_heatmap_query(
 def annotate_self_time(spans: list[dict]) -> None:
     """Set `self_time_nano` on every span dict of a full trace, in place."""
     _annotate_self_time(spans)
+
+
+def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, truncated: bool = False) -> dict:
+    """Digest a self-time-annotated trace into a compact summary (see `trace_summary`)."""
+    return _summarize_trace(spans, limit=limit, truncated=truncated)
 
 
 def count_trace_exceptions(

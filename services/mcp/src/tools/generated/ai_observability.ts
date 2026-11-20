@@ -6,6 +6,7 @@ import * as orvalSchemas from '@/generated/ai_observability/api'
 import {
     OfflineExperimentUploadItemsSchema,
     OfflineExperimentUploadResultsSchema,
+    OptionalScoreDefinitionConfigSchema,
     PromptListInputSchema,
     ScoreDefinitionConfigSchema,
 } from '@/schema/tool-inputs'
@@ -33,6 +34,33 @@ const llmaClusteringConfigGet = (): ToolBase<
         const result = await context.api.request<Schemas.ClusteringConfig>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/`,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringConfigSetEnabledSchema = () => {
+    const LlmAnalyticsClusteringConfigSetEnabledCreateBody =
+        orvalSchemas.LlmAnalyticsClusteringConfigSetEnabledCreateBody()
+    return LlmAnalyticsClusteringConfigSetEnabledCreateBody
+}
+
+const llmaClusteringConfigSetEnabled = (): ToolBase<
+    ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-enabled',
+    schema: LlmaClusteringConfigSetEnabledSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_enabled/`,
+            body,
         })
         return result
     },
@@ -1489,6 +1517,15 @@ const llmaEvaluationTestHog = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationTestHogSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.output_type !== undefined) {
             body['output_type'] = params.output_type
         }
@@ -1504,14 +1541,8 @@ const llmaEvaluationTestHog = (): ToolBase<
         if (params.allows_na !== undefined) {
             body['allows_na'] = params.allows_na
         }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        if (params.target !== undefined) {
-            body['target'] = params.target
-        }
-        if (params.target_config !== undefined) {
-            body['target_config'] = params.target_config
+        if (params.sample_ids !== undefined) {
+            body['sample_ids'] = params.sample_ids
         }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
@@ -2696,6 +2727,12 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.calculation !== undefined) {
+            body['calculation'] = params.calculation
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2762,7 +2799,9 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                calculation: params.calculation,
                 created_by: params.created_by,
+                input_definition_id: params.input_definition_id,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -2795,6 +2834,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.short_name !== undefined) {
             body['short_name'] = params.short_name
         }
@@ -2855,6 +2897,41 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         const result = await context.api.request<Schemas.ScoreDefinition>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionValidateSchema = () => {
+    const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody =
+        orvalSchemas.LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody()
+    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody.extend({
+        config: OptionalScoreDefinitionConfigSchema,
+    })
+}
+
+const llmaScoreDefinitionValidate = (): ToolBase<
+    ReturnType<typeof LlmaScoreDefinitionValidateSchema>,
+    Schemas.CompositeValidationResponse
+> => ({
+    name: 'llma-score-definition-validate',
+    schema: LlmaScoreDefinitionValidateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionValidateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.CompositeValidationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/validate_composition/`,
             body,
         })
         return result
@@ -2993,6 +3070,7 @@ const llmaTaggerList = (): ToolBase<
                 enabled: params.enabled,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
+                migrated_to_evaluation_id: params.migrated_to_evaluation_id,
                 offset: params.offset,
                 order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,
@@ -3520,6 +3598,7 @@ const AssistantTraceQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-enabled': llmaClusteringConfigSetEnabled,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
     'llma-clustering-job-create': llmaClusteringJobCreate,
     'llma-clustering-job-delete': llmaClusteringJobDelete,
@@ -3606,6 +3685,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
+    'llma-score-definition-validate': llmaScoreDefinitionValidate,
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,

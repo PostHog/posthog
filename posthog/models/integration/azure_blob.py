@@ -16,7 +16,7 @@ from posthog.security.url_validation import (
     validate_url_and_pin_ips,
 )
 
-from . import model
+from . import model, row_writes
 
 
 class AzureBlobIntegrationError(Exception):
@@ -52,7 +52,7 @@ class AzureBlobIntegration:
         team_id: int,
         connection_string: str,
         created_by: "User | None" = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         account_name = cls._extract_account_name(connection_string)
         if not account_name:
             raise AzureBlobIntegrationError(
@@ -72,16 +72,12 @@ class AzureBlobIntegration:
             "connection_string": connection_string,
         }
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.AZURE_BLOB.value,
-            integration_id=account_name,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
-            },
+        integration, _ = row_writes.creator_accessor(model.Integration.IntegrationKind.AZURE_BLOB.value).upsert(
+            team_id,
+            account_name,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         return integration

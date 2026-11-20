@@ -1,0 +1,48 @@
+{# A Decision block: one item with a button per choice that runs a tool operation at once. console.js presses the button or link whose data-console-key matches the key staff press. #}
+<section class="quill-card group/card flex flex-col max-w-3xl"
+         data-quill
+         data-slot="card"
+         data-size="default">
+    <div class="quill-card__header group/card-header" data-slot="card-header">
+        {% if decision.detail %}<p class="m-0 text-xs text-muted-foreground">{{ decision.detail }}</p>{% endif %}
+        <h2 class="quill-card__title m-0" data-slot="card-title">{{ decision.title }}</h2>
+    </div>
+    <div class="quill-card__content flex flex-col gap-4"
+         data-slot="card-content">
+        <p class="m-0 whitespace-pre-line">{{ decision.text }}</p>
+        <form method="post"
+              action="{% url 'admin_console_tool_operation' tool_key=tool.key operation_key=decision.operation_key %}{% if decision.query %}?{{ decision.query }}{% endif %}"
+              class="flex flex-col gap-3">
+            {% csrf_token %}
+            {% for name, value in decision.values.items %}
+                <input type="hidden" name="{{ name }}" value="{{ value }}" />
+            {% endfor %}
+            {% if decision.note_field %}
+                <div class="quill-field flex flex-col gap-1" data-slot="field">
+                    <label class="quill-field__label quill-label font-bold"
+                           for="console-decision-note">{{ decision.note_label }}</label>
+                    <textarea id="console-decision-note"
+                              name="{{ decision.note_field }}"
+                              class="quill-textarea flex"
+                              rows="2">{{ decision.note }}</textarea>
+                </div>
+            {% endif %}
+            <div class="flex flex-wrap items-center gap-2">
+                {% for choice in decision.choices %}
+                    <button type="submit"
+                            name="{{ decision.field }}"
+                            value="{{ choice.value }}"
+                            {% if choice.key %}data-console-key="{{ choice.key }}" aria-keyshortcuts="{{ choice.key }}"{% endif %}
+                            class="quill-button {% if choice.tone == 'success' %}quill-button--variant-primary{% elif choice.tone == 'destructive' %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                        {{ choice.label }}
+                    </button>
+                {% endfor %}
+                {% if decision.skip_href %}
+                    <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+                       href="{{ decision.skip_href }}"
+                       {% if decision.skip_key %}data-console-key="{{ decision.skip_key }}" aria-keyshortcuts="{{ decision.skip_key }}"{% endif %}>Skip</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</section>

@@ -6,7 +6,7 @@ description and docs link from its ScopeDoc, so an exposed object without one wo
 To clear a failure, add a `ScopeDoc` for the object to `SCOPE_DOCS` in the owning product's
 `backend/scopes.py`, or to `CORE_SCOPE_DOCS` in `posthog/scope_docs.py` for a core scope, then run
 `hogli build:projections`. An object that no picker should offer goes in
-`SCOPE_OBJECTS_OMITTED_FROM_PICKERS` in `posthog/scopes.py` instead.
+`SCOPE_OBJECTS_OMITTED_FROM_PICKERS` in `posthog/scopes/exposure.py` instead.
 
     pytest posthog/test/repo_invariants/test_scope_docs.py
 """
@@ -14,7 +14,7 @@ To clear a failure, add a `ScopeDoc` for the object to `SCOPE_DOCS` in the ownin
 from posthog.products import load_product_modules
 from posthog.scope_docs import get_scope_docs
 from posthog.scope_docs_projection import product_scope_module_names
-from posthog.scopes import EXPOSED_SCOPE_OBJECTS
+from posthog.scopes.exposure import EXPOSED_SCOPE_OBJECTS
 
 
 def test_every_exposed_scope_object_has_one_scope_doc() -> None:

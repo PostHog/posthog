@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -967,7 +966,13 @@ def _suggest_select_fields(
 def _suggest_table_names(
     *, node: ast.Field, database: Database, context: HogQLContext, response: HogQLAutocompleteResponse
 ) -> None:
-    table_names = [name for name in database.get_all_table_names() if database.has_table(name)]
+    candidates = dict.fromkeys(
+        [
+            *database.get_all_table_names(),
+            *(name for name in database.tables.resolve_visible_table_names() if "." in name),
+        ]
+    )
+    table_names = [name for name in candidates if database.has_table(name) and not database.get_table_node(name).hidden]
     posthog_table_names = [name for name in database.get_posthog_table_names() if database.has_table(name)]
 
     if len(node.chain) == 1:
@@ -989,10 +994,10 @@ def _suggest_table_names(
     elif node.chain[0] in posthog_table_names:
         pass
     else:
-        node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
-        node_chain = ".".join(node_chain_arr)
-        node_chain_prefix = re.compile(re.escape(f"{node_chain}."), re.IGNORECASE)
-        filtered_table_names = [node_chain_prefix.sub("", x) for x in table_names if node_chain.lower() in x.lower()]
+        namespace = ".".join(str(x) for x in node.chain[:-1]) + "."
+        filtered_table_names = [
+            name[len(namespace) :] for name in table_names if name.lower().startswith(namespace.lower())
+        ]
 
         extend_responses(
             keys=filtered_table_names,

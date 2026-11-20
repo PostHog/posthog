@@ -1,19 +1,22 @@
 import re
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.thinkific.settings import THINKIFIC_ENDPOINTS
+from products.warehouse_sources.sources.thinkific.settings import THINKIFIC_ENDPOINTS, ThinkificEndpointConfig
 
 THINKIFIC_BASE_URL = "https://api.thinkific.com/api/public/v1"
 
@@ -24,8 +27,13 @@ _SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 @dataclasses.dataclass(frozen=False)
 class ThinkificResumeConfig:
     # 1-based page number to fetch next. Thinkific paginates by page number (meta.pagination), so the
-    # page index is the only state needed to resume an endpoint mid-sync.
-    next_page: int
+    # page index is the only state needed to resume a top-level endpoint mid-sync.
+    next_page: Optional[int] = None
+    # Fan-out endpoints resume by parent: child paths already fully synced, the path in progress,
+    # and that path's paginator state (see rest_source._make_paginate_dependent_resource).
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -44,6 +52,97 @@ def _client_headers(subdomain: str) -> dict[str, str]:
     # The API key travels via the framework `auth` config (X-Auth-API-Key) so it's redacted from logs
     # and error messages; only the non-secret subdomain routing header and Accept go here.
     return {"X-Auth-Subdomain": subdomain, "Accept": "application/json"}
+
+
+def _paginator() -> PageNumberPaginator:
+    # Page-number pagination; `meta.pagination.total_pages` is the total PAGE count, so the
+    # paginator stops after the last page without paying an extra empty-page request. The public
+    # API exposes no sort param; list endpoints return id-ascending (≈ creation order).
+    return PageNumberPaginator(base_page=1, page=1, total_path="meta.pagination.total_pages")
+
+
+def _fanout_client_config(api_key: str, subdomain: str) -> ClientConfig:
+    # `capture=False`: review text and coupon notes are free text the name-based sample scrubbers
+    # can't recognise, so keep response bodies out of HTTP sample storage.
+    return {
+        "base_url": THINKIFIC_BASE_URL,
+        "headers": _client_headers(subdomain),
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-Auth-API-Key", "location": "header"},
+        "session": make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+def _course_chapter_rows(course: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"chapter_id": chapter_id, "course_id": course.get("id")} for chapter_id in course.get("chapter_ids") or []]
+
+
+_PARENT_DATA_MAPS = {"contents": _course_chapter_rows}
+
+
+def _fanout_source(
+    config: ThinkificEndpointConfig,
+    api_key: str,
+    subdomain: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ThinkificResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                ThinkificResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=THINKIFIC_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_fanout_client_config(api_key, subdomain),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # Explicit paginator/data_selector on both levels: a child path that embeds its resolve
+            # placeholder in a query string would otherwise be mistaken for a fetch-one-record
+            # endpoint and stop after a single page.
+            parent_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
+            child_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
+            parent_data_map=_PARENT_DATA_MAPS.get(config.name),
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: dependent_resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
 
 
 def _format_incremental_date(value: Any) -> str:
@@ -69,6 +168,9 @@ def thinkific_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = THINKIFIC_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, subdomain, team_id, job_id, resumable_source_manager)
 
     params: dict[str, Any] = {"limit": config.page_size}
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -99,10 +201,7 @@ def thinkific_source(
                     # records carry their fields at the top level (no attributes envelope). A missing/empty
                     # `items` is a legit zero-row page (paginator stops), so this is not `_required`.
                     "data_selector": "items",
-                    # Page-number pagination; `meta.pagination.total_pages` is the total PAGE count, so the
-                    # paginator stops after the last page without paying an extra empty-page request. The
-                    # public API exposes no sort param; list endpoints return id-ascending (≈ creation order).
-                    "paginator": PageNumberPaginator(base_page=1, page=1, total_path="meta.pagination.total_pages"),
+                    "paginator": _paginator(),
                 },
             }
         ],
@@ -111,7 +210,7 @@ def thinkific_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_page is not None:
             initial_paginator_state = {"page": resume.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:

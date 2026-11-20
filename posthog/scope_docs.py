@@ -14,7 +14,8 @@ from typing import Literal, get_args
 
 from posthog.dataclasses import frozen
 from posthog.products import load_product_modules
-from posthog.scopes import ALL_SCOPES, API_SCOPE_ACTIONS, APIScopeActions, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, APIScopeActions, APIScopeObject
+from posthog.scopes.exposure import ALL_SCOPES
 
 DOCS_URL_PREFIX = "https://posthog.com/docs/"
 MAX_DESCRIPTION_LENGTH = 120

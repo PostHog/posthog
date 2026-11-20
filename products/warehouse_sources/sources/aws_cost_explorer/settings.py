@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -67,6 +69,43 @@ class CostExplorerEndpointConfig:
     # instance-size-flexible reservations; asking for "Unit" against any other service in
     # `services` raises a ValidationException. Empty means no service needs filtering out.
     unit_metric_services: tuple[str, ...] = ()
+    # "history" walks back over past windows. "forecast" asks for one window that starts today and
+    # runs `forecast_days` forward. "snapshot" sends no TimePeriod, because the recommendation
+    # operations report the current state.
+    time_scope: Literal["history", "forecast", "snapshot"] = "history"
+    forecast_days: int = 0
+    # One request series per value, sent as this request member and tagged as a snake_case column.
+    slice_member: str | None = None
+    slice_values: tuple[str, ...] = ()
+    # Request members sent unchanged on every call.
+    static_payload: Mapping[str, Any] = field(default_factory=dict)
+    # "periods": one result per time period. "items": one row per item of `result_key`, with the
+    # period from the item or, failing that, from the response. "records": one row per item of
+    # `result_key` (or per item of its `detail_member` list), with every string kept as AWS sent
+    # it, because these records mix account IDs such as `012345678901` with amounts.
+    row_shape: Literal["periods", "items", "records"] = "periods"
+    # "items" only: string maps kept uncoerced and flattened under a prefix, as (member, prefix).
+    label_members: tuple[tuple[str, str], ...] = ()
+    detail_member: str | None = None
+    # Records with no ID of their own get a `recommendation_key` hashed from their identifying fields.
+    synthetic_key: bool = False
+
+
+# Services that support reservations and accept the AWS service name as a SERVICE value.
+RESERVATION_SERVICES = (
+    "Amazon Elastic Compute Cloud - Compute",
+    "Amazon Relational Database Service",
+    "Amazon ElastiCache",
+    "Amazon Redshift",
+)
+
+FORECAST_METRICS = (
+    "AMORTIZED_COST",
+    "BLENDED_COST",
+    "NET_AMORTIZED_COST",
+    "NET_UNBLENDED_COST",
+    "UNBLENDED_COST",
+)
 
 
 AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
@@ -157,12 +196,7 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         primary_key=["period_start", "service"],
         page_token_key="NextPageToken",
         metrics=("Hour", "Unit", "Cost"),
-        services=(
-            "Amazon Elastic Compute Cloud - Compute",
-            "Amazon Relational Database Service",
-            "Amazon ElastiCache",
-            "Amazon Redshift",
-        ),
+        services=RESERVATION_SERVICES,
         window_days=92,
         restatement_lookback_days=7,
         nested_keys=(("Total", ""),),
@@ -180,13 +214,78 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         restatement_lookback_days=7,
         nested_keys=(("Coverage", ""),),
     ),
+    "savings_plans_utilization_details_daily": CostExplorerEndpointConfig(
+        name="savings_plans_utilization_details_daily",
+        operation="GetSavingsPlansUtilizationDetails",
+        # The operation has no granularity member and aggregates over the whole TimePeriod, so a
+        # one-day window is the only way to get a daily row per Savings Plan.
+        granularity=None,
+        result_key="SavingsPlansUtilizationDetails",
+        primary_key=["period_start", "savings_plan_arn"],
+        page_token_key="NextToken",
+        window_days=1,
+        restatement_lookback_days=7,
+        row_shape="items",
+        nested_keys=(
+            ("Utilization", ""),
+            ("Savings", "savings"),
+            ("AmortizedCommitment", "amortized_commitment"),
+        ),
+        label_members=(("Attributes", "attribute"),),
+    ),
+    "cost_forecast_daily": CostExplorerEndpointConfig(
+        name="cost_forecast_daily",
+        operation="GetCostForecast",
+        granularity="DAILY",
+        result_key="ForecastResultsByTime",
+        primary_key=["period_start", "metric"],
+        time_scope="forecast",
+        # AWS serves 3 months of DAILY forecasts. 89 days fits every 3-month span.
+        forecast_days=89,
+        slice_member="Metric",
+        slice_values=FORECAST_METRICS,
+        static_payload={"PredictionIntervalLevel": 80},
+        row_shape="items",
+    ),
+    "rightsizing_recommendations": CostExplorerEndpointConfig(
+        name="rightsizing_recommendations",
+        operation="GetRightsizingRecommendation",
+        granularity=None,
+        result_key="RightsizingRecommendations",
+        primary_key=["account_id", "current_instance_resource_id"],
+        page_token_key="NextPageToken",
+        time_scope="snapshot",
+        static_payload={"Service": "AmazonEC2", "PageSize": 1000},
+        row_shape="records",
+    ),
+    "reservation_purchase_recommendations": CostExplorerEndpointConfig(
+        name="reservation_purchase_recommendations",
+        operation="GetReservationPurchaseRecommendation",
+        granularity=None,
+        result_key="Recommendations",
+        primary_key=["recommendation_key"],
+        page_token_key="NextPageToken",
+        time_scope="snapshot",
+        slice_member="Service",
+        slice_values=RESERVATION_SERVICES,
+        static_payload={
+            "TermInYears": "ONE_YEAR",
+            "PaymentOption": "NO_UPFRONT",
+            "LookbackPeriodInDays": "THIRTY_DAYS",
+            "PageSize": 1000,
+        },
+        row_shape="records",
+        detail_member="RecommendationDetails",
+        synthetic_key=True,
+    ),
 }
 
 ENDPOINTS = tuple(AWS_COST_EXPLORER_ENDPOINTS.keys())
 
 # `period_start` is the window boundary the API itself filters on, so it is the only honest
-# cursor: every operation takes a server-side `TimePeriod` and nothing else. Dimension values
-# carry no period, so that table is full refresh only.
+# cursor: every operation takes a server-side `TimePeriod` and nothing else. Dimension values,
+# forecasts and recommendations are a current view rather than a history, so those tables are
+# full refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [
         {
@@ -197,7 +296,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ]
     for name, endpoint_config in AWS_COST_EXPLORER_ENDPOINTS.items()
-    if not endpoint_config.dimensions
+    if not endpoint_config.dimensions and endpoint_config.time_scope == "history"
 }
 
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -209,6 +308,10 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "cost_and_usage_with_resources_daily": "Daily cost and usage per resource for the last 14 days. Requires resource-level data to be enabled in Cost Explorer settings.",
     "reservation_coverage_daily": "Daily share of eligible EC2, RDS, ElastiCache and Redshift usage covered by reservations.",
     "savings_plans_coverage_daily": "Daily share of eligible spend covered by Savings Plans, and the remaining On-Demand cost.",
+    "savings_plans_utilization_details_daily": "Daily utilization, savings and amortized commitment for each Savings Plan. Uses one billed request per day.",
+    "cost_forecast_daily": "Forecast spend for each of the next 89 days, per cost metric, with an 80% prediction interval.",
+    "rightsizing_recommendations": "Current recommendations to downsize or terminate idle and underused EC2 instances. Requires rightsizing recommendations to be turned on in Cost Explorer preferences.",
+    "reservation_purchase_recommendations": "Current Reserved Instance purchase recommendations for EC2, RDS, ElastiCache and Redshift, for a 1-year No Upfront term based on the last 30 days of usage.",
 }
 
 
@@ -216,9 +319,13 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 AWS_SESSION_ACTIONS = (
     "ce:GetCostAndUsage",
     "ce:GetCostAndUsageWithResources",
+    "ce:GetCostForecast",
     "ce:GetDimensionValues",
     "ce:GetReservationCoverage",
+    "ce:GetReservationPurchaseRecommendation",
     "ce:GetReservationUtilization",
+    "ce:GetRightsizingRecommendation",
     "ce:GetSavingsPlansCoverage",
     "ce:GetSavingsPlansUtilization",
+    "ce:GetSavingsPlansUtilizationDetails",
 )
