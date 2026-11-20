@@ -559,6 +559,10 @@ class SessionList(Contract):
     next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
 
 
+class SessionAvailability(Contract):
+    has_sessions: bool = Field(description="Whether any AI event in the retention window carries a session id.")
+
+
 class TraceListCounts(Contract):
     total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
     errors: int = Field(description="How many of them have an error.")

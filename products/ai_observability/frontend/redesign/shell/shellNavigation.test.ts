@@ -1,6 +1,13 @@
 import { urls } from 'scenes/urls'
 
-import { SHELL_TABS, ShellLocation, shellDocsUrl, shellLinkParams, shellLocationForSceneKey } from './shellNavigation'
+import {
+    SHELL_TABS,
+    ShellLocation,
+    activityTabPath,
+    shellDocsUrl,
+    shellLinkParams,
+    shellLocationForSceneKey,
+} from './shellNavigation'
 
 const DOCS = 'https://posthog.com/docs/ai-observability'
 
@@ -29,6 +36,14 @@ describe('shellNavigation', () => {
             ['diagnostics', urls.aiObservabilityErrors()],
             ['people', urls.aiObservabilityUsers()],
         ])
+    })
+
+    it.each<[boolean | null, string]>([
+        [true, urls.aiObservabilitySessions()],
+        [false, urls.aiObservabilityTraces()],
+        [null, urls.aiObservabilityTraces()],
+    ])('opens Activity on its sessions scope only when the project has sessions (%s)', (hasSessions, expected) => {
+        expect(activityTabPath(hasSessions)).toBe(expected)
     })
 
     it('lists the scopes of each tab in display order', () => {

@@ -25,6 +25,7 @@ function renderFrame({
         <ShellFrame
             location={location}
             linkParams={linkParams}
+            hasSessions={null}
             todayRailNav={todayRailNav}
             onScopeChange={onScopeChange}
         >
@@ -128,7 +129,13 @@ describe('ShellFrame', () => {
         const offsetWidth = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(120)
         initKeaTests()
         const frame = (location: ShellLocation): JSX.Element => (
-            <ShellFrame location={location} linkParams={{}} todayRailNav={false} onScopeChange={() => {}}>
+            <ShellFrame
+                location={location}
+                linkParams={{}}
+                hasSessions={null}
+                todayRailNav={false}
+                onScopeChange={() => {}}
+            >
                 <div />
             </ShellFrame>
         )

@@ -16,6 +16,7 @@ import {
     shellDocsUrl,
     shellHref,
     shellTab,
+    shellTabPath,
 } from '../shellNavigation'
 import { ScopeSwitch } from './ScopeSwitch'
 
@@ -25,6 +26,8 @@ export interface ShellFrameProps {
     location: ShellLocation
     /** Search params carried on every tab link. */
     linkParams: Record<string, unknown>
+    /** Whether the project has sessions, which decides where Activity opens. Null until known. */
+    hasSessions: boolean | null
     todayRailNav: boolean
     onScopeChange: (scope: ShellScope) => void
     children: React.ReactNode
@@ -33,6 +36,7 @@ export interface ShellFrameProps {
 export function ShellFrame({
     location,
     linkParams,
+    hasSessions,
     todayRailNav,
     onScopeChange,
     children,
@@ -67,11 +71,11 @@ export function ShellFrame({
                 // pinned: autocapture dashboards and tests select the tab bar and its tabs by these values
                 data-attr="ai-observability-tabs"
                 sceneInset
-                tabs={SHELL_TABS.map(({ id, label, path }) => ({
-                    key: id,
-                    label,
-                    link: shellHref(path, linkParams),
-                    'data-attr': `ai-observability-tab-${id}`,
+                tabs={SHELL_TABS.map((entry) => ({
+                    key: entry.id,
+                    label: entry.label,
+                    link: shellHref(shellTabPath(entry, hasSessions), linkParams),
+                    'data-attr': `ai-observability-tab-${entry.id}`,
                 }))}
             />
             {tab && tab.scopes.length > 0 && (

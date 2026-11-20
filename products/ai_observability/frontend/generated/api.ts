@@ -169,6 +169,7 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
     ScoreHistogramApi,
+    SessionAvailabilityApi,
     SessionListApi,
     SessionListItemApi,
     SessionTurnPageApi,
@@ -804,6 +805,23 @@ export const aiObservabilitySessionsTurnsRetrieve = async (
     options?: RequestInit
 ): Promise<SessionTurnPageApi> => {
     return apiMutator<SessionTurnPageApi>(getAiObservabilitySessionsTurnsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsAvailabilityUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/availability/`
+}
+
+/**
+ * Whether the project has any AI event with a session id within the AI events retention.
+ */
+export const aiObservabilitySessionsAvailability = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SessionAvailabilityApi> => {
+    return apiMutator<SessionAvailabilityApi>(getAiObservabilitySessionsAvailabilityUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -81,7 +81,7 @@ from ..logic.traces.previews import TracePreviewSources, page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
-from ..logic.traces.session_queries import SessionFacts, load_session_facts
+from ..logic.traces.session_queries import SessionFacts, load_has_sessions, load_session_facts
 from ..logic.traces.session_selection_queries import decode_session_cursor, encode_session_cursor, load_session_page
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
@@ -432,6 +432,10 @@ _NO_TURN_SIDES: Final = TurnSides(input=Side(value=None, unread=None), output=Si
 
 def _to_session_turn(item: contracts.TraceListItem, sides: TurnSides) -> contracts.SessionTurn:
     return contracts.SessionTurn(**dict(item), **dict(_to_turn_sides(sides)))
+
+
+def has_sessions(team: Team, user: User | None) -> contracts.SessionAvailability:
+    return contracts.SessionAvailability(has_sessions=load_has_sessions(team, user, now()))
 
 
 def _to_session_item(facts: SessionFacts) -> contracts.SessionListItem:

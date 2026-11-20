@@ -167,3 +167,28 @@ class TestSessionTurns(ClickhouseTestMixin, BaseTest):
         page = self._turns(around="b1", limit=2)
 
         assert ([turn.id for turn in page.items], page.previous_cursor) == (["a1", "a2"], None)
+
+
+@time_machine.travel(STARTED_AT + timedelta(days=1), tick=False)
+class TestHasSessions(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.events = TraceEvents(self.team, start=STARTED_AT)
+
+    def test_is_false_without_a_session_id(self) -> None:
+        self.events.add("t1")
+        self.events.seed()
+
+        assert api.has_sessions(self.team, self.user).has_sessions is False
+
+    def test_is_true_with_a_session_id(self) -> None:
+        self.events.add("t1", properties=in_session("session-a"))
+        self.events.seed()
+
+        assert api.has_sessions(self.team, self.user).has_sessions is True
+
+    def test_ignores_sessions_older_than_the_retention(self) -> None:
+        self.events.add("t1", minutes=-60 * 24 * 40, properties=in_session("session-a"))
+        self.events.seed()
+
+        assert api.has_sessions(self.team, self.user).has_sessions is False

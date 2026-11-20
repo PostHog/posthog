@@ -1698,6 +1698,11 @@ export interface SessionTurnPageApi {
     nextCursor: string | null
 }
 
+export interface SessionAvailabilityApi {
+    /** Whether any AI event in the retention window carries a session id. */
+    hasSessions: boolean
+}
+
 export interface TraceListItemApi {
     id: string
     name: string | null
