@@ -322,8 +322,15 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(existing.query, {"kind": "HogQLQuery", "query": "SELECT 1 AS x"})
         self.assertFalse(Node.objects.filter(team=self.team).exists())
 
-    @parameterized.expand([("team_rule", 200), ("own_rule", 403)])
-    def test_editing_a_materialized_view_checks_the_new_query(self, rule: str, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("team_rule", "flag_on", 200),
+            ("own_rule", "flag_on", 403),
+            ("own_rule", "flag_off_with_node", 403),
+            ("own_rule", "not_materialized", 200),
+        ]
+    )
+    def test_editing_a_materialized_view_checks_the_new_query(self, rule: str, state: str, expected: int) -> None:
         set_member_property_access(
             team=self.team,
             membership=self.organization_membership,
@@ -343,8 +350,13 @@ class TestSavedQuery(APIBaseTest):
             team=self.team,
             name="event_names",
             query={"kind": "HogQLQuery", "query": "SELECT 1 AS x"},
-            is_materialized=True,
+            is_materialized=state == "flag_on",
         )
+        # A refresh can keep its node while the flag is off, such as after a failed schedule.
+        if state == "flag_off_with_node":
+            Node.objects.create(
+                team=self.team, saved_query=view, dag=DAG.get_or_create_default(self.team), type=NodeType.MAT_VIEW
+            )
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",

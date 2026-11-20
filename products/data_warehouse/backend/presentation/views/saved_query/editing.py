@@ -704,6 +704,14 @@ class DataWarehouseSavedQuerySerializer(
         )
         return view
 
+    def _assert_can_materialize(self, saved_query: DataWarehouseSavedQuery, validated_data: Any) -> None:
+        pending = copy.copy(saved_query)
+        if "query" in validated_data:
+            pending.query = validated_data["query"]
+        modeling_api.assert_user_can_read_saved_query(
+            pending, cast(User, self.context["request"].user), database=self.context.get("database")
+        )
+
     def update(self, instance: Any, validated_data: Any) -> Any:
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -718,16 +726,9 @@ class DataWarehouseSavedQuerySerializer(
         if sync_frequency not in (None, "never") and not engine.can_materialize.available:
             raise serializers.ValidationError(engine.can_materialize.reason)
 
-        query_changed = "query" in validated_data and validated_data["query"] != instance.query
-        # Scheduling a view is the same grant as materializing it directly, and a materialized view's
-        # next refresh runs whatever query it holds then.
-        if (sync_frequency and sync_frequency != "never") or (query_changed and instance.is_materialized):
-            pending = copy.copy(instance)
-            if query_changed:
-                pending.query = validated_data["query"]
-            modeling_api.assert_user_can_read_saved_query(
-                pending, cast(User, self.context["request"].user), database=self.context.get("database")
-            )
+        if sync_frequency and sync_frequency != "never":
+            # Scheduling a view is the same grant as materializing it directly.
+            self._assert_can_materialize(instance, validated_data)
 
         # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
         # saved before those views lost lineage can still hold a node target that a pause must remove.
@@ -810,6 +811,11 @@ class DataWarehouseSavedQuerySerializer(
             before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
+            # A view that still refreshes runs whatever query it holds at its next refresh.
+            if query_changed and modeling_api.saved_query_still_materializes(
+                locked_instance.team_id, locked_instance.id
+            ):
+                self._assert_can_materialize(locked_instance, validated_data)
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:

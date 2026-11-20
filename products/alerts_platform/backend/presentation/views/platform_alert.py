@@ -736,7 +736,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
             return
         filters = source_config.get("filters")
-        services = set((filters.get("serviceNames") or []) if isinstance(filters, dict) else [])
+        names = filters.get("serviceNames") if isinstance(filters, dict) else None
+        if names is not None and not (isinstance(names, list) and all(isinstance(name, str) for name in names)):
+            return
+        services = set(names or [])
         if services and not services & PIPELINE_LOG_SERVICE_NAMES:
             return
         if access_control_api.get_restricted_properties_with_group_type_index_for_team(

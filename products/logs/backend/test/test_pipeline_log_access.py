@@ -290,13 +290,22 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    def test_platform_logs_alert_with_a_malformed_config_is_a_validation_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_an_object", []),
+            ("services_not_a_list", {"filters": {"serviceNames": 1}}),
+            ("services_not_names", {"filters": {"serviceNames": [{}]}}),
+        ]
+    )
+    def test_platform_logs_alert_with_a_malformed_config_is_a_validation_error(
+        self, _name: str, source_config: object
+    ) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/platform_alerts/",
-                {"source_kind": "logs", "source_config": []},
+                {"source_kind": "logs", "source_config": source_config},
                 format="json",
             )
 
