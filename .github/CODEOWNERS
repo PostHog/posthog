@@ -118,6 +118,8 @@ products/mobile/jest.config.js
 products/mobile/jest.setup.ts
 products/mobile/biome.json
 products/mobile/.gitignore
+# The replay bundle is built from common/replay-shared, and CI checks it matches its source.
+products/mobile/src/features/replay/web/*.generated.replay
 products/mobile/app/** @PostHog/team-mobile-app
 products/desktop/apps/mobile/** @PostHog/team-mobile-app
 .github/workflows/*mobile*.yml @PostHog/team-mobile-app
