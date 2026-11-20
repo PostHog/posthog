@@ -112,11 +112,24 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 .github/workflows/pr-native-rebuild.yml @PostHog/team-devex
 .github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
 .github/scripts/mobile-rebuild.mjs @PostHog/team-devex
+.github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex
 
 # Production deployment approves each release request. Keep review on the tooling that builds, validates, and signs it.
-.github/workflows/mobile-build.yml @PostHog/team-mobile-app
-.github/workflows/mobile-ci.yml @PostHog/team-mobile-app
-.github/workflows/mobile-release.yml @PostHog/team-mobile-app
+.github/workflows/*mobile*.yml @PostHog/team-mobile-app
+.github/workflows/*mobile*.yaml @PostHog/team-mobile-app
+products/mobile/app.config.* @PostHog/team-mobile-app
+products/mobile/app.json @PostHog/team-mobile-app
+products/mobile/eas.json @PostHog/team-mobile-app
+products/mobile/plugins/** @PostHog/team-mobile-app
+products/mobile/targets/*/expo-target.config.* @PostHog/team-mobile-app
+products/mobile/package.json @PostHog/team-mobile-app
+products/mobile/pnpm-lock.yaml @PostHog/team-mobile-app
+products/mobile/pnpm-workspace.yaml @PostHog/team-mobile-app
+products/mobile/.easignore @PostHog/team-mobile-app
+products/mobile/.npmrc @PostHog/team-mobile-app
+products/mobile/.pnpmfile.* @PostHog/team-mobile-app
+products/mobile/.node-version @PostHog/team-mobile-app
+products/mobile/patches/** @PostHog/team-mobile-app
 products/mobile/releases/config.json @PostHog/team-mobile-app
 products/mobile/releases/ota-certificate.pem @PostHog/team-mobile-app
 products/mobile/scripts/eas-build.sh @PostHog/team-mobile-app
@@ -127,3 +140,4 @@ products/mobile/metro.transformer.js @PostHog/team-mobile-app
 
 products/mobile/scripts/releases/*.test.mjs
 products/mobile/scripts/releases/fixtures/**
+products/mobile/plugins/*.test.js

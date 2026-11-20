@@ -1,26 +1,51 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { findAcknowledgement, nativeInputs, rebuildReasons } from './mobile-rebuild.mjs'
+import { findAcknowledgement, fingerprintReasons, nativeInputs, rebuildReasons } from './mobile-rebuild.mjs'
 
 const commit = 'a'.repeat(40)
 const base = {
-    hashes: { ios: 'b'.repeat(40), android: 'c'.repeat(40) },
-    eas: {
-        build: {
-            base: { node: '22.22.0' },
-            production: { extends: 'base', channel: 'production' },
-        },
+    build: {
+        base: { node: '22.22.0' },
+        production: { extends: 'base', channel: 'production' },
+    },
+    submit: {
+        store: { ios: { ascAppId: '1234567890' } },
+        production: { extends: 'store' },
     },
 }
 
 test('preview-only profiles leave the production build unchanged', () => {
     const head = structuredClone(base)
-    head.eas.build.preview = { extends: 'base', channel: 'preview' }
+    head.build.preview = { extends: 'base', channel: 'preview' }
+    head.submit.preview = { android: { track: 'internal' } }
     assert.deepEqual(rebuildReasons(['eas.json'], base, head), [])
 
-    head.eas.build.base.node = '22.22.1'
+    head.build.base.node = '22.22.1'
     assert.deepEqual(rebuildReasons(['eas.json'], base, head), ['Production EAS build profile changed'])
+})
+
+test('an inherited production submission destination requires acknowledgement', () => {
+    const head = structuredClone(base)
+    head.submit.store.ios.ascAppId = '2345678901'
+    assert.deepEqual(rebuildReasons(['eas.json'], base, head), ['Production EAS submission profile changed'])
+})
+
+test('build configuration and install inputs require acknowledgement before a fingerprint is calculated', () => {
+    for (const file of [
+        'app.config.ts',
+        'plugins/withAndroidDisplayName.js',
+        'package.json',
+        'pnpm-lock.yaml',
+        'patches/dependency.patch',
+    ]) {
+        const paths = nativeInputs([`products/mobile/${file}`])
+        assert.deepEqual(
+            rebuildReasons(paths, base, base),
+            ['Mobile build configuration or dependencies changed'],
+            file
+        )
+    }
 })
 
 test('native changes are reported even when Expo omits an input from the fingerprint', () => {
@@ -32,14 +57,20 @@ test('native changes are reported even when Expo omits an input from the fingerp
         'products/mobile/.easignore',
     ])
     assert.deepEqual(paths, ['android/app/build.gradle', '.easignore'])
-    const head = { ...base, hashes: { ...base.hashes, android: 'd'.repeat(40) } }
-    assert.deepEqual(rebuildReasons(paths, base, head), [
-        'Android native fingerprint changed',
+    assert.deepEqual(rebuildReasons(paths, base, base), [
         'Production build packaging or toolchain changed',
         'Tracked native project files changed',
     ])
 })
 
+test('asset fingerprints report the affected platform and reject incomplete results', () => {
+    const hashes = { ios: 'a'.repeat(40), android: 'b'.repeat(40) }
+    assert.deepEqual(fingerprintReasons(hashes, hashes), [])
+    assert.deepEqual(fingerprintReasons(hashes, { ...hashes, android: 'c'.repeat(40) }), [
+        'Android native fingerprint changed',
+    ])
+    assert.throws(() => fingerprintReasons(hashes, { ios: hashes.ios }), /Missing production fingerprint for Android/)
+})
 test('an iOS widget change requires acknowledgement even with identical production fingerprints', () => {
     const paths = nativeInputs(['products/mobile/targets/HedgehogWidget/ChartFetcher.swift'])
     assert.deepEqual(rebuildReasons(paths, base, base), ['iOS extension target files changed'])

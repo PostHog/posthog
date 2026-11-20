@@ -29,7 +29,7 @@ rules:
       owners: [team-devex, team-mobile-app]
     - match: ['/workflows/pr-native-rebuild.yml', '/workflows/pr-rebuild-notify.yml']
       owners: [team-devex, team-mobile-app]
-    - match: '/workflows/*mobile*.yml'
+    - match: ['/workflows/*mobile*.yml', '/workflows/*mobile*.yaml']
       owners: [team-mobile-app, team-devex]
     # The dependency proof decides which bot updates stamphog may approve on its own. The prover
     # itself is in tools/change-prover, which its own owners.yaml marks sensitive.

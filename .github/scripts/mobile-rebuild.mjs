@@ -1,16 +1,18 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 const appPath = 'products/mobile/'
 const packagingFiles = new Set(['.easignore', '.node-version', '.npmrc', 'pnpm-workspace.yaml'])
-const fingerprintFiles = new Set([
-    'app.config.ts',
-    'eas.json',
-    'package.json',
-    'pnpm-lock.yaml',
-    'src/lib/appVariants.json',
-])
+const buildConfigFiles = new Set(['app.json', 'package.json', 'pnpm-lock.yaml', 'src/lib/appVariants.json'])
+
+function buildTooling(path) {
+    return (
+        buildConfigFiles.has(path) ||
+        /^(?:app\.config\.|\.pnpmfile\.|patches\/)/.test(path) ||
+        (path.startsWith('plugins/') && !/\.test\.[^/]+$/.test(path))
+    )
+}
 
 function trackedNativeCode(path) {
     return path.startsWith('ios/') || (path.startsWith('android/') && !/\/src\/(?:test|androidTest)\//.test(path))
@@ -32,19 +34,19 @@ export function nativeInputs(paths) {
             (path) =>
                 !path.endsWith('.md') &&
                 (packagingFiles.has(path) ||
-                    fingerprintFiles.has(path) ||
+                    buildTooling(path) ||
+                    path === 'eas.json' ||
                     trackedNativeCode(path) ||
                     nativeModule(path) ||
-                    /^(?:assets|patches|targets)\//.test(path) ||
-                    (/^plugins\//.test(path) && !/\.test\.[^/]+$/.test(path)))
+                    /^(?:assets|targets)\//.test(path))
         )
 }
 
-function productionProfile({ build, cli }) {
+function productionProfile(settingsByName) {
     const profiles = new Map()
     let name = 'production'
     while (name) {
-        const profile = build?.[name]
+        const profile = settingsByName?.[name]
         if (!profile || profiles.has(name)) {
             throw new Error('Could not resolve the production EAS profile.')
         }
@@ -52,30 +54,46 @@ function productionProfile({ build, cli }) {
         profiles.set(name, settings)
         name = parent
     }
-    return { cli, profiles }
+    return profiles
 }
 
-export function rebuildReasons(paths, before, after) {
+export function fingerprintReasons(before, after) {
     const reasons = []
     for (const [platform, label] of [
         ['ios', 'iOS'],
         ['android', 'Android'],
     ]) {
-        if (![before.hashes[platform], after.hashes[platform]].every((hash) => /^[a-f0-9]{40}$/.test(hash))) {
+        if (![before[platform], after[platform]].every((hash) => /^[a-f0-9]{40}$/.test(hash))) {
             throw new Error(`Missing production fingerprint for ${label}.`)
         }
-        if (before.hashes[platform] !== after.hashes[platform]) {
+        if (before[platform] !== after[platform]) {
             reasons.push(`${label} native fingerprint changed`)
         }
     }
-    if (!isDeepStrictEqual(productionProfile(before.eas), productionProfile(after.eas))) {
-        reasons.push('Production EAS build profile changed')
+    return reasons
+}
+
+export function rebuildReasons(paths, beforeEas, afterEas) {
+    const reasons = []
+    if (paths.includes('eas.json')) {
+        if (
+            !isDeepStrictEqual(beforeEas.cli, afterEas.cli) ||
+            !isDeepStrictEqual(productionProfile(beforeEas.build), productionProfile(afterEas.build))
+        ) {
+            reasons.push('Production EAS build profile changed')
+        }
+        if (!isDeepStrictEqual(productionProfile(beforeEas.submit), productionProfile(afterEas.submit))) {
+            reasons.push('Production EAS submission profile changed')
+        }
+    }
+    if (paths.some(buildTooling)) {
+        reasons.push('Mobile build configuration or dependencies changed')
     }
     if (paths.some((path) => packagingFiles.has(path))) {
         reasons.push('Production build packaging or toolchain changed')
     }
     // Expo ignores generated native project directories in the release fingerprint.
-    if (paths.some(trackedNativeCode)) {
+    if (paths.some((path) => trackedNativeCode(path) || nativeModule(path))) {
         reasons.push('Tracked native project files changed')
     }
     if (paths.some((path) => path.startsWith('targets/'))) {
@@ -101,21 +119,20 @@ export async function findAcknowledgement(comments, sha, canWrite) {
     return null
 }
 
-function loadSnapshot(directory, hashFile) {
-    return {
-        eas: JSON.parse(readFileSync(`${directory}/eas.json`, 'utf8')),
-        hashes: JSON.parse(readFileSync(hashFile, 'utf8')),
-    }
+function readJson(path) {
+    return JSON.parse(readFileSync(path, 'utf8'))
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    const [action, pathsFile, baseDir, headDir, baseHashFile, headHashFile] = process.argv.slice(2)
-    const paths = nativeInputs(readFileSync(pathsFile, 'utf8').split('\0'))
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+    const [action, ...files] = process.argv.slice(2)
     if (action === 'scope') {
-        console.log(paths.length > 0)
-    } else if (action === 'compare') {
-        const reasons = rebuildReasons(paths, loadSnapshot(baseDir, baseHashFile), loadSnapshot(headDir, headHashFile))
-        console.log(reasons.join('. '))
+        const [pathsFile, baseEas, headEas] = files
+        const paths = nativeInputs(readFileSync(pathsFile, 'utf8').split('\0'))
+        const reasons = rebuildReasons(paths, readJson(baseEas), readJson(headEas))
+        console.log(`reason=${reasons.join('. ')}`)
+        console.log(`assets=${reasons.length === 0 && paths.some((path) => path.startsWith('assets/'))}`)
+    } else if (action === 'fingerprints') {
+        console.log(fingerprintReasons(readJson(files[0]), readJson(files[1])).join('. '))
     } else {
         throw new Error(`Unknown mobile rebuild action ${action}`)
     }

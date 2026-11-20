@@ -10,7 +10,7 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
 
 The Mobile Rebuild check flags changes that may need a native build. A PR comment notifies the Mobile App team.
 A maintainer with repository write access can acknowledge the PR's current commit, including a commit on their own PR.
-Changes to the release safeguards still need code-owner review.
+Changes to mobile build configuration, release tooling and the rebuild check still need code-owner review.
 An authorized `mobile-production` reviewer approves each production deployment after merge.
 See [Mobile rebuild acknowledgement](../../products/mobile/docs/CI.md#mobile-rebuild-acknowledgement) for the PR steps.
 

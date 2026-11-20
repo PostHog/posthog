@@ -22,38 +22,48 @@ jobs:
         permissions:
             contents: read
         outputs:
-            reason: ${{ steps.compare.outcome == 'failure' && 'CI could not verify the production native inputs.' || steps.compare.outputs.reason }}
+            reason: ${{ (steps.scope.outcome == 'failure' || steps.compare.outcome == 'failure') && 'CI could not verify the production native inputs.' || steps.scope.outputs.reason || steps.compare.outputs.reason }}
+            policy-ref: ${{ steps.policy.outputs.ref }}
+            test-policy: ${{ steps.policy.outputs.test }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
-                  sparse-checkout: |
-                      .github/scripts/mobile-rebuild.mjs
-                      .github/scripts/mobile-rebuild.test.mjs
+                  ref: ${{ github.event.pull_request.base.sha }}
+                  sparse-checkout: .github/scripts/mobile-rebuild.mjs
                   sparse-checkout-cone-mode: false
+            - name: Load the rebuild policy
+              id: policy
+              run: |
+                  git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$GITHUB_SHA"
+                  policy=.github/scripts/mobile-rebuild.mjs
+                  ref=$(git rev-parse HEAD)
+                  if [[ -z "$(git ls-tree HEAD -- "$policy")" ]]; then
+                      # The first rollout has no policy on the base branch. Pin its contents for that run.
+                      ref="$GITHUB_SHA"
+                      git show "$ref:$policy" > "$RUNNER_TEMP/mobile-rebuild.mjs"
+                      echo "9b8d85b398aea0a3779f4cccdbfd09cfddb9ea10c00142dfbe4a34b706a79e07  $RUNNER_TEMP/mobile-rebuild.mjs" | sha256sum -c -
+                  else
+                      git show "HEAD:$policy" > "$RUNNER_TEMP/mobile-rebuild.mjs"
+                  fi
+                  echo "ref=$ref" >> "$GITHUB_OUTPUT"
+                  git diff --no-renames --name-only HEAD "$GITHUB_SHA" -- .github/scripts/mobile-rebuild{,.test}.mjs > "$RUNNER_TEMP/policy-paths"
+                  if [[ -s "$RUNNER_TEMP/policy-paths" ]]; then echo "test=true" >> "$GITHUB_OUTPUT"; fi
             - name: Detect native build inputs
               id: scope
-              env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              continue-on-error: true
               run: |
-                  git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
-                  if ! git diff --quiet "$BASE_SHA" HEAD -- .github/scripts/mobile-rebuild{,.test}.mjs; then
-                      node --test .github/scripts/mobile-rebuild.test.mjs
-                  fi
-                  git diff --no-renames --name-only -z "$BASE_SHA" HEAD -- products/mobile/ > "$RUNNER_TEMP/mobile-paths"
-                  relevant=$(node .github/scripts/mobile-rebuild.mjs scope "$RUNNER_TEMP/mobile-paths")
-                  echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
-            - name: Check out mobile build inputs
-              if: steps.scope.outputs.relevant == 'true'
-              env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
-              run: |
-                  set -o pipefail
-                  printf '/products/mobile/\n' | git sparse-checkout add --stdin
-                  mkdir "$RUNNER_TEMP/mobile-base"
-                  git archive "$BASE_SHA" products/mobile | tar -x -C "$RUNNER_TEMP/mobile-base"
+                  git diff --no-renames --name-only -z HEAD "$GITHUB_SHA" -- products/mobile/ > "$RUNNER_TEMP/mobile-paths"
+                  if [[ ! -s "$RUNNER_TEMP/mobile-paths" ]]; then exit 0; fi
+                  git show HEAD:products/mobile/eas.json > "$RUNNER_TEMP/base-eas.json"
+                  git show "$GITHUB_SHA:products/mobile/eas.json" > "$RUNNER_TEMP/merge-eas.json"
+                  node "$RUNNER_TEMP/mobile-rebuild.mjs" scope "$RUNNER_TEMP/mobile-paths" \
+                      "$RUNNER_TEMP/base-eas.json" "$RUNNER_TEMP/merge-eas.json" >> "$GITHUB_OUTPUT"
+            - name: Check out base fingerprint tooling
+              if: steps.scope.outputs.assets == 'true'
+              run: printf '/products/mobile/\n' | git sparse-checkout add --stdin
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-              if: steps.scope.outputs.relevant == 'true'
+              if: steps.scope.outputs.assets == 'true'
               with:
                   package_json_file: products/mobile/package.json
               env:
@@ -62,24 +72,24 @@ jobs:
                   NPM_CONFIG_AUDIT: 'false'
                   NPM_CONFIG_FUND: 'false'
             - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-              if: steps.scope.outputs.relevant == 'true'
+              if: steps.scope.outputs.assets == 'true'
               with:
                   node-version-file: products/mobile/.node-version
                   package-manager-cache: false
             - name: Get pnpm store path
               id: store
-              if: steps.scope.outputs.relevant == 'true'
+              if: steps.scope.outputs.assets == 'true'
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
             - name: Restore Mobile CI pnpm store
-              if: steps.scope.outputs.relevant == 'true'
+              if: steps.scope.outputs.assets == 'true'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.4
               with:
                   path: ${{ steps.store.outputs.path }}
                   key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
                   restore-keys: mobile-pnpm-${{ runner.os }}-
-            - name: Compare native fingerprints and build settings
+            - name: Compare production asset fingerprints
               id: compare
-              if: steps.scope.outputs.relevant == 'true'
+              if: steps.scope.outputs.assets == 'true'
               continue-on-error: true
               env:
                   APP_VARIANT: production
@@ -87,24 +97,55 @@ jobs:
                   EXPO_OFFLINE: '1'
                   EXPO_PUBLIC_SIGNUP_LINK: '0'
               run: |
-                  base="$RUNNER_TEMP/mobile-base/products/mobile"
-                  pnpm --dir "$base" install --frozen-lockfile
-                  pnpm --dir products/mobile install --frozen-lockfile
-                  (cd "$base" && node scripts/releases/release.mjs fingerprint) > "$RUNNER_TEMP/mobile-base.json"
-                  (cd products/mobile && node scripts/releases/release.mjs fingerprint) > "$RUNNER_TEMP/mobile-merge.json"
-                  reason=$(node .github/scripts/mobile-rebuild.mjs compare "$RUNNER_TEMP/mobile-paths" \
-                      "$base" products/mobile "$RUNNER_TEMP/mobile-base.json" "$RUNNER_TEMP/mobile-merge.json")
+                  # Expo evaluates project code. Only image data from the PR may enter the base checkout.
+                  git diff --raw --no-renames HEAD "$GITHUB_SHA" -- products/mobile/assets > "$RUNNER_TEMP/mobile-assets"
+                  if grep -Evq '^:(000000|100644|100755) (000000|100644|100755) [[:xdigit:]]+ [[:xdigit:]]+ [AMD][[:space:]]products/mobile/assets/.*(\.png|\.icon/icon\.json)$' "$RUNNER_TEMP/mobile-assets"; then
+                      echo 'reason=Mobile asset layout changed' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  cd products/mobile
+                  pnpm install --frozen-lockfile
+                  node scripts/releases/release.mjs fingerprint > "$RUNNER_TEMP/mobile-base.json"
+                  git restore --source="$GITHUB_SHA" --worktree -- assets
+                  node scripts/releases/release.mjs fingerprint > "$RUNNER_TEMP/mobile-merge.json"
+                  reason=$(node "$RUNNER_TEMP/mobile-rebuild.mjs" fingerprints "$RUNNER_TEMP/mobile-base.json" "$RUNNER_TEMP/mobile-merge.json")
                   echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+    tests:
+        name: Test mobile rebuild policy
+        needs: compare
+        if: needs.compare.outputs.test-policy == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/mobile-rebuild.mjs
+                      .github/scripts/mobile-rebuild.test.mjs
+                  sparse-checkout-cone-mode: false
+            - run: node --test .github/scripts/mobile-rebuild.test.mjs
 
     acknowledgement:
         name: Native rebuild acknowledged
-        needs: compare
+        needs: [compare, tests]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         env:
             REBUILD_REASON: ${{ needs.compare.outputs.reason }}
         steps:
+            - name: Check rebuild tests
+              env:
+                  TEST_RESULT: ${{ needs.tests.result }}
+              run: |
+                  if [[ "$TEST_RESULT" != "success" && "$TEST_RESULT" != "skipped" ]]; then
+                      echo "::error::Mobile rebuild policy tests did not pass."
+                      exit 1
+                  fi
             - name: Check comparison job
               env:
                   COMPARE_RESULT: ${{ needs.compare.result }}
@@ -116,9 +157,13 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: env.REBUILD_REASON != ''
               with:
+                  ref: ${{ needs.compare.outputs.policy-ref }}
                   persist-credentials: false
                   sparse-checkout: .github/scripts/mobile-rebuild.mjs
                   sparse-checkout-cone-mode: false
+            - name: Load acknowledgement policy
+              if: env.REBUILD_REASON != ''
+              run: git show HEAD:.github/scripts/mobile-rebuild.mjs > "$RUNNER_TEMP/mobile-rebuild.mjs"
             - name: Look up acknowledgement
               id: acknowledgement
               if: env.REBUILD_REASON != ''
@@ -126,7 +171,7 @@ jobs:
               with:
                   script: |
                       const { findAcknowledgement, rebuildCommand } = await import(
-                          process.cwd() + '/.github/scripts/mobile-rebuild.mjs'
+                          process.env.RUNNER_TEMP + '/mobile-rebuild.mjs'
                       )
                       const { number, head } = context.payload.pull_request
                       const comments = github.paginate.iterator(github.rest.issues.listComments, {

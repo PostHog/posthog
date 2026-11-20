@@ -58,7 +58,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 
 ### Mobile rebuild acknowledgement
 
-The **Mobile Rebuild / Native rebuild acknowledged** check compares the production iOS and Android fingerprints with the PR base when native build inputs change. It also checks production EAS settings, packaging files, tracked native projects, and iOS extension targets. Preview-only EAS profile changes do not affect the production profile.
+The **Mobile Rebuild / Native rebuild acknowledged** check flags changes to build configuration, dependencies, packaging, native source and iOS extension targets. It compares the production EAS build and submission profiles, including inherited settings. Preview-only profile edits pass this check. For image assets, CI compares production iOS and Android fingerprints using the base branch's tooling. Changes to other asset types require acknowledgement.
 
 When the check finds a possible rebuild or cannot verify native inputs, it fails and a PR comment tags `@PostHog/team-mobile-app`. Anyone with repository write access, including the PR author, can acknowledge the current commit.
 
@@ -69,7 +69,7 @@ If the check flags a later commit, repeat both steps with the new command. Ackno
 
 If the comparison job itself fails, the bot tags the Mobile App team with a link to the failed run. Check the error and select **Re-run failed jobs** so CI can finish the comparison.
 
-The app's `product.yaml` routes mobile reviews. `CODEOWNERS` requires review for changes to the acknowledgement gate and the tooling that builds, validates, signs, and publishes releases.
+The app's `product.yaml` routes mobile reviews. `CODEOWNERS` requires Mobile App review for mobile workflows, install and Expo configuration, build plugins and release tooling. DevEx reviews changes to the acknowledgement gate and its tests.
 
 A repository administrator must add **Mobile Rebuild / Native rebuild acknowledged** from GitHub Actions to the `master` ruleset as part of the ownership rollout. Update the branch of any open PR that lacks the check so it picks up the new workflow.
 
