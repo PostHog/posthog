@@ -29,8 +29,12 @@
             "type": "boolean"
         },
         "key": {
-            "description": "Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.",
+            "description": "Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`.",
             "minLength": 1,
+            "type": "string"
+        },
+        "key_prefix": {
+            "description": "Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.",
             "type": "string"
         },
         "keys_only": {

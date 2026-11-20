@@ -6,6 +6,11 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 
 The rules, in order. The first rule that matches gives the reason:
 
+0. `follow_up`: the repository's review cadence (`review_cadence.py`) has no review for this turn. Without
+   push reviews, the only automatic review after the first one is the review at ready after a draft review.
+   The automatic dispatch (`automatic_reviews.py`) already skips most such events, so this rule catches the
+   turns that were queued while the first review ran. It is a repository setting, not a switch below, so
+   it always skips.
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
 2. `reviewhog_commits_only`: the ReviewHog app authored every new commit, for example the fixes the
    resolution stage pushed. Reviewing them again would review ReviewHog's own answer to its review.
@@ -127,6 +132,7 @@ _NON_CODE_FILE = re.compile(
 )
 
 SkipReason = Literal[
+    "follow_up",
     "no_new_commits",
     "reviewhog_commits_only",
     "merge_only",
@@ -402,6 +408,11 @@ class PushGate:
         if any(file.patch is None for file in code_files) or patch_chars > MAX_OWN_PATCH_CHARS:
             return _runs("interdiff_too_large", own_commits=len(own_shas), own_code_lines=own_code_lines)
         return _runs("no_rule_matched", own_commits=len(own_shas), own_code_lines=own_code_lines)
+
+
+def skip_follow_up() -> PushGateDecision:
+    """Rule 0, first: the skip of a turn the repository's review cadence has no review for."""
+    return PushGateDecision(skip=True, would_skip=True, reason="follow_up")
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

@@ -954,6 +954,25 @@ class TestGetIdentityIspMetrics(TestCase):
         assert [(row.isp, row.emails_sent) for row in rows] == [(ISP_OTHER, 92), ("Gmail", 16)]
         assert rows[0].delivery_rate == pytest.approx(84 / 92)
 
+    def test_yandex_and_mail_ru_get_their_own_rows_by_default(self):
+        self._serve(
+            {
+                (ISP_IDENTITY_TOTAL, "SEND"): 100,
+                ("Gmail", "SEND"): 50,
+                ("Yandex", "SEND"): 30,
+                ("MailRu", "SEND"): 15,
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30)
+
+        assert [(row.isp, row.emails_sent) for row in rows] == [
+            ("Gmail", 50),
+            ("Yandex", 30),
+            ("MailRu", 15),
+            (ISP_OTHER, 5),
+        ]
+
     def test_no_remainder_row_when_a_named_provider_did_not_answer(self):
         # A provider whose SEND query failed has no counts to subtract, so its volume would show up
         # as unattributed. Reporting nothing beats moving one provider's mail into another row.
