@@ -20,6 +20,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
+    CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
     PROVIDER_IMPORT_STATUS_CHOICES,
@@ -139,7 +140,7 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.",
     )
 
 
@@ -150,7 +151,7 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+    Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
@@ -204,6 +205,19 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Importing automations can create cohorts, so this key needs the cohort:write scope. "
                 "Leave out Automations, or use a key that has it."
             )
+        if CONTACT_STEPS & set(data["steps"]):
+            # Contacts create people and fill cohorts, like the people upload, so they need the same rights.
+            if (
+                scopes is not None
+                and "*" not in scopes
+                and scopes_not_covered(scopes, ["cohort:write", "person:write"])
+            ):
+                raise PermissionDenied(
+                    "Importing contacts writes people and cohorts, so this key needs the person:write and "
+                    "cohort:write scopes. Leave out Contacts, or use a key that has them."
+                )
+            if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+                raise PermissionDenied("You need edit access to persons to import contacts.")
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
