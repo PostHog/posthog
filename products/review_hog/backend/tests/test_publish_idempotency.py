@@ -344,11 +344,8 @@ class TestPublishIdempotency(BaseTest):
                 False,
             ),
             ("automatic_ready", "automatic", False, True, False, _LAST_NOTE, "Comment `@posthog review`", False),
-            # Later pushes get their own automatic reviews, so a ready review promises nothing.
             ("automatic_ready_with_push_reviews", "automatic", False, True, True, None, None, False),
-            # The repository's name finds no owner, so the review promises nothing about later reviews.
             ("automatic_ready_unknown_cadence", "automatic", False, True, None, None, None, False),
-            # A Stamphog handoff also runs for authors without automatic reviews, so it does not end with the note.
             ("stamphog_draft", "stamphog", True, True, False, None, None, True),
             ("comment_ready", "comment", False, True, False, None, None, True),
             ("ui_ready", "ui", False, True, False, None, None, True),

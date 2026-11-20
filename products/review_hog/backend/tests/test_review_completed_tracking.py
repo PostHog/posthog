@@ -389,9 +389,7 @@ class TestTrackReviewCompleted(BaseTest):
         [
             ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FLASH, "follow_up"),
             ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, REVIEW_MODE_FLASH, "merge_only"),
-            # The Deep switch only picks the depth of a turn the cadence runs, so a queued Deep turn is skipped too.
             ("deep_turn_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FULL, "follow_up"),
-            # The repository's name finds no owner, as after a rename, so the gate does not skip on the cadence.
             ("unknown_cadence", None, False, REVIEW_MODE_FLASH, "merge_only"),
         ]
     )

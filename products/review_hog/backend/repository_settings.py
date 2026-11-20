@@ -414,7 +414,6 @@ class ProjectRepositories:
 
             if not new_selected and not takes_all:
                 self._check_settings_need_project(flash_for, review_drafts, review_pushes, deep_review_gated_prs)
-                # The repository leaves the project, so its exception and its review settings go too.
                 new_flash_for = None
                 new_review_drafts = False
                 new_review_pushes = False
