@@ -127,3 +127,13 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "alarm_history": "State transitions, configuration updates and action executions for every alarm.",
     "metric_data": "Datapoints for the metric queries configured on the source, one row per query and timestamp.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "cloudwatch:DescribeAlarmHistory",
+    "cloudwatch:DescribeAlarms",
+    "cloudwatch:GetMetricData",
+    "logs:DescribeLogGroups",
+    "logs:FilterLogEvents",
+)
