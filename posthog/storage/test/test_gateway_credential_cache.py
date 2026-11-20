@@ -756,6 +756,22 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
         self.assertEqual(len(still_cached), 1)
 
+    def test_reproject_organization_task_stops_once_the_cache_keeps_failing(self):
+        for _ in range(5):
+            self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        attempted: list[str] = []
+
+        def fail_delete(cache_hash: str, kinds: list[str]) -> None:
+            attempted.append(cache_hash)
+            raise ConnectionError("redis down")
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_delete):
+            with self.assertRaises(ConnectionError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        self.assertEqual(len(attempted), gateway_credential_cache.REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES)
+
     @patch("posthog.tasks.gateway_credential.settings")
     def test_refresh_task_noop_without_redis_url(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = None
@@ -1122,8 +1138,29 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             self.organization.save()
             self.assertIsNotNone(self._read_blob(cache_hash))
 
+    def test_organization_deactivation_queues_the_follow_up_before_it_projects(self):
+        self._make_secret_key([GATEWAY_SCOPE])
+        queued: list[str] = []
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch.object(hypercache, "delete_cache_entry", side_effect=SystemExit),
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=queued.append,
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            self.organization.is_active = False
+            with self.assertRaises(SystemExit):
+                self.organization.save()
+
+        self.assertEqual(queued, [str(self.organization.pk)])
+
     @parameterized.expand([("broker_up", True), ("broker_down", False)])
-    def test_organization_deactivation_queues_a_retry_without_failing_the_save(self, _name, broker_up):
+    def test_organization_deactivation_queues_a_follow_up_without_failing_the_save(self, _name, broker_up):
         self._make_secret_key([GATEWAY_SCOPE])
         queued: list[str] = []
 
@@ -1136,7 +1173,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
             patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
             patch(
-                "posthog.tasks.gateway_credential.project_gateway_credential",
+                "posthog.storage.gateway_credential_cache.project_gateway_credential",
                 side_effect=ConnectionError("redis down"),
             ),
             patch(

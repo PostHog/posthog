@@ -1,3 +1,4 @@
+import contextlib
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -118,14 +119,21 @@ class TestLLMGatewayQuotaTasks(BaseTest):
         assert blob is not None
         self.assertTrue(blob["org_deactivated"])
 
-    @parameterized.expand([("projection_raises", ConnectionError("redis down")), ("projection_writes_nothing", None)])
+    @parameterized.expand(
+        [
+            ("projection_raises", ConnectionError("redis down")),
+            ("projection_writes_nothing", None),
+            ("worker_killed_mid_projection", SystemExit()),
+        ]
+    )
     @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
     def test_deactivation_always_queues_a_follow_up_projection(
-        self, _name: str, projection_error: Exception | None, mock_settings: MagicMock
+        self, _name: str, projection_error: BaseException | None, mock_settings: MagicMock
     ) -> None:
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         queued: list[str] = []
         with (
+            contextlib.suppress(SystemExit),
             self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
             patch(
                 "posthog.tasks.team_llm_gateway_quota.project_org_quota",

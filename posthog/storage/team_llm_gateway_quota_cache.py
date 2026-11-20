@@ -44,6 +44,7 @@ LLM_GATEWAY_QUOTA_DEACTIVATED_TTL = int(os.environ.get("LLM_GATEWAY_QUOTA_DEACTI
 LLM_GATEWAY_QUOTA_CACHE_EXPIRY_SORTED_SET = "llm_gateway_quota_cache_expiry"
 LLM_GATEWAY_QUOTA_RESTAMP_WINDOW_SECONDS = 7 * 24 * 60 * 60
 _MAX_PROJECTION_WRITES = 3
+_MAX_CONSECUTIVE_WRITE_FAILURES = 3
 _BATCH_SIZE = 500
 
 
@@ -176,6 +177,11 @@ class _Projected(NamedTuple):
     cleared: int
 
 
+def _tally(written: Mapping[int, dict[str, Any] | None]) -> _Projected:
+    blobs = sum(1 for blob in written.values() if blob is not None)
+    return _Projected(blobs, len(written) - blobs)
+
+
 def _project_batch(teams: list[Team]) -> _Projected:
     """Writes each blob, then re-reads and rewrites what moved. Writers race, and each re-read
     follows every earlier write, so the last write carries current state. Failures are captured
@@ -184,15 +190,21 @@ def _project_batch(teams: list[Team]) -> _Projected:
     by_id = {team.id: team for team in teams}
     written: dict[int, dict[str, Any] | None] = {}
     to_write = _derive_or_capture(teams, datetime.now(tz=UTC))
+    failures_in_a_row = 0
     for _ in range(_MAX_PROJECTION_WRITES):
         now = datetime.now(tz=UTC)
         for team_id, blob in to_write.items():
             try:
                 _write_blob(by_id[team_id], blob, now)
-                written[team_id] = blob
             except Exception as e:
                 _capture_failure("llm_gateway_quota: projection write failed", e, team_id=team_id)
                 written.pop(team_id, None)
+                failures_in_a_row += 1
+                if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
+                    return _tally(written)
+                continue
+            written[team_id] = blob
+            failures_in_a_row = 0
         current = _derive_or_capture([by_id[team_id] for team_id in written], datetime.now(tz=UTC))
         to_write = {
             team_id: current[team_id]
@@ -204,8 +216,7 @@ def _project_batch(teams: list[Team]) -> _Projected:
     else:
         # State kept moving; the reconcile re-projects these teams within a tick.
         logger.warning("llm_gateway_quota: projection did not settle", team_ids=sorted(to_write))
-    blobs = sum(1 for blob in written.values() if blob is not None)
-    return _Projected(blobs, len(written) - blobs)
+    return _tally(written)
 
 
 def _project_in_batches(queryset: QuerySet[Team]) -> _Projected:

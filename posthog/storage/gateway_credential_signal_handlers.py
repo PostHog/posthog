@@ -333,6 +333,14 @@ def _reproject_organization_on_active_change(
 
     def reproject() -> None:
         try:
+            reproject_organization_gateway_credentials_task.delay(organization_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to enqueue organization gateway credential reprojection",
+                organization_id=organization_id,
+                error=str(e),
+            )
+        try:
             reproject_organization_gateway_credentials_task(organization_id)
         except Exception as e:
             logger.exception(
@@ -340,14 +348,6 @@ def _reproject_organization_on_active_change(
                 organization_id=organization_id,
                 error=str(e),
             )
-            try:
-                reproject_organization_gateway_credentials_task.delay(organization_id)
-            except Exception as retry_error:
-                logger.warning(
-                    "Failed to enqueue organization gateway credential reprojection",
-                    organization_id=organization_id,
-                    error=str(retry_error),
-                )
 
     transaction.on_commit(reproject)
 
