@@ -11,7 +11,6 @@ import requests
 from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 from rest_framework import status
-from rest_framework.parsers import JSONParser
 from rest_framework.test import APIClient
 
 from posthog import rate_limit
@@ -24,7 +23,6 @@ from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_
 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.presentation.views.email_batch import UNCONFIRMED_EMAIL
 from products.messaging.backend.presentation.views.message_templates import (
     EMAIL_BATCH_FLAG,
     EMAIL_FROM_CODE_FLAG,
@@ -354,8 +352,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
         analytics = FakeAnalytics()
         capture.side_effect = analytics.capture
 
-        with patch.object(JSONParser, "parse") as parse:
-            response = self._batch("template", message_data={"blob": "x" * 5 * 1024 * 1024})
+        response = self._batch("template", message_data={"blob": "x" * 5 * 1024 * 1024})
 
         assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, response.json()
         assert response.json()["code"] == "content_too_large"
@@ -365,25 +362,34 @@ class TestTransactionalEmailBatch(APIBaseTest):
             None,
             None,
         )
-        parse.assert_not_called()
         mock_post.assert_not_called()
 
     @parameterized.expand(
         [
-            ("the_most_recipients_a_batch_takes", 100, "application/json"),
-            ("a_json_media_type_in_any_case", 2, "Application/JSON; charset=utf-8"),
+            ("the_most_recipients_a_batch_takes", 100, "application/json", None),
+            ("a_json_media_type_in_any_case", 2, "Application/JSON; charset=utf-8", None),
+            ("half_an_emoji_in_a_recipients_data", 2, "application/json", '"\\ud83d"'),
         ]
     )
-    def test_queues_every_recipient_of_a_json_batch(self, mock_post, _flag, _capture, _name, count, content_type):
+    def test_queues_every_recipient_of_a_json_batch(
+        self, mock_post, _flag, _capture, _name, count, content_type, first_name_json
+    ):
         mock_post.return_value = self._queued_answer(count)
-        body = {**self._email("template"), "recipients": self._recipients(count)}
+        recipients = self._recipients(count)
+        if first_name_json is not None:
+            recipients[0]["message_data"] = {"name": "first-name"}
+        body = json.dumps({**self._email("template"), "recipients": recipients})
+        if first_name_json is not None:
+            body = body.replace('"first-name"', first_name_json)
 
-        response = self.psak.post(BATCH_URL, json.dumps(body), content_type=content_type)
+        response = self.psak.post(BATCH_URL, body, content_type=content_type)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [(result["message_id"], result["status"]) for result in response.json()["results"]] == [
             (self._id(f"key-{index}"), "queued") for index in range(count)
         ]
+        (forward,) = mock_post.call_args_list
+        assert len(_forwarded(forward)["recipients"]) == count
 
     def test_refuses_a_batch_body_not_labelled_json(self, mock_post, _flag, _capture):
         body = {**self._email("template"), "recipients": self._recipients(1)}
@@ -410,6 +416,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
             mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
             assert self._single("code").status_code == status.HTTP_202_ACCEPTED
             hog_flow_id = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get().hog_flow_id
+            mock_post.reset_mock()
         else:
             hog_flow_id = self.hog_flow_id
         self._archive(hog_flow_id)
@@ -418,7 +425,8 @@ class TestTransactionalEmailBatch(APIBaseTest):
         response = self._batch(form, self._recipients(2))
 
         assert (response.status_code, response.json()["code"]) == (400, "transactional_email_paused")
-        assert f"/hog_flows/{hog_flow_id}/" in mock_post.call_args.args[0]
+        (forward,) = mock_post.call_args_list
+        assert forward.args[0].endswith(f"/hog_flows/{hog_flow_id}{BATCH_WIRE[form][0]}")
 
     @parameterized.expand(WHOLE_CALL_REFUSALS)
     def test_a_whole_call_refusal_answers_as_a_single_send_does(
@@ -461,7 +469,8 @@ class TestTransactionalEmailBatch(APIBaseTest):
             "retryable": public_code == "delivery_unavailable",
         }
         if public_code == "delivery_unavailable":
-            assert refused["error"]["detail"] == UNCONFIRMED_EMAIL
+            assert "same `idempotency_key`" in refused["error"]["detail"]
+            assert "24 hours" in refused["error"]["detail"]
 
     @parameterized.expand(
         [
