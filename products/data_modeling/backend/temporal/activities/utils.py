@@ -27,6 +27,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 from products.data_modeling.backend.temporal.activities.preempt_dag_run import ABANDONED_ERROR
+from products.managed_warehouse.backend.facade.contracts import TRINO_INSTANCE_REPLACED_ERROR_PREFIX
 
 # Suspension state lives in products/data_modeling/backend/logic/node_suspension.py, alongside the
 # API and DAG-sync paths that clear it. Re-exported so the activities keep importing from here.
@@ -125,6 +126,11 @@ TRINO_INFRA_ERROR_PATTERN = re.compile(
     # workers lost contact while passing data between stages
     r"|PAGE_TRANSPORT_TIMEOUT"
     r"),"
+    # Trino replaced the instance that ran the query. An operator can also kill a runaway query with
+    # this name, which still counts, so only the replacement message matches. A kill message holds no
+    # text from the query.
+    r'|Trino\w*Error\(type=\w+, name=ADMINISTRATIVELY_KILLED, message="[^"]*the Trino instance running it was being replaced'
+    rf"|{re.escape(TRINO_INSTANCE_REPLACED_ERROR_PREFIX)}"
     # the gateway refused the query with an HTTP 403 before any cluster ran it
     r"|error 403: b'This tenant is not admitted to the pool yet"
     # gateway failures do not identify model faults, so they must not count toward suspension
