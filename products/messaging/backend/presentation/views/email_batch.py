@@ -163,7 +163,11 @@ class EmailBatchErrorSerializer(serializers.Serializer):
         "when the email pipeline didn't confirm it, so it may still go out."
     )
     detail = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
-    status = serializers.IntegerField(help_text="The HTTP status a single send of this email would answer.")
+    status = serializers.IntegerField(
+        help_text="The HTTP status that goes with `code`: 422 for `idempotency_key_reused` and "
+        "`sandbox_recipient_not_member`, 503 for `delivery_unavailable`, and 400 for the others. The batch itself "
+        "answers 200."
+    )
     retryable = serializers.BooleanField(
         help_text="True when sending it again with the same `idempotency_key` can succeed. Only "
         "`delivery_unavailable` is retryable."
