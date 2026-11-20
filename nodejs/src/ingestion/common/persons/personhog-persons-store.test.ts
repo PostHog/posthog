@@ -449,10 +449,10 @@ describe('PersonhogPersonsStore', () => {
             { teamId: 1, distinctId: 'd1', batchId: 0 },
             { teamId: 1, distinctId: 'd2', batchId: 0 },
         ])
-        await new Promise((resolve) => setImmediate(resolve))
+        // Resolves while the second leader read is still pending.
+        await prefetching
         ;(store as any).purgeAfterMerge(1, ['elsewhere'], new Set(['1:9']), 'merge_verdict', true)
         release()
-        await prefetching
         await new Promise((resolve) => setImmediate(resolve))
 
         expect(edgeOf('1:d2')).toBeUndefined()
@@ -655,6 +655,11 @@ describe('PersonhogPersonsStore', () => {
 
         it.each([
             ['a call that fails with no verdict', rejectedWith(Code.Unavailable), undefined],
+            [
+                'a call refused for a reused op id',
+                rejectedWith(Code.FailedPrecondition, { 'x-semantic-refusal': 'op_id_reused' }),
+                undefined,
+            ],
             ['a verdict with an errored source', answeredWith({ outcome: 'error' }), undefined],
             ['a verdict with an outcome this build cannot name', answeredWith({ outcome: 'unknown' }), undefined],
             ['a merged verdict that names no source person', answeredWith({ outcome: 'merged' }), undefined],

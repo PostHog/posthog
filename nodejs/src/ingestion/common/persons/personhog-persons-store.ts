@@ -950,19 +950,20 @@ export class PersonhogPersonsStore implements PersonsStore {
         } catch (error) {
             // The saga may have run without answering; Postgres purges on
             // any merge throw too. Settled refusals get their own reason.
-            const refused =
+            const invalid = error instanceof ConnectError && error.code === Code.InvalidArgument
+            const opIdReused =
                 error instanceof ConnectError &&
-                (error.code === Code.InvalidArgument ||
-                    error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
+                error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
             // Keyed on the header: a hop in between may remap the status code.
             const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
-            // Only a refusal or a not-applied answer proves the saga did not run against persons the store never saw.
+            // Only a validation refusal or a not-applied answer proves that no saga ran against persons the store never saw.
+            // A reused op id means that a different merge ran under this id, and this request does not name its persons.
             this.purgeAfterMerge(
                 teamId,
                 namedIds,
                 affected,
-                refused ? 'merge_refused' : 'merge_no_verdict',
-                refused || notApplied !== null
+                invalid || opIdReused ? 'merge_refused' : 'merge_no_verdict',
+                invalid || notApplied !== null
             )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
@@ -1242,61 +1243,59 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.prefetchingBatches.add(entry.batchId)
         }
         const read = this.beginRead()
+        let tasks: Promise<void>[] = []
         try {
             const resolved = await this.resolvePersonIds(
                 'prefetch',
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            // The read must outlive every task, because an answer that lands after it ends is never recorded.
-            const settled = await Promise.allSettled(
-                resolved.map((entry, i) =>
-                    limit(async () => {
-                        const { batchId } = unresolved[i]
-                        // Caching for a released batch recreates its key
-                        // set, and nothing ever releases it again.
-                        if (!this.prefetchingBatches.has(batchId)) {
-                            personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
-                            return
-                        }
-                        if (entry.personId === null) {
-                            this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
-                                grade: 'check',
-                                read,
-                                onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
-                            })
-                            return
-                        }
-                        const person = await this.repository.fetchPersonById(entry.teamId, entry.personId, CALLER_TAG)
-                        // Deleted or merged away; the update read resolves it.
-                        if (!this.prefetchingBatches.has(batchId) || person === null) {
-                            personhogStorePrefetchAnswerCounter.inc({
-                                outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',
-                            })
-                            return
-                        }
-                        // Fill-only: this response raced everything the
-                        // batch did since the request went out.
-                        this.cacheFetchedPerson(entry.teamId, entry.distinctId, person, batchId, {
-                            grade: 'update',
+            tasks = resolved.map((entry, i) =>
+                limit(async () => {
+                    const { batchId } = unresolved[i]
+                    // Caching for a released batch recreates its key
+                    // set, and nothing ever releases it again.
+                    if (!this.prefetchingBatches.has(batchId)) {
+                        personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
+                        return
+                    }
+                    if (entry.personId === null) {
+                        this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
+                            grade: 'check',
                             read,
-                            fillOnly: true,
                             onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                         })
+                        return
+                    }
+                    const person = await this.repository.fetchPersonById(entry.teamId, entry.personId, CALLER_TAG)
+                    // Deleted or merged away; the update read resolves it.
+                    if (!this.prefetchingBatches.has(batchId) || person === null) {
+                        personhogStorePrefetchAnswerCounter.inc({
+                            outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',
+                        })
+                        return
+                    }
+                    // Fill-only: this response raced everything the
+                    // batch did since the request went out.
+                    this.cacheFetchedPerson(entry.teamId, entry.distinctId, person, batchId, {
+                        grade: 'update',
+                        read,
+                        fillOnly: true,
+                        onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                     })
-                )
+                })
             )
-            const failed = settled.find((task): task is PromiseRejectedResult => task.status === 'rejected')
-            if (failed) {
-                throw failed.reason
-            }
+            await Promise.all(tasks)
         } catch (error) {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
             logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
-        } finally {
-            this.endRead(read)
+            // The first failure releases the waiters, so that they do not wait for every remaining leader read.
+            // The read stays open until those reads settle, because an answer that lands after it ends is never recorded.
+            void Promise.allSettled(tasks).then(() => this.endRead(read))
+            return
         }
+        this.endRead(read)
     }
 
     /**
