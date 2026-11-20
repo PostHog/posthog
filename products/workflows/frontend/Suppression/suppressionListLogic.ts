@@ -273,8 +273,7 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                     // user moved to while the removal ran, so either one emptying the page counts.
                     const rows = values.suppressions.results ?? []
                     const pageEmptied =
-                        !values.suppressions.next &&
-                        (removed.length >= rows.length || rows.every((row) => identifiers.includes(row.identifier)))
+                        removed.length >= rows.length || rows.every((row) => identifiers.includes(row.identifier))
                     actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
                     return removed
                 } catch (e) {

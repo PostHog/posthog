@@ -169,19 +169,39 @@ describe('suppressionListLogic', () => {
         it.each([
             [
                 'steps back when another session already removed part of a selection that filled the last page',
-                { listed: 'abcd', startPage: 2, removedElsewhere: 'c', selected: 'cd', expected: [1, 'ab'] },
+                {
+                    listed: 'abcd',
+                    removedElsewhere: 'c',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
             ],
             [
-                'stays on a page that later rows move up into',
-                { listed: 'abcde', startPage: 2, removedElsewhere: '', selected: 'cd', expected: [2, 'e'] },
+                'stays on the last page when rows are left on it',
+                { listed: 'abcd', removedElsewhere: '', selected: 'c', pageOnWhileRemoving: false, expected: [2, 'd'] },
             ],
             [
                 'steps back when the removal empties the last page the user moved to while it ran',
-                { listed: 'abcde', startPage: 3, removedElsewhere: '', selected: 'c', expected: [2, 'de'] },
+                {
+                    listed: 'abcde',
+                    removedElsewhere: '',
+                    selected: 'c',
+                    pageOnWhileRemoving: true,
+                    expected: [2, 'de'],
+                },
             ],
-        ])('%s', async (_label, { listed: initial, startPage, removedElsewhere, selected, expected }) => {
+        ])('%s', async (_label, { listed: initial, removedElsewhere, selected, pageOnWhileRemoving, expected }) => {
             const addresses = (names: string): string[] => [...names].map((name) => `${name}@example.com`)
             let listed = addresses(initial)
+            let releaseRemoval: () => void = () => {}
+            const removalHeld = new Promise<void>((resolve) => {
+                releaseRemoval = resolve
+            })
+            let removalReceived: () => void = () => {}
+            const removalRequested = new Promise<void>((resolve) => {
+                removalReceived = resolve
+            })
             useMocks({
                 get: {
                     '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
@@ -205,6 +225,10 @@ describe('suppressionListLogic', () => {
                 post: {
                     '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
                         const { identifiers } = (await request.json()) as { identifiers: string[] }
+                        if (pageOnWhileRemoving) {
+                            removalReceived()
+                            await removalHeld
+                        }
                         const removed = identifiers.filter((id) => listed.includes(id))
                         listed = listed.filter((id) => !identifiers.includes(id))
                         return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
@@ -214,11 +238,17 @@ describe('suppressionListLogic', () => {
             const logic = suppressionListLogic()
             logic.mount()
             await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
-            logic.actions.loadSuppressions(startPage)
-            await waitFor(() => expect(logic.values.currentPage).toBe(startPage))
+            logic.actions.loadNextPage()
+            await waitFor(() => expect(logic.values.currentPage).toBe(2))
             listed = listed.filter((id) => !addresses(removedElsewhere).includes(id))
 
             logic.actions.removeSuppressions({ identifiers: addresses(selected), confirmComplaints: false })
+            if (pageOnWhileRemoving) {
+                await removalRequested
+                logic.actions.loadNextPage()
+                await waitFor(() => expect(logic.values.currentPage).toBe(3))
+                releaseRemoval()
+            }
 
             const [expectedPage, expectedRows] = expected as [number, string]
             await waitFor(() =>
