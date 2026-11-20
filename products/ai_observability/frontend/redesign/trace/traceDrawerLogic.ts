@@ -75,7 +75,7 @@ function isNumberRewriteOf(current: TraceListRow, previous: TraceListRow): boole
     )
 }
 
-function toFullPageUrl(
+export function toFullPageUrl(
     { traceId, timestamp }: TraceListRow,
     stepId: string | null,
     { backTo, openingMode, detailTab }: TraceDrawerListConfig,
