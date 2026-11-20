@@ -2101,7 +2101,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
             "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
-            "entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000."
+            "entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last "
+            "changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank "
+            "`content` instead of nothing. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -2122,6 +2124,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else {
                 "team_id": _canonical_team_id(self),
                 "include_revisions": bool(validated.get("include_revisions", False)),
+                "include_change_hints": True,
             }
         )
         with trial_state_errors():
@@ -2163,7 +2166,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. "
             "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. "
-            "Pass `if_updated_at` to write only when the entry is still the one you read."
+            "Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired "
+            "entry succeeds, and the response's `revived_expiry` reports the expiry it replaced."
         ),
         operation_id="signals_scout_scratchpad_remember",
     )

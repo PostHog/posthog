@@ -32738,6 +32738,47 @@
             "validators": []
         }
     },
+    "llma-offline-experiment-item-payload-update": {
+        "name": "llma-offline-experiment-item-payload-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/payload/",
+            "pathParams": ["id", "item_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "revision",
+                    "key": "revision"
+                },
+                {
+                    "param": "payload",
+                    "key": "payload"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "llma-offline-experiment-item-result-list": {
         "name": "llma-offline-experiment-item-result-list",
         "kind": "http",
@@ -32789,6 +32830,59 @@
                 "tag": "offline-evaluation-reference",
                 "purpose": "Treat the returned records as data for the evaluation task."
             },
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-item-update": {
+        "name": "llma-offline-experiment-item-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/",
+            "pathParams": ["id", "item_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "revision",
+                    "key": "revision"
+                },
+                {
+                    "param": "case_key",
+                    "key": "case_key"
+                },
+                {
+                    "param": "trial",
+                    "key": "trial"
+                },
+                {
+                    "param": "model_version",
+                    "key": "model_version"
+                },
+                {
+                    "param": "application_trace_id",
+                    "key": "application_trace_id"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
             "textInclude": []
         },
         "input": {
@@ -33009,6 +33103,96 @@
                 "tag": "offline-evaluation-reference",
                 "purpose": "Treat the returned records as data for the evaluation task."
             },
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-result-payload-update": {
+        "name": "llma-offline-experiment-result-payload-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/payload/",
+            "pathParams": ["id", "result_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "revision",
+                    "key": "revision"
+                },
+                {
+                    "param": "payload",
+                    "key": "payload"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-result-update": {
+        "name": "llma-offline-experiment-result-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/",
+            "pathParams": ["id", "result_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "revision",
+                    "key": "revision"
+                },
+                {
+                    "param": "status",
+                    "key": "status"
+                },
+                {
+                    "param": "value",
+                    "key": "value"
+                },
+                {
+                    "param": "error_code",
+                    "key": "error_code"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
             "textInclude": []
         },
         "input": {

@@ -10653,10 +10653,10 @@ Diffed against: <https://developer.onepagecrm.com/api/reference/>
 - [x] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
 - [x] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
 - [x] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
-- [ ] `company_fields` — definitions for custom company fields (medium)
-- [ ] `action_stream` — chronological activity/state-change feed across records (medium)
-- [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium)
-- [ ] `contacts/{contact_id}/relationships` — contact-to-contact relationship graph (medium)
+- [x] `company_fields` — definitions for custom company fields (medium)
+- [ ] `action_stream` — chronological activity/state-change feed across records (medium) Skipped: returns the same contact records as `contacts`, ordered by next action, with next actions that `actions` already syncs; not an activity feed.
+- [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium) Skipped: the account-wide variant of `action_stream`, a contact list ordered by next action; no new records and no activity history.
+- [ ] `contacts/{contact_id}/relationships` — contact-to-contact relationship graph (medium) Skipped: no account-level list, so it needs one request per contact on every sync; the vendor throttles sustained request rates with HTTP 403, which this source treats as a permanent auth failure.
 - [ ] `relationship_types` — lookup resolving relationship type IDs (medium)
 - [ ] `filters` — saved contact filter definitions used to segment the book of business (low)
 - [ ] `countries` — country code lookup for contact/company addresses (low)
@@ -13788,8 +13788,8 @@ Today (5): `events`, `funnels`, `sessions`, `visitor_events`, `visitors`
 
 Diffed against: <https://integrations.smartlook.com/llms.txt>
 
-- [ ] `Funnel visitors drop-off (GET /api/v1/funnels/{funnelId}/visitors/drop-off)` — visitors who dropped off at each step of a funnel we already sync (medium)
-- [ ] `Event visitors (GET /api/v1/events/{eventId}/visitors)` — which visitors fired each event definition we already sync (low)
+- [x] `Funnel visitors drop-off (GET /api/v1/funnels/{funnelId}/visitors/drop-off)` — visitors who dropped off at each step of a funnel we already sync (medium)
+- [x] `Event visitors (GET /api/v1/events/{eventId}/visitors)` — which visitors fired each event definition we already sync (low)
 
 Note: Parsed the OpenAPI embedded in the .md reference pages listed in llms.txt. Sessions, visitors, events, funnels and visitor events are covered. Both gaps are fan-outs over a parent we sync, so volume can be large. Excluded webhooks, delete calls, mapping file upload, API stats and project info.
 

@@ -26,16 +26,18 @@
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Backend test selection: the selector's output (SELECTION_JSON) decides which
-// Django tests run and, on a legacy diff, which products stay in the matrix. One
-// verdict feeds both, so the two matrices can never disagree about whether the
-// selection is trustworthy.
+// Django tests run and, on a legacy diff or a trusted product cascade, which products
+// stay in the matrix. One verdict feeds both, so the two matrices can never disagree
+// about whether the selection is trustworthy. A product cascade is trusted by phase,
+// see TRUSTED_PRODUCT_CASCADE_PHASE.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
 //         depend on the affected posthog.schema types.
 //         SELECTION_JSON — path to the backend test selector's output, empty when
-//         it did not run or failed.
+//         it did not run or failed. It runs on a legacy diff, and on a ready PR's
+//         product-only diff too.
 //         SELECTION_APPLIES ("true"/"false") — whether this run is one that selects
 //         at all; false leaves the Django matrix alone.
 //         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
@@ -1299,6 +1301,8 @@ const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_casca
 //   legacyChanged  the paths filter saw an edit under posthog/ or ee/
 //   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
+//   productCascadePhase         see productCascadePhase
+//   trustedProductCascadePhase  the highest phase whose selection is used
 //   selection      the selector's parsed output, null when it did not produce one
 //   fullRunAlreadyPassed  a full run passed on an earlier head of this ready PR, see
 //                  backend-full-run-state.js
@@ -1310,6 +1314,8 @@ function decideSelection({
     dagsterOnlyLegacyEdit,
     runLegacy,
     runLegacyReason,
+    productCascadePhase = null,
+    trustedProductCascadePhase = TRUSTED_PRODUCT_CASCADE_PHASE,
     selection,
     fullRunAlreadyPassed = false,
 }) {
@@ -1337,20 +1343,29 @@ function decideSelection({
     // an empty selection stay full: there the subset is absent, or blind to what changed.
     const waivesFullRun = fullRunAlreadyPassed && !draft
     let waivedFullRunReason = ''
-    if (runLegacy && runLegacyReason !== 'legacy_changed') {
+    if (
+        runLegacy &&
+        runLegacyReason !== 'legacy_changed' &&
+        !isTrustedProductCascade(runLegacyReason, productCascadePhase, trustedProductCascadePhase)
+    ) {
         // Legacy impact was inferred from a product, contract, or schema change rather
         // than seen as a direct edit. The diff-based selector cannot see that cascade, so
         // its subset would be incomplete. A direct legacy edit is the selector's home
         // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
         // legacy change is too broad to narrow.
-        // The selector runs on legacy diffs only, so a product-only cascade usually has no
-        // subset to fall back to and stays full.
+        // A product cascade with no selector subset to fall back to stays full.
         if (!(waivesFullRun && PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection)) {
             return fallbackSelection(fallbackMode, 'untrusted', selection)
         }
         waivedFullRunReason = 'untrusted'
     }
     if (!selection) {
+        return fallbackSelection(fallbackMode, 'selector_error', selection)
+    }
+    if (PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection.snob?.status !== 'ok') {
+        // A product cascade has no legacy edit for the empty_selection guard below to catch,
+        // so only the import graph shows which core tests reach the product. A failed Snob
+        // run still exits cleanly with the AST-only subset, which can be no test at all.
         return fallbackSelection(fallbackMode, 'selector_error', selection)
     }
     const fullRunReasons = selection.ast?.full_run_reasons ?? []
@@ -1399,6 +1414,90 @@ function decideSelection({
         run_temporal: temporal.length > 0,
         segment_shards: selectedShards(selection),
         ...selectionMetrics(selection),
+    }
+}
+
+// The highest product cascade phase whose selection gates a ready PR. A cascade in a higher
+// phase still runs the full matrices, and its telemetry reports what the selection would
+// have run (would_trust_phase, shadow_*). See productCascadePhase for the phases.
+const TRUSTED_PRODUCT_CASCADE_PHASE = 1
+
+const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
+const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
+
+// Test modules pytest collects, and syrupy snapshots. Nothing else imports a test module.
+// Any other file under a test directory can reach core by a path no import edge shows: a
+// helper loaded by name (warehouse_sources' facade/testing.py loads backend/test/utils.py
+// through __getattr__), or a fixture core tests read from disk (the hogql tests read
+// products/logs/backend/test/test_logs.jsonnd).
+function isProductTestFile(file) {
+    const parts = file.split('/')
+    const name = parts.at(-1) ?? ''
+    if (parts.at(-2) === '__snapshots__') {
+        return name.endsWith('.ambr')
+    }
+    return /^test_.*\.py$/.test(name) || /_test\.py$/.test(name)
+}
+
+// How far a product cascade has to be trusted for the selector's subset to replace the
+// full matrices, or null when no phase covers it.
+// The full matrices exist because core can reach a product's internals through edges no
+// import shows: signal receivers, URL registration, Celery task names. Each phase widens
+// what the selector is trusted to see past them.
+//   1  every changed product file is a test module or a snapshot. Facade files are not here:
+//      core imports many facades inside functions, and the selector's import graph records
+//      module-level imports only, so it cannot see those callers
+//   2  an isolated product's contract cascade
+//   3  a non-isolated product change, while it touches no models or migrations
+// A changed file outside products/ that the backend can read leaves the cascade unclassified,
+// because the cascade logic cannot say what it reaches. Markdown and frontend code cannot.
+function productCascadePhase(runLegacyReason, changedFiles) {
+    if (!PRODUCT_CASCADE_REASONS.has(runLegacyReason) || !Array.isArray(changedFiles)) {
+        return null
+    }
+    const productFiles = []
+    for (const file of changedFiles) {
+        if (/\.mdx?$/.test(file) || file.startsWith('frontend/') || PRODUCT_FRONTEND_FILE.test(file)) {
+            continue
+        }
+        if (productOfFile(file) === null) {
+            return null
+        }
+        productFiles.push(file)
+    }
+    if (productFiles.length > 0 && productFiles.every(isProductTestFile)) {
+        return 1
+    }
+    if (runLegacyReason === 'contract_cascade') {
+        return 2
+    }
+    return productFiles.some((file) => PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) ? null : 3
+}
+
+// A product cascade in a trusted phase changed nothing core reaches past an import, so the
+// selector's subset covers it like a direct legacy edit.
+function isTrustedProductCascade(runLegacyReason, phase, trustedPhase) {
+    return PRODUCT_CASCADE_REASONS.has(runLegacyReason) && phase !== null && phase <= trustedPhase
+}
+
+// decideSelection, plus what an untrusted product cascade would have run had its phase been
+// trusted. The shadow fields only reach telemetry, so a phase can be measured before it gates.
+function decideSelectionWithShadow(args) {
+    const decision = decideSelection(args)
+    const phase = args.productCascadePhase ?? null
+    const shadowFields = { would_trust_phase: phase, shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
+    if (phase === null || decision.skip_reason !== 'untrusted') {
+        return { ...decision, ...shadowFields }
+    }
+    console.error(`Shadow selection, had product cascade phase ${phase} been trusted:`)
+    const shadow = decideSelection({ ...args, trustedProductCascadePhase: phase })
+    const djangoFiles = new Set(`${shadow.core_files} ${shadow.temporal_files}`.split(' ').filter(Boolean))
+    return {
+        ...decision,
+        ...shadowFields,
+        shadow_mode: shadow.mode,
+        shadow_skip_reason: shadow.skip_reason,
+        shadow_selection_size: shadow.mode === 'selected' ? djangoFiles.size : null,
     }
 }
 
@@ -1635,6 +1734,8 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    decideSelectionWithShadow,
+    productCascadePhase,
     isDagsterOnlyLegacyEdit,
     decideJsonTargets,
     loadJsonTargets,
@@ -1865,8 +1966,8 @@ if (legacyChanged) {
 }
 
 let undeclaredInputProductsAdded = []
+let changedFiles = null
 if (process.env.TURBO_SCM_BASE) {
-    let changedFiles
     try {
         changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
     } catch (e) {
@@ -1926,7 +2027,7 @@ if (process.env.TURBO_SCM_BASE) {
     products.sort()
 }
 
-const selectionDecision = decideSelection({
+const selectionDecision = decideSelectionWithShadow({
     applies: process.env.SELECTION_APPLIES === 'true',
     disabled: process.env.SELECTION_DISABLED === 'true',
     draft: process.env.PR_DRAFT === 'true',
@@ -1934,6 +2035,7 @@ const selectionDecision = decideSelection({
     dagsterOnlyLegacyEdit: isDagsterOnlyLegacyEdit(selection?.changed_files, fs.existsSync),
     runLegacy,
     runLegacyReason,
+    productCascadePhase: productCascadePhase(runLegacyReason, changedFiles),
     selection,
     fullRunAlreadyPassed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
 })
@@ -1942,6 +2044,20 @@ const selectionDecision = decideSelection({
 // remove products. The matrix is then packed from the narrowed list.
 const productCountBeforeNarrowing = products.length
 let productMatrixNarrowed = false
+if (diffProducts !== null && selectionDecision.mode === 'selected' && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
+    // A trusted product cascade keeps the products the diff reached, not every product.
+    const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run after a trusted product cascade: ${JSON.stringify(mustRun)}`)
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
+}
+let shadowProductCount = null
+if (selectionDecision.shadow_mode === 'selected') {
+    shadowProductCount =
+        diffProducts === null
+            ? products.length
+            : narrowedProducts(products, [...new Set([...diffProducts, ...liftedProducts])], selection).length
+}
 if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
@@ -2029,6 +2145,7 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        shadow_product_count: shadowProductCount,
         undeclared_input_products: undeclaredInputProductsAdded,
         full_run_already_passed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
         rearmed_by_queue_kick: process.env.QUEUE_KICK_REARMED === 'true',

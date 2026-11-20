@@ -4705,7 +4705,7 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRememberBodyKeyMax = 300

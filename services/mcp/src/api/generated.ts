@@ -12701,6 +12701,7 @@ export namespace Schemas {
       /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
       legendPosition?: LegendPosition | null;
       metric?: MetricChartSettings | null;
+      movingAverageIntervals?: number | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -12709,6 +12710,7 @@ export namespace Schemas {
       seriesBreakdownColumn?: string | null;
       showAnnotations?: boolean | null;
       showLegend?: boolean | null;
+      showMovingAverage?: boolean | null;
       showNullsAsZero?: boolean | null;
       showPieTotal?: boolean | null;
       showTotalRow?: boolean | null;
@@ -16379,11 +16381,6 @@ export namespace Schemas {
          * @nullable
          */
       anomaly_rate: number | null;
-      /**
-         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-         * @nullable
-         */
-      baseline_rate: number | null;
       /** Completed buckets in the range, scored or not. */
       expected_buckets: number;
       /**
@@ -16484,11 +16481,6 @@ export namespace Schemas {
          * @nullable
          */
       anomaly_rate: number | null;
-      /**
-         * The anomaly rate over the 30 days before the range.
-         * @nullable
-         */
-      baseline_rate: number | null;
     }
 
     export interface AnomalyInsightRow {
@@ -16650,11 +16642,6 @@ export namespace Schemas {
          * @nullable
          */
       scored_through: string | null;
-      /**
-         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-         * @nullable
-         */
-      baseline_rate: number | null;
       /**
          * The oldest flagged bucket in the range, in the project timezone.
          * @nullable
@@ -48631,6 +48618,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `email` - email
+     * * `push` - push
+     */
+    export type ExpectedTypeEnum = typeof ExpectedTypeEnum[keyof typeof ExpectedTypeEnum];
+
+
+    export const ExpectedTypeEnum = {
+      Email: 'email',
+      Push: 'push',
+    } as const;
+
+    /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
@@ -59460,6 +59459,7 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -59469,6 +59469,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
       TransactionalEmailKeys: 'transactional_email_keys',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export interface HogFlowMasking {
@@ -59790,7 +59791,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -59947,7 +59949,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -60064,7 +60067,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -60547,7 +60551,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -73419,10 +73424,15 @@ export namespace Schemas {
 
     export interface MakeTransactional {
       /**
-         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates.
          * @nullable
          */
       from_integration_id?: number | null;
+      /** The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.
+       *
+       * * `email` - email
+       * * `push` - push */
+      expected_type?: ExpectedTypeEnum;
     }
 
     /**
@@ -74929,6 +74939,41 @@ export namespace Schemas {
       Liquid: 'liquid',
     } as const;
 
+    /**
+     * Custom key-value data delivered to the app. Values are strings and support Liquid templating.
+     */
+    export type PushTemplateData = {[key: string]: string};
+
+    export interface PushTemplate {
+      /**
+         * Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.
+         * @maxLength 1000
+         */
+      title?: string;
+      /**
+         * Notification body text. Supports Liquid templating. Required in `content` for push-type templates.
+         * @maxLength 4000
+         */
+      body?: string;
+      /**
+         * URL of an image to show in the notification. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      image?: string;
+      /**
+         * Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app as the "link" key in the custom data. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      link?: string;
+      /**
+         * IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.
+         * @maxItems 20
+         */
+      channels?: number[];
+      /** Custom key-value data delivered to the app. Values are strings and support Liquid templating. */
+      data?: PushTemplateData;
+    }
+
     export interface MessageTemplateContent {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
@@ -74936,6 +74981,8 @@ export namespace Schemas {
       templating?: MessageTemplateContentTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
+      /** Push notification content, for push-type templates. Replaced as a whole on update — send the complete object. */
+      push?: PushTemplate | null;
     }
 
     export interface MessageTemplate {
@@ -74961,7 +75008,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -74975,7 +75022,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
@@ -78184,6 +78231,16 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineExperimentRead {
+      /**
+         * Most recent item, result, or payload change.
+         * @nullable
+         */
+      updated_at?: string | null;
+      /**
+         * Number of items when the experiment closed.
+         * @nullable
+         */
+      closed_item_count?: number | null;
       /** User who submitted the experiment, or null for service credentials. */
       readonly created_by: UserBasic | null;
       /** Project tag names assigned to this experiment. */
@@ -78467,6 +78524,7 @@ export namespace Schemas {
      * * `not_provided` - Not provided
      * * `available` - Available
      * * `expired` - Expired
+     * * `deleted` - Deleted
      */
     export type PayloadStateEnum = typeof PayloadStateEnum[keyof typeof PayloadStateEnum];
 
@@ -78475,9 +78533,19 @@ export namespace Schemas {
       NotProvided: 'not_provided',
       Available: 'available',
       Expired: 'expired',
+      Deleted: 'deleted',
     } as const;
 
     export interface OfflineResultCell {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Time of the latest score update. For composites, the oldest input score time.
+         * @nullable
+         */
+      score_updated_at?: string | null;
       /**
          * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
          * @nullable
@@ -78517,7 +78585,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78529,6 +78598,13 @@ export namespace Schemas {
     }
 
     export interface OfflineItemRead {
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Last change to the input, output, or expected output.
+         * @nullable
+         */
+      content_updated_at?: string | null;
       /**
          * Model used for the item, falling back to the experiment's model.
          * @nullable
@@ -78574,7 +78650,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78613,13 +78690,21 @@ export namespace Schemas {
     }
 
     export interface OfflineItemPayloadRead {
+      /** Current revision of the payload owner. */
+      revision?: number;
+      /**
+         * Time of explicit payload deletion.
+         * @nullable
+         */
+      deleted_at?: string | null;
       /** Owning item UUID. */
       id: string;
       /** Durable payload storage state.
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload retention deadline.
@@ -78640,6 +78725,15 @@ export namespace Schemas {
     }
 
     export interface OfflineResultRead {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Time of the latest score update. For composites, the oldest input score time.
+         * @nullable
+         */
+      score_updated_at?: string | null;
       /**
          * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
          * @nullable
@@ -78679,7 +78773,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78716,13 +78811,21 @@ export namespace Schemas {
     }
 
     export interface OfflineResultPayloadRead {
+      /** Current revision of the payload owner. */
+      revision?: number;
+      /**
+         * Time of explicit payload deletion.
+         * @nullable
+         */
+      deleted_at?: string | null;
       /** Owning result UUID. */
       id: string;
       /** Durable payload storage state.
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload retention deadline.
@@ -78733,6 +78836,14 @@ export namespace Schemas {
       available: boolean;
       /** Stored reasoning/error payload; null if unavailable. */
       data: OfflineEvaluationResultPayloadInput | null;
+    }
+
+    export interface OfflineRevision {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
     }
 
     /**
@@ -93546,7 +93657,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -94759,7 +94871,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -94773,7 +94885,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
@@ -95044,6 +95156,81 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+    }
+
+    export interface PatchedOfflineItemPayloadUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Top-level fields to update. Omitted fields keep their current values. */
+      payload: OfflineExperimentItemPayloadInput;
+    }
+
+    export interface PatchedOfflineItemUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /**
+         * Case identifier.
+         * @maxLength 255
+         * @nullable
+         */
+      case_key?: string | null;
+      /**
+         * Trial identifier.
+         * @maxLength 255
+         * @nullable
+         */
+      trial?: string | null;
+      /**
+         * Model used for this item.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
+      /**
+         * Trace for this item's application execution.
+         * @maxLength 255
+         * @nullable
+         */
+      application_trace_id?: string | null;
+    }
+
+    export interface PatchedOfflineResultPayloadUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Top-level fields to update. Omitted fields keep their current values. */
+      payload: OfflineEvaluationResultPayloadInput;
+    }
+
+    export interface PatchedOfflineResultUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Execution status for this reported result.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status?: OfflineEvaluationResultStatusEnum;
+      /** Score for a successful result, validated against the pinned version. */
+      value?: number | boolean | string[] | null;
+      /**
+         * Error code for a failed execution.
+         * @maxLength 128
+         * @nullable
+         */
+      error_code?: string | null;
     }
 
     export type PatchedOrganizationProjectsItem = { [key: string]: unknown };
@@ -117168,7 +117355,7 @@ export namespace Schemas {
          * @nullable
          */
       expires_at: string | null;
-      /** `overwrite` when a `remember` replaced this state, `forget` when a delete removed it.
+      /** `overwrite` when a `remember` or the daily report-pointer sweep replaced this state, `forget` when a delete removed it.
        *
        * * `overwrite` - Overwrite
        * * `forget` - Forget */
@@ -117181,7 +117368,7 @@ export namespace Schemas {
          */
       changed_by_run_id: string | null;
       /**
-         * Who made the change: the skill name of the scout run, or the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry.
+         * Who made the change: the skill name of the scout run, the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry.
          * @nullable
          */
       changed_by_skill: string | null;
@@ -117190,6 +117377,24 @@ export namespace Schemas {
          * @nullable
          */
       changed_by_run_url: string | null;
+    }
+
+    /**
+     * The expiry a `remember` overruled when it wrote onto an expired entry.
+     */
+    export interface ScratchpadRevivedExpiry {
+      /** ISO-8601 expiry the entry had before this write replaced it. */
+      expires_at: string;
+      /**
+         * Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. Null when the entry was created with the expiry or no saved version shows who set it.
+         * @nullable
+         */
+      set_by_skill: string | null;
+      /**
+         * ISO-8601 time the expiry was set, or null.
+         * @nullable
+         */
+      set_at: string | null;
     }
 
     /**
@@ -117235,6 +117440,20 @@ export namespace Schemas {
          * @nullable
          */
       revisions?: ScratchpadRevision[] | null;
+      /** True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry. */
+      expired?: boolean;
+      /**
+         * Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the expiry. Null when no saved version shows a writer, and on every other search.
+         * @nullable
+         */
+      last_changed_by_skill?: string | null;
+      /**
+         * Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when no saved version records one.
+         * @nullable
+         */
+      last_changed_at?: string | null;
+      /** Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write succeeded and replaced that expiry. Null otherwise. */
+      revived_expiry?: ScratchpadRevivedExpiry | null;
     }
 
     /**
@@ -117748,7 +117967,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -137099,6 +137319,22 @@ export namespace Schemas {
     scorer_version_ids?: string;
     };
 
+    export type AiObservabilityOfflineExperimentsItemsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
     export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -137137,6 +137373,22 @@ export namespace Schemas {
      * @maxLength 739
      */
     scorer_version_ids: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsResultsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
+    export type AiObservabilityOfflineExperimentsResultsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
     };
 
     export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
@@ -144441,6 +144693,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       Loops: 'loops',
       TransactionalEmails: 'transactional_emails',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
@@ -149071,7 +149324,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -149880,7 +150133,7 @@ export namespace Schemas {
      */
     include_revisions?: boolean;
     /**
-     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`.
      * @minLength 1
      */
     key?: string;

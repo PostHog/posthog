@@ -315,7 +315,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .enum(['unusual', 'recent', 'rate'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
+            '`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
         ),
     search: zod
         .string()
@@ -5329,7 +5329,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -5381,7 +5381,7 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit.'
+            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` \/ `last_changed_at`.'
         ),
     key_prefix: zod
         .string()
@@ -5416,7 +5416,7 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
 })
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const SignalsScoutScratchpadRememberParams = () => zod.object({

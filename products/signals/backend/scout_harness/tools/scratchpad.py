@@ -111,6 +111,16 @@ class ScratchpadRevision:
 
 
 @dataclass(frozen=True)
+class ScratchpadRevivedExpiry:
+    """The expiry a `remember` overruled because it wrote onto an entry whose `expires_at` had passed."""
+
+    expires_at: str
+    # The writer and time of the change that set `expires_at`. Null when no revision proves who set it.
+    set_by_skill: str | None = None
+    set_at: str | None = None
+
+
+@dataclass(frozen=True)
 class ScratchpadEntry:
     key: str
     content: str
@@ -123,6 +133,12 @@ class ScratchpadEntry:
     created_by_skill: str | None = None
     created_by_run_url: str | None = None
     revisions: list[ScratchpadRevision] | None = None
+    # The change hints below are set only by an exact-key read with `include_change_hints`, and by `remember`.
+    # `expired` marks an entry whose expiry hid it: the content is blank and the row still exists.
+    expired: bool = False
+    last_changed_by_skill: str | None = None
+    last_changed_at: str | None = None
+    revived_expiry: ScratchpadRevivedExpiry | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -142,6 +158,7 @@ def search_scratchpad(
     content_max_chars: int | None = None,
     include_expired: bool = False,
     include_revisions: bool = False,
+    include_change_hints: bool = False,
 ) -> list[ScratchpadEntry]:
     """Return memories the agent should consider when planning a run, newest first.
 
@@ -169,6 +186,13 @@ def search_scratchpad(
     that `forget` deleted still has its revisions until the janitor removes them, so the read
     returns a blank entry (no `created_at`) carrying them. It is ignored without `key`, so a
     default search never reads the revision table.
+
+    `include_change_hints` with `key` tells the caller what other writers did to the entry. A found entry
+    gets `last_changed_by_skill` / `last_changed_at` from its newest revision. When the entry exists but
+    only its expiry hides it, the read returns it with `expired` set and a blank body instead of nothing,
+    because an empty list reads as a memory that never existed and the caller would rebuild it. On that
+    marker the two fields name the change that set the expiry, and stay null when no revision proves it
+    (see `_expiry_setter`). It is ignored without `key`, so a wide search costs no extra query.
 
     `skill_name` keeps the entries one writer created, the same writer `created_by_skill` names.
     A per-scout view needs this in SQL, because the newest rows across the fleet can fill the
@@ -200,7 +224,6 @@ def search_scratchpad(
         .select_related("created_by_run", "created_by_run__task_run")
         .only(*_ENTRY_FIELDS)
     )
-    qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
     if key:
         qs = qs.filter(key=key)
     if key_prefix:
@@ -209,14 +232,26 @@ def search_scratchpad(
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
     if skill_name:
         qs = qs.filter(_creator_filter(team_id=team_id, skill_name=skill_name))
-    if not include_expired:
-        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     if date_from is not None:
         qs = qs.filter(updated_at__gte=date_from)
     if date_to is not None:
         qs = qs.filter(updated_at__lt=date_to)
-    qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
-    entries = [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
+    now = timezone.now()
+    matching = qs
+    if not include_expired:
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
+    rows = list(qs.order_by("-updated_at", "-id")[:clamped_limit])
+    entries = [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in rows]
+    if key and include_change_hints:
+        if rows:
+            entries = [_with_last_change(entries[0], _newest_overwrite(rows[0]))]
+        elif not include_expired:
+            # Every other filter still applies, so the marker appears only when the expiry alone hid the row.
+            expired = matching.filter(expires_at__lte=now)
+            expired_row = _project_content_in_sql(expired, keys_only=True, content_max_chars=None).first()
+            if expired_row is not None:
+                entries = [_expired_marker(expired_row)]
     if not (include_revisions and key):
         return entries
     revisions = _revisions_for_key(team_id=team_id, key=key, keys_only=keys_only, content_max_chars=content_max_chars)
@@ -292,13 +327,17 @@ def remember(
     token is bound to, not the body's `run_id`) or `identity`. Restoring is a plain write of the
     earlier content.
 
+    A write onto an entry whose `expires_at` has passed still succeeds and revives it. The returned entry
+    then carries `revived_expiry`, so the writer knows it overruled an expiry another writer may have set
+    on purpose.
+
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
     _validate_entry(key=key, content=content, expires_at=expires_at)
 
     try:
-        row = _upsert_entry(
+        row, revived_expiry = _upsert_entry(
             team_id=team_id,
             key=key,
             content=content,
@@ -314,7 +353,7 @@ def remember(
         # unique constraint. The row now exists, so a single retry resolves to the
         # update branch and preserves the idempotent-upsert contract. A conditional write never
         # creates a row, so it never reaches this branch.
-        row = _upsert_entry(
+        row, revived_expiry = _upsert_entry(
             team_id=team_id,
             key=key,
             content=content,
@@ -324,7 +363,7 @@ def remember(
             if_updated_at=if_updated_at,
             changed_by_run_id=changed_by_run_id,
         )
-    return _to_entry(row)
+    return replace(_to_entry(row), revived_expiry=revived_expiry)
 
 
 def record_not_in_use_write(*, run_id: str, team_id: int) -> None:
@@ -361,7 +400,7 @@ def _upsert_entry(
     expires_at: datetime | None,
     if_updated_at: datetime | None,
     changed_by_run_id: str | None,
-) -> SignalScratchpad:
+) -> tuple[SignalScratchpad, ScratchpadRevivedExpiry | None]:
     with transaction.atomic():
         _lock_scratchpad_key(team_id=team_id, key=key)
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
@@ -373,7 +412,7 @@ def _upsert_entry(
                 current_updated_at=existing.updated_at.isoformat() if existing is not None else None,
             )
         if existing is None:
-            return SignalScratchpad.objects.create(
+            created = SignalScratchpad.objects.create(
                 team_id=team_id,
                 key=key,
                 content=content,
@@ -381,6 +420,12 @@ def _upsert_entry(
                 created_by_identity=identity,
                 expires_at=expires_at,
             )
+            return created, None
+        now = timezone.now()
+        revived_expiry = None
+        if existing.expires_at is not None and existing.expires_at <= now and (expires_at is None or expires_at > now):
+            # Read before this write stores its own revision, which would become the newest.
+            revived_expiry = _revived_expiry(existing, existing.expires_at)
         if existing.content != content or existing.expires_at != expires_at:
             _store_revision(
                 existing,
@@ -393,7 +438,7 @@ def _upsert_entry(
         # Don't overwrite `created_by_run` / `created_by_identity` so we keep the original
         # creator's lineage.
         existing.save(update_fields=["content", "expires_at", "updated_at"])
-        return existing
+        return existing, revived_expiry
 
 
 def forget(
@@ -449,6 +494,65 @@ def _store_revision(
         change=change,
         changed_by_run_id=changed_by_run_id,
         changed_by_identity=changed_by_identity,
+    )
+
+
+def _newest_overwrite(row: SignalScratchpad) -> SignalScratchpadRevision | None:
+    """The revision of the newest change to this entry since it was created.
+
+    A `forget` revision, or any revision older than `created_at`, belongs to an earlier entry under the
+    same key, so neither one describes a change to this entry.
+    """
+    return (
+        SignalScratchpadRevision.objects.filter(
+            team_id=row.team_id,
+            key=row.key,
+            change=SignalScratchpadRevision.Change.OVERWRITE,
+            changed_at__gte=row.created_at,
+        )
+        .select_related("changed_by_run")
+        .only("team_id", "expires_at", "changed_at", "changed_by_identity", "changed_by_run__skill_name")
+        .order_by("-changed_at", "-id")
+        .first()
+    )
+
+
+def _expiry_setter(row: SignalScratchpad) -> SignalScratchpadRevision | None:
+    """The revision of the change that set the entry's current `expires_at`, when a revision proves it.
+
+    A revision stores the state before a change. So the newest change set the current expiry only when its
+    revision holds a different `expires_at`. An expiry set when the entry was created has no revision, and
+    an older change is not attributed, so both return None rather than name the wrong writer.
+    """
+    revision = _newest_overwrite(row)
+    if revision is None or revision.expires_at == row.expires_at:
+        return None
+    return revision
+
+
+def _changed_by_skill(revision: SignalScratchpadRevision) -> str | None:
+    run = revision.changed_by_run if getattr(revision, "changed_by_run_id", None) else None
+    return run.skill_name if run is not None else revision.changed_by_identity
+
+
+def _with_last_change(entry: ScratchpadEntry, revision: SignalScratchpadRevision | None) -> ScratchpadEntry:
+    if revision is None:
+        return entry
+    return replace(
+        entry, last_changed_by_skill=_changed_by_skill(revision), last_changed_at=revision.changed_at.isoformat()
+    )
+
+
+def _expired_marker(row: SignalScratchpad) -> ScratchpadEntry:
+    return _with_last_change(replace(_to_entry(row, keys_only=True), expired=True), _expiry_setter(row))
+
+
+def _revived_expiry(row: SignalScratchpad, expired_at: datetime) -> ScratchpadRevivedExpiry:
+    revision = _expiry_setter(row)
+    return ScratchpadRevivedExpiry(
+        expires_at=expired_at.isoformat(),
+        set_by_skill=_changed_by_skill(revision) if revision is not None else None,
+        set_at=revision.changed_at.isoformat() if revision is not None else None,
     )
 
 
