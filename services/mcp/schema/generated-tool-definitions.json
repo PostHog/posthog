@@ -9383,8 +9383,59 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-plan-step-dependencies-update": {
+        "description": "Replace the set of other plan steps that one step builds on (its `depends_on` links). The URL names the plan, and `step_id` names the step. Pass the full new set: steps you leave out no longer count as prerequisites, and an empty list means the step builds on none. Each id must be another step of the same plan, and a set that makes a dependency loop is rejected. Links from the step to reports outside the plan are unchanged. Returns the plan report, with the new set in `plan.steps`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace what an inbox plan step builds on",
+        "title": "Replace what an inbox plan step builds on",
+        "required_scopes": ["inbox:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/plan_steps/{step_id}/depends_on/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "inbox-plan-edits-mcp",
+        "feature_flag_behavior": "enable"
+    },
+    "inbox-reports-plan-steps-add": {
+        "description": "Add an existing report as a step of a plan. The URL names the plan report, and `report_id` names the step. A report becomes a plan when it gets its first step, so this also starts a plan. A plan resolves only when all of its linked steps are resolved or archived, so link every report that is part of the work, not only the first one. Pass `depends_on` with the ids of steps already in the plan that the new step builds on. The step goes last in plan order. A report can be a step of one plan only: remove it from its current plan first with inbox-reports-plan-steps-remove. Returns 400 when the step is the plan itself, is not a report in this project, or would make a loop of links, and 409 when it is already a step. Returns the plan report, with the new step in `plan.steps`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Add a step to an inbox plan",
+        "title": "Add a step to an inbox plan",
+        "required_scopes": ["inbox:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/plan_steps/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "inbox-plan-edits-mcp",
+        "feature_flag_behavior": "enable"
+    },
+    "inbox-reports-plan-steps-remove": {
+        "description": "Remove a report from a plan. The URL names the plan, and `step_id` names the step. This deletes the step's link to the plan and the `depends_on` links between the step and the plan's other steps. It does not change the step report: its status, pull requests, and claim stay. A note on both reports records the removal, with `reason` when you give one. When every step left in the plan is resolved or archived, the plan resolves or archives too. Returns 409 when the report is not a step of this plan. Returns the plan report, without the step in `plan.steps`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Remove a step from an inbox plan",
+        "title": "Remove a step from an inbox plan",
+        "required_scopes": ["inbox:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{id}/plan_steps/{step_id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "inbox-plan-edits-mcp",
+        "feature_flag_behavior": "enable"
+    },
     "inbox-reports-retrieve": {
-        "description": "Get a single inbox report by ID, with its work_state, current assignee, attached pull requests and their latest known state, and typed impact metrics. Each metric holds a bounded live Trends query built only from EventsNode or ActionsNode sources, and may hold a cached snapshot fallback. This call returns that stored content without running the query. Queryless legacy or malformed metrics are redacted. The `ranking` field has the ranking model's predictions and the key of the model that made them; inbox-ranking-outcomes-list explains them. Read the full work log with inbox-report-artefacts-list before acting. The raw underlying signals need a HogQL query (see the 'signals' skill). A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed state.",
+        "description": "Get a single inbox report by ID, with its work_state, current assignee, attached pull requests and their latest known state, and typed impact metrics. Each metric holds a bounded live Trends query built only from EventsNode or ActionsNode sources, and may hold a cached snapshot fallback. This call returns that stored content without running the query. Queryless legacy or malformed metrics are redacted. The `ranking` field has the ranking model's predictions and the key of the model that made them; inbox-ranking-outcomes-list explains them. Read the full work log with inbox-report-artefacts-list before acting. The raw underlying signals need a HogQL query (see the 'signals' skill). A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed state. `plan` is the plan the report leads or belongs to, and `plan.steps` lists its steps in order. When the inbox-reports-plan-steps tools are available, use them to add or remove a step, and inbox-reports-plan-step-dependencies-update to change what a step builds on.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get inbox report",
