@@ -1065,12 +1065,19 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Only the edges a batch already tracks are corrected. A merge tracks no cache entry for a batch, so
         // nothing would evict a new edge. The caller's follow-up applyEventOps records the target's edge.
         let named = false
+        let repaired = false
         for (const distinctId of participants.keys()) {
             const distinctKey = `${teamId}:${distinctId}`
             if (this.resolutions.has(distinctKey)) {
+                repaired ||= this.resolutions.get(distinctKey) !== personKey
                 this.setDistinctIdToPersonId(distinctKey, personKey)
                 named = true
             }
+        }
+        // A read that began before the repair can still answer with the person the id left, and would record
+        // that edge again.
+        if (repaired) {
+            this.bumpGeneration(teamId)
         }
         // Read again: an event can install a projection that carries its ops while the leader read waits.
         if (!this.projections.has(personKey) && named) {

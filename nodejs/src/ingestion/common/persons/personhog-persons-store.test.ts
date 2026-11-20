@@ -1072,6 +1072,31 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
         })
 
+        it('a read that began before an edge repair does not record the person the id left', async () => {
+            identityResolves({ d1: '7', 'anon-1': '9' })
+            const bound = store.forBatch(0)
+            await bound.fetchForChecking(1, 'anon-1')
+            let readStarted: () => void = () => {}
+            const reading = new Promise<void>((resolve) => {
+                readStarted = resolve
+            })
+            let releaseRead: (document: InternalPerson) => void = () => {}
+            repository.fetchPersonById.mockImplementationOnce((() => {
+                readStarted()
+                return new Promise<InternalPerson>((resolve) => {
+                    releaseRead = resolve
+                })
+            }) as never)
+            const staleRead = bound.fetchForUpdate(1, 'anon-1')
+            await reading
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            await bound.mergePersons(request())
+            releaseRead(leaderDocument('9'))
+            await staleRead
+
+            expect((await bound.fetchForUpdate(1, 'anon-1'))?.id).toBe('7')
+        })
+
         it('sends the merge to identity when the cache named another person whose lane holds ops', async () => {
             identityResolves({ d1: '5' })
             const bound = store.forBatch(0)
