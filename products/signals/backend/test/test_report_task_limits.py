@@ -25,8 +25,6 @@ class TestLimitsFromPayload(SimpleTestCase):
             ("no_region_setting", LAYERED, None, ReportTaskRunLimits(per_hour=20, per_day=50)),
             ("entry_under_another_region", LAYERED, "EU", ReportTaskRunLimits(per_hour=20, per_day=50)),
             ("region_is_not_an_object", {"US": [1, 2]}, "US", ReportTaskRunLimits(per_hour=20, per_day=50)),
-            # Each field takes the most specific entry that sets it: the user sets only per_day, and the
-            # team entry for the request's own team sets only per_hour, ahead of its parent project's entry.
             ("each_field_most_specific", LAYERED, "us", ReportTaskRunLimits(per_hour=60, per_day=300)),
             (
                 "clamped_to_ceiling",
