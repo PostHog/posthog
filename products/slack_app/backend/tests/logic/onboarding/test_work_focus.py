@@ -47,7 +47,8 @@ WORK_FOCUS = "products.slack_app.backend.logic.onboarding.work_focus"
 SECRET_MESSAGE = "the churn numbers for the enterprise plan look wrong again"
 SIGNUP_MESSAGE = "can someone check why signups dropped after the release"
 CHATTER = "lunch at noon?"
-ASKED_THE_APP = "<@U_BOT> can you check why signups dropped after the release"
+ASKED_THE_APP = "<@U_BOT|PostHog> can you check why signups dropped after the release"
+HANDLED_MESSAGE = "who owns the flaky retention test?"
 RESOLVED_MESSAGE = "the nightly export job is failing again"
 MONDAY = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
 REQUEST = "Find out why churn by plan looks wrong for the enterprise plan, and fix the query."
@@ -105,6 +106,11 @@ def _search(found: int) -> Any:
                             if query_key == "mine"
                             else []
                         ),
+                        *(
+                            _messages([HANDLED_MESSAGE], prefix="handled", thread_ts="1700.7")
+                            if query_key == "mine"
+                            else []
+                        ),
                         *bots,
                     ]
                 },
@@ -117,7 +123,13 @@ def _search(found: int) -> Any:
 
 def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> SystemOneResult:
     def probability(content: str) -> float:
-        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7, ASKED_THE_APP: 0.95, RESOLVED_MESSAGE: 0.8}.get(content, 0.1)
+        return {
+            SECRET_MESSAGE: 0.9,
+            SIGNUP_MESSAGE: 0.7,
+            ASKED_THE_APP: 0.95,
+            RESOLVED_MESSAGE: 0.8,
+            HANDLED_MESSAGE: 0.85,
+        }.get(content, 0.1)
 
     if "threads" in state:
         # The second pass reads the thread: one that says "merged" is finished work.
@@ -161,10 +173,13 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
     ):
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
+        threads = {
+            "1700.5": [{"user": SLACK_USER_ID, "text": RESOLVED_MESSAGE}, {"user": "U_ANDY", "text": "fixed, merged"}],
+            # The app answered in this thread, so nobody needs to ask Jev whether the work is open.
+            "1700.7": [{"user": SLACK_USER_ID, "text": HANDLED_MESSAGE}, {"user": "U_BOT", "text": "It is yours."}],
+        }
         bot_client.return_value.conversations_replies.side_effect = lambda **kwargs: {
-            "messages": [{"user": SLACK_USER_ID, "text": RESOLVED_MESSAGE}, {"user": "U_ANDY", "text": "fixed, merged"}]
-            if kwargs.get("ts") == "1700.5"
-            else []
+            "messages": threads.get(kwargs.get("ts"), [])
         }
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
             [
@@ -223,8 +238,11 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert ASKED_THE_APP not in written_from
     # Jev read the thread of each kept message, and the one whose thread says it is merged is finished work.
     assert RESOLVED_MESSAGE not in written_from
+    # A thread the app already replied in is dropped before Jev is asked about it.
+    assert HANDLED_MESSAGE not in written_from
     assert all(
         ASKED_THE_APP not in json.dumps(call.kwargs["state"])
+        and HANDLED_MESSAGE not in json.dumps(call.kwargs["state"].get("threads", {}))
         for call in slack["ranker"].return_value.decide.call_args_list
     )
     dm = slack["bot"].chat_postMessage.call_args.kwargs

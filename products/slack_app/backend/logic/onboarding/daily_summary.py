@@ -111,13 +111,23 @@ def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, si
     read channels, the sweep built no index today, or nothing moved."""
     slack = SlackIntegration(integration)
     if slack.missing_scopes(CHANNEL_SCOPES):
+        logger.info("slack_app_daily_summary_skipped", reason="missing_bot_scopes", integration_id=integration.id)
         return []
     private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
     index = cached_index(integration)
     if not index:
+        logger.info("slack_app_daily_summary_skipped", reason="no_index_today", integration_id=integration.id)
         return []
     channels = _person_channels(slack, slack_user_id, private=private)
     kept = pick_threads(index, slack_user_id, channels, since=since)
+    if not kept:
+        logger.info(
+            "slack_app_daily_summary_skipped",
+            reason="nothing_moved",
+            integration_id=integration.id,
+            person_channels=len(channels),
+            indexed_roots=len(index),
+        )
     return [thread for root in kept if (thread := _read_thread(slack, root, slack_user_id)) is not None]
 
 
@@ -158,11 +168,13 @@ def build_workspace_index(integration: WorkspaceIntegration) -> int:
     done or under way today returns the cached count without reading Slack again."""
     slack = SlackIntegration(integration)
     if slack.missing_scopes(CHANNEL_SCOPES):
+        logger.info("slack_app_daily_summary_index_skipped", reason="missing_bot_scopes", integration_id=integration.id)
         return 0
     cached = cached_index(integration)
     if cached is not None:
         return len(cached)
     if not cache.add(f"{_index_key(integration)}:lock", 1, BUILD_LOCK_SECONDS):
+        logger.info("slack_app_daily_summary_index_skipped", reason="already_building", integration_id=integration.id)
         return 0
     private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
     channels = _bot_channels(slack, private=private)
@@ -180,6 +192,9 @@ def build_workspace_index(integration: WorkspaceIntegration) -> int:
             texts.append(str(message.get("text") or "")[:ROOT_CHARS])
     roots = _scored(integration, roots, texts)
     cache.set(_index_key(integration), [asdict(root) for root in roots], INDEX_TTL_SECONDS)
+    logger.info(
+        "slack_app_daily_summary_indexed", integration_id=integration.id, channels=len(channels), roots=len(roots)
+    )
     return len(roots)
 
 

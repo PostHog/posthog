@@ -105,7 +105,10 @@ RANK_INSTRUCTIONS = (
     "investigate a bug or an error, or change code in a connected repository."
 )
 RANK_TRUE = "The message asks for, reports or plans work of that kind."
-RANK_FALSE = "The message is chat, a greeting, a status note or work that PostHog cannot help with."
+RANK_FALSE = (
+    "The message is chat, a greeting, a status note, something the person asked PostHog itself to do, or work that "
+    "PostHog cannot help with."
+)
 # The thread of each message Jev kept, so work that the thread already finished is not offered again.
 THREAD_REPLIES_LIMIT = 20
 RESOLVE_MIN_PROBABILITY = 0.5
@@ -159,7 +162,8 @@ shows as names. Do not name the channel; it is added after the sentence.
 empty list when no threads are given.
 
 Keep it short and friendly, with no other emoji and no em dashes. Never quote a message, never write a person's name, \
-and never copy private details. Suggest nothing when no message shows work that PostHog can help with."""
+and never copy private details. Never offer work that a message asked PostHog itself to do, or that a thread already \
+answered. Suggest nothing when no message shows work that PostHog can help with."""
 
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
     "type": "json_schema",
@@ -424,13 +428,19 @@ def _find(
     messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after, pages=pages)
     if messages is None:
         raise WorkFocusTransientError("search failed")
-    # A message that tagged the app already got its answer in its thread, so it is never offered again.
-    if bot_user_id := get_cached_bot_user_id(SlackIntegration(integration), integration):
-        messages = [message for message in messages if f"<@{bot_user_id}>" not in message.content]
+    # A message that tagged the app already got its answer in its thread, so it is never offered again. The mention
+    # may carry a label, as in `<@U…|PostHog>`, so only the id is matched.
+    bot_user_id = get_cached_bot_user_id(SlackIntegration(integration), integration)
+    if bot_user_id:
+        messages = [message for message in messages if f"<@{bot_user_id}" not in message.content]
+    else:
+        logger.warning("slack_app_work_focus_bot_user_unknown", integration_id=integration.id)
     candidates: list[_FoundMessage] = []
     if len(messages) >= min_messages:
         try:
-            candidates = _still_open(integration, _rank(integration, messages, flow=flow), flow=flow)
+            candidates = _still_open(
+                integration, _rank(integration, messages, flow=flow), flow=flow, bot_user_id=bot_user_id
+            )
         except Exception as error:
             logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
             raise WorkFocusTransientError("rank failed") from error
@@ -508,12 +518,21 @@ def _thread_ts_in(permalink: object) -> str | None:
 
 
 def _still_open(
-    integration: WorkspaceIntegration, candidates: list[_FoundMessage], *, flow: WorkFocusFlow
+    integration: WorkspaceIntegration,
+    candidates: list[_FoundMessage],
+    *,
+    flow: WorkFocusFlow,
+    bot_user_id: str | None,
 ) -> list[_FoundMessage]:
-    """The candidates whose work the thread has not finished. Jev reads each thread the bot can read; a thread the
-    bot cannot read, or a message with no replies, keeps its candidate."""
+    """The candidates whose work the thread has not finished. A thread the app already replied in, or was tagged in,
+    is handled. Jev reads the rest of the threads the bot can read; a thread the bot cannot read, or a message with
+    no replies, keeps its candidate."""
     slack = SlackIntegration(integration)
-    read = [replace(candidate, thread=_candidate_thread(slack, candidate)) for candidate in candidates]
+    read = []
+    for candidate in candidates:
+        text, app_replied = _candidate_thread(slack, candidate, bot_user_id)
+        if not app_replied:
+            read.append(replace(candidate, thread=text))
     keys = {f"t{index}": index for index, candidate in enumerate(read) if candidate.thread}
     if not keys:
         return read
@@ -544,16 +563,23 @@ def _still_open(
     return [candidate for index, candidate in enumerate(read) if index not in finished]
 
 
-def _candidate_thread(slack: SlackIntegration, candidate: _FoundMessage) -> str | None:
+def _candidate_thread(
+    slack: SlackIntegration, candidate: _FoundMessage, bot_user_id: str | None
+) -> tuple[str | None, bool]:
+    """The candidate's thread as text, and whether the app took part in it."""
     try:
         response = slack.client.conversations_replies(
             channel=candidate.channel_id, ts=candidate.thread_ts or candidate.message_ts, limit=THREAD_REPLIES_LIMIT
         )
     except (SlackApiError, SlackClientError, OSError):
-        return None
+        return None, False
     messages = [m for m in response.get("messages") or [] if str(m.get("text") or "").strip()]
+    app_replied = bool(bot_user_id) and any(
+        m.get("user") == bot_user_id or f"<@{bot_user_id}" in str(m.get("text") or "") for m in messages
+    )
+    people = [m for m in messages if not m.get("bot_id")]
     # A lone root is the message itself, which Jev already read.
-    return thread_text(messages) if len(messages) > 1 else None
+    return (thread_text(people) if len(people) > 1 else None), app_replied
 
 
 def _search_messages(
