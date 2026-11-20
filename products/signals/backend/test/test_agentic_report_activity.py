@@ -1750,7 +1750,7 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
     [
         (
             "safe",
-            ["  Which teams hit this?  ", " ", "Did the error rate change?"],
+            ["  Which teams hit this?\U000e0020\U000e0078  ", " ", "​", "Did the error rate change?"],
             SafetyJudgeResponse(choice=True, explanation=""),
             ["Which teams hit this?", "Did the error rate change?"],
             ["Which teams hit this?", "Did the error rate change?"],

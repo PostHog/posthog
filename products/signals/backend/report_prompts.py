@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from posthog.security.llm_prompt_sanitization import strip_invisible
+
 # How many prompts one report may suggest. The inbox renders them as rows above a textarea the
 # reader can still type into, so the set has to stay readable at a glance — past a handful, picking
 # one costs more than writing the prompt they already had in mind.
@@ -27,15 +29,17 @@ MAX_SUGGESTED_PROMPT_LENGTH = 200
 
 
 def normalize_suggested_prompts(prompts: Sequence[str]) -> list[str]:
-    """The set as it should be stored: each prompt trimmed, blank ones dropped.
+    """The set as it should be stored: invisible characters removed, each prompt trimmed, blank
+    ones dropped.
 
     Trailing whitespace on an LLM-authored string is both common and invisible, and it would
     otherwise make a re-send of the same set compare unequal to what is stored — which
     `set_report_suggested_prompts` reads as a real change and notifies the report's destination
     about. Dropping blanks keeps an empty string from rendering as a clickable row with nothing
-    on it.
+    on it. Invisible format characters go too, because the reader sees the prompt without them
+    while the agent run that receives it reads them, so a hidden instruction could ride along.
     """
-    return [stripped for prompt in prompts if (stripped := prompt.strip())]
+    return [stripped for prompt in prompts if (stripped := strip_invisible(prompt).strip())]
 
 
 def suggested_prompts_batch_error(prompts: Sequence[str]) -> str | None:
