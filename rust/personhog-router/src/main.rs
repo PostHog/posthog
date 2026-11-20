@@ -201,13 +201,22 @@ async fn join_followers(
                     .map(|address| format!("http://{address}"))
             }),
         });
+        let instance = spec.name.clone();
         tokio::spawn(async move {
             let _guard = table_handle.process_scope();
-            if let Err(e) = routing_table
-                .run(table_handle.shutdown_token(), Arc::new(NoHold))
-                .await
-            {
-                table_handle.signal_failure(format!("Follower routing table error: {e}"));
+            let shutdown = table_handle.shutdown_token();
+            // Any replica answers while the table is down, so the router keeps serving.
+            while let Err(e) = routing_table.run(shutdown.clone(), Arc::new(NoHold)).await {
+                metrics::counter!(
+                    "personhog_router_follower_table_restarts_total",
+                    "instance" => instance.clone()
+                )
+                .increment(1);
+                tracing::error!(%instance, error = %e, "follower routing table stopped; joining again");
+                tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+                }
             }
         });
 
