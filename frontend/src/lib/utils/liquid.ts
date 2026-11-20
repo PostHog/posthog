@@ -203,6 +203,12 @@ export class LiquidRenderer {
         })
         liquid.registerFilter('currency', formatCurrency)
         liquid.registerFilter('strip_html', stripHtml)
+        // The worker refuses these, because each runs a tenant expression per item without a deadline check.
+        for (const name of ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']) {
+            liquid.registerFilter(name, () => {
+                throw new Error(`liquid filter ${name} is not supported`)
+            })
+        }
         liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         return liquid
     }

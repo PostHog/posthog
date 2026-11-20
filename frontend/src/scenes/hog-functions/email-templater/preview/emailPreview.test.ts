@@ -115,6 +115,12 @@ describe('renderEmailPreview', () => {
         )
     })
 
+    it('falls back to the template for an expression filter the worker refuses', () => {
+        const template = "{{ person.properties.seats | where_exp: 'seat', 'seat == \"a\"' | size }}"
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
     })
