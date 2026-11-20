@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
@@ -35,6 +35,14 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/members/mcp_usage/': {
+                    results: [
+                        {
+                            organization_membership_id: MOCK_DEFAULT_ORGANIZATION_MEMBER.id,
+                            last_mcp_used_at: '2023-05-24T09:00:00Z',
+                        },
+                    ],
+                },
                 '/api/organizations/:id/domains': {
                     count: 1,
                     next: null,

@@ -31,8 +31,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { AvailableFeature, OrganizationMemberType } from '~/types'
+import { AvailableFeature, OrganizationMemberType, Region } from '~/types'
 
+import { memberMcpUsageLogic } from './memberMcpUsageLogic'
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingModal } from './MemberOffboardingModal'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
@@ -189,6 +190,10 @@ export function Members(): JSX.Element | null {
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
+    const mcpUsageOrganizationId = preflight?.cloud && preflight.region === Region.US ? currentOrganization?.id : null
+    const { mcpUsage, mcpUsageLoading } = useValues(
+        memberMcpUsageLogic({ organizationId: mcpUsageOrganizationId ?? null })
+    )
     const { user } = useValues(userLogic)
     const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { downloadMembersList } = useActions(membersExportLogic)
@@ -322,6 +327,38 @@ export function Members(): JSX.Element | null {
             },
             sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
         },
+        ...(mcpUsageOrganizationId
+            ? ([
+                  {
+                      title: 'Last MCP Use',
+                      key: 'last_mcp_used_at',
+                      render: (_, member) => {
+                          const lastUsed = mcpUsage?.[member.id]
+                          return (
+                              <div className="whitespace-nowrap">
+                                  {mcpUsageLoading ? (
+                                      <LemonSkeleton className="h-4 w-16" />
+                                  ) : lastUsed ? (
+                                      <TZLabel time={lastUsed} />
+                                  ) : (
+                                      <Tooltip
+                                          title={
+                                              mcpUsage
+                                                  ? 'No successful MCP tool call recorded in the past 90 days'
+                                                  : 'MCP use is unavailable'
+                                          }
+                                      >
+                                          <span>—</span>
+                                      </Tooltip>
+                                  )}
+                              </div>
+                          )
+                      },
+                      sorter: (a, b) =>
+                          new Date(mcpUsage?.[a.id] ?? 0).getTime() - new Date(mcpUsage?.[b.id] ?? 0).getTime(),
+                  },
+              ] satisfies LemonTableColumns<OrganizationMemberType>)
+            : []),
         {
             key: 'actions',
             width: 0,

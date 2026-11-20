@@ -79499,6 +79499,18 @@ export namespace Schemas {
       github_login: string | null;
     }
 
+    export interface OrganizationMemberMcpUsage {
+      /** The organization membership ID. */
+      organization_membership_id: string;
+      /** The latest recorded successful MCP tool call. */
+      last_mcp_used_at: string;
+    }
+
+    export interface OrganizationMemberMcpUsageResponse {
+      /** Visible members with recorded MCP use in the past 90 days. */
+      results: OrganizationMemberMcpUsage[];
+    }
+
     /**
      * * `approval_requested` - approval_requested
      * * `approval_resolved` - approval_resolved

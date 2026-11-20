@@ -35,6 +35,7 @@ posthog/hogql
 posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
+posthog/api/test/test_organization_members.py
 ee/clickhouse
 ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations

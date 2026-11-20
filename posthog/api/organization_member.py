@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.conf import settings
 from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
 
@@ -23,6 +24,7 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 # admin-import surface as small as possible.
 from social_django.models import UserSocialAuth
 
+from posthog.api.organization_member_mcp_usage import get_last_mcp_use_by_member
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
@@ -153,6 +155,17 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
     )
 
 
+class OrganizationMemberMcpUsageSerializer(serializers.Serializer):
+    organization_membership_id = serializers.UUIDField(help_text="The organization membership ID.")
+    last_mcp_used_at = serializers.DateTimeField(help_text="The latest recorded successful MCP tool call.")
+
+
+class OrganizationMemberMcpUsageResponseSerializer(serializers.Serializer):
+    results = OrganizationMemberMcpUsageSerializer(
+        many=True, help_text="Visible members with recorded MCP use in the past 90 days."
+    )
+
+
 class MemberOffboardingResourceKind(TextChoices):
     DASHBOARD = "dashboard", "Dashboard"
     INSIGHT = "insight", "Insight"
@@ -265,6 +278,30 @@ class OrganizationMemberViewSet(
             span.set_attribute("organization_member.search.result_count", results_len)
             span.set_attribute("organization_member.search.empty", results_len == 0)
         return response
+
+    @extend_schema(
+        description="The latest recorded use of PostHog MCP for visible members in the past 90 days (US Cloud).",
+        responses={200: OrganizationMemberMcpUsageResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["organization_member:read"])
+    def mcp_usage(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The internal MCP analytics project is on the US cluster.
+        if settings.CLOUD_DEPLOYMENT != "US":
+            raise exceptions.NotFound()
+
+        members = dict(
+            self.get_queryset()
+            .filter(user__distinct_id__isnull=False)
+            .exclude(user__distinct_id="")
+            .values_list("user__distinct_id", "id")
+        )
+        last_used_by_member = get_last_mcp_use_by_member(self.organization.id, list(members))
+        results = [
+            {"organization_membership_id": members[distinct_id], "last_mcp_used_at": timestamp}
+            for distinct_id, timestamp in last_used_by_member.items()
+            if distinct_id in members
+        ]
+        return Response(OrganizationMemberMcpUsageResponseSerializer({"results": results}).data)
 
     @staticmethod
     @tracer.start_as_current_span("OrganizationMemberViewSet._apply_search")
