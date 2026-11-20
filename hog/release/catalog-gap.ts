@@ -3,9 +3,11 @@
 // tag; prints the result as JSON.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { posix, relative, resolve } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import ts from 'typescript'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -15,6 +17,7 @@ export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
 const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
 const RELEASE_BUILD_JOB = 'build'
+const GLOB_PATHSPEC = ':(glob)'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
@@ -53,6 +56,8 @@ export interface GapInput {
     compiled: CompiledGraph
     readBase: (path: string) => string | undefined
     readHead: (path: string) => string | undefined
+    // The tools the built catalog ships. Without it, every tool the catalog tool list names counts as carried.
+    carried?: Set<string>
 }
 
 const JsonObject = z.record(z.string(), z.unknown())
@@ -83,8 +88,29 @@ function generatedToolNames(source: string | undefined): string[] {
 }
 
 function catalogTools(input: GapInput): Set<string> {
-    const text = input.readHead(CATALOG_TOOLS_JSON)
-    return new Set(Object.keys(jsonObject(text)))
+    return input.carried ?? new Set(Object.keys(jsonObject(input.readHead(CATALOG_TOOLS_JSON))))
+}
+
+const BuiltCatalog = z.object({ tools: z.array(z.object({ name: z.string() })) })
+
+// The catalog build drops some tools its tool list names, like staff-only ones, which stay compiled into hog.
+// So the build itself says what ships, rather than a copy of its rules.
+function builtCatalogTools(repoRoot: string): Set<string> {
+    const folder = mkdtempSync(join(tmpdir(), 'hog-catalog-'))
+    try {
+        const out = join(folder, 'cli-catalog.json')
+        execFileSync('pnpm', ['--filter', '@posthog/mcp', 'run', 'build:cli:catalog', out], {
+            cwd: repoRoot,
+            stdio: ['ignore', 'ignore', 'inherit'],
+        })
+        const catalog = parseJsonOrUndefined(readFileSync(out, 'utf8'), BuiltCatalog)
+        if (!catalog) {
+            throw new Error(`The catalog build wrote no catalog to ${out}.`)
+        }
+        return new Set(catalog.tools.map((tool) => tool.name))
+    } finally {
+        rmSync(folder, { recursive: true, force: true })
+    }
 }
 
 function changedKeys(base: string | undefined, head: string | undefined): string[] {
@@ -110,8 +136,7 @@ function uncarriedTools(input: GapInput, carried: Set<string>, file: string): st
     return tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
 }
 
-// Splits a module into its top-level `const` and `function` blocks. Comments are dropped because they change
-// nothing hog runs. Whatever precedes the first block, like the imports, comes back as the prelude.
+// Comments are dropped because they change nothing hog runs.
 function topLevelBlocks(source: string): { prelude: string; blocks: Map<string, string> } {
     const prelude: string[] = []
     const blocks = new Map<string, string[]>()
@@ -137,7 +162,6 @@ function referencesAny(text: string, names: Iterable<string>): boolean {
     return [...names].some((name) => new RegExp(`\\b${name}\\b`).test(text))
 }
 
-// The exported schemas a change to a schema file alters, counting a schema that reads an altered one.
 // Undefined when the change reaches beyond the blocks, which leaves every schema suspect.
 function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
     const base = topLevelBlocks(input.readBase(file) ?? '')
@@ -164,8 +188,7 @@ function alteredSchemas(input: GapInput, file: string): Set<string> | undefined 
     return altered
 }
 
-// Which schemas each tool of a generated module reads through `orvalSchemas.<name>`, following the module's
-// own blocks. Undefined when a tool the module registers can't be traced.
+// Undefined when a tool the module registers can't be traced, so every tool counts.
 function schemasByTool(source: string | undefined): Map<string, Set<string>> | undefined {
     if (!source) {
         return undefined
@@ -193,35 +216,47 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
 }
 
-// The values a module imports from a schema file by name. Undefined when it reads the file any other way, or in a
-// form this can't parse, such as a namespace import, double quotes or a re-export, so every schema counts as read.
+// The values a module imports from a schema file by name, read with the TypeScript parser. Undefined when the
+// module reads the file any other way, such as a namespace or default import, a re-export or `import()`, so every
+// schema counts as read.
 function namedImports(source: string | undefined, schemaFile: string): Set<string> | undefined {
     const target = `generated/${schemaFile.slice(GENERATED_SCHEMAS_DIR.length).replace(/\.ts$/, '')}`
+    const readsTarget = (node: ts.Node): boolean =>
+        ts.isStringLiteralLike(node) && node.text.replace(/\.[cm]?[jt]s$/, '').endsWith(target)
+    const file = ts.createSourceFile('importer.ts', source ?? '', ts.ScriptTarget.Latest, true)
     const names = new Set<string>()
-    let unparsed = source ?? ''
-    let found = false
-    for (const [statement, typeOnly, bindings, from] of (source ?? '').matchAll(
-        /import\s+(type\s+)?([^;'"]*?)\s+from\s+'([^']+)'/g
-    )) {
-        if (!from!.endsWith(target)) {
+    const parsed = new Set<ts.Node>()
+
+    for (const statement of file.statements) {
+        if (!ts.isImportDeclaration(statement) || !readsTarget(statement.moduleSpecifier)) {
             continue
         }
-        unparsed = unparsed.replace(statement, '')
-        found = true
-        if (typeOnly) {
+        parsed.add(statement.moduleSpecifier)
+        const clause = statement.importClause
+        if (clause?.isTypeOnly) {
             continue
         }
-        const named = bindings!.match(/^\{([^}]*)\}$/)
-        if (!named) {
+        if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
             return undefined
         }
-        for (const binding of named[1]!.split(',').map((part) => part.trim())) {
-            if (binding && !binding.startsWith('type ')) {
-                names.add(binding.split(/\s+as\s+/)[0]!)
+        for (const element of clause.namedBindings.elements) {
+            if (!element.isTypeOnly) {
+                names.add((element.propertyName ?? element.name).text)
             }
         }
     }
-    return found && !unparsed.includes(target) ? names : undefined
+
+    // Any other mention of the file, or none although the build says this module imports it, is a read this can't
+    // follow.
+    let unfollowed = parsed.size === 0
+    const visit = (node: ts.Node): void => {
+        if (readsTarget(node) && !parsed.has(node)) {
+            unfollowed = true
+        }
+        ts.forEachChild(node, visit)
+    }
+    visit(file)
+    return unfollowed ? undefined : names
 }
 
 // Code other than the registry that imports a generated module, like an alias that wraps its tools. hog runs that
@@ -414,6 +449,31 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     return { files, importers }
 }
 
+// The release build's inputs that a path names: what its sparse checkout names without a wildcard, the local
+// actions the workflow runs, and the workflow itself.
+export function releaseBuildInputs(workflow: string): string[] {
+    const named = releaseCheckoutPatterns(workflow)
+        .filter((pattern) => !pattern.startsWith('!') && !pattern.includes('*'))
+        .map((pattern) => pattern.replace(/^\//, '').replace(/\/$/, ''))
+    const actions = Object.values(Workflow.parse(parseYaml(workflow)).jobs)
+        .flatMap((job) => job.steps)
+        .flatMap((step) => (step.uses?.startsWith('./') ? [step.uses.slice(2)] : []))
+    return [...new Set([...named, ...actions, RELEASE_WORKFLOW])]
+}
+
+// The paths check-approvers.sh doesn't count, given the git pathspecs it prints with --list-paths: a plain path
+// covers itself and everything under it, and `:(glob)` matches as a glob. A path may name a folder, which a glob
+// covers when it matches what the folder holds.
+export function outsideReleasePaths(files: string[], releasePaths: string[]): string[] {
+    const covers = (path: string, file: string): boolean =>
+        path.startsWith(GLOB_PATHSPEC)
+            ? [file, `${file}/file`].some((candidate) =>
+                  new Bun.Glob(path.slice(GLOB_PATHSPEC.length)).match(candidate)
+              )
+            : file === path || file.startsWith(`${path}/`)
+    return files.filter((file) => !releasePaths.some((path) => covers(path, file)))
+}
+
 export function releaseCheckoutPatterns(workflow: string): string[] {
     const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
     const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
@@ -474,6 +534,8 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
+            // What `check-approvers.sh --list-paths` prints for the checker the release will run.
+            'release-paths': { type: 'string' },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -508,9 +570,23 @@ if (import.meta.main) {
         compiled,
         readBase: read(values.base),
         readHead: read('HEAD'),
+        carried: builtCatalogTools(repoRoot),
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
+    const releasePaths = values['release-paths']
+        ? readFileSync(values['release-paths'], 'utf8').split('\n').filter(Boolean)
+        : undefined
+    const releaseWorkflow = readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8')
     process.stdout.write(
-        `${JSON.stringify({ ...result, outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+        `${JSON.stringify({
+            ...result,
+            outsideReleaseCheckout: outsideCheckout(compiled.files, patterns),
+            ...(releasePaths && {
+                outsideReleasePaths: outsideReleasePaths(
+                    [...compiled.files, ...releaseBuildInputs(releaseWorkflow)],
+                    releasePaths
+                ),
+            }),
+        })}\n`
     )
 }

@@ -77,7 +77,7 @@ env:
         b15fb50313c6bf32a76db83d40ff35afe61718fb
         799d46e6a3f739377c713ccc6f65aabb0b266e5f
         38b61c0ff33c4a9c7454acce28ba0dd22825f84f
-    COMPILED_OWNERS_CHECKER_BLOB: afb0efe6b76a150decc9fc59b219474699993ee6
+    COMPILED_OWNERS_CHECKER_BLOB: 3fda484f6a3b08b4b1b12f2ec7ed66e149b17871
 
 jobs:
     check-changesets:
@@ -195,6 +195,22 @@ jobs:
                   pnpm run build:mcp
                   bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
 
+            # The approver checks of this release run the checker the last release tag carries, or the pinned
+            # one in its place, so its list of release paths is the one that has to cover what the build reads.
+            - name: List the release paths of the approver check
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+              run: |
+                  set -euo pipefail
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  git show "$BASE:hog/release/check-approvers.sh" >"$checker"
+                  checker_blob=$(git hash-object "$checker")
+                  if [[ " $OLD_CHECKER_BLOBS " == *" $checker_blob "* ]]; then
+                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
+                  fi
+                  bash "$checker" --list-paths >"$RUNNER_TEMP/release-paths.txt"
+                  cat "$RUNNER_TEMP/release-paths.txt"
+
             - name: Check what the catalog can't deliver
               id: gap
               working-directory: hog
@@ -203,9 +219,9 @@ jobs:
                   LAST_TAG: ${{ steps.base.outputs.tag }}
               run: |
                   set -euo pipefail
-                  result=$(bun release/catalog-gap.ts --base "$BASE")
+                  result=$(bun release/catalog-gap.ts --base "$BASE" --release-paths "$RUNNER_TEMP/release-paths.txt")
                   echo "$result" > "$RUNNER_TEMP/catalog-gap.json"
-                  echo "$result" | jq '{needsRelease, bump, reasons, outsideReleaseCheckout}'
+                  echo "$result" | jq '{needsRelease, bump, reasons, outsideReleaseCheckout, outsideReleasePaths}'
 
                   echo "bump=$(echo "$result" | jq -r '.bump')" >> "$GITHUB_OUTPUT"
 
@@ -224,6 +240,18 @@ jobs:
                   outside=$(jq -r '.outsideReleaseCheckout[]' "$RUNNER_TEMP/catalog-gap.json")
                   if [ -n "$outside" ]; then
                       echo "::error::hog compiles in files that the sparse checkout of the build job in .github/workflows/release-hog.yml leaves out, so the release build would fail. Add a pattern for each, and the path to HOG_SOURCE_PATHS:"
+                      echo "$outside"
+                      exit 1
+                  fi
+
+            # A file the release builds from that the approver check's paths miss would let its author approve the
+            # release that ships it.
+            - name: Check the approver check counts every build input
+              run: |
+                  set -euo pipefail
+                  outside=$(jq -r '.outsideReleasePaths[]' "$RUNNER_TEMP/catalog-gap.json")
+                  if [ -n "$outside" ]; then
+                      echo "::error::The release builds from paths that RELEASE_PATHS in hog/release/check-approvers.sh leaves out, so their authors could approve the release. Add each to RELEASE_PATHS:"
                       echo "$outside"
                       exit 1
                   fi
