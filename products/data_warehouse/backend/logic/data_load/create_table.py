@@ -13,6 +13,7 @@ from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 from structlog.contextvars import bind_contextvars
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
@@ -24,7 +25,8 @@ from products.data_modeling.backend.facade.models import (
     aget_saved_query_by_id,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
+from products.warehouse_sources.backend.facade.api import query_folder_staged_at
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
@@ -36,6 +38,18 @@ MAX_CONCURRENT_DESCRIBE_AND_COUNT = 2
 _describe_and_count_executor = ThreadPoolExecutor(
     max_workers=MAX_CONCURRENT_DESCRIBE_AND_COUNT, thread_name_prefix="describe-and-count"
 )
+
+PUBLISHED_TABLE_FIELDS = [
+    "format",
+    "url_pattern",
+    "queryable_folder",
+    "created_via",
+    "columns",
+    "column_order",
+    "row_count",
+    "size_in_s3_mib",
+    "updated_at",
+]
 
 
 def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
@@ -52,6 +66,45 @@ class CreateTableResult:
     table: DataWarehouseTable
     storage_delta_mib: float | None
     total_storage_mib: float | None
+
+
+@frozen
+class _PublishedTable:
+    table: DataWarehouseTable
+    storage_delta_mib: float | None
+    columns_changed: bool
+
+
+def _a_newer_folder_is_published(published_folder: str | None, staged_folder: str | None) -> bool:
+    published_at = query_folder_staged_at(published_folder)
+    staged_at = query_folder_staged_at(staged_folder)
+    return published_at is not None and staged_at is not None and published_at > staged_at
+
+
+@database_sync_to_async_pool
+def _publish_staged_table(staged_table: DataWarehouseTable, job: DataModelingJob) -> _PublishedTable:
+    with transaction.atomic():
+        published_table = DataWarehouseTable.raw_objects.select_for_update().get(
+            id=staged_table.id, team_id=staged_table.team_id
+        )
+        if _a_newer_folder_is_published(published_table.queryable_folder, staged_table.queryable_folder):
+            return _PublishedTable(table=published_table, storage_delta_mib=None, columns_changed=False)
+
+        storage_delta_mib: float | None = None
+        if staged_table.size_in_s3_mib is not None:
+            job.storage_delta_mib = (
+                (job.storage_delta_mib or 0) + staged_table.size_in_s3_mib - (published_table.size_in_s3_mib or 0)
+            )
+            job.save(update_fields=["storage_delta_mib", "updated_at"])
+            storage_delta_mib = job.storage_delta_mib
+
+        staged_table.save(update_fields=PUBLISHED_TABLE_FIELDS, internally_computed_url_pattern=True)
+        return _PublishedTable(
+            table=staged_table,
+            storage_delta_mib=storage_delta_mib,
+            columns_changed=(published_table.columns, published_table.column_order)
+            != (staged_table.columns, staged_table.column_order),
+        )
 
 
 @database_sync_to_async_pool
@@ -147,7 +200,6 @@ async def create_table_from_saved_query(
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
-        published_columns = (table_created.columns, table_created.column_order)
         with tracer.start_as_current_span("create_table_from_saved_query.describe_columns"):
             columns = await database_sync_to_async_pool(
                 _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns),
@@ -164,43 +216,28 @@ async def create_table_from_saved_query(
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
-        storage_delta_mib: float | None = None
-        total_storage_mib: float | None = None
-        existing_size: float = table_created.size_in_s3_mib or 0
         table_created.size_in_s3_mib = None
 
         try:
             if refreshed_saved_query:
-                logger.debug(f"Existing size in MiB = {existing_size:.2f}")
-
-                table_size = await calculate_table_size(refreshed_saved_query, team_id, queryable_folder)
-
-                await logger.adebug(f"Total size in MiB = {table_size:.2f}")
-
-                table_created.size_in_s3_mib = table_size
-                table_size_delta = table_size - existing_size
-                logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
-
-                job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
-                await job.asave(update_fields=["storage_delta_mib", "updated_at"])
-
-                storage_delta_mib = job.storage_delta_mib
-                total_storage_mib = table_created.size_in_s3_mib
+                table_created.size_in_s3_mib = await calculate_table_size(
+                    refreshed_saved_query, team_id, queryable_folder
+                )
         except Exception as e:
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
-        await asave_datawarehousetable(table_created)
-        if (table_created.columns, table_created.column_order) != published_columns:
+        published = await _publish_staged_table(table_created, job)
+        if published.columns_changed:
             await database_sync_to_async(modeling_api.schedule_downstream_view_column_refresh)(
                 team_id, saved_query.id, None
             )
 
         return CreateTableResult(
-            table=table_created,
-            storage_delta_mib=storage_delta_mib,
-            total_storage_mib=total_storage_mib,
+            table=published.table,
+            storage_delta_mib=published.storage_delta_mib,
+            total_storage_mib=published.table.size_in_s3_mib,
         )
     except ServerException as err:
         logger.exception(

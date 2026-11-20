@@ -1589,10 +1589,3 @@ def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
 @database_sync_to_async
 def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return create_datawarehousetable(**kwargs)
-
-
-@database_sync_to_async
-def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    # Saved-query materialization is the only caller: it computes url_pattern itself from the
-    # backing DataWarehouseSavedQuery rather than taking it from request input.
-    table.save(internally_computed_url_pattern=True)
