@@ -19549,6 +19549,7 @@ export namespace Endpoints {
                 filters_override: string;
                 format: "json" | "txt";
                 include_dashboards: boolean;
+                omit_tile_results: boolean;
                 variables_override: string;
             }>;
             path: { id: number; project_id: string };

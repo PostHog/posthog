@@ -32,6 +32,7 @@ CELERY_IMPORTS: list[str] = [
     "posthog.models.scoping",
     "posthog.query_cache.tasks",
     "posthog.scoping_audit",
+    "posthog.tasks.quota_migration",
     # Not a `<app>/tasks.py`, so autodiscovery walks past it — the app package holds a `tasks/`
     # namespace package instead, and importing that doesn't reach the module inside.
     "products.tasks.backend.tasks.tasks",

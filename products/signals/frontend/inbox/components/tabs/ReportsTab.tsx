@@ -1,7 +1,9 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
@@ -9,6 +11,7 @@ import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
@@ -61,7 +64,6 @@ interface SectionListState {
     hasMore: boolean
     loadedRankingPill: boolean
     loadedPersonalOrder: boolean
-    loadedPersonalFallback: boolean
     loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
     loadedContext: ReportListRequestContext | null
     loadedRanker: string | null
@@ -85,7 +87,6 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         hasMore,
         loadedRankingPill,
         loadedPersonalOrder,
-        loadedPersonalFallback,
         loadedPersonalRankingStatus,
         loadedContext,
         loadedRanker,
@@ -102,7 +103,6 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         hasMore,
         loadedRankingPill,
         loadedPersonalOrder,
-        loadedPersonalFallback,
         loadedPersonalRankingStatus,
         loadedContext,
         loadedRanker,
@@ -212,6 +212,7 @@ const ReportRow = memo(function ReportRow({
     personalSort,
     timestampField,
     hideOwnClaim,
+    showTags,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
@@ -220,6 +221,7 @@ const ReportRow = memo(function ReportRow({
     personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
+    showTags: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -231,6 +233,7 @@ const ReportRow = memo(function ReportRow({
                 personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
+                showTags={showTags}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -266,6 +269,7 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const { selectedReportIds } = useValues(inboxBulkActionsLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -275,6 +279,7 @@ export function ReportsTab(): JSX.Element {
         activeScope: scope,
         activeSortField,
         activeSortDirection,
+        tagFilterAvailable,
     } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
@@ -306,22 +311,22 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+        collapsePlans: linkStrips,
+        selectedReportIds,
+    })
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
-    const personalSort = activeSortField === 'personal'
     // The Recommended sort shows the personal order to the users of one flag arm.
     const personalOrder =
-        personalSort ||
-        (isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder))
-    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
-    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
-        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        ? rows.findIndex(({ report, slotReport }) => rankingSortScore(slotReport ?? report, rankingSortField) === null)
         : -1
-    useReportImpressions(rows, selectedSections)
+    useReportImpressions(rows, selectedSections, linkStrips)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
 
@@ -444,12 +449,6 @@ export function ReportsTab(): JSX.Element {
                 </div>
             )}
 
-            {personalFallback && !inboxIsEmpty && (
-                <LemonBanner type="info">
-                    Your personalized list isn't ready yet, so this is the Recommended order.
-                </LemonBanner>
-            )}
-
             {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
                     <InboxWaitingForWork />
@@ -492,6 +491,7 @@ export function ReportsTab(): JSX.Element {
                                 personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                showTags={tagFilterAvailable}
                             />
                         </Fragment>
                     ))}
