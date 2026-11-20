@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
@@ -126,6 +127,11 @@ registerAsyncFunction('postHogClassify', {
     },
 })
 
+const classifyDailyCapSkippedTotal = new Counter({
+    name: 'cdp_classify_daily_cap_skipped_total',
+    help: 'Classify with AI steps skipped because their team reached its daily cap.',
+})
+
 const DAILY_COUNT_TTL_SECONDS = 2 * 24 * 60 * 60
 const DAILY_COUNT_DEADLINE_MS = 500
 
@@ -157,6 +163,31 @@ export class ClassifyDailyCap {
             return true
         }
     }
+}
+
+/**
+ * Counts a classification against its team's daily cap before it joins the classify queue, so a skip never spends
+ * the queue's shared rate. Returns the skipped step, or null when the classification fits.
+ */
+export async function skipPastDailyCap(
+    invocation: CyclotronJobInvocationHogFunction,
+    dailyCap: ClassifyDailyCap | null
+): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    if (!dailyCap || (await dailyCap.countAndCheck(invocation.teamId))) {
+        return null
+    }
+    const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: false })
+    createAddLogFunction(result.logs)(
+        'warn',
+        `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
+    )
+    // A success that carries the skip, so the template returns it as the step's output without a change.
+    result.invocation.state.vmState?.stack.push({
+        status: 200,
+        body: { category: null, confidence: null, skipped: true },
+    })
+    classifyDailyCapSkippedTotal.inc()
+    return result
 }
 
 export interface ClassifyRetryPolicy {
@@ -207,8 +238,7 @@ const isRetriable = (answer: DjangoAnswer): boolean =>
 export async function classifyOnce(
     invocation: CyclotronJobInvocationHogFunction,
     internalApiBaseUrl: string,
-    retryPolicy: ClassifyRetryPolicy,
-    dailyCap: ClassifyDailyCap | null
+    retryPolicy: ClassifyRetryPolicy
 ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
     const params = invocation.queueParameters
     if (params?.type !== 'classify') {
@@ -223,20 +253,6 @@ export async function classifyOnce(
         addLog('error', message)
         result.error = new Error(message)
         result.finished = true
-        return result
-    }
-
-    // Only the first attempt counts, because a retry is the same classification.
-    if (invocation.state.attempts === 0 && dailyCap && !(await dailyCap.countAndCheck(invocation.teamId))) {
-        addLog(
-            'warn',
-            `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
-        )
-        // A success that carries the skip, so a run suspended under any version of the template returns it as the step's output.
-        result.invocation.state.vmState?.stack.push({
-            status: 200,
-            body: { category: null, confidence: null, skipped: true },
-        })
         return result
     }
 
