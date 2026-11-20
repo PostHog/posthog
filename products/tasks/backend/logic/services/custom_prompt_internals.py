@@ -30,7 +30,7 @@ from products.tasks.backend.logic.services.startup_failure import (
     read_startup_failure,
 )
 from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
-from products.tasks.backend.storage import read_run_log
+from products.tasks.backend.storage import RunLogCache
 from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
@@ -549,6 +549,7 @@ async def poll_for_turn(
     # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
+    log_cache = RunLogCache()
     while elapsed < poll_budget:
         if poll_deadline is not None:
             remaining = poll_deadline - time.monotonic()
@@ -575,7 +576,7 @@ async def poll_for_turn(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines)
+            )(task_run, skip_lines, log_cache)
             if poll_deadline is None:
                 log_state = await read_logs
             else:
@@ -701,6 +702,7 @@ async def poll_for_turn(
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
                 output_fn=output_fn,
+                log_cache=log_cache,
             )
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
@@ -729,6 +731,7 @@ async def poll_for_turn(
             original_skip_lines=original_skip_lines,
             verbose=verbose,
             output_fn=output_fn,
+            log_cache=log_cache,
         )
     # Otherwise salvage a dropped-finalization turn, but only after enough continuous silence.
     stale_seconds = elapsed - last_new_lines_at
@@ -742,6 +745,7 @@ async def poll_for_turn(
             stale_seconds=stale_seconds,
             verbose=verbose,
             output_fn=output_fn,
+            log_cache=log_cache,
         )
         if salvaged is not None:
             return salvaged
@@ -794,7 +798,7 @@ async def poll_for_agent_task(
     )
 
 
-async def _read_turn_log_with_retry(task_run, *, skip_lines: int, context: str) -> TurnLogState:
+async def _read_turn_log_with_retry(task_run, *, skip_lines: int, context: str, log_cache: RunLogCache) -> TurnLogState:
     """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
     MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
     if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
@@ -806,7 +810,7 @@ async def _read_turn_log_with_retry(task_run, *, skip_lines: int, context: str) 
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines=skip_lines)
+            )(task_run, skip_lines=skip_lines, log_cache=log_cache)
         except ObjectStorageError:
             logger.warning(
                 "custom_prompt - %s: storage error on final log read (%d/%d), run=%s",
@@ -832,6 +836,7 @@ async def _salvage_dropped_finalization(
     stale_seconds: int,
     verbose: bool,
     output_fn: OutputFn,
+    log_cache: RunLogCache,
 ) -> TurnPollResult | None:
     """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
     then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in full.
@@ -847,7 +852,7 @@ async def _salvage_dropped_finalization(
     Declining falls back to the caller's timeout failure. A storage outage on the reread propagates
     (like the poll loop and terminal drain) rather than masquerading as a timeout."""
     log_state = await _read_turn_log_with_retry(
-        task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
+        task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization", log_cache=log_cache
     )
     if log_state.agent_finished and log_state.last_message is not None:
         printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
@@ -914,6 +919,7 @@ async def _drain_final_log(
     original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
+    log_cache: RunLogCache,
 ) -> TurnPollResult:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
@@ -936,7 +942,9 @@ async def _drain_final_log(
             run_id=str(task_run.id),
             error_type=failure_error_type,
         )
-    final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
+    final_state = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="drain_final_log", log_cache=log_cache
+    )
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     last_message = finish_report or final_state.last_message
     if last_message:
@@ -1139,7 +1147,7 @@ def _pi_turn_text(lines: list[str]) -> str | None:
     return "".join(reversed(parts)).strip() or None
 
 
-def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
+def _check_logs(task_run, skip_lines: int = 0, log_cache: RunLogCache | None = None) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
@@ -1147,7 +1155,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
-    log_content = read_run_log(task_run.log)
+    log_content = (log_cache or RunLogCache()).read(task_run.log)
     if not log_content.strip():
         return TurnLogState(
             agent_finished=False,

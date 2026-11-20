@@ -728,7 +728,7 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
 
 
 def _task_run_log_entries_path(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
-    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/log_entries/"
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/log_entries/?scope=run"
 
 
 def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:

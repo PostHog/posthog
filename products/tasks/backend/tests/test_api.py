@@ -8455,7 +8455,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(resumed.status_code, status.HTTP_200_OK)
         self.assertEqual(
             resumed.json()["log_url"],
-            f"/api/projects/{self.team.id}/tasks/{bound_task.id}/runs/{bound_run.id}/log_entries/",
+            f"/api/projects/{self.team.id}/tasks/{bound_task.id}/runs/{bound_run.id}/log_entries/?scope=run",
         )
         denied_write = later_client.patch(
             f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/", {"stage": "plan"}, format="json"

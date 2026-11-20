@@ -100,7 +100,7 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def write_if_absent(self, bucket: str, key: str, content: bytes) -> bool:
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
         pass
 
     @abc.abstractmethod
@@ -191,7 +191,7 @@ class UnavailableStorage(ObjectStorageClient):
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
 
-    def write_if_absent(self, bucket: str, key: str, content: bytes) -> bool:
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
         raise ObjectStorageError("object storage is unavailable")
 
     def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
@@ -431,11 +431,11 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
-    def write_if_absent(self, bucket: str, key: str, content: bytes) -> bool:
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
         from botocore.exceptions import ClientError  # noqa: PLC0415
 
         try:
-            self.aws_client.put_object(Bucket=bucket, Key=key, Body=content, IfNoneMatch="*")
+            self.aws_client.put_object(Bucket=bucket, Key=key, Body=content, IfNoneMatch="*", Metadata=metadata)
             return True
         except Exception as e:
             if isinstance(e, ClientError) and e.response.get("Error", {}).get("Code") == "PreconditionFailed":
@@ -696,9 +696,9 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
     )
 
 
-def write_if_absent(file_name: str, content: bytes, bucket: str | None = None) -> bool:
+def write_if_absent(file_name: str, content: bytes, *, metadata: dict[str, str], bucket: str | None = None) -> bool:
     return object_storage_client().write_if_absent(
-        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, metadata=metadata
     )
 
 
