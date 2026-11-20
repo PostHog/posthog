@@ -168,6 +168,7 @@ export enum NodeKind {
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
     MarketingAnalyticsRecommendationsQuery = 'MarketingAnalyticsRecommendationsQuery',
+    MarketingAnalyticsConversionActionsQuery = 'MarketingAnalyticsConversionActionsQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -263,6 +264,7 @@ export type AnyDataNode =
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
     | MarketingAnalyticsRecommendationsQuery
+    | MarketingAnalyticsConversionActionsQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -388,6 +390,7 @@ export type QuerySchema =
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
     | MarketingAnalyticsRecommendationsQuery
+    | MarketingAnalyticsConversionActionsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -9363,6 +9366,40 @@ export interface MarketingAnalyticsRecommendationsQueryResponse extends Analytic
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRecommendationsQueryResponse>
+
+export interface MarketingAnalyticsConversionActionsQuery extends DataNode<MarketingAnalyticsConversionActionsQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsConversionActionsQuery
+    /** Tables to read. Omit to read every synced Google Ads source in the project. */
+    sources?: MarketingAnalyticsRecommendationsSource[]
+}
+
+export interface MarketingAnalyticsConversionAction {
+    /** Resource name, such as `customers/123/conversionActions/456`. */
+    action: string
+    name: string
+    /** Google Ads category, such as `PURCHASE` or `SUBMIT_LEAD_FORM`. */
+    category?: string | null
+    /** Label of the ad account that reports the action. */
+    account: string
+    /** Google Ads campaign table of that ad account. */
+    campaignTable: string
+    /** Conversions in the last 90 days that count toward bidding. Above zero only for primary actions. */
+    primaryConversions: number
+    /** Every conversion in the last 90 days, primary or not. */
+    allConversions: number
+    /** False for a saved action that reported no conversions in the last 90 days. */
+    recent: boolean
+}
+
+export interface MarketingAnalyticsConversionActionsQueryResponse extends AnalyticsQueryResponseBase {
+    /** Conversion actions each Google Ads account reported in the last 90 days, plus saved actions that did not. */
+    results: MarketingAnalyticsConversionAction[]
+    /** Saved actions that no synced Google Ads account reports, such as actions of a removed account. */
+    unmatchedSavedActions: string[]
+}
+
+export type CachedMarketingAnalyticsConversionActionsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsConversionActionsQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string

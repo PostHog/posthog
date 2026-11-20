@@ -77,6 +77,7 @@ from posthog.schema import (
     LifecycleQuery,
     LifecycleQueryResponse,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
@@ -710,6 +711,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
@@ -1720,6 +1722,15 @@ def get_query_runner(
         )
 
         return MarketingAnalyticsRecommendationsQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_CONVERSION_ACTIONS_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_conversion_actions_query_runner import (
+            MarketingAnalyticsConversionActionsQueryRunner,
+        )
+
+        return MarketingAnalyticsConversionActionsQueryRunner(
             query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
         )
 
