@@ -14,7 +14,6 @@ class HogFlowConversionGoal(TeamScopedRootMixin, UUIDModel):
         ]
         indexes = [
             models.Index(fields=["last_live_at"], name="hogflow_conv_goal_live"),
-            models.Index(fields=["created_at"], name="hogflow_conv_goal_created"),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")

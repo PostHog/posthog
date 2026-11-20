@@ -71,7 +71,6 @@ class Migration(migrations.Migration):
             options={
                 "indexes": [
                     models.Index(fields=["last_live_at"], name="hogflow_conv_goal_live"),
-                    models.Index(fields=["created_at"], name="hogflow_conv_goal_created"),
                 ],
                 "constraints": [
                     models.UniqueConstraint(
