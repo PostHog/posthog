@@ -764,8 +764,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "substring takes 2 or 3 arguments".to_string(),
                     ));
                 }
-                // JavaScript `slice` indexes UTF-16 code units. A Rust string cannot hold half of a
-                // surrogate pair, so a pair that the slice splits becomes U+FFFD.
+                // JavaScript `slice` indexes UTF-16 code units, and a surrogate pair that the slice splits becomes U+FFFD.
                 let units: Vec<u16> = match args[0].deref(&vm.heap)? {
                     HogLiteral::String(s) => s.encode_utf16().collect(),
                     _ => return Ok(HogLiteral::from(String::new()).into()),

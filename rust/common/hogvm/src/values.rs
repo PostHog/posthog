@@ -29,6 +29,23 @@ pub struct Upvalue {
 
 pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
+// The derived drop recurses once for each closure in a chain of closed upvalues, and a stack overflow ends the process.
+impl Drop for Upvalue {
+    fn drop(&mut self) {
+        let mut pending: Vec<HogValue> = self.value.take().into_iter().collect();
+        while let Some(value) = pending.pop() {
+            let HogValue::Lit(HogLiteral::Closure(closure)) = value else {
+                continue;
+            };
+            for cell in closure.captures {
+                if let Some(mut upvalue) = Rc::into_inner(cell).map(RefCell::into_inner) {
+                    pending.extend(upvalue.value.take());
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Num {
     Integer(i64),
@@ -66,10 +83,23 @@ pub enum Callable {
     Stl(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Closure {
     pub captures: Vec<UpvalueCell>,
     pub callable: Callable,
+}
+
+// A closure can capture an upvalue that holds the same closure, so captures compare by identity and not by value.
+impl PartialEq for Closure {
+    fn eq(&self, other: &Self) -> bool {
+        self.callable == other.callable
+            && self.captures.len() == other.captures.len()
+            && self
+                .captures
+                .iter()
+                .zip(&other.captures)
+                .all(|(a, b)| Rc::ptr_eq(a, b))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

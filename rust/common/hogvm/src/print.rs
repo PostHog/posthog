@@ -53,8 +53,7 @@ pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String
     }
 }
 
-/// A printer writes a container again for each reference to it, so a few kilobytes can print as
-/// gigabytes. This fails when the repeated containers hold more text than the heap has room for.
+/// A printer writes a container again for each reference to it, so this fails when that text exceeds the heap's room.
 pub(crate) fn assert_repeats_fit(
     heap: &VmHeap,
     value: &HogValue,

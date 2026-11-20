@@ -161,3 +161,19 @@ fn the_sql_printer_ends_on_a_join_that_joins_itself() {
         "{printed:?}"
     );
 }
+
+#[test]
+fn a_run_frees_a_closure_that_captures_itself() {
+    // fun make(big) { let x := null; x := () -> [x, big]; return 1 }; make(inputs.t); return 1
+    let text: Arc<str> = Arc::from("held by the closure");
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 52, "make", 1, 0, 25, 31, 52, "lambda", 0, 2, 7, 55, 0, 55, 1, 43, 2, 38, 53, 2, true, 1, true, 0, 37, 1, 33, 1, 38, 57, 53, 0, 32, "t", 32, "inputs", 1, 2, 36, 0, 54, 1, 35, 33, 1, 38, 35]"#,
+    ))
+    .with_ordered_globals(OrderedJson::Object(vec![(
+        "inputs".into(),
+        OrderedJson::Object(vec![("t".into(), OrderedJson::String(text.clone()))]),
+    )]));
+    let held_before = Arc::strong_count(&text);
+    hogvm::sync_execute(&context, false).unwrap();
+    assert_eq!(Arc::strong_count(&text), held_before);
+}

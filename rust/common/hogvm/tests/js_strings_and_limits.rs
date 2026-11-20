@@ -7,8 +7,7 @@ fn context(bytecode: &str, globals: Value) -> ExecutionContext {
         .with_max_heap_size(8 * 1024 * 1024)
 }
 
-// return [length('é😀'), substring('é😀x', 2, 2), substring('é😀x', 3), position('é😀x', 'x'),
-//         splitByString('', 'ab'), (-4611686018427387904 * 2) % -1]
+// return [length('é😀'), substring('é😀x', 2, 2), substring('é😀x', 3), position('é😀x', 'x'), splitByString('', 'ab'), (-4611686018427387904 * 2) % -1]
 const STRINGS: &str = r#"["_H", 1, 32, "é😀", 2, "length", 1, 32, "é😀x", 33, 2, 33, 2, 2, "substring", 3, 32, "é😀x", 33, 3, 2, "substring", 2, 32, "é😀x", 32, "x", 2, "position", 2, 32, "", 32, "ab", 2, "splitByString", 2, 33, -1, 33, 2, 33, -4611686018427387904, 8, 10, 43, 6, 38]"#;
 
 #[test]
@@ -146,4 +145,18 @@ fn printing_a_sql_ast_that_holds_itself_or_escapes_itself_again_ends() {
             failure.error
         );
     }
+}
+
+// fun make() { let x := null; let f := () -> x; x := () -> x; return f }; let f := make(); return f == f
+const CLOSURE_HOLDS_ITSELF: &str = r#"["_H", 1, 52, "make", 0, 0, 32, 31, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 37, 0, 36, 1, 38, 35, 57, 53, 0, 36, 0, 54, 0, 36, 1, 36, 1, 11, 38, 35, 35]"#;
+// fun make(prev) { return (x) -> prev }; fun build(n) { if (n == 0) { return null } return make(build(n - 1)) }; build(inputs.n); return 1
+const CLOSURE_CHAIN: &str = r#"["_H", 1, 52, "make", 1, 0, 13, 52, "lambda", 1, 1, 3, 55, 0, 38, 53, 1, true, 0, 38, 53, 0, 52, "build", 1, 2, 23, 33, 0, 36, 0, 11, 40, 2, 31, 38, 33, 1, 36, 0, 7, 55, 0, 54, 1, 55, 1, 54, 1, 38, 53, 2, true, 1, true, 0, 32, "n", 32, "inputs", 1, 2, 36, 1, 54, 1, 35, 33, 1, 38, 57, 57]"#;
+
+#[test]
+fn comparing_or_dropping_closures_that_hold_closures_does_not_overflow_the_stack() {
+    let itself = sync_execute(&context(CLOSURE_HOLDS_ITSELF, json!({})), false).unwrap();
+    assert_eq!(itself, json!(true));
+
+    let chain = context(CLOSURE_CHAIN, json!({"inputs": {"n": 60000}})).with_max_steps(usize::MAX);
+    assert_eq!(sync_execute(&chain, false).unwrap(), json!(1));
 }

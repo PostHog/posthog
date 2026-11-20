@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use serde_json::{json, Value as JsonValue};
@@ -69,6 +69,8 @@ pub struct HogVM<'a> {
     // cells; when a slot leaves scope (stack truncation) the matching upvalue is closed (snapshotted)
     // and removed from here. See `capture_upvalue` / `close_upvalues`.
     open_upvalues: Vec<UpvalueCell>,
+    // A closed upvalue owns its value outside the stack and the heap, so the VM counts that value and frees it.
+    closed_upvalues: Vec<Weak<RefCell<Upvalue>>>,
     ip: usize,
     // How many times this run has suspended on an async function call. Carried into snapshots and
     // restored on resume, so the per-run async budget survives the suspend/resume round-trip.
@@ -89,6 +91,22 @@ pub struct HogVM<'a> {
     // table lookup. Borrows from the context, like every other program view.
     current_tokens: &'a [Token],
     result: Option<HogValue>,
+}
+
+// Reference counts never free a closure that captures the upvalue that holds it, so the VM empties each closed upvalue.
+impl Drop for HogVM<'_> {
+    fn drop(&mut self) {
+        let cells: Vec<UpvalueCell> = self
+            .closed_upvalues
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        let values: Vec<HogValue> = cells
+            .iter()
+            .filter_map(|cell| cell.try_borrow_mut().ok()?.value.take())
+            .collect();
+        drop(values);
+    }
 }
 
 struct CallFrame {
@@ -115,6 +133,7 @@ impl<'a> HogVM<'a> {
             stack_frames: Vec::new(),
             throw_frames: Vec::new(),
             open_upvalues: Vec::new(),
+            closed_upvalues: Vec::new(),
             ip: 0,
             async_steps: 0,
             ops: 0,
@@ -134,9 +153,16 @@ impl<'a> HogVM<'a> {
 
     /// Strings on the stack are not on the heap, so a host that bounds memory reads this.
     pub fn memory_bytes(&self) -> usize {
-        self.stack.iter().fold(self.heap.current_bytes, |acc, v| {
-            acc.saturating_add(v.size())
-        })
+        let closed = self
+            .closed_upvalues
+            .iter()
+            .filter_map(Weak::upgrade)
+            .map(|cell| cell.borrow().value.as_ref().map_or(0, HogValue::size));
+        self.stack
+            .iter()
+            .map(HogValue::size)
+            .chain(closed)
+            .fold(self.heap.current_bytes, usize::saturating_add)
     }
 
     /// The reference VM's object for a closure or callable. Upvalue ids count from 1 within this call.
@@ -872,6 +898,14 @@ impl<'a> HogVM<'a> {
         cell
     }
 
+    fn track_closed_upvalue(&mut self, cell: &UpvalueCell) {
+        // The list is pruned only when it is full, so the cost of the prune is spread over the pushes.
+        if self.closed_upvalues.len() == self.closed_upvalues.capacity() {
+            self.closed_upvalues.retain(|c| c.strong_count() > 0);
+        }
+        self.closed_upvalues.push(Rc::downgrade(cell));
+    }
+
     // Close every open upvalue whose slot is at or above `from` (i.e. about to leave scope):
     // snapshot the current stack value into the cell and drop it from the open list. The closures
     // holding the cell keep the snapshot. Matches the reference's `stackKeepFirstElements` close loop.
@@ -893,7 +927,8 @@ impl<'a> HogVM<'a> {
                     uv.closed = true;
                     uv.value = Some(snapshot);
                 }
-                self.open_upvalues.swap_remove(i);
+                let cell = self.open_upvalues.swap_remove(i);
+                self.track_closed_upvalue(&cell);
             } else {
                 i += 1;
             }
@@ -1578,6 +1613,9 @@ impl<'a> HogVM<'a> {
             });
         }
 
+        for cell in cells.values().filter(|c| c.borrow().closed) {
+            vm.track_closed_upvalue(cell);
+        }
         let open_upvalues = cells
             .values()
             .filter(|c| !c.borrow().closed)
