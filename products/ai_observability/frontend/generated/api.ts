@@ -18,6 +18,7 @@ import type {
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilitySessionsListParams,
     AiObservabilitySessionsRetrieveParams,
+    AiObservabilitySessionsTurnsRetrieveParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -171,6 +172,7 @@ import type {
     SessionAvailabilityApi,
     SessionListApi,
     SessionListItemApi,
+    SessionTurnPageApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -767,6 +769,42 @@ export const aiObservabilitySessionsRetrieve = async (
     options?: RequestInit
 ): Promise<SessionListItemApi> => {
     return apiMutator<SessionListItemApi>(getAiObservabilitySessionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsTurnsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/`
+}
+
+/**
+ * The session's conversation a page of turns at a time, in session order and in either direction: each trace
+ * with what it added to the conversation and the answer it gave, ready to render.
+ */
+export const aiObservabilitySessionsTurnsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionTurnPageApi> => {
+    return apiMutator<SessionTurnPageApi>(getAiObservabilitySessionsTurnsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

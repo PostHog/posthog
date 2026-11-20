@@ -93,6 +93,14 @@ class ListFilterQuerySerializer(serializers.Serializer):
         return attrs
 
 
+_PAGE_POSITION_PARAMS = ("cursor", "before_cursor", "around")
+
+
+def check_one_page_position(attrs: dict[str, Any]) -> None:
+    if sum(name in attrs for name in _PAGE_POSITION_PARAMS) > 1:
+        raise serializers.ValidationError("Send only one of cursor, before_cursor and around.")
+
+
 def selection_filters(query: dict[str, Any]) -> dict[str, Any]:
     """The `TraceSelection` arguments that the shared filter params set."""
     return {

@@ -14,6 +14,7 @@ from posthog.helpers.impersonation import is_impersonated
 from ...facade import api, contracts
 from .list_filters import (
     ListFilterQuerySerializer,
+    check_one_page_position,
     group_scope_field,
     page_limit_field,
     person_scope_field,
@@ -61,10 +62,6 @@ SESSION_SCOPE_EXCLUDED_PARAMS = (
 )
 
 
-PAGE_POSITION_PARAMS = ("cursor", "before_cursor", "around")
-CONFLICTING_PAGE_POSITIONS_MESSAGE = "Send only one of cursor, before_cursor and around."
-
-
 class TraceListQuerySerializer(ListFilterQuerySerializer):
     properties = property_filters_field("A trace is listed when one of its events matches every filter.")
     search = search_field("the trace's generations and embeddings")
@@ -100,8 +97,7 @@ class TraceListQuerySerializer(ListFilterQuerySerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
-        if sum(name in attrs for name in PAGE_POSITION_PARAMS) > 1:
-            raise serializers.ValidationError(CONFLICTING_PAGE_POSITIONS_MESSAGE)
+        check_one_page_position(attrs)
         return attrs
 
 

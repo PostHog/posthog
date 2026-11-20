@@ -1534,11 +1534,6 @@ export interface SessionListApi {
     nextCursor: string | null
 }
 
-export interface SessionAvailabilityApi {
-    /** Whether any AI event in the retention window carries a session id. */
-    hasSessions: boolean
-}
-
 export interface TraceHumanReviewScoreApi {
     /** The scorer's name. */
     name: string
@@ -1573,6 +1568,139 @@ export interface TraceReviewStatusApi {
     review: TraceHumanReviewApi | null
     /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
     queue: TraceReviewQueueAssignmentApi | null
+}
+
+export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]
+
+export const TraceMessageRoleEnumApi = {
+    System: 'system',
+    User: 'user',
+    Assistant: 'assistant',
+    Tool: 'tool',
+} as const
+
+export interface TraceTextPartApi {
+    kind: 'text'
+    /** The text of the message, as captured. */
+    text: string
+}
+
+export interface TraceThinkingPartApi {
+    kind: 'thinking'
+    /** The model's reasoning text. */
+    text: string
+}
+
+export interface TraceToolCallPartApi {
+    kind: 'toolCall'
+    /** The name of the called tool, or an empty string when the event has none. */
+    name: string
+    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    args: unknown
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    result: unknown
+}
+
+export type TraceAttachmentMediaTypeApi = (typeof TraceAttachmentMediaTypeApi)[keyof typeof TraceAttachmentMediaTypeApi]
+
+export const TraceAttachmentMediaTypeApi = {
+    Image: 'image',
+    Audio: 'audio',
+    Video: 'video',
+    File: 'file',
+} as const
+
+export interface TraceAttachmentPartApi {
+    kind: 'attachment'
+    /** The kind of media, which decides how it is shown. */
+    mediaType: TraceAttachmentMediaTypeApi
+    /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+    name: string | null
+    /** The MIME type, such as `image/png`, or null when it is not known. */
+    mimeType: string | null
+    /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+    url: string | null
+}
+
+export interface TraceMessageApi {
+    /** An id that is unique within the node, made of the node id, the side and a position. */
+    id: string
+    role: TraceMessageRoleEnumApi
+    /** The message's text, reasoning, tool calls and attachments, in order. */
+    parts: (TraceTextPartApi | TraceThinkingPartApi | TraceToolCallPartApi | TraceAttachmentPartApi)[]
+    /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+    isInternal: boolean
+    /** The id of the node whose input or output holds this message, or null when it is not known. */
+    sourceNodeId: string | null
+}
+
+export interface TraceMessagesSideApi {
+    kind: 'messages'
+    /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+    messages: TraceMessageApi[]
+}
+
+export interface TraceJsonSideApi {
+    kind: 'json'
+    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    value: unknown
+}
+
+export type TracePreviewMissingReasonApi =
+    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
+
+export const TracePreviewMissingReasonApi = {
+    TooLarge: 'too_large',
+    TimedOut: 'timed_out',
+} as const
+
+/**
+ * A trace of the session with its turn, so the conversation reads in one request.
+ */
+export interface SessionTurnApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    totalsPartial: boolean
+    /** The distinct id of whoever ran the trace, preferring the trace event's, or null when no event has one. */
+    distinctId: string | null
+    /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+    defaultNodeId: string | null
+    /** The error text of the trace's earliest failed step, cut at 200 characters. Null when the trace has no error or the failed step carries no text. */
+    firstError: string | null
+    /** The tools the trace's steps called, each once, in the order first called. */
+    toolsCalled: string[]
+    /** Whether a support agent ran the trace while impersonating the user. */
+    isSupportTrace: boolean
+    /** The trace's review and review queue, or null when it has neither that the user may see. */
+    review: TraceReviewStatusApi | null
+    /** What the trace added to the conversation: the user's message and what followed it, without the history earlier turns carry. Null when it could not be read or there is nothing to show. */
+    input: TraceMessagesSideApi | TraceJsonSideApi | null
+    /** The trace's answer, with the hidden steps that led to it. Null when it could not be read or there is nothing to show. */
+    output: TraceMessagesSideApi | TraceJsonSideApi | null
+    /** Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `input` means there is nothing to show. */
+    inputMissingReason: TracePreviewMissingReasonApi | null
+    /** Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `output` means there is nothing to show. */
+    outputMissingReason: TracePreviewMissingReasonApi | null
+}
+
+export interface SessionTurnPageApi {
+    /** A page of the session's turns, one per trace, in session order. */
+    items: SessionTurnApi[]
+    /** The cursor of the page before this one, or null on the first. */
+    previousCursor: string | null
+    /** The cursor of the next page, or null on the last one. */
+    nextCursor: string | null
+}
+
+export interface SessionAvailabilityApi {
+    /** Whether any AI event in the retention window carries a session id. */
+    hasSessions: boolean
 }
 
 export interface TraceListItemApi {
@@ -1978,82 +2106,6 @@ export interface TraceNodeDetailEventApi {
     timestamp: string
 }
 
-export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]
-
-export const TraceMessageRoleEnumApi = {
-    System: 'system',
-    User: 'user',
-    Assistant: 'assistant',
-    Tool: 'tool',
-} as const
-
-export interface TraceTextPartApi {
-    kind: 'text'
-    /** The text of the message, as captured. */
-    text: string
-}
-
-export interface TraceThinkingPartApi {
-    kind: 'thinking'
-    /** The model's reasoning text. */
-    text: string
-}
-
-export interface TraceToolCallPartApi {
-    kind: 'toolCall'
-    /** The name of the called tool, or an empty string when the event has none. */
-    name: string
-    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
-    args: unknown
-    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
-    result: unknown
-}
-
-export type TraceAttachmentMediaTypeApi = (typeof TraceAttachmentMediaTypeApi)[keyof typeof TraceAttachmentMediaTypeApi]
-
-export const TraceAttachmentMediaTypeApi = {
-    Image: 'image',
-    Audio: 'audio',
-    Video: 'video',
-    File: 'file',
-} as const
-
-export interface TraceAttachmentPartApi {
-    kind: 'attachment'
-    /** The kind of media, which decides how it is shown. */
-    mediaType: TraceAttachmentMediaTypeApi
-    /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
-    name: string | null
-    /** The MIME type, such as `image/png`, or null when it is not known. */
-    mimeType: string | null
-    /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
-    url: string | null
-}
-
-export interface TraceMessageApi {
-    /** An id that is unique within the node, made of the node id, the side and a position. */
-    id: string
-    role: TraceMessageRoleEnumApi
-    /** The message's text, reasoning, tool calls and attachments, in order. */
-    parts: (TraceTextPartApi | TraceThinkingPartApi | TraceToolCallPartApi | TraceAttachmentPartApi)[]
-    /** Whether the message is a tool message, or holds only reasoning and tool calls. */
-    isInternal: boolean
-    /** The id of the node whose input or output holds this message, or null when it is not known. */
-    sourceNodeId: string | null
-}
-
-export interface TraceMessagesSideApi {
-    kind: 'messages'
-    /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
-    messages: TraceMessageApi[]
-}
-
-export interface TraceJsonSideApi {
-    kind: 'json'
-    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
-    value: unknown
-}
-
 export interface TraceNodeContentApi {
     /** The node's input, as messages or as JSON. */
     input: TraceMessagesSideApi | TraceJsonSideApi
@@ -2364,14 +2416,6 @@ export interface TracePageRequestApi {
     trace_ids: string[]
 }
 
-export type TracePreviewMissingReasonApi =
-    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
-
-export const TracePreviewMissingReasonApi = {
-    TooLarge: 'too_large',
-    TimedOut: 'timed_out',
-} as const
-
 export interface TracePreviewApi {
     /** The trace the preview belongs to. */
     traceId: string
@@ -2431,8 +2475,6 @@ export interface TraceTurnsRequestApi {
 }
 
 export interface TraceTurnApi {
-    /** The trace the turn belongs to. */
-    traceId: string
     /** What the trace added to the conversation: the user's message and what followed it, without the history earlier turns carry. Null when it could not be read or there is nothing to show. */
     input: TraceMessagesSideApi | TraceJsonSideApi | null
     /** The trace's answer, with the hidden steps that led to it. Null when it could not be read or there is nothing to show. */
@@ -2441,6 +2483,8 @@ export interface TraceTurnApi {
     inputMissingReason: TracePreviewMissingReasonApi | null
     /** Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `output` means there is nothing to show. */
     outputMissingReason: TracePreviewMissingReasonApi | null
+    /** The trace the turn belongs to. */
+    traceId: string
 }
 
 export interface TraceTurnListApi {
@@ -7283,6 +7327,34 @@ export type AiObservabilitySessionsListParams = {
 }
 
 export type AiObservabilitySessionsRetrieveParams = {
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp?: string
+}
+
+export type AiObservabilitySessionsTurnsRetrieveParams = {
+    /**
+     * A trace id, to read the page that holds that turn with the turns before it. A trace outside the session reads the first page. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    around?: string
+    /**
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    before_cursor?: string
+    /**
+     * The nextCursor of a page, to read the page after it. Leave out cursor, before_cursor and around for the session's first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * How many turns a page holds, from 1 to 20. Defaults to 20.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
     /**
      * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
      */

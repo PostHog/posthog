@@ -8,13 +8,18 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
 
-from .trace_fixtures import T0, TraceEvents, encode_segment
+from .trace_fixtures import T0, QuerySlotRecorder, TraceEvents, encode_segment
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
 CUSTOM_EXPRESSION = json.dumps([{"type": "hogql", "key": "properties.$ai_model = 'gpt-test'"}])
 UNSAFE_SESSION_ID = "a/b%c ü"
+CHAT: dict[str, object] = {
+    "$ai_session_id": "session-a",
+    "$ai_input": [{"role": "user", "content": "Where is my parcel?"}],
+    "$ai_output_choices": [{"role": "assistant", "content": "On its way."}],
+}
 
 
 @time_machine.travel(T0 + timedelta(days=1), tick=False)
@@ -130,3 +135,58 @@ class TestSessionViewSet(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"hasSessions": True}
+
+    def _turns_url(self, session_id: str = "session-a") -> str:
+        return self._url(f"{encode_segment(session_id)}/turns/")
+
+    def test_personal_api_key_with_read_scope_can_read_turns(self) -> None:
+        self.events.add("a1", properties=CHAT)
+        self.events.add("a2", minutes=1, properties=CHAT)
+        self.events.seed()
+
+        response = self._get(self._turns_url(), {"limit": 1}, scopes=["llm_analytics:read"])
+
+        assert response.status_code == 200
+        body = response.json()
+        (turn,) = body["items"]
+        assert (turn["id"], turn["sessionId"], turn["outputMissingReason"]) == ("a1", "session-a", None)
+        assert turn["input"]["messages"][-1]["parts"][0]["text"] == "Where is my parcel?"
+        assert turn["output"]["messages"][-1]["parts"][0]["text"] == "On its way."
+        assert (body["previousCursor"], body["nextCursor"] is not None) == (None, True)
+
+    def test_turns_unknown_session_is_404(self) -> None:
+        assert self._get(self._turns_url("missing")).status_code == 404
+
+    def test_turns_reads_inside_query_slot_and_builds_after(self) -> None:
+        self.events.add("a1", properties=CHAT)
+        self.events.seed()
+
+        with QuerySlotRecorder().recording("load_session_turns") as recorder:
+            response = self._get(self._turns_url())
+
+        assert (response.status_code, recorder.loaded_while_holding, recorder.built_while_holding) == (
+            200,
+            [True],
+            [False],
+        )
+
+    def test_turns_old_session_needs_timestamp(self) -> None:
+        self.events.add("a1", properties={"$ai_session_id": "session-a"})
+        self.events.seed(aged_out={"a1"})
+
+        assert self._get(self._turns_url()).status_code == 404
+        hinted = self._get(self._turns_url(), {"timestamp": T0.isoformat()})
+        assert [turn["id"] for turn in hinted.json()["items"]] == ["a1"]
+
+    @parameterized.expand(
+        [
+            ("two paging params", {"cursor": "abc", "around": "a1"}),
+            ("bad cursor", {"cursor": "%%%"}),
+            ("limit too large", {"limit": 21}),
+        ]
+    )
+    def test_turns_bad_input_is_a_400(self, _name: str, params: dict[str, str | int]) -> None:
+        self.events.add("a1", properties=CHAT)
+        self.events.seed()
+
+        assert self._get(self._turns_url(), params).status_code == 400

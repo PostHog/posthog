@@ -77,7 +77,7 @@ from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
 from ..logic.traces.person import person_label
 from ..logic.traces.preview_queries import load_preview_sources
-from ..logic.traces.previews import page_turns
+from ..logic.traces.previews import TracePreviewSources, page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
@@ -159,7 +159,7 @@ from ..logic.traces.trace_selection_queries import (
     load_trace_position,
 )
 from ..logic.traces.tree import TreeNode
-from ..logic.traces.turn import Turn, TurnSides, Unreadable, missing_reason, preview
+from ..logic.traces.turn import Side, Turn, TurnSides, Unreadable, missing_reason, preview
 from ..logic.traces.turn_queries import load_turn_sources
 from ..logic.traces.turn_sides import page_turn_sides
 from ..logic.traces.usage import Usage
@@ -192,6 +192,7 @@ TRACE_LIST_MAX_LIMIT: Final = 100
 TRACE_TURNS_MAX_IDS: Final = 20
 SESSION_LIST_DEFAULT_LIMIT: Final = 50
 SESSION_LIST_MAX_LIMIT: Final = 100
+SESSION_TURNS_PAGE_SIZE: Final = 20
 
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
@@ -251,23 +252,45 @@ def load_trace_list(
     The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
-    if around is not None:
-        page = _load_page_around(team, user, selection, around, limit)
-    elif before_cursor is not None:
-        page = load_selection_page(
-            team, user, selection, bounds=TracePageBounds(after=None, before=decode_cursor(before_cursor)), limit=limit
-        )
-    else:
-        after = decode_cursor(cursor) if cursor is not None else None
-        page = load_selection_page(team, user, selection, bounds=TracePageBounds(after=after, before=None), limit=limit)
+    page = _load_selection_page(
+        team, user, selection, cursor=cursor, before_cursor=before_cursor, around=around, limit=limit
+    )
     loaded = _load_page_rows(team, user, page.positions)
     is_first_page = cursor is None and before_cursor is None and around is None
     return lambda: contracts.TraceList(
         items=_list_items(team, user, selection.window, page.positions, loaded),
         counts=_to_list_counts(page.counts) if is_first_page and selection.session_id is None else None,
-        previous_cursor=encode_cursor(page.positions[0]) if page.has_before else None,
-        next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+        previous_cursor=_previous_cursor(page),
+        next_cursor=_next_cursor(page),
     )
+
+
+def _load_selection_page(
+    team: Team,
+    user: User,
+    selection: TraceSelection,
+    *,
+    cursor: str | None,
+    before_cursor: str | None,
+    around: str | None,
+    limit: int,
+) -> SelectionPage:
+    if around is not None:
+        return _load_page_around(team, user, selection, around, limit)
+    if before_cursor is not None:
+        return load_selection_page(
+            team, user, selection, bounds=TracePageBounds(after=None, before=decode_cursor(before_cursor)), limit=limit
+        )
+    after = decode_cursor(cursor) if cursor is not None else None
+    return load_selection_page(team, user, selection, bounds=TracePageBounds(after=after, before=None), limit=limit)
+
+
+def _previous_cursor(page: SelectionPage) -> str | None:
+    return encode_cursor(page.positions[0]) if page.has_before else None
+
+
+def _next_cursor(page: SelectionPage) -> str | None:
+    return encode_cursor(page.positions[-1]) if page.has_more else None
 
 
 def _load_page_around(team: Team, user: User, selection: TraceSelection, trace_id: str, limit: int) -> SelectionPage:
@@ -338,6 +361,77 @@ def get_session(
         fallback=fallback_window(hint) if hint is not None else None,
     )
     return _to_session_item(facts[session_id]) if session_id in facts else None
+
+
+def load_session_turns(
+    team: Team,
+    user: User,
+    session_id: str,
+    *,
+    hint: datetime | None,
+    include_support_traces: bool = False,
+    cursor: str | None,
+    before_cursor: str | None,
+    around: str | None,
+    limit: int,
+) -> Callable[[], contracts.SessionTurnPage] | None:
+    """Loads a page of the session's turns in session order, each trace with its input and output, and returns the step
+    that builds them, or None for a session that is not found the way `get_session` finds it. Pages like
+    `load_trace_list`, except that an `around` trace outside the session reads the first page.
+
+    The step reads review states and the team's recipes from Postgres and normalizes each turn, but runs no ClickHouse
+    query. So a caller that holds a query concurrency slot for the load can release the slot before it runs the step.
+    """
+    session = get_session(team, user, session_id, hint=hint, include_support_traces=include_support_traces)
+    if session is None:
+        return None
+    selection = TraceSelection(
+        window=TraceWindow(start=session.first_seen, end=session.last_seen),
+        session_id=session_id,
+        order="oldest_first",
+        include_support_traces=include_support_traces,
+    )
+    try:
+        page = _load_selection_page(
+            team, user, selection, cursor=cursor, before_cursor=before_cursor, around=around, limit=limit
+        )
+    except TraceNotInSelectionError:
+        page = _load_selection_page(team, user, selection, cursor=None, before_cursor=None, around=None, limit=limit)
+    loaded = _load_page_rows(team, user, page.positions)
+    sources = _load_page_turn_sources(
+        team, user, [position for position in page.positions if position.trace_id in loaded]
+    )
+
+    def build() -> contracts.SessionTurnPage:
+        sides = page_turn_sides(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+        return contracts.SessionTurnPage(
+            items=[
+                _to_session_turn(item, sides.get(item.id, _NO_TURN_SIDES))
+                for item in _list_items(team, user, selection.window, page.positions, loaded)
+            ],
+            previous_cursor=_previous_cursor(page),
+            next_cursor=_next_cursor(page),
+        )
+
+    return build
+
+
+def _load_page_turn_sources(
+    team: Team, user: User, positions: Sequence[TracePosition]
+) -> dict[str, TracePreviewSources]:
+    if not positions:
+        return {}
+    timestamps = [position.first_timestamp for position in positions]
+    return load_turn_sources(
+        team, user, [position.trace_id for position in positions], earliest=min(timestamps), latest=max(timestamps)
+    )
+
+
+_NO_TURN_SIDES: Final = TurnSides(input=Side(value=None, unread=None), output=Side(value=None, unread=None))
+
+
+def _to_session_turn(item: contracts.TraceListItem, sides: TurnSides) -> contracts.SessionTurn:
+    return contracts.SessionTurn(**dict(item), **dict(_to_turn_sides(sides)))
 
 
 def has_sessions(team: Team, user: User | None) -> contracts.SessionAvailability:
@@ -529,8 +623,11 @@ def load_trace_turns(
 
 
 def _to_turn(trace_id: str, sides: TurnSides) -> contracts.TraceTurn:
-    return contracts.TraceTurn(
-        trace_id=trace_id,
+    return contracts.TraceTurn(trace_id=trace_id, **dict(_to_turn_sides(sides)))
+
+
+def _to_turn_sides(sides: TurnSides) -> contracts.TraceTurnSides:
+    return contracts.TraceTurnSides(
         input=_readable(sides.input.value),
         output=_readable(sides.output.value),
         input_missing_reason=_reason(sides.input.unread),

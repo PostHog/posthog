@@ -612,8 +612,7 @@ class TracePreviewList(Contract):
     )
 
 
-class TraceTurn(Contract):
-    trace_id: str = Field(description="The trace the turn belongs to.")
+class TraceTurnSides(Contract):
     input: TraceSideContent | None = Field(
         description="What the trace added to the conversation: the user's message and what followed it, without the "
         "history earlier turns carry. Null when it could not be read or there is nothing to show."
@@ -630,6 +629,20 @@ class TraceTurn(Contract):
         description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
         "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
     )
+
+
+class TraceTurn(TraceTurnSides):
+    trace_id: str = Field(description="The trace the turn belongs to.")
+
+
+class SessionTurn(TraceTurnSides, TraceListItem):
+    """A trace of the session with its turn, so the conversation reads in one request."""
+
+
+class SessionTurnPage(Contract):
+    items: list[SessionTurn] = Field(description="A page of the session's turns, one per trace, in session order.")
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
 
 
 class TraceTurnList(Contract):

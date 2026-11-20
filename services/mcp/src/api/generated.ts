@@ -116851,6 +116851,172 @@ export namespace Schemas {
       SessionReplayList: 'session_replay_list',
     } as const;
 
+    export interface TraceHumanReviewScore {
+      /** The scorer's name. */
+      name: string;
+      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+      value: string;
+      /** The scorer's name and the score together, such as `Tone: 4.5`. */
+      label: string;
+    }
+
+    export interface TraceHumanReview {
+      /** The display name of whoever last saved the review, or null when that user was removed. */
+      reviewedBy: string | null;
+      /** When the review was last saved. */
+      reviewedAt: string;
+      /** The reviewer's reasoning, if any. */
+      comment: string | null;
+      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+      scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
+    }
+
+    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
+
+
+    export const TraceMessageRoleEnum = {
+      System: 'system',
+      User: 'user',
+      Assistant: 'assistant',
+      Tool: 'tool',
+    } as const;
+
+    export interface TraceTextPart {
+      kind: 'text';
+      /** The text of the message, as captured. */
+      text: string;
+    }
+
+    export interface TraceThinkingPart {
+      kind: 'thinking';
+      /** The model's reasoning text. */
+      text: string;
+    }
+
+    export interface TraceToolCallPart {
+      kind: 'toolCall';
+      /** The name of the called tool, or an empty string when the event has none. */
+      name: string;
+      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      args: unknown;
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      result: unknown;
+    }
+
+    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
+
+
+    export const TraceAttachmentMediaType = {
+      Image: 'image',
+      Audio: 'audio',
+      Video: 'video',
+      File: 'file',
+    } as const;
+
+    export interface TraceAttachmentPart {
+      kind: 'attachment';
+      /** The kind of media, which decides how it is shown. */
+      mediaType: TraceAttachmentMediaType;
+      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+      name: string | null;
+      /** The MIME type, such as `image/png`, or null when it is not known. */
+      mimeType: string | null;
+      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+      url: string | null;
+    }
+
+    export interface TraceMessage {
+      /** An id that is unique within the node, made of the node id, the side and a position. */
+      id: string;
+      role: TraceMessageRoleEnum;
+      /** The message's text, reasoning, tool calls and attachments, in order. */
+      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
+      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+      isInternal: boolean;
+      /** The id of the node whose input or output holds this message, or null when it is not known. */
+      sourceNodeId: string | null;
+    }
+
+    export interface TraceMessagesSide {
+      kind: 'messages';
+      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+      messages: TraceMessage[];
+    }
+
+    export interface TraceJsonSide {
+      kind: 'json';
+      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      value: unknown;
+    }
+
+    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
+
+
+    export const TracePreviewMissingReason = {
+      TooLarge: 'too_large',
+      TimedOut: 'timed_out',
+    } as const;
+
+    /**
+     * A trace of the session with its turn, so the conversation reads in one request.
+     */
+    export interface SessionTurn {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      totalsPartial: boolean;
+      /** The distinct id of whoever ran the trace, preferring the trace event's, or null when no event has one. */
+      distinctId: string | null;
+      /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+      defaultNodeId: string | null;
+      /** The error text of the trace's earliest failed step, cut at 200 characters. Null when the trace has no error or the failed step carries no text. */
+      firstError: string | null;
+      /** The tools the trace's steps called, each once, in the order first called. */
+      toolsCalled: string[];
+      /** Whether a support agent ran the trace while impersonating the user. */
+      isSupportTrace: boolean;
+      /** The trace's review and review queue, or null when it has neither that the user may see. */
+      review: TraceReviewStatus | null;
+      /** What the trace added to the conversation: the user's message and what followed it, without the history earlier turns carry. Null when it could not be read or there is nothing to show. */
+      input: TraceMessagesSide | TraceJsonSide | null;
+      /** The trace's answer, with the hidden steps that led to it. Null when it could not be read or there is nothing to show. */
+      output: TraceMessagesSide | TraceJsonSide | null;
+      /** Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `input` means there is nothing to show. */
+      inputMissingReason: TracePreviewMissingReason | null;
+      /** Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `output` means there is nothing to show. */
+      outputMissingReason: TracePreviewMissingReason | null;
+    }
+
+    export interface SessionTurnPage {
+      /** A page of the session's turns, one per trace, in session order. */
+      items: SessionTurn[];
+      /** The cursor of the page before this one, or null on the first. */
+      previousCursor: string | null;
+      /** The cursor of the next page, or null on the last one. */
+      nextCursor: string | null;
+    }
+
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
@@ -124777,28 +124943,6 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
-    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
-
-
-    export const TraceAttachmentMediaType = {
-      Image: 'image',
-      Audio: 'audio',
-      Video: 'video',
-      File: 'file',
-    } as const;
-
-    export interface TraceAttachmentPart {
-      kind: 'attachment';
-      /** The kind of media, which decides how it is shown. */
-      mediaType: TraceAttachmentMediaType;
-      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
-      name: string | null;
-      /** The MIME type, such as `image/png`, or null when it is not known. */
-      mimeType: string | null;
-      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
-      url: string | null;
-    }
-
     export interface TraceAvailability {
       /** Requested trace IDs readable from AI events or the shared events table. */
       available_trace_ids: string[];
@@ -125075,48 +125219,6 @@ export namespace Schemas {
       steps: TraceStepFeedback[];
     }
 
-    export interface TraceHumanReviewScore {
-      /** The scorer's name. */
-      name: string;
-      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
-      value: string;
-      /** The scorer's name and the score together, such as `Tone: 4.5`. */
-      label: string;
-    }
-
-    export interface TraceHumanReview {
-      /** The display name of whoever last saved the review, or null when that user was removed. */
-      reviewedBy: string | null;
-      /** When the review was last saved. */
-      reviewedAt: string;
-      /** The reviewer's reasoning, if any. */
-      comment: string | null;
-      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
-      scores: TraceHumanReviewScore[];
-    }
-
-    export interface TraceJsonSide {
-      kind: 'json';
-      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
-      value: unknown;
-    }
-
-    export interface TraceReviewQueueAssignment {
-      /** The review queue's id. */
-      id: string;
-      /** The review queue's name. */
-      name: string;
-      /** The queue item that holds the trace, for moving or removing it. */
-      itemId: string;
-    }
-
-    export interface TraceReviewStatus {
-      /** The trace's human review, or null when it has none or the user may not see it. */
-      review: TraceHumanReview | null;
-      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-      queue: TraceReviewQueueAssignment | null;
-    }
-
     export interface TraceListItem {
       id: string;
       name: string | null;
@@ -125159,56 +125261,6 @@ export namespace Schemas {
       previousCursor: string | null;
       /** The cursor of the next page, or null on the last one. */
       nextCursor: string | null;
-    }
-
-    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
-
-
-    export const TraceMessageRoleEnum = {
-      System: 'system',
-      User: 'user',
-      Assistant: 'assistant',
-      Tool: 'tool',
-    } as const;
-
-    export interface TraceTextPart {
-      kind: 'text';
-      /** The text of the message, as captured. */
-      text: string;
-    }
-
-    export interface TraceThinkingPart {
-      kind: 'thinking';
-      /** The model's reasoning text. */
-      text: string;
-    }
-
-    export interface TraceToolCallPart {
-      kind: 'toolCall';
-      /** The name of the called tool, or an empty string when the event has none. */
-      name: string;
-      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
-      args: unknown;
-      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
-      result: unknown;
-    }
-
-    export interface TraceMessage {
-      /** An id that is unique within the node, made of the node id, the side and a position. */
-      id: string;
-      role: TraceMessageRoleEnum;
-      /** The message's text, reasoning, tool calls and attachments, in order. */
-      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
-      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
-      isInternal: boolean;
-      /** The id of the node whose input or output holds this message, or null when it is not known. */
-      sourceNodeId: string | null;
-    }
-
-    export interface TraceMessagesSide {
-      kind: 'messages';
-      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
-      messages: TraceMessage[];
     }
 
     export type TraceMetricKey = typeof TraceMetricKey[keyof typeof TraceMetricKey];
@@ -125427,14 +125479,6 @@ export namespace Schemas {
       items: TracePersonItem[];
     }
 
-    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
-
-
-    export const TracePreviewMissingReason = {
-      TooLarge: 'too_large',
-      TimedOut: 'timed_out',
-    } as const;
-
     export interface TracePreview {
       /** The trace the preview belongs to. */
       traceId: string;
@@ -125594,8 +125638,6 @@ export namespace Schemas {
     }
 
     export interface TraceTurn {
-      /** The trace the turn belongs to. */
-      traceId: string;
       /** What the trace added to the conversation: the user's message and what followed it, without the history earlier turns carry. Null when it could not be read or there is nothing to show. */
       input: TraceMessagesSide | TraceJsonSide | null;
       /** The trace's answer, with the hidden steps that led to it. Null when it could not be read or there is nothing to show. */
@@ -125604,6 +125646,8 @@ export namespace Schemas {
       inputMissingReason: TracePreviewMissingReason | null;
       /** Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `output` means there is nothing to show. */
       outputMissingReason: TracePreviewMissingReason | null;
+      /** The trace the turn belongs to. */
+      traceId: string;
     }
 
     export interface TraceTurnList {
@@ -135641,6 +135685,34 @@ export namespace Schemas {
     };
 
     export type AiObservabilitySessionsRetrieveParams = {
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp?: string;
+    };
+
+    export type AiObservabilitySessionsTurnsRetrieveParams = {
+    /**
+     * A trace id, to read the page that holds that turn with the turns before it. A trace outside the session reads the first page. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    around?: string;
+    /**
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    before_cursor?: string;
+    /**
+     * The nextCursor of a page, to read the page after it. Leave out cursor, before_cursor and around for the session's first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * How many turns a page holds, from 1 to 20. Defaults to 20.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
     /**
      * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
      */
