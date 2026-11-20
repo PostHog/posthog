@@ -5,8 +5,6 @@ import { GitError, gitInfo, type GitInfo } from './git'
 import { packVersion, type ReleaseFields } from './release'
 import { uuidv7 } from './upload'
 
-export type InjectAction = 'injected' | 'release_updated' | 'unchanged'
-
 export const randomChunkId = (now: () => number) => (): string => uuidv7(now())
 
 export interface JsRelease {

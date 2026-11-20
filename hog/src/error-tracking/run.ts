@@ -8,7 +8,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 
 import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
-import { releaseRequested, resolveJsRelease, type InjectAction } from './js-flow'
+import { releaseRequested, resolveJsRelease } from './js-flow'
 import { decodeUtf8 } from './json'
 import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
 import { loadMapContent, serializeMapContent, type MapContent, type ReleaseMode, type Skip } from './kinds/js'
@@ -34,7 +34,7 @@ import {
     type SymbolSetUpload,
     type UploadStatus,
 } from './upload'
-import type { Worker } from './worker'
+import { commandWorker, type InjectAction, type Worker } from './worker'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -81,12 +81,7 @@ export interface Selection {
     cwd: string
 }
 
-export async function select(
-    ctx: Context,
-    worker: Worker,
-    paths: string[],
-    options: ErrorTrackingOptions
-): Promise<Selection> {
+export async function select(ctx: Context, paths: string[], options: ErrorTrackingOptions): Promise<Selection> {
     let roots: Root[]
     let cwd: string
     if (paths.length > 0) {
@@ -106,7 +101,7 @@ export async function select(
         roots = sources.map((source) => ({ ...source, kind: options.kind ?? source.kind }))
         cwd = loaded.root
     }
-    const artifacts = await discover(worker, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
+    const artifacts = await discover(ctx, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
     return { artifacts, roots, cwd }
 }
 
@@ -229,7 +224,6 @@ async function proguardUpload(
 
 export async function upload(
     ctx: Context,
-    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions,
     session: Session = new Session(ctx),
@@ -237,7 +231,7 @@ export async function upload(
 ): Promise<UploadReport> {
     const folder = options.dryRun ? null : mkdtempSync(join(tmpdir(), CONTAINER_FOLDER_PREFIX))
     try {
-        return await uploadFrom(ctx, worker, selection, options, session, injected, folder)
+        return await uploadFrom(ctx, selection, options, session, injected, folder)
     } finally {
         if (folder !== null) {
             rmSync(folder, { recursive: true, force: true })
@@ -247,13 +241,13 @@ export async function upload(
 
 async function uploadFrom(
     ctx: Context,
-    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions,
     session: Session,
     injected: InjectedPairs | undefined,
     folder: string | null
 ): Promise<UploadReport> {
+    const worker = commandWorker(ctx)
     const skipped: Skip[] = [...(injected?.skipped ?? [])]
     const warnings: string[] = [...(injected?.warnings ?? [])]
     const releases = session.releases
@@ -305,7 +299,7 @@ async function uploadFrom(
 
     // Metro bundles upload through their composed maps, so upload never reads their own pairs.
     const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
-    const held = injected ? injected.pairs : await readPairs(worker, jsOnly, options, skipped)
+    const held = injected ? injected.pairs : await readPairs(ctx, jsOnly, options, skipped)
     const pairs = held.filter(({ artifact }) => artifact.kind === 'js')
     await worker.drop(pairIds(held.filter(({ artifact }) => artifact.kind !== 'js')))
     let targets: number[] = []
@@ -603,7 +597,6 @@ async function uploadFrom(
 // stops the run before any file changes. Otherwise inject resolves it from git as usual.
 export async function processArtifacts(
     ctx: Context,
-    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions
 ): Promise<UploadReport & { injected: InjectedReport[] }> {
@@ -617,9 +610,9 @@ export async function processArtifacts(
         }
     }
     const injected = selection.artifacts.some(isBundle)
-        ? await injectPairs(ctx, worker, selection, options, session, preset, false)
+        ? await injectPairs(ctx, selection, options, session, preset, false)
         : undefined
-    const report = await upload(ctx, worker, selection, options, session, injected)
+    const report = await upload(ctx, selection, options, session, injected)
     return { ...report, injected: injected?.injected ?? [] }
 }
 

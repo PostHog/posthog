@@ -2,7 +2,6 @@ import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
 import { plural } from '@/core/text'
 import { processArtifacts, select } from '@/error-tracking/run'
-import { withWorker } from '@/error-tracking/worker'
 
 import {
     DRY_RUN_OPTION,
@@ -28,20 +27,18 @@ export default defineCommand({
 
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
-        return withWorker(async (worker) => {
-            const selection = await select(ctx, worker, args.paths ?? [], settings)
-            if (selection.artifacts.length === 0) {
-                throw new HogError(
-                    'nothing_to_upload',
-                    'hog found no artifacts to process in those paths.',
-                    'Check the paths, or pass --kind.'
-                )
-            }
-            if (!settings.dryRun) {
-                await ctx.ensureScopes(UPLOAD_SCOPES)
-            }
-            return processArtifacts(ctx, worker, selection, settings)
-        })
+        const selection = await select(ctx, args.paths ?? [], settings)
+        if (selection.artifacts.length === 0) {
+            throw new HogError(
+                'nothing_to_upload',
+                'hog found no artifacts to process in those paths.',
+                'Check the paths, or pass --kind.'
+            )
+        }
+        if (!settings.dryRun) {
+            await ctx.ensureScopes(UPLOAD_SCOPES)
+        }
+        return processArtifacts(ctx, selection, settings)
     },
 
     human({ result, out }) {
