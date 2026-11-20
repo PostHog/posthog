@@ -808,6 +808,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "String",
                 ("blob", "native"),
             ),
+            (
+                "json_functions",
+                "SELECT JSONExtractRaw(toString(properties), 'value') AS raw, JSONType(properties, 'value') AS type, "
+                "count() FROM events GROUP BY raw, type ORDER BY type",
+                ['{"value":"a"}', '{"value":true}', '{"value":true}', '{"value":1.5}', '{"value":{"b":1}}'],
+                [('"a"', "String", 1), ("true", "Bool", 2), ("1.5", "Double", 1), ('{"b":1}', "Object", 1)],
+                "String",
+                ("blob", "native"),
+            ),
         ]
     )
     def test_grouped_property_queries(

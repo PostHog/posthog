@@ -1279,7 +1279,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """The native property that `document` serializes, or None.
 
         The property pass writes `ifNull(toJSONString(<property>), '')` as the document of a JSON function whose
-        first key is constant.
+        first key is constant. Its `''` is an inline sentinel, which no query text can produce, so a query that writes
+        the same expression keeps its own serialization of the property's text.
         """
         if not (
             isinstance(document, ast.Call)
@@ -1287,6 +1288,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             and len(document.args) == 2
             and isinstance(document.args[1], ast.Constant)
             and document.args[1].value == ""
+            and document.args[1].inline_sentinel
             and isinstance(document.args[0], ast.Call)
             and document.args[0].name == "toJSONString"
             and len(document.args[0].args) == 1
@@ -1390,7 +1392,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 "if",
                 [
                     _call("equals", [value_type, _const("Float64")]),
-                    _const("Double"),
+                    # JSONType returns an Enum8, and a 'Double' string literal would make the result a String, which
+                    # sorts by name instead of by the enum's order.
+                    _call("JSONType", [_const("0.5")]),
                     _call("JSONType", [_call("ifNull", [json_text, _const("")])]),
                 ],
             )
