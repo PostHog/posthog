@@ -40,29 +40,28 @@ fi
 # Claude Code keeps one CLAUDE_ENV_FILE for the whole session and runs SessionStart
 # again on every resume and compaction. It prepends the file to every Bash command, so
 # a block appended on each start grows the file until every command fails with
-# "argument list too long". Each block ends with a marker line that carries its
-# manifest hash, and the hook skips the write when the last marker matches the current
-# manifest. Only the last marker counts, because later exports override earlier ones:
-# after a switch from manifest A to B and back to A, the B block is in effect.
-# The marker goes in the same write as the exports, so a failed write leaves no marker
-# and the next start tries again. Each write starts with a newline, so the first export
-# never joins an unterminated last line. The hook only appends and never rewrites the
-# file, because lines in it that this hook did not write are not its to remove.
-MARKER_PREFIX="# setup-flox manifest-hash: "
-ENV_MARKER="${MARKER_PREFIX}${MANIFEST_HASH}"
-LAST_MARKER=$(grep "^$MARKER_PREFIX" "$CLAUDE_ENV_FILE" 2>/dev/null | tail -n 1)
-if [ "$LAST_MARKER" = "$ENV_MARKER" ]; then
-  exit 0
-fi
+# "argument list too long". Each block ends with a marker line that carries the
+# checksum of its exports. A block that matches the last marker is already in effect,
+# so the hook skips it. Any other block is appended, so a changed environment, a
+# switch back to an earlier manifest, or a complete block after a partial one still
+# applies. The hook only appends, because lines in the file that this hook did not
+# write are not its to remove.
+append_env_block() {
+  local block="$1" marker last_marker
+  marker="# setup-flox block: $(printf '%s' "$block" | cksum | awk '{print $1 "-" $2}')"
+  last_marker=$(grep '^# setup-flox block: ' "$CLAUDE_ENV_FILE" 2>/dev/null | tail -n 1)
+  if [ "$last_marker" != "$marker" ]; then
+    # The leading newline starts the block on its own line when the file does not
+    # end with one.
+    printf '\n%s\n%s\n' "$block" "$marker" >> "$CLAUDE_ENV_FILE"
+  fi
+}
 
-# Fast path: reuse cached env if manifest hash matches. The cache is read once, so the
-# hash and the exports come from the same version of the file.
+# Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
-  CACHE_CONTENT=$(cat "$CACHE_FILE" 2>/dev/null)
-  CACHED_HASH=$(head -n 1 <<< "$CACHE_CONTENT" | sed 's/^# manifest-hash: //')
-  CACHED_ENV=$(tail -n +2 <<< "$CACHE_CONTENT")
-  if [ "$CACHED_HASH" = "$MANIFEST_HASH" ] && [ -n "$CACHED_ENV" ]; then
-    printf '\n%s\n%s\n' "$CACHED_ENV" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
+  CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
+  if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
+    append_env_block "$(tail -n +2 "$CACHE_FILE")"
     exit 0
   fi
 fi
@@ -92,11 +91,7 @@ if [ -d "$VENV_DIR/bin" ]; then
 fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
-printf '\n%s%s\n' "$ENV_CONTENT" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
-# Another session can read the cache while this one writes it. The rename makes the
-# reader see the old file or the new one, never a partial file. The cache can hold
-# credentials, such as FLAGS_REDIS_URL, so only the owner can read it.
-(umask 077 && printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE.$$") &&
-  mv -f "$CACHE_FILE.$$" "$CACHE_FILE"
+append_env_block "$(printf '%s' "$ENV_CONTENT")"
+printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0
