@@ -39,7 +39,25 @@ export function MonitoringTab(): JSX.Element {
                 <LemonSkeleton className="h-64 w-full" />
             ) : sortedReports.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary p-6 text-center text-sm text-secondary">
-                    {scope.everyone ? (
+                    {scope.needsAttention ? (
+                        <>
+                            <span>
+                                No fixes need attention. None have off-track readings or were closed in the last 14
+                                days.
+                            </span>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                data-attr="inbox-monitoring-show-all-statuses"
+                                onClick={() => {
+                                    captureMonitoringAction({ action: 'show_all_statuses' })
+                                    setScope({ ...scope, needsAttention: false })
+                                }}
+                            >
+                                Show all fixes
+                            </LemonButton>
+                        </>
+                    ) : scope.everyone ? (
                         <span>
                             No fixes are being checked. When a self-driving pull request merges, its report shows up
                             here while PostHog checks that the fix worked.
