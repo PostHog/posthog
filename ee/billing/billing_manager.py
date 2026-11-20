@@ -23,6 +23,7 @@ import structlog
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
+from posthog.billing.entitlements import apply_entitlements, contract_usage_keys
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -137,6 +138,14 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _keep_stored_contract_limits(usage_info: OrganizationUsageInfo, stored_usage: dict | None) -> None:
+    incoming = cast(dict[str, Any], usage_info)
+    for usage_key in contract_usage_keys():
+        entry = incoming.get(usage_key)
+        if entry:
+            incoming[usage_key] = {**entry, "limit": ((stored_usage or {}).get(usage_key) or {}).get("limit")}
 
 
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
@@ -775,7 +784,12 @@ class BillingManager:
         return cast(list[dict[str, Any]], res.json().get("products", []))
 
     def update_org_details(
-        self, organization: Organization, billing_status: BillingStatus, *, timeout: tuple[float, float] | None = None
+        self,
+        organization: Organization,
+        billing_status: BillingStatus,
+        *,
+        timeout: tuple[float, float] | None = None,
+        sync_type: str | None = None,
     ) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
@@ -792,6 +806,7 @@ class BillingManager:
         org_modified = False
 
         data = billing_status["customer"]
+        entitlements_block = data.get("entitlements")
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
@@ -835,6 +850,9 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            if entitlements_block is not None:
+                # Only the block changes these limits, so a rejected block keeps the stored ones.
+                _keep_stored_contract_limits(usage_info, organization.usage)
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
@@ -848,30 +866,29 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
-        available_product_features = data.get("available_product_features", None)
-        revoked_feature_keys: set[str] = set()
-        events_retention_changed = False
-        previous_retention_months: int | None = None
-        previous_standard_retention = False
-        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
-        # reports) and a partial or error-path billing response must not downgrade the org.
-        # Genuine cancellations still send the (non-empty) free-tier feature list.
-        if available_product_features and available_product_features != organization.available_product_features:
-            previous_feature_keys = {
-                feature.get("key") for feature in (organization.available_product_features or []) if feature
-            }
-            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
-            revoked_feature_keys = previous_feature_keys - new_feature_keys
-            previous_retention_months = billed_events_retention_months(organization)
-            previous_standard_retention = has_standard_retention(organization)
-            organization.available_product_features = data["available_product_features"]
-            events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
+        previous_features = organization.available_product_features
+        previous_retention_months = billed_events_retention_months(organization)
+        previous_standard_retention = has_standard_retention(organization)
+
+        if entitlements_block is not None:
+            changed_entitlements = apply_entitlements(organization, entitlements_block, sync_type=sync_type)
+            if changed_entitlements:
+                org_modified = True
+                # Features don't affect a quota decision.
+                if changed_entitlements - {"features"}:
+                    should_update_org_billing_quotas = True
+        elif self._apply_legacy_entitlements(organization, billing_status, timeout=timeout):
             org_modified = True
 
-        never_drop_data = cast(bool | None, data.get("never_drop_data"))
-        if never_drop_data != organization.never_drop_data:
-            organization.never_drop_data = never_drop_data
-            org_modified = True
+        revoked_feature_keys: set[str] = set()
+        events_retention_changed = False
+        if organization.available_product_features != previous_features:
+            previous_feature_keys = {feature.get("key") for feature in (previous_features or []) if feature}
+            new_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
+            events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
 
         # A missing key (partial or error-path response) must not reset a known value to unknown.
         if "has_active_subscription" in data:
@@ -882,29 +899,6 @@ class BillingManager:
                 has_active_subscription = True
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
-                org_modified = True
-
-        customer_trust_scores = data.get("customer_trust_scores", {})
-
-        if customer_trust_scores:
-            product_key_to_usage_key = {
-                product["type"]: product.get("usage_key")
-                for product in (
-                    billing_status["customer"].get("products")
-                    or self.get_default_products(organization, timeout=timeout)["products"]
-                )
-            }
-            org_customer_trust_scores = {
-                usage_key: score
-                for product_key, score in customer_trust_scores.items()
-                if (usage_key := product_key_to_usage_key.get(product_key))
-            }
-
-            current_customer_trust_scores = organization.customer_trust_scores or {}
-            # Replace, not merge: a merge would keep grace that billing has since withdrawn.
-            updated_customer_trust_scores = org_customer_trust_scores or current_customer_trust_scores
-            if updated_customer_trust_scores != current_customer_trust_scores:
-                organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
 
         # The stamp goes out only with a save that a change already needs. A save for the stamp
@@ -927,6 +921,50 @@ class BillingManager:
             update_org_billing_quotas(organization)
 
         return organization
+
+    def _apply_legacy_entitlements(
+        self, organization: Organization, billing_status: BillingStatus, *, timeout: tuple[float, float] | None
+    ) -> bool:
+        data = billing_status["customer"]
+        modified = False
+
+        available_product_features = data.get("available_product_features", None)
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
+        if available_product_features and available_product_features != organization.available_product_features:
+            organization.available_product_features = data["available_product_features"]
+            modified = True
+
+        never_drop_data = cast(bool | None, data.get("never_drop_data"))
+        if never_drop_data != organization.never_drop_data:
+            organization.never_drop_data = never_drop_data
+            modified = True
+
+        customer_trust_scores = data.get("customer_trust_scores", {})
+
+        if customer_trust_scores:
+            product_key_to_usage_key = {
+                product["type"]: product.get("usage_key")
+                for product in (
+                    billing_status["customer"].get("products")
+                    or self.get_default_products(organization, timeout=timeout)["products"]
+                )
+            }
+            org_customer_trust_scores = {
+                usage_key: score
+                for product_key, score in customer_trust_scores.items()
+                if (usage_key := product_key_to_usage_key.get(product_key))
+            }
+
+            current_customer_trust_scores = organization.customer_trust_scores or {}
+            # Replace, not merge: a merge would keep grace that billing has since withdrawn.
+            updated_customer_trust_scores = org_customer_trust_scores or current_customer_trust_scores
+            if updated_customer_trust_scores != current_customer_trust_scores:
+                organization.customer_trust_scores = updated_customer_trust_scores
+                modified = True
+
+        return modified
 
     def get_auth_headers(
         self,

@@ -199,6 +199,17 @@ class ProductFeature(TypedDict):
     is_plan_default: bool
 
 
+class EntitlementsBlock(TypedDict):
+    schema_version: int
+    contract_hash: str
+    plan_state: Literal["free", "paid"]
+    # None means no limit.
+    usage_limits: dict[str, Optional[int]]
+    trust_scores: dict[str, int]
+    never_drop_data: bool
+    features: list[ProductFeature]
+
+
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
     # Whether a partner pays for the organization, as of the status's computed_at. Older billing omits it.
@@ -216,6 +227,8 @@ class CustomerInfo(TypedDict):
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
     customer_trust_scores: dict[str, int]
+    # Older billing omits it, and the legacy fields above then decide entitlements.
+    entitlements: NotRequired[EntitlementsBlock]
 
 
 class BillingStatus(TypedDict):

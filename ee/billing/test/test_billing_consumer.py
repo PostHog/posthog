@@ -4,7 +4,9 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
+from posthog.billing.entitlements_contract import load_contract
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -157,3 +159,40 @@ class TestBillingConsumerBillingActivity(BaseTest):
         # process_message leaves the message for SQS to redeliver instead of dropping the audit.
         with self.assertRaises(Exception):
             self._build_consumer()._process_billing_activity(self._message())
+
+
+class TestBillingConsumerCustomerUpdate(BaseTest):
+    def _build_consumer(self) -> BillingConsumer:
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+    @parameterized.expand([("batch", "batch", 1), ("on_demand", "on_demand", 0), ("older_billing", None, 0)])
+    @patch(f"{CONSUMER}.get_cached_instance_license", return_value=None)
+    def test_only_a_batch_sync_counts_what_it_changed_as_drift(self, _name, sync_type, expected_drift, _license):
+        contract = load_contract()
+        block = {
+            "schema_version": 1,
+            "contract_hash": contract["contract_hash"],
+            "plan_state": "free",
+            "usage_limits": dict.fromkeys(contract["usage_keys"]),
+            "trust_scores": dict.fromkeys(contract["usage_keys"], 0),
+            "never_drop_data": False,
+            "features": [{"key": "from_billing", "name": "From billing"}],
+        }
+        body = {
+            "type": "billing_customer_update",
+            "organization_id": str(self.organization.id),
+            "data": {"customer": {"entitlements": block}},
+        }
+        if sync_type is not None:
+            body["sync_type"] = sync_type
+        drift = {"field": "features"}
+        before = REGISTRY.get_sample_value("billing_entitlement_drift_repaired_total", drift) or 0
+
+        self._build_consumer()._process_billing_customer_update(body)
+
+        self.organization.refresh_from_db()
+        assert self.organization.available_product_features == [{"key": "from_billing", "name": "From billing"}]
+        assert (REGISTRY.get_sample_value("billing_entitlement_drift_repaired_total", drift) or 0) == (
+            before + expected_drift
+        )
