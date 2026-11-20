@@ -1463,6 +1463,15 @@ def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
 
 
+def get_task_signal_report_source_id(*, task_id: str | UUID, team_id: int) -> UUID | None:
+    task = (
+        Task.objects.filter(team_id=team_id, id=task_id)
+        .only("source_kind", "source_id", "signal_report_id", "hog_flow_id")
+        .first()
+    )
+    return task.signal_report_source_id if task is not None else None
+
+
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
     """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
 

@@ -192,8 +192,10 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         with transaction.atomic():
             reports = list(
                 SignalReport.objects.select_for_update()
-                .filter(team_id=instance.team_id)
-                .filter(SignalReport.reports_for_task_filter(str(instance.task_id)))
+                .filter(
+                    team_id=instance.team_id,
+                    id__in=SignalReport.pr_target_report_ids_for_task(instance.team_id, str(instance.task_id)),
+                )
                 .order_by("id")
             )
             for pr_url in pr_urls:

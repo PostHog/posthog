@@ -371,11 +371,7 @@ def sync_task_pull_request_to_assignments(
     if merged:
         state = SignalReportAssignment.PrState.MERGED
 
-    report_ids = list(
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_task(team_id, task_id)
     if not report_ids:
         return 0
 

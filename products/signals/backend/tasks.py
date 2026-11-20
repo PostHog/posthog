@@ -451,11 +451,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
     keep failing each other's changed-body check.
     """
-    report_ids = (
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_task(team_id, task_id)
     retry_needed = False
     for report_id in report_ids:
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)

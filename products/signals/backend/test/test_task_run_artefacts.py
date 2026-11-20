@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import transaction
 
@@ -12,6 +13,7 @@ from posthog.models.user import User
 from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
+from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalActorKind,
@@ -21,6 +23,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
+from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.report_assignments import (
     create_claim,
     release_claim,
@@ -48,6 +51,7 @@ from products.signals.backend.task_run_artefacts import (
     release_quota_cancelled_implementation,
     signals_task_ids,
 )
+from products.signals.backend.tasks import link_report_tracker_issues
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Task/TaskRun ORM models needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -455,6 +459,54 @@ class TestTaskRunArtefacts(BaseTest):
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=42)
         assert pr.state == "merged"
         assert SignalReportArtefact.objects.filter(pull_request=pr).values("report_id").distinct().count() == 2
+
+    @parameterized.expand(
+        [
+            ("claims_several_reports", False, 0, 3, set()),
+            ("claims_one_report", False, 0, 1, {"claimed_0"}),
+            ("source_report_and_claims", True, 0, 2, {"source"}),
+            ("implementation_and_claim", False, 1, 1, {"implementation_0"}),
+        ]
+    )
+    def test_task_pr_links_only_to_the_reports_it_targets(
+        self, _name: str, has_source: bool, implementations: int, claims: int, expected: set[str]
+    ) -> None:
+        reports = {f"claimed_{i}": self._report() for i in range(claims)}
+        reports.update({f"implementation_{i}": self._report() for i in range(implementations)})
+        if has_source:
+            reports["source"] = self._report()
+        task = self._task()
+        if has_source:
+            task.signal_report = reports["source"]
+            task.save(update_fields=["signal_report"])
+        for label, report in reports.items():
+            if label.startswith("claimed_"):
+                create_claim(report, ArtefactAttribution.from_task(str(task.id)))
+            elif label.startswith("implementation_"):
+                record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        expected_ids = {str(reports[label].id) for label in expected}
+        pr_url = "https://github.com/PostHog/posthog/pull/77"
+
+        TaskRun.objects.create(
+            team=self.team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": pr_url, "pr_state": "open"}
+        )
+        with (
+            patch(
+                "products.signals.backend.tasks.write_origin_section", return_value=BodyEditOutcome.WRITTEN
+            ) as write_origin,
+            patch("products.signals.backend.tasks.link_pull_request_to_tracker_issue", return_value=True),
+        ):
+            link_report_tracker_issues(team_id=self.team.id, task_id=str(task.id), pr_url=pr_url)
+
+        linked = SignalReportArtefact.objects.filter(team_id=self.team.id, type="pull_request").values_list(
+            "report_id", flat=True
+        )
+        assert {str(report_id) for report_id in linked} == expected_ids
+        assert {c.kwargs["report_id"] for c in write_origin.call_args_list} == expected_ids
+        assert (
+            set(report_ids_for_implementation_pr(team_id=self.team.id, repository="PostHog/posthog", pr_number=77))
+            == expected_ids
+        )
 
     def test_record_implementation_task_declared_billing_exemption_marks_report(self):
         # A caller that knows its origin is PostHog-system freezes the exemption in the same
