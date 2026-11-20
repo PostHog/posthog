@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
@@ -21,8 +21,8 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
             isOpen={connectModalOpener === opener}
             onClose={closeConnectModal}
             title="Connect Codex"
-            width={560}
-            description="Approve the device code in ChatGPT to use your plan for cloud tasks."
+            width={480}
+            description="Use your ChatGPT plan for Codex cloud tasks."
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeConnectModal}>
@@ -45,30 +45,52 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
                 </>
             }
         >
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
                 {connectError ? (
-                    <LemonBanner type="error">{connectError}</LemonBanner>
+                    <div role="alert">
+                        <LemonBanner type={login?.status === 'expired' ? 'warning' : 'error'}>
+                            {connectError}
+                        </LemonBanner>
+                    </div>
                 ) : login?.user_code ? (
                     <>
-                        <p>Enter this code on the ChatGPT device login page:</p>
-                        <div className="ph-no-capture" data-private>
-                            <CodeSnippet language={Language.Text}>{login.user_code}</CodeSnippet>
+                        <p className="mb-0">Copy this code, then enter it in ChatGPT.</p>
+                        <div className="ph-no-capture" data-private translate="no">
+                            <CodeSnippet language={Language.Text} thing="device code">
+                                {login.user_code}
+                            </CodeSnippet>
                         </div>
-                        <p className="text-secondary">Waiting for approval. This window updates when you finish.</p>
+                        <p role="status" className="mb-0 text-sm text-secondary">
+                            Waiting for approval in ChatGPT...
+                        </p>
                     </>
                 ) : (
-                    <div className="flex items-center gap-2">
+                    <div role="status" className="flex items-center gap-2 py-4">
                         <Spinner />
-                        Starting the ChatGPT login...
+                        <span>
+                            {login?.status === 'connected' ? 'Connecting your account...' : 'Getting a device code...'}
+                        </span>
                     </div>
                 )}
-                <p className="text-secondary">
-                    Turn on device code login in your{' '}
-                    <Link to="https://chatgpt.com/#settings/Security" target="_blank">
-                        ChatGPT security settings
-                    </Link>{' '}
-                    first. In a ChatGPT workspace, an administrator must enable it.
-                </p>
+                <LemonCollapse
+                    embedded
+                    size="small"
+                    panels={[
+                        {
+                            key: 'device-login-help',
+                            header: 'Device login help',
+                            content: (
+                                <p className="mb-0 text-sm text-secondary">
+                                    Enable device code login in your{' '}
+                                    <Link to="https://chatgpt.com/#settings/Security" target="_blank">
+                                        ChatGPT security settings
+                                    </Link>
+                                    . In a ChatGPT workspace, ask an administrator to enable it.
+                                </p>
+                            ),
+                        },
+                    ]}
+                />
             </div>
         </LemonModal>
     )

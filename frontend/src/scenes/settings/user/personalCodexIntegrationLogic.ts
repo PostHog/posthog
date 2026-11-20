@@ -211,7 +211,11 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                     actions.finishDeviceLogin(loginId)
                 } else if (['failed', 'expired', 'canceled'].includes(login.status)) {
                     cache.disposables.dispose('codexLogin')
-                    actions.setConnectError('The ChatGPT login did not complete. Try again.')
+                    actions.setConnectError(
+                        login.status === 'expired'
+                            ? 'This device code expired. Try again to get a new code.'
+                            : 'The ChatGPT login did not complete. Try again.'
+                    )
                 }
             } catch {
                 breakpoint()
