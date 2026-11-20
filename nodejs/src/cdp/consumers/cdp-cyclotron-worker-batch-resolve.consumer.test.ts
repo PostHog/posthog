@@ -637,6 +637,28 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         })
 
         it.each([
+            [[], []],
+            [['$host'], ['This run left out 1 test account filter that only applies to events, not people: $host']],
+            [
+                ['$host', '$browser'],
+                ['This run left out 2 test account filters that only apply to events, not people: $host, $browser'],
+            ],
+        ])('names the test account filters a ready audience left out: %j', async (skipped, messages) => {
+            const queueLogs = jest.fn()
+            const requestAudienceSnapshot = jest.fn().mockResolvedValue({
+                status: 'ready',
+                audience_size: 12,
+                error: null,
+                skipped_test_account_filters: skipped,
+            })
+            const consumer = buildConsumer(requestAudienceSnapshot, queueLogs)
+
+            await consumer.processResolverJob(buildJob(waitingState(3600 * 1000)))
+
+            expect(queueLogs.mock.calls.map(([entries]) => entries[0].message)).toEqual(messages)
+        })
+
+        it.each([
             [
                 'Django could not resolve it',
                 { status: 'failed', audience_size: null, error: 'Audience query timed out after 20 minutes.' },
