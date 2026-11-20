@@ -12947,8 +12947,8 @@ Today (3): `batches`, `projects`, `tasks`
 
 Diffed against: <https://api-reference.scale.com/llms.txt>
 
-- [ ] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
-- [ ] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
+- [x] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
+- [x] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
 
 Note: The v1 REST API is genuinely small: batches, projects, tasks, audits. GenAI Data Engine, GenAI Platform and Taxonomy Service are documented as guides with no listable REST collections. The audits endpoint requires a task_id or audit id, so it has to be driven off the already-synced tasks table rather than bulk-listed.
 

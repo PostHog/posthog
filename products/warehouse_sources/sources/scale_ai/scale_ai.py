@@ -1,22 +1,27 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
+from urllib.parse import quote
 
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.scale_ai.settings import (
+    ENCODED_NAME_FIELD,
     INCREMENTAL_PARAM_BY_FIELD,
     SCALE_AI_ENDPOINTS,
     ScaleAIEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
     JSONResponseCursorPaginator,
     OffsetPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -32,6 +37,8 @@ class ScaleAIResumeConfig:
     next_token: str | None = None
     # Offset for the `batches` endpoint — the offset the resumed run sends on its first request.
     offset: int | None = None
+    # Opaque per-parent checkpoint of the fan-out endpoints (`audits`, `batch_statuses`).
+    fanout_state: dict[str, Any] | None = None
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -79,6 +86,87 @@ def _paginator(config: ScaleAIEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": SCALE_AI_BASE_URL,
+        # Scale uses HTTP Basic auth with the API key as the username and an empty password.
+        # The framework auth redacts the key from logs and raised error messages.
+        "auth": {"type": "http_basic", "username": api_key, "password": ""},
+    }
+
+
+def _add_encoded_name(row: dict[str, Any]) -> dict[str, Any]:
+    # `safe=""` also encodes `/`, which would otherwise split the name into extra path segments.
+    return {**row, ENCODED_NAME_FIELD: quote(str(row["name"]), safe="")}
+
+
+def _make_source_response(config: ScaleAIEndpointConfig, items: Any, column_hints: Any = None) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        # Scale returns every list endpoint newest-first by created_at and exposes no sort control,
+        # so rows always arrive descending. "desc" persists the incremental watermark only at
+        # successful job end, which is correct here: tasks filter on updated_at but arrive in
+        # created_at order, so a per-batch (asc) watermark could advance past unread rows.
+        sort_mode="desc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=column_hints,
+    )
+
+
+def _fanout_source(
+    config: ScaleAIEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ScaleAIResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = SCALE_AI_ENDPOINTS[config.fanout.parent_name]
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(ScaleAIResumeConfig(fanout_state=dict(state)))
+
+    resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=SCALE_AI_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # Neither child endpoint has a server-side time filter, so both are full refresh.
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={
+                "paginator": _paginator(parent_config),
+                "data_selector": parent_config.data_selector,
+            },
+            child_endpoint_extra={"paginator": _paginator(config), "data_selector": config.data_selector},
+            parent_data_map=_add_encoded_name if config.fanout.resolve_field == ENCODED_NAME_FIELD else None,
+            # The page size goes in `parent_params`: the child endpoints document no `limit`.
+            page_size_param=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+            resume_parent_pagination=True,
+        ),
+    )
+    return _make_source_response(config, lambda: resource)
+
+
 def validate_credentials(api_key: str) -> bool:
     """One cheap probe against the tasks list endpoint to confirm the API key is genuine."""
     ok, _status = validate_via_probe(
@@ -100,16 +188,13 @@ def scale_ai_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = SCALE_AI_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SCALE_AI_BASE_URL,
-            # Scale uses HTTP Basic auth with the API key as the username and an empty password.
-            # The framework auth redacts the key from logs and raised error messages.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {
@@ -162,19 +247,4 @@ def scale_ai_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        # Scale returns every list endpoint newest-first by created_at and exposes no sort control,
-        # so rows always arrive descending. "desc" persists the incremental watermark only at
-        # successful job end, which is correct here: tasks filter on updated_at but arrive in
-        # created_at order, so a per-batch (asc) watermark could advance past unread rows.
-        sort_mode="desc",
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _make_source_response(config, lambda: resource, column_hints=resource.column_hints)

@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.scale_ai.source import ScaleAISource
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import (
     DEFAULT_RETRY_ATTEMPTS,
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -124,6 +125,81 @@ class TestOffsetPagination:
         result = _driver().run("batches", [_docs_response([{"name": "B0"}])])
 
         assert result.requests[0].param("offset") == "0"
+
+
+def _audits_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/v1/tasks":
+        if request.param("next_token") is None:
+            return _docs_response([{"task_id": "T1"}, {"task_id": "T2"}], next_token="tok2")
+        return _docs_response([{"task_id": "T3"}], next_token=None)
+    task_id = request.param("task_id")
+    if task_id == "T2":
+        # A task deleted between the listing and the audit read.
+        return _error_response(404)
+    if task_id == "T3":
+        return ScriptedResponse(json=[])
+    return ScriptedResponse(
+        json=[
+            {"id": f"A-{task_id}-1", "task_id": task_id, "result": "accepted", "active": False},
+            {"id": f"A-{task_id}-2", "task_id": task_id, "result": "rejected", "active": True},
+        ]
+    )
+
+
+class TestAuditsFanOut:
+    def test_reads_the_audits_of_each_completed_task(self) -> None:
+        result = _driver().run("audits", _audits_responder)
+
+        assert result.raised is None
+        assert [(r["id"], r["task_id"]) for r in result.rows] == [("A-T1-1", "T1"), ("A-T1-2", "T1")]
+
+        task_requests = [r for r in result.requests if r.path == "/v1/tasks"]
+        assert [r.param("next_token") for r in task_requests] == [None, "tok2"]
+        assert all(r.param("status") == "completed" and r.param("limit") == "100" for r in task_requests)
+
+        audit_requests = [r for r in result.requests if r.path == "/v1/audits"]
+        assert [r.param("task_id") for r in audit_requests] == ["T1", "T2", "T3"]
+        # The audits endpoint documents no paging params, so none are sent.
+        assert all(r.param("limit") is None for r in audit_requests)
+
+    def test_resume_skips_the_tasks_a_previous_attempt_finished(self) -> None:
+        first = _driver().run("audits", _audits_responder)
+        assert first.saved_states
+        state = first.saved_states[0]
+        assert state.fanout_state is not None and state.next_token is None
+
+        resumed = _driver().run("audits", _audits_responder, resume_state=state)
+
+        assert resumed.raised is None
+        resumed_tasks = [r.param("task_id") for r in resumed.requests if r.path == "/v1/audits"]
+        assert "T1" not in resumed_tasks
+        assert "T3" in resumed_tasks
+
+
+class TestBatchStatusesFanOut:
+    @parameterized.expand(
+        [
+            ("plain_name", "kitten_labeling_2020-07", "/v1/batches/kitten_labeling_2020-07/status"),
+            # A slash would otherwise split the name into extra path segments.
+            ("name_with_slash_and_space", "team a/2026 run", "/v1/batches/team%20a%2F2026%20run/status"),
+        ]
+    )
+    def test_reads_each_batch_status_under_its_name(self, _name: str, batch_name: str, expected_path: str) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/batches":
+                return _docs_response([{"name": batch_name, "status": "in_progress"}])
+            return ScriptedResponse(json={"status": "in_progress", "tasks_pending": 9, "tasks_completed": 1})
+
+        result = _driver().run("batch_statuses", respond)
+
+        assert result.raised is None
+        status_requests = [r for r in result.requests if r.path != "/v1/batches"]
+        assert [r.path for r in status_requests] == [expected_path]
+        assert len(result.rows) == 1
+        row = result.rows[0]
+        assert row["batch_name"] == batch_name
+        assert (row["tasks_pending"], row["tasks_completed"]) == (9, 1)
+        assert not any(key.startswith("_") for key in row)
 
 
 class TestRetryAndErrors:
