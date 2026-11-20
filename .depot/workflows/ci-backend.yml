@@ -1827,8 +1827,10 @@ jobs:
             # reports; hoglint's exit decides the step. It runs before the scaffold, which edits
             # tracked files that compare would read as part of the change. Exit 1 (violations) and 2
             # (a blocking incomplete result or a config error) come from the tree, so they are a
-            # deterministic failure. Any other status (3: hoglint could not run, 124 or 137: the
-            # timeout) sets `transient`, so the job fails without cancelling the rest of the run.
+            # deterministic failure. Exit 2 with a line about "the base engine" is not: compare
+            # could not install, start or ask the engine the base pins, which a retry can fix. That
+            # case and any other status (3: hoglint could not run, 124 or 137: the timeout) set
+            # `transient`, so the job fails without cancelling the rest of the run.
             - name: Check boundaries (hoglint)
               id: hoglint
               run: |
@@ -1842,10 +1844,13 @@ jobs:
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
                       python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  transient=false
                   case "$status" in
-                      0 | 1 | 2) ;;
-                      *) echo "transient=true" >> "$GITHUB_OUTPUT" ;;
+                      0 | 1) ;;
+                      2) if grep -qs "the base engine" "$output" "$errors"; then transient=true; fi ;;
+                      *) transient=true ;;
                   esac
+                  if [ "$transient" = true ]; then echo "transient=true" >> "$GITHUB_OUTPUT"; fi
                   exit "$status"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
