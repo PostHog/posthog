@@ -20,7 +20,7 @@ No lanes, because nothing is gated.
 `posthog/models/integration/codex.py` is the caller.
 It refreshes once when a user connects, once per cloud task run start when the access token is near expiry, and once more on demand when the Codex app-server reports a 401.
 It revokes the refresh token when the user disconnects.
-`posthog/tasks/codex_login.py` requests device codes, polls for approval, and exchanges the authorization code. Polls respect the provider interval. The authorization code exchange is not retried.
+`posthog/tasks/codex_login.py` requests device codes, polls for approval, and exchanges the authorization code. Polls respect the provider interval. Temporary poll failures back off and honor `Retry-After` within the attempt deadline. The authorization code exchange is not retried.
 
 ## Rate-limit headers
 

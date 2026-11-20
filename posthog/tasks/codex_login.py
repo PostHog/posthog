@@ -4,8 +4,11 @@ from typing import TypedDict
 from django.core.cache import caches
 from django.db import transaction
 
+import requests
 import structlog
 from celery import shared_task
+from urllib3.exceptions import InvalidHeader
+from urllib3.util import Retry
 
 from posthog.egress.openai_auth import OPENAI_OAUTH_TOKEN_URL, openai_auth_request
 from posthog.models.integration.codex import CODEX_OAUTH_CLIENT_ID, CodexUserIntegration, parse_codex_auth_json
@@ -30,6 +33,7 @@ class DeviceLogin(CodexLogin, total=False):
     expires_at: float
     device_auth_id: str
     interval: int
+    retry_delay: float
     next_poll_at: float
 
 
@@ -85,17 +89,72 @@ def cancel_login(user_id: int, login_id: str) -> None:
             )
 
 
-def schedule_poll(user_id: int, login: DeviceLogin) -> None:
-    interval = login["interval"]
-    remaining = login["expires_at"] - time.time()
-    if remaining <= interval:
-        update_login(user_id, login["login_id"], "expired")
-        return
-    login["next_poll_at"] = time.time() + interval
-    caches["codex_login"].set(login_key(user_id), login, timeout=remaining)
-    transaction.on_commit(
-        lambda: complete_codex_login.apply_async((user_id, login["login_id"]), countdown=interval, expires=remaining)
-    )
+def schedule_poll(user_id: int, login: DeviceLogin, delay: float | None = None) -> None:
+    with transaction.atomic():
+        CodexUserIntegration._lock_user(user_id)
+        if get_login(user_id, login["login_id"])["status"] not in ("starting", "pending"):
+            return
+        interval = max(login["interval"], delay or 0)
+        remaining = login["expires_at"] - time.time()
+        if remaining <= interval:
+            update_login(user_id, login["login_id"], "expired")
+            return
+        login["next_poll_at"] = time.time() + interval
+        caches["codex_login"].set(login_key(user_id), login, timeout=remaining)
+        transaction.on_commit(
+            lambda: complete_codex_login.apply_async(
+                (user_id, login["login_id"]), countdown=interval, expires=remaining
+            )
+        )
+
+
+def claim_login(user_id: int, login_id: str) -> DeviceLogin | None:
+    with transaction.atomic():
+        CodexUserIntegration._lock_user(user_id)
+        login: DeviceLogin | None = caches["codex_login"].get(login_key(user_id))
+        if not login or login["login_id"] != login_id or login["status"] not in ("starting", "pending"):
+            return None
+        remaining = login["expires_at"] - time.time()
+        if remaining <= 0:
+            update_login(user_id, login_id, "expired")
+            return None
+        if login.get("next_poll_at", 0) > time.time():
+            return None
+        login["next_poll_at"] = time.time() + 60
+        caches["codex_login"].set(login_key(user_id), login, timeout=remaining)
+        return login
+
+
+def poll_approval(user_id: int, login: DeviceLogin) -> requests.Response | None:
+    response = None
+    try:
+        response = openai_auth_request(
+            "POST",
+            f"{DEVICE_AUTH_URL}/token",
+            source="device_login",
+            endpoint="device_token",
+            timeout=10,
+            allow_redirects=False,
+            json={"device_auth_id": login["device_auth_id"], "user_code": login["user_code"]},
+        )
+        if response.status_code in (403, 404):
+            login.pop("retry_delay", None)
+            schedule_poll(user_id, login)
+            return None
+        if response.status_code != 429 and response.status_code < 500:
+            response.raise_for_status()
+            return response
+    except (requests.Timeout, requests.ConnectionError):
+        pass
+    retry_after = 0.0
+    if response is not None:
+        try:
+            retry_after = Retry().parse_retry_after(response.headers.get("Retry-After", "0"))
+        except (InvalidHeader, OverflowError):
+            pass
+    login["retry_delay"] = min(60, login.get("retry_delay", 5) * 2)
+    schedule_poll(user_id, login, max(login["retry_delay"], retry_after))
+    return None
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
@@ -104,80 +163,65 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
     from posthog.api.user_integration_codex import ensure_codex_connect_enabled
 
     try:
+        login = claim_login(user_id, login_id)
+        if login is None:
+            return
+        user = User.objects.get(id=user_id, is_active=True)
+        ensure_codex_connect_enabled(user)
+        if login["status"] == "starting":
+            response = openai_auth_request(
+                "POST",
+                f"{DEVICE_AUTH_URL}/usercode",
+                source="device_login",
+                endpoint="device_usercode",
+                timeout=10,
+                allow_redirects=False,
+                json={"client_id": CODEX_OAUTH_CLIENT_ID},
+            )
+            response.raise_for_status()
+            body = response.json()
+            if not all(isinstance(body.get(key), str) and body[key] for key in ("device_auth_id", "user_code")):
+                raise ValueError("Invalid device login response")
+            login.update(
+                {
+                    "status": "pending",
+                    "user_code": body["user_code"],
+                    "device_auth_id": body["device_auth_id"],
+                    "interval": max(5, int(body.get("interval", 5))),
+                }
+            )
+            schedule_poll(user_id, login)
+            return
+        approval = poll_approval(user_id, login)
+        if approval is None:
+            return
+        grant = approval.json()
+        response = openai_auth_request(
+            "POST",
+            OPENAI_OAUTH_TOKEN_URL,
+            source="device_login",
+            endpoint="token",
+            timeout=10,
+            allow_redirects=False,
+            data={
+                "grant_type": "authorization_code",
+                "client_id": CODEX_OAUTH_CLIENT_ID,
+                "redirect_uri": "https://auth.openai.com/deviceauth/callback",
+                "code": grant["authorization_code"],
+                "code_verifier": grant["code_verifier"],
+            },
+        )
+        response.raise_for_status()
+        tokens = parse_codex_auth_json({"tokens": response.json()})
         with transaction.atomic():
             CodexUserIntegration._lock_user(user_id)
-            login: DeviceLogin | None = caches["codex_login"].get(login_key(user_id))
-            if not login or login["login_id"] != login_id or login["status"] not in ("starting", "pending"):
-                return
-            if login["expires_at"] <= time.time():
-                update_login(user_id, login_id, "expired")
-                return
-            if login.get("next_poll_at", 0) > time.time():
+            if get_login(user_id, login_id)["status"] != "pending":
                 return
             user = User.objects.get(id=user_id, is_active=True)
             ensure_codex_connect_enabled(user)
-            if login["status"] == "starting":
-                response = openai_auth_request(
-                    "POST",
-                    f"{DEVICE_AUTH_URL}/usercode",
-                    source="device_login",
-                    endpoint="device_usercode",
-                    timeout=10,
-                    allow_redirects=False,
-                    json={"client_id": CODEX_OAUTH_CLIENT_ID},
-                )
-                response.raise_for_status()
-                body = response.json()
-                if not all(isinstance(body.get(key), str) and body[key] for key in ("device_auth_id", "user_code")):
-                    raise ValueError("Invalid device login response")
-                login.update(
-                    {
-                        "status": "pending",
-                        "user_code": body["user_code"],
-                        "device_auth_id": body["device_auth_id"],
-                        "interval": max(5, int(body.get("interval", 5))),
-                    }
-                )
-                schedule_poll(user_id, login)
-                return
-            login["next_poll_at"] = time.time() + 60
-            caches["codex_login"].set(login_key(user_id), login, timeout=login["expires_at"] - time.time())
-            response = openai_auth_request(
-                "POST",
-                f"{DEVICE_AUTH_URL}/token",
-                source="device_login",
-                endpoint="device_token",
-                timeout=10,
-                allow_redirects=False,
-                json={"device_auth_id": login["device_auth_id"], "user_code": login["user_code"]},
-            )
-            if response.status_code in (403, 404):
-                schedule_poll(user_id, login)
-                return
-            response.raise_for_status()
-            grant = response.json()
-            response = openai_auth_request(
-                "POST",
-                OPENAI_OAUTH_TOKEN_URL,
-                source="device_login",
-                endpoint="token",
-                timeout=10,
-                allow_redirects=False,
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": CODEX_OAUTH_CLIENT_ID,
-                    "redirect_uri": "https://auth.openai.com/deviceauth/callback",
-                    "code": grant["authorization_code"],
-                    "code_verifier": grant["code_verifier"],
-                },
-            )
-            response.raise_for_status()
-            tokens = parse_codex_auth_json({"tokens": response.json()})
-            integration = CodexUserIntegration.connect(user_id, tokens, source="device_login").integration
+            CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")
-            integration.config["device_login_id"] = login_id
-            integration.save(update_fields=["config"])
             transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
             transaction.on_commit(lambda: capture_login_result(user, "connected"))
     except Exception as error:

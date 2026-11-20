@@ -248,7 +248,9 @@ class CodexUserIntegration:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [user_id, "user_integration:codex"])
 
     @classmethod
-    def connect(cls, user_id: int, tokens: CodexTokens, *, source: str) -> "CodexUserIntegration":
+    def connect(
+        cls, user_id: int, tokens: CodexTokens, *, source: str, device_login_id: str | None = None
+    ) -> "CodexUserIntegration":
         """Store a submitted token set after one refresh.
 
         The refresh proves the chain is live, and it makes the server the current holder: the tokens
@@ -268,6 +270,7 @@ class CodexUserIntegration:
                         "email": fresh.email,
                         "status": STATUS_CONNECTED,
                         "connected_at": now.isoformat(),
+                        **({"device_login_id": device_login_id} if device_login_id else {}),
                         "last_refreshed_at": now.isoformat(),
                     },
                     "sensitive_config": cls._sensitive_config(fresh),

@@ -2076,6 +2076,10 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("access_revoked",),
             ("cancel_after_store",),
             ("cancel_old_connection",),
+            ("poll_timeout",),
+            ("poll_503",),
+            ("poll_429",),
+            ("cancel_during_exchange",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
@@ -2094,7 +2098,13 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             if url.endswith("/deviceauth/token"):
                 assert kwargs["json"] == {"device_auth_id": "private-device-id", "user_code": "TEST-CODE"}
                 if outcome == "failed":
-                    return self._openai_response(500, {})
+                    return self._openai_response(400, {})
+                if not approved and outcome == "poll_timeout":
+                    raise requests.Timeout()
+                if not approved and outcome in ("poll_503", "poll_429"):
+                    response = self._openai_response(int(outcome[-3:]), {})
+                    response.headers["Retry-After"] = "30"
+                    return response
                 return (
                     self._openai_response(
                         200, {"authorization_code": "private-code", "code_verifier": "private-verifier"}
@@ -2103,6 +2113,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     else self._openai_response(403, {})
                 )
             if "data" in kwargs:
+                if outcome == "cancel_during_exchange":
+                    self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
                 assert kwargs["data"] == {
                     "grant_type": "authorization_code",
                     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
@@ -2131,7 +2143,9 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 assert get_login(self.user.id, login_id)["status"] == "pending"
                 assert schedule.call_count == 2
             approved = True
-            clock.return_value = now + 10
+            if outcome.startswith("poll_"):
+                assert schedule.call_args.kwargs["countdown"] == (10 if outcome == "poll_timeout" else 30)
+            clock.return_value = now + 60
             if outcome == "cancel":
                 self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
             elif outcome == "disconnect":
@@ -2150,7 +2164,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     assert response.status_code == 204
             complete_codex_login(self.user.id, login_id)
 
-        connected = outcome in ("success", "cancel_old_connection")
+        connected = outcome in ("success", "cancel_old_connection", "poll_timeout", "poll_503", "poll_429")
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
         assert result["user_code"] is None
@@ -2165,6 +2179,10 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "access_revoked": "failed",
                 "cancel_after_store": "canceled",
                 "cancel_old_connection": "expired",
+                "poll_timeout": "connected",
+                "poll_503": "connected",
+                "poll_429": "connected",
+                "cancel_during_exchange": "canceled",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)
