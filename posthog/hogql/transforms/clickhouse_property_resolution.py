@@ -864,13 +864,14 @@ def _feature_flag_compatibility_read(
 
 def _flag_key_column_read(
     node: ast.PropertyAccess, field_type: ast.FieldType, context: HogQLContext
-) -> ast.Field | None:
+) -> ast.Expr | None:
     """`flag_key` for a read of `properties.$feature_flag` on flag_evaluations, or None for any other read.
 
-    Ingestion writes a flag call to flag_evaluations only when its `$feature_flag` is a non-empty JSON string, and the
-    shard stores the JSON text of that string, without its quotes, in `flag_key`. The JSON read returns the same text on
-    every row, so the column gives the same value without loading the whole `properties` blob. The column is read
-    without the '' and 'null' scrubbing of a materialized column, because "null" here can only be the name of a flag.
+    Ingestion and the backfill write a flag call to flag_evaluations only when its `$feature_flag` is a non-empty JSON
+    string, and the shard stores the JSON text of that string, without its quotes, in `flag_key`. A property removal of
+    `$feature_flag` writes the row back without the key and with an empty `flag_key`. The JSON read returns that text on
+    the first kind of row and NULL on the second, so `nullIf(flag_key, '')` reads the same value without loading the
+    whole `properties` blob. Unlike a materialized column, 'null' stays a value, because here it can only name a flag.
     """
     table_type = _unwrap_to_table_type(field_type)
     if node.keys != ["$feature_flag"] or table_type is None or not isinstance(table_type.table, FlagEvaluationsTable):
@@ -878,7 +879,8 @@ def _flag_key_column_read(
     field = field_type.resolve_database_field(context)
     if not isinstance(field, DatabaseField) or field.name != "properties":
         return None
-    return _synthetic_column_field(field_type, "flag_key", is_nullable=False)
+    column = _synthetic_column_field(field_type, "flag_key", is_nullable=False)
+    return null_if_sentinels(column, ("",)) if column is not None else None
 
 
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
