@@ -33,9 +33,11 @@ def delete_user_analytics(distinct_id: str | None, email: str) -> None:
         )
         if response.status_code != 200:
             logger.error("User marketing opt-out failed with HTTP status %s", response.status_code)
-            return
-        if not distinct_id:
-            return
+    except requests.RequestException:
+        logger.error("User marketing opt-out request failed")  # noqa: TRY400
+    if not distinct_id:
+        return
+    try:
         response = requests.post(
             f"{project_url}/persons/bulk_delete/",
             headers=headers,

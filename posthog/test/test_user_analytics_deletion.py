@@ -87,9 +87,10 @@ class TestUserAnalyticsDeletion(TestCase):
 
     @parameterized.expand([("http",), ("timeout",)])
     @responses.activate
-    def test_failed_opt_out_does_not_delete_analytics(self, failure: str) -> None:
+    def test_opt_out_failure_still_requests_analytics_and_account_deletion(self, failure: str) -> None:
         user = User.objects.create(email="deleted@example.com", distinct_id="example-user")
         user_id = user.pk
+        responses.post(DELETION_URL, json={}, status=202)
         if failure == "timeout":
             responses.post(PREFERENCES_URL, body=requests.Timeout("sensitive request details"))
         else:
@@ -98,7 +99,13 @@ class TestUserAnalyticsDeletion(TestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 user.delete()
         assert not User.objects.filter(pk=user_id).exists()
-        assert len(responses.calls) == 1
+        assert len(responses.calls) == 2
         assert responses.calls[0].request.url == PREFERENCES_URL
+        assert responses.calls[1].request.url == DELETION_URL
+        assert json.loads(responses.calls[1].request.body) == {
+            "distinct_ids": ["example-user"],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
         assert "sensitive request details" not in str(logs.output)
         assert user.email not in str(logs.output)
