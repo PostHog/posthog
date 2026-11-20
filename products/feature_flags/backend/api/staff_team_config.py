@@ -188,6 +188,13 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
             "for the time the organization spent on 2."
         ),
     )
+    keep_writing_flag_calls_to_events = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader "
+            "behaves as on mode 2. Any other mode clears it."
+        ),
+    )
     dry_run = serializers.BooleanField(
         default=False,
         help_text="Report what the write would change, and write nothing.",
@@ -433,7 +440,11 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # One transaction across organizations, so the request applies in full or not at all.
         with transaction.atomic():
             changes = set_organizations_flag_evaluations_mode(
-                organizations, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
+                organizations,
+                mode,
+                allow_downgrade=allow_downgrade,
+                dry_run=dry_run,
+                keep_writing_flag_calls_to_events=validated["keep_writing_flag_calls_to_events"],
             )
 
         if not dry_run:
@@ -443,6 +454,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 was_impersonated=is_impersonated(request),
                 flag_evaluations_mode=mode.value,
                 allow_downgrade=allow_downgrade,
+                keep_writing_flag_calls_to_events=validated["keep_writing_flag_calls_to_events"],
                 team_ids=team_ids,
                 organization_ids=[str(organization.id) for organization in organizations],
                 organizations_changed=sum(change.changed for change in changes),

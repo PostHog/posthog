@@ -270,13 +270,16 @@ describe('TeamManager()', () => {
             const otherTeamId = await createTeam(postgres, otherOrganizationId)
             await insertRow(postgres, 'feature_flags_organizationfeatureflagsconfig', {
                 organization_id: organizationId,
-                flag_evaluations_mode: FlagEvaluationsMode.ReadFlagEvaluations,
+                flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                keep_writing_flag_calls_to_events: true,
             })
 
-            expect((await teamManager.getTeam(newTeamId))!.flag_evaluations_mode).toBe(
-                FlagEvaluationsMode.ReadFlagEvaluations
-            )
-            expect((await teamManager.getTeam(otherTeamId))!.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+            const team = (await teamManager.getTeam(newTeamId))!
+            expect(team.flag_evaluations_mode).toBe(FlagEvaluationsMode.FlagEvaluationsOnly)
+            expect(team.keep_writing_flag_calls_to_events).toBe(true)
+            const otherTeam = (await teamManager.getTeam(otherTeamId))!
+            expect(otherTeam.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+            expect(otherTeam.keep_writing_flag_calls_to_events).toBe(false)
         })
 
         it('does not leak minimal_flag_called_events across teams', async () => {

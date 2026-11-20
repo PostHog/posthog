@@ -296,6 +296,8 @@ export interface Team {
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
     flag_evaluations_mode: FlagEvaluationsMode
+    /** Only read on FlagEvaluationsOnly: ingestion keeps writing flag calls to events. */
+    keep_writing_flag_calls_to_events: boolean
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null

@@ -5,7 +5,7 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.dataclasses import frozen
 
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flags import reads_flag_calls_without_events_fallback
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -30,7 +30,7 @@ class FlagCalls:
         # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY, and the
         # native JSON events table holds none. So the scan reads `flag_evaluations` by name. Otherwise events holds every
         # flag call, and flag_evaluations only those of the teams that ingestion writes there.
-        if not flag_calls_only_in_flag_evaluations(team):
+        if not reads_flag_calls_without_events_fallback(team):
             return cls(
                 table=("events",),
                 only_calls=parse_expr("event = '$feature_flag_called'"),

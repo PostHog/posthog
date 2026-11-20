@@ -245,7 +245,11 @@ describe('eventsSceneLogic', () => {
                     },
                 },
             })
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             const lookup = getEventLookupQuery(LOOKUP_UUID)
             const query: DataTableNode = {
                 ...lookup,
@@ -297,6 +301,7 @@ describe('eventsSceneLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            flag_calls_only_in_flag_evaluations: true,
         })
         router.actions.push(
             combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: getEventLookupQuery(LOOKUP_UUID) }).url

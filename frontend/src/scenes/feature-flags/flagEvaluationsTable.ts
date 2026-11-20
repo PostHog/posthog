@@ -20,7 +20,8 @@ export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null
 
 /** Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. */
 export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
-    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
+    // An organization that keeps writing flag calls to events reads flag_evaluations only, but `events` holds the calls.
+    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE && !!team.flag_calls_only_in_flag_evaluations
 }
 
 /**

@@ -912,7 +912,11 @@ describe('ActionFilterRow', () => {
 
         function renderFlagCallsRow(mode: FlagEvaluationsModeEnumApi, node: SeriesNode = DEFAULT_NODE): jest.Mock {
             appendSettledRow = true
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             const { logic, onChange } = setup([node])
             renderRow(logic, {
                 ...INLINE_CONTEXT,
@@ -1054,7 +1058,11 @@ describe('ActionFilterRow', () => {
                 featureFlagLogic.mount()
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: true })
                 try {
-                    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...MOCK_DEFAULT_TEAM,
+                        flag_evaluations_mode: mode,
+                        flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+                    })
                     const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
                     renderRow(logic, {
                         ...INLINE_CONTEXT,

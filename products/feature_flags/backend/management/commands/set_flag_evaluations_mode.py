@@ -10,7 +10,7 @@ again. --write-changed-ids appends the ids of each committed chunk's changed org
 a file. A rollback passes that file to --organization-ids-file.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
-copies to flag_evaluations.
+copies to flag_evaluations, unless --keep-writing-flag-calls-to-events is set.
 """
 
 import os
@@ -130,6 +130,14 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--keep-writing-flag-calls-to-events",
+            action="store_true",
+            help=(
+                "Only with --mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every "
+                "reader behaves as on mode 2. A run that omits it on an organization that has it turns it off."
+            ),
+        )
+        parser.add_argument(
             "--skip-experiment-count",
             action="store_true",
             help=(
@@ -221,6 +229,7 @@ class Command(BaseCommand):
                             allow_downgrade=allow_downgrade,
                             dry_run=dry_run,
                             count_experiments=count_experiments,
+                            keep_writing_flag_calls_to_events=options["keep_writing_flag_calls_to_events"],
                         )
                         # The ids reach the disk before the chunk commits. A rerun reports a committed
                         # organization as unchanged, so it could not list an id that a crash after the

@@ -20,7 +20,11 @@ const GLOBAL_PROPERTY = {
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Event,
 } as CyclotronJobFilterPropertyFilter
-const FLAG_EVALUATIONS_ONLY_TEAM = { ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2 }
+const FLAG_EVALUATIONS_ONLY_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+    flag_calls_only_in_flag_evaluations: true,
+}
 
 describe('flagCallsMatching', () => {
     it.each<[string, MatchingFiltersInput, MatchingFiltersInput | null]>([

@@ -27,7 +27,9 @@ FLAG_EVALUATIONS_MODES_HELP = (
     "$feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it "
     "that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to "
     "events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside "
-    "INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and "
+    "INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With "
+    "that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the "
+    "organization back to events. On 2, a HogQL query reads flag_evaluations for any date range and "
     "fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
     "it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it "
     "is available on 1 and 2."
@@ -94,28 +96,45 @@ def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
     return get_organizations(set(organization_id_by_team_id.values()))
 
 
-def _upsert_modes(organization_ids: Collection[UUID], mode: FlagEvaluationsMode, *, allow_downgrade: bool) -> set[UUID]:
+def _upsert_modes(
+    organization_ids: Collection[UUID],
+    mode: FlagEvaluationsMode,
+    *,
+    keep_writing_flag_calls_to_events: bool,
+    allow_downgrade: bool,
+) -> set[UUID]:
     """Write the mode in one statement and return the ids of the rows it changed.
 
     The WHERE clause compares against the stored mode at write time. Without allow_downgrade, a
-    concurrent write that raised an organization above `mode` after the caller read it is kept.
+    concurrent write that raised an organization above `mode` after the caller read it is kept. A row already at
+    `mode` changes only when its kept events writes differ.
     """
     if not organization_ids:
         return set()
     table = OrganizationFeatureFlagsConfig._meta.db_table
     comparison = "<>" if allow_downgrade else "<"
     query = f"""
-        INSERT INTO {table} (organization_id, flag_evaluations_mode)
-        SELECT unnest(%s::uuid[]), %s
+        INSERT INTO {table} (organization_id, flag_evaluations_mode, keep_writing_flag_calls_to_events)
+        SELECT unnest(%s::uuid[]), %s, %s
         ON CONFLICT (organization_id) DO UPDATE
-           SET flag_evaluations_mode = EXCLUDED.flag_evaluations_mode
+           SET flag_evaluations_mode = EXCLUDED.flag_evaluations_mode,
+               keep_writing_flag_calls_to_events = EXCLUDED.keep_writing_flag_calls_to_events
          WHERE {table}.flag_evaluations_mode {comparison} EXCLUDED.flag_evaluations_mode
+            OR ({table}.flag_evaluations_mode = EXCLUDED.flag_evaluations_mode
+                AND {table}.keep_writing_flag_calls_to_events <> EXCLUDED.keep_writing_flag_calls_to_events)
         RETURNING organization_id
     """
     # The statement locks existing rows in the order of the array, so every writer sorts the ids to lock
     # overlapping rows in the same order.
     with connection.cursor() as cursor:
-        cursor.execute(query, [[str(organization_id) for organization_id in sorted(organization_ids)], int(mode)])
+        cursor.execute(
+            query,
+            [
+                [str(organization_id) for organization_id in sorted(organization_ids)],
+                int(mode),
+                keep_writing_flag_calls_to_events,
+            ],
+        )
         return {row[0] for row in cursor.fetchall()}
 
 
@@ -126,6 +145,7 @@ def set_organizations_flag_evaluations_mode(
     allow_downgrade: bool,
     dry_run: bool,
     count_experiments: bool = True,
+    keep_writing_flag_calls_to_events: bool = False,
 ) -> list[OrganizationModeChange]:
     """Move the organizations to `mode`, in the order given.
 
@@ -136,12 +156,21 @@ def set_organizations_flag_evaluations_mode(
     The reads and the write take one statement each for the whole list. Only the experiments count
     runs once per organization. `count_experiments=False` skips it and reports 0.
 
+    `keep_writing_flag_calls_to_events` applies only to FLAG_EVALUATIONS_ONLY. Ingestion then keeps writing
+    $feature_flag_called to events, and the readers behave as on FLAG_EVALUATIONS_ONLY. Any other mode clears it.
+
     Opens no transaction. A caller that must apply the whole list or none of it wraps the call.
     """
     organization_ids = [organization.id for organization in organizations]
     if len(set(organization_ids)) != len(organization_ids):
         raise ValueError("Each organization must appear once")
     current_modes = get_organization_flag_evaluations_modes(organization_ids)
+    keeps_events_writes = keep_writing_flag_calls_to_events and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    current_keeps = dict(
+        OrganizationFeatureFlagsConfig.objects.filter(organization_id__in=organization_ids).values_list(
+            "organization_id", "keep_writing_flag_calls_to_events"
+        )
+    )
     team_counts = dict(
         Team.objects.filter(organization_id__in=organization_ids)
         .values("organization_id")
@@ -153,9 +182,17 @@ def set_organizations_flag_evaluations_mode(
     moving_ids = {
         organization_id
         for organization_id, current_mode in current_modes.items()
-        if current_mode < mode or (allow_downgrade and current_mode > mode)
+        if current_mode < mode
+        or (allow_downgrade and current_mode > mode)
+        or (current_mode == mode and current_keeps.get(organization_id, False) != keeps_events_writes)
     }
-    changed_ids = moving_ids if dry_run else _upsert_modes(moving_ids, mode, allow_downgrade=allow_downgrade)
+    changed_ids = (
+        moving_ids
+        if dry_run
+        else _upsert_modes(
+            moving_ids, mode, keep_writing_flag_calls_to_events=keeps_events_writes, allow_downgrade=allow_downgrade
+        )
+    )
     return [
         OrganizationModeChange(
             organization_id=organization.id,
@@ -163,7 +200,9 @@ def set_organizations_flag_evaluations_mode(
             organization_created_at=organization.created_at,
             team_count=team_counts.get(organization.id, 0),
             running_experiments_needing_flag_calls_in_events=(
-                count_running_experiments_needing_flag_calls_in_events(organization.id) if count_experiments else 0
+                count_running_experiments_needing_flag_calls_in_events(organization.id)
+                if count_experiments and not keeps_events_writes
+                else 0
             ),
             current_mode=current_modes[organization.id],
             target_mode=mode,
