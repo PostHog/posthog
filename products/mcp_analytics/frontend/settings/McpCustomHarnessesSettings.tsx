@@ -3,14 +3,35 @@ import { useActions, useValues } from 'kea'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { CustomHarnessIcon } from '../components/CustomHarnessIcon'
+import type { MCPCustomHarnessApi } from '../generated/api.schemas'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 import { McpCustomHarnessForm } from './McpCustomHarnessForm'
+import { QuillMcpCustomHarnessesSettings } from './QuillMcpCustomHarnessesSettings'
 
 export function McpCustomHarnessesSettings(): JSX.Element {
     const { customHarnesses, customHarnessesLoading, editingHarnessId, deletingHarnessId, saveInProgressReason } =
         useValues(mcpCustomHarnessesLogic)
     const { startAddingHarness, startEditingHarness, deleteCustomHarness } = useActions(mcpCustomHarnessesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmDelete = (harness: MCPCustomHarnessApi): void =>
+        LemonDialog.open({
+            title: `Delete ${harness.name}?`,
+            description: 'Calls from this client go back to the built-in harness names.',
+            primaryButton: {
+                status: 'danger',
+                children: 'Delete',
+                onClick: () => deleteCustomHarness(harness.id),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return <QuillMcpCustomHarnessesSettings onDelete={confirmDelete} />
+    }
 
     return (
         <div className="flex flex-col gap-2" data-attr="mcp-custom-harnesses">
@@ -65,19 +86,7 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                                     tooltip="Delete"
                                     aria-label={`Delete ${harness.name}`}
                                     loading={deletingHarnessId === harness.id}
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Delete ${harness.name}?`,
-                                            description:
-                                                'Calls from this client go back to the built-in harness names.',
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: 'Delete',
-                                                onClick: () => deleteCustomHarness(harness.id),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
+                                    onClick={() => confirmDelete(harness)}
                                     data-attr="mcp-custom-harness-delete"
                                 />
                             </div>
