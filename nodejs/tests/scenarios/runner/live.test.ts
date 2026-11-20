@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { JournalEntry } from '../judge/judge'
 import type { MetricSample } from '../judge/measurements'
+import { edgeTruth } from '../judge/truth'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { LIVE_FILE, LiveLog, LiveRecord, openLiveLog } from './live'
 
@@ -76,7 +77,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [OFFERED],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         await log.stop()
         log.write(END)
@@ -139,7 +140,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         await secondRead
         await log.stop()
@@ -162,7 +163,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         log[Symbol.dispose]()
         await following
@@ -181,7 +182,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
 
         await expect(log.stop()).resolves.toBeUndefined()
@@ -219,7 +220,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: `http://127.0.0.1:${(edge.address() as AddressInfo).port}`,
+            truth: edgeTruth(`http://127.0.0.1:${(edge.address() as AddressInfo).port}`),
         })
         await firstHeadFailed
         await log.stop()

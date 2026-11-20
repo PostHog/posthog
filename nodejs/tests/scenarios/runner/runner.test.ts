@@ -274,7 +274,7 @@ describe('runner', () => {
         const result = await onHost.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
-        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        expect(api.captured.map(({ properties }) => [properties.run_id, properties.target])).toEqual([[runId, 'local']])
         await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
             `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
         )
