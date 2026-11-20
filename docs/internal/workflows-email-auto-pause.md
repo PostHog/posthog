@@ -74,7 +74,7 @@ A workflow whose every email step is transactional (`message_category_type` is `
 Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach at warning level with `mode="transactional"`.
 Its warning email says it is not paused automatically and that staff can pause it by hand.
 Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
-A workflow with one email step that is not transactional, such as a marketing step or a generic step that sends through the email template, is judged like any other.
+A workflow with one email step that is not transactional, such as a marketing step or any other function step that sends through the email template, is judged like any other.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
