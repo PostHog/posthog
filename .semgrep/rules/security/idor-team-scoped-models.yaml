@@ -473,6 +473,7 @@ rules:
                               |AnomalyScoringDueInsight
                               |PushTokenImport
                               |SignalScratchpad
+                              |SignalScratchpadRevision
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
@@ -1020,6 +1021,7 @@ rules:
                         |AnomalyScoringDueInsight
                         |PushTokenImport
                         |SignalScratchpad
+                        |SignalScratchpadRevision
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
