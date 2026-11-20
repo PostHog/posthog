@@ -35,7 +35,6 @@ jest.mock('./generated/api', () => {
     return { ...actual, aiObservabilityTracesList: jest.fn(actual.aiObservabilityTracesList) }
 })
 
-const AVAILABILITY_URL = '/api/projects/:team_id/ai_observability/sessions/availability/'
 const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
 const GENERATIONS_PATH = urls.aiObservabilityGenerations()
 const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
@@ -127,7 +126,6 @@ describe('AIObservabilityScene', () => {
             get: {
                 '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])],
                 '/api/projects/:team_id/ai_observability/sessions/': () => [200, makeSessionListPage([])],
-                [AVAILABILITY_URL]: () => [200, { hasSessions: false }],
             },
         })
     })
@@ -249,21 +247,6 @@ describe('AIObservabilityScene', () => {
 
             expect(router.values.location.pathname).toContain(path)
             expect(router.values.searchParams).toEqual({ date_from: '-7d' })
-        })
-
-        it.each([
-            [true, urls.aiObservabilitySessions()],
-            [false, urls.aiObservabilityTraces()],
-        ])('opens Activity on sessions only when the project has sessions (%s)', async (hasSessions, path) => {
-            useMocks({ get: { [AVAILABILITY_URL]: () => [200, { hasSessions }] } })
-            const container = renderScene({ sceneKey: 'aiObservabilityTraces' })
-
-            await waitFor(() =>
-                expect(removeProjectIdIfPresent(frameHref(container, 'ai-observability-tab-activity'))).toEqual(path)
-            )
-            const shortcut = shortcutLogic.values.registeredShortcuts.find(({ name }) => name === 'AIObservabilityTab2')
-            act(() => shortcut?.callback?.())
-            expect(router.values.location.pathname).toContain(path)
         })
 
         it('registers no fifth tab shortcut', () => {

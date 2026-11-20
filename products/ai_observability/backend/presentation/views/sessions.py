@@ -88,7 +88,7 @@ class SessionTurnsQuerySerializer(SessionQuerySerializer):
 
 
 class SessionViewSet(TraceResourceViewSet):
-    scope_object_read_actions = ["list", "retrieve", "availability", "turns"]
+    scope_object_read_actions = ["list", "retrieve", "turns"]
 
     @validated_request(
         query_serializer=SessionListQuerySerializer,
@@ -207,13 +207,3 @@ class SessionViewSet(TraceResourceViewSet):
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         # Built after the query slot is released, so normalizing a page of turns never holds the team's slot.
         return Response(build().model_dump(mode="json", by_alias=True))
-
-    @validated_request(
-        responses={200: OpenApiResponse(response=contracts.SessionAvailability), 429: THROTTLED_RESPONSE},
-        operation_id="ai_observability_sessions_availability",
-    )
-    @action(detail=False, methods=["GET"])
-    def availability(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        """Whether the project has any AI event with a session id within the AI events retention."""
-        availability = self._read(request, lambda user, _hint: api.has_sessions(self.team, user))
-        return Response(availability.model_dump(mode="json", by_alias=True))

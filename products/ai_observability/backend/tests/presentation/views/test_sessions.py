@@ -121,21 +121,6 @@ class TestSessionViewSet(ClickhouseTestMixin, APIBaseTest):
         assert hinted.status_code == 200
         assert hinted.json()["firstTraceId"] == "a1"
 
-    def test_availability_is_false_without_a_session_id(self) -> None:
-        self.events.add("t1")
-        self.events.seed()
-
-        assert self._get(self._url("availability/")).json() == {"hasSessions": False}
-
-    def test_availability_is_true_with_a_session_id_for_a_read_key(self) -> None:
-        self.events.add("t1", properties={"$ai_session_id": "session-a"})
-        self.events.seed()
-
-        response = self._get(self._url("availability/"), scopes=["llm_analytics:read"])
-
-        assert response.status_code == 200
-        assert response.json() == {"hasSessions": True}
-
     def _turns_url(self, session_id: str = "session-a") -> str:
         return self._url(f"{encode_segment(session_id)}/turns/")
 

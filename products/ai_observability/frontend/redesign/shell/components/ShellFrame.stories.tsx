@@ -8,7 +8,6 @@ const meta: Meta<typeof ShellFrame> = {
     parameters: { testOptions: { snapshotBrowsers: [] } },
     args: {
         linkParams: {},
-        hasSessions: null,
         todayRailNav: false,
         onScopeChange: () => {},
         children: <div className="border rounded p-4 text-secondary">Tab content</div>,

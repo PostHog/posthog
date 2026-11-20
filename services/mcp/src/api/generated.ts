@@ -116653,11 +116653,6 @@ export namespace Schemas {
       date_to: string;
     }
 
-    export interface SessionAvailability {
-      /** Whether any AI event in the retention window carries a session id. */
-      hasSessions: boolean;
-    }
-
     export interface TraceNodeStats {
       costUsd: number | null;
       inputTokens: number | null;

@@ -30,7 +30,6 @@ from .trace_expressions import (
 from .trace_queries import FEEDBACK_EVENT_NAMES, read_ai_events_table
 
 SESSION_FACTS_QUERY_NAME = "ai_session_facts"
-SESSIONS_AVAILABILITY_QUERY_NAME = "ai_sessions_availability"
 _SESSION_FACTS_QUERY_SECONDS = 30
 _ACTIVITY_EVENT_NAMES = (*TRACE_EVENT_NAMES, *FEEDBACK_EVENT_NAMES)
 _TRACE_COLUMN_NAMES = tuple(field.name for field in fields(TraceColumns))
@@ -324,12 +323,3 @@ def load_session_facts(
         events_rows = _read_events(team, user, _events_query(missing, fallback, include_support_traces))
         found.update({facts.session_id: facts for facts in map(_facts, events_rows)})
     return found
-
-
-def load_has_sessions(team: Team, user: User | None, now: datetime) -> bool:
-    query = parse_select(
-        "SELECT 1 FROM posthog.ai_events WHERE isNotNull(session_id) AND session_id != '' AND timestamp >= {since} LIMIT 1",
-        placeholders={"since": ast.Constant(value=now - timedelta(days=AI_EVENTS_RETENTION_DAYS))},
-    )
-    assert isinstance(query, ast.SelectQuery)
-    return bool(read_ai_events_table(SESSIONS_AVAILABILITY_QUERY_NAME, query, team, user, _settings()))

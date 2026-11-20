@@ -162,7 +162,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadSessionsPage: 'products.ai_observability.frontend.redesign.sessions.sessionsListLogic', // The sessions list shows the error, or toasts its own when rows stay on screen
     loadConversationPage: 'products.ai_observability.frontend.redesign.sessions.sessionConversationLogic', // The conversation shows the error in place, with a retry
-    loadSessionsAvailability: 'products.ai_observability.frontend.redesign.shell.sessionsAvailabilityLogic', // The shell falls back to opening Activity on Traces
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',

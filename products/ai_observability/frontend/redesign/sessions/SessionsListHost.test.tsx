@@ -18,7 +18,6 @@ import {
 } from './testFixtures'
 
 const SESSIONS_URL = '/api/projects/:team_id/ai_observability/sessions/'
-const AVAILABILITY_URL = '/api/projects/:team_id/ai_observability/sessions/availability/'
 const TURNS_PAGE = makeSessionTurnsPage([1, 2])
 
 describe('SessionsListHost', () => {
@@ -26,7 +25,6 @@ describe('SessionsListHost', () => {
         useMocks({
             get: {
                 [SESSIONS_URL]: [200, makeSessionListPage(['session-a', 'session-b'])],
-                [AVAILABILITY_URL]: [200, { hasSessions: true }],
                 [SESSION_TRACES_URL]: [200, TURNS_PAGE],
             },
             post: { ...sessionCellsMocks(), [SESSION_TURNS_URL]: sessionTurnsMock() },
@@ -74,14 +72,5 @@ describe('SessionsListHost', () => {
 
         await waitFor(() => expect(router.values.searchParams).toEqual({ session: 'session-b' }))
         await view.findByText('Answer of trace-2')
-    })
-
-    it('shows the setup card instead of the list when the project has no sessions', async () => {
-        useMocks({ get: { [AVAILABILITY_URL]: [200, { hasSessions: false }] } })
-        router.actions.push(urls.aiObservabilitySessions())
-        const view = render(<SessionsListHost />)
-
-        await view.findByText('View traces instead')
-        expect(view.container.querySelector('[data-attr="ai-observability-sessions-list"]')).toBeNull()
     })
 })

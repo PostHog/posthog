@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -9,7 +8,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 
@@ -20,15 +18,12 @@ import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { TraceCellLoad } from '../shared/cellLoads'
-import { sessionsAvailabilityLogic } from '../shell/sessionsAvailabilityLogic'
-import { shellHref, shellLinkParams } from '../shell/shellNavigation'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
 import { traceDrawerLogic } from '../trace/traceDrawerLogic'
 import { opensTraceDrawer } from '../trace/traceDrawerRows'
 import { TraceDrawerRowProps } from '../trace/TraceDrawerRowsHost'
 import { SessionListRow } from './components/SessionListRow'
-import { SessionsSetupCard } from './components/SessionsSetupCard'
 import { sessionCellsLogic } from './sessionCellsLogic'
 import { SessionConversationHost } from './SessionConversationHost'
 import { SESSION_TURNS_LIST } from './sessionConversationLogic'
@@ -105,8 +100,6 @@ export function SessionsListHost(): JSX.Element {
     const { setDateRange } = useActions(shellScopeLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { openTraceId } = useValues(traceDrawerLogic({ listId: SESSION_TURNS_LIST }))
-    const { hasSessions } = useValues(sessionsAvailabilityLogic)
-    const { searchParams } = useValues(router)
     const columns: LemonTableColumns<SessionListItemApi> = useMemo(
         () => [
             {
@@ -139,11 +132,6 @@ export function SessionsListHost(): JSX.Element {
         }),
         [openSession]
     )
-
-    // A link to a session still opens it, since the probe only looks as far back as AI events are kept.
-    if (hasSessions === false && openSessionId === null) {
-        return <SessionsSetupCard tracesHref={shellHref(urls.aiObservabilityTraces(), shellLinkParams(searchParams))} />
-    }
 
     return (
         <div className="flex flex-col gap-3">

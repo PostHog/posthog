@@ -20,7 +20,7 @@ export interface ShellTab {
     id: ShellTabId
     label: string
     description: string
-    /** Where the tab link goes: the default scope's path when the tab has scopes. See `shellTabPath`. */
+    /** Where the tab link goes: the default scope's path when the tab has scopes. */
     path: string
     /** The manifest route key of `path`, or null when the tab's scopes carry the keys. */
     sceneKey: string | null
@@ -124,15 +124,6 @@ export function shellDocsUrl(location: ShellLocation): string {
 
 export function shellHref(path: string, linkParams: Record<string, unknown>): string {
     return combineUrl(path, linkParams).url
-}
-
-/** Where the Activity tab opens: on Sessions once the project is known to have sessions, on Traces until then. */
-export function activityTabPath(hasSessions: boolean | null): string {
-    return hasSessions ? SESSIONS.path : TRACES.path
-}
-
-export function shellTabPath(tab: ShellTab, hasSessions: boolean | null): string {
-    return tab.id === 'activity' ? activityTabPath(hasSessions) : tab.path
 }
 
 // pinned: the params that carry the open session and its first turn's time, which saved links read
