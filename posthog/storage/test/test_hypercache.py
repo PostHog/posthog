@@ -1595,6 +1595,49 @@ class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
         # The value is readable from the Redis tier afterwards.
         assert hc.get_from_cache(self.team.api_token) == self.sample_data
 
+    @parameterized.expand(
+        [
+            (
+                "alias_with_deadlines",
+                {"SOCKET_TIMEOUT": 2, "SOCKET_CONNECT_TIMEOUT": 1},
+                {"socket_timeout": 2, "socket_connect_timeout": 1},
+            ),
+            ("alias_with_a_read_deadline_only", {"SOCKET_TIMEOUT": 2}, {"socket_timeout": 2}),
+            ("alias_without_deadlines", {}, {}),
+        ]
+    )
+    def test_expiry_tracking_uses_the_socket_deadlines_of_its_cache_alias(self, _name, options, expected):
+        requested: list[dict[str, float]] = []
+
+        def fake_get_client(redis_url: str, **timeouts: float) -> Mock:
+            requested.append(timeouts)
+            return Mock()
+
+        caches_setting = {
+            "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "default-test-cache"},
+            "bounded": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "bounded-test-cache",
+                "OPTIONS": options,
+            },
+        }
+        with (
+            override_settings(CACHES=caches_setting),
+            patch("posthog.storage.hypercache.get_client", side_effect=fake_get_client),
+        ):
+            hc = HyperCache(
+                namespace="test",
+                value="value",
+                load_fn=lambda key: {"data": "test"},
+                token_based=True,
+                expiry_sorted_set_key=self.SORTED_SET_KEY,
+                cache_alias="bounded",
+            )
+            hc.set_cache_value_redis_only(self.team, self.sample_data, track_expiry=True)
+            hc.delete_cache_entry(self.team, kinds=["redis"])
+
+        assert requested == [expected, expected]
+
     @patch("posthog.storage.hypercache.get_client")
     def test_an_explicit_ttl_sets_the_expiry_score(self, mock_get_client):
         mock_redis = Mock()

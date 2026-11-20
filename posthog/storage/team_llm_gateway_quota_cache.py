@@ -178,7 +178,7 @@ class _Projected(NamedTuple):
     write_failures_in_a_row: int
 
 
-def _project_batch(teams: list[Team], failures_in_a_row: int = 0) -> _Projected:
+def _project_batch(teams: list[Team], failures_in_a_row: int = 0, deadline: float | None = None) -> _Projected:
     """Writes each blob, then re-reads and rewrites what moved. Writers race, and each re-read
     follows every earlier write, so the last write carries current state. Failures are captured
     for the reconcile, never raised into billing. Counts the blobs left written and the clears
@@ -186,9 +186,11 @@ def _project_batch(teams: list[Team], failures_in_a_row: int = 0) -> _Projected:
     by_id = {team.id: team for team in teams}
     written: dict[int, dict[str, Any] | None] = {}
     to_write = _derive_or_capture(teams, datetime.now(tz=UTC))
-    for _ in range(_MAX_PROJECTION_WRITES):
+    for attempt in range(_MAX_PROJECTION_WRITES):
         now = datetime.now(tz=UTC)
         for team_id, blob in to_write.items():
+            if attempt == 0 and deadline is not None and time.monotonic() >= deadline:
+                break
             try:
                 _write_blob(by_id[team_id], blob, now)
             except Exception as e:
@@ -215,10 +217,10 @@ def _project_batch(teams: list[Team], failures_in_a_row: int = 0) -> _Projected:
     return _Projected(blobs, len(written) - blobs, failures_in_a_row)
 
 
-def _project_in_batches(queryset: QuerySet[Team]) -> _Projected:
+def _project_in_batches(queryset: QuerySet[Team], deadline: float | None = None) -> _Projected:
     written = cleared = failures_in_a_row = 0
     for batch in batched(queryset.iterator(chunk_size=_BATCH_SIZE), _BATCH_SIZE, strict=False):
-        projected = _project_batch(list(batch), failures_in_a_row)
+        projected = _project_batch(list(batch), failures_in_a_row, deadline)
         written += projected.written
         cleared += projected.cleared
         failures_in_a_row = projected.write_failures_in_a_row
@@ -227,8 +229,8 @@ def _project_in_batches(queryset: QuerySet[Team]) -> _Projected:
     return _Projected(written, cleared, failures_in_a_row)
 
 
-def _project_teams(queryset: QuerySet[Team]) -> _Projected:
-    return _project_in_batches(queryset.only("id", "api_token", "organization_id"))
+def _project_teams(queryset: QuerySet[Team], deadline: float | None = None) -> _Projected:
+    return _project_in_batches(queryset.only("id", "api_token", "organization_id"), deadline)
 
 
 def project_team_quota(team: Team) -> bool | None:
@@ -250,11 +252,11 @@ def clear_team_quota(team: Team | int) -> None:
         capture_exception(e)
 
 
-def project_org_quota(organization: Organization) -> int:
+def project_org_quota(organization: Organization, deadline: float | None = None) -> int:
     """Includes child environments so an obo naming either the project or an environment resolves."""
     if not _enabled():
         return 0
-    return _project_teams(organization.teams.all()).written
+    return _project_teams(organization.teams.all(), deadline).written
 
 
 def project_teams_quota_by_token(tokens: Iterable[str]) -> int:
