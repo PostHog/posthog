@@ -49,6 +49,7 @@ from products.alerts.backend.facade.destinations import (
     reset_source_destination,
     soft_delete_alert_destinations,
     validate_destination_data,
+    with_secret_destination_url,
 )
 from products.alerts_platform.backend.facade.api import (
     copied_by_source_rows,
@@ -1935,7 +1936,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
+            configs = [
+                with_secret_destination_url(config)
+                for config in build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
+            ]
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
                     configs,

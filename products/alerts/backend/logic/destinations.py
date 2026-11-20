@@ -372,7 +372,7 @@ def rebuild_source_destination_hog_functions(
     for destination in source_destinations_without_hog_functions(team_id=team_id, public_id=alert_id):
         # A row delivery disabled stays off on the source too, rather than sending again after the handback.
         configs = [
-            AlertDestinationConfig(payload=_with_secret_url({**config.payload, "enabled": destination.enabled}))
+            AlertDestinationConfig(payload=with_secret_url({**config.payload, "enabled": destination.enabled}))
             for config in build_configs(destination.data)
         ]
         try:
@@ -390,7 +390,7 @@ def rebuild_source_destination_hog_functions(
     return tuple(rebuilt)
 
 
-def _with_secret_url(payload: dict[str, Any]) -> dict[str, Any]:
+def with_secret_url(payload: dict[str, Any]) -> dict[str, Any]:
     """The row keeps a URL destination's address encrypted, and the URL is the channel's credential.
     Marking it secret stores it in `encrypted_inputs` and masks it in the HogFunction API, as the insight
     URL route does. A builder that already sets a schema keeps it."""

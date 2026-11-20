@@ -181,6 +181,12 @@ def create_alert_destination_hog_functions(
     )
 
 
+def with_secret_destination_url(config: AlertDestinationConfig) -> AlertDestinationConfig:
+    """The config with a URL destination's address marked secret, so the HogFunction stores it encrypted and
+    its API masks it. The URL is the channel's credential."""
+    return AlertDestinationConfig(payload=destinations.with_secret_url(config.payload))
+
+
 def rebuild_source_destination_hog_functions(
     *,
     team_id: int,

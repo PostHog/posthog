@@ -1260,7 +1260,8 @@ class TestLogsAlertAPI(APIBaseTest):
             # A destination with no creator is unattributable in the activity log.
             assert hf.created_by_id == self.user.id
             inputs = hf.inputs or {}
-            assert inputs["url"]["value"] == "https://example.com/hook"
+            assert "url" not in inputs
+            assert (hf.encrypted_inputs or {})["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
             assert body["type"] in (
                 "logs_alert.firing",
@@ -1286,7 +1287,9 @@ class TestLogsAlertAPI(APIBaseTest):
         for hf in hog_functions:
             assert hf.template_id == "template-microsoft-teams"
             inputs = hf.inputs or {}
-            assert inputs["webhookUrl"]["value"] == teams_url
+            # The URL is the channel's credential, so the HogFunction API must never return it.
+            assert "webhookUrl" not in inputs
+            assert (hf.encrypted_inputs or {})["webhookUrl"]["value"] == teams_url
             text_value = inputs["text"]["value"]
             # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
             assert text_value.startswith("**")
@@ -1450,10 +1453,10 @@ class TestLogsAlertAPI(APIBaseTest):
         edited.masking = {"ttl": 3600, "hash": "{event.event}", "threshold": None}
         edited.save(update_fields=["masking"])
         for refused in HogFunction.objects.filter(id__in=ids_by_url["https://refused.example.com/hook"]):
-            inputs = refused.inputs or {}
-            inputs["url"]["value"] = "http://refused.example.com/hook"
-            refused.inputs = inputs
-            refused.save(update_fields=["inputs"])
+            encrypted_inputs = refused.encrypted_inputs or {}
+            encrypted_inputs["url"]["value"] = "http://refused.example.com/hook"
+            refused.encrypted_inputs = encrypted_inputs
+            refused.save(update_fields=["encrypted_inputs"])
 
         customized_by_ids = {
             frozenset(destination["hog_function_ids"]): destination["message_customized"]
@@ -1497,10 +1500,10 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
-        inputs = hog_function.inputs or {}
-        inputs["url"]["value"] = "https://[broken/path"
-        hog_function.inputs = inputs
-        hog_function.save(update_fields=["inputs"])
+        encrypted_inputs = hog_function.encrypted_inputs or {}
+        encrypted_inputs["url"]["value"] = "https://[broken/path"
+        hog_function.encrypted_inputs = encrypted_inputs
+        hog_function.save(update_fields=["encrypted_inputs"])
 
         assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
 

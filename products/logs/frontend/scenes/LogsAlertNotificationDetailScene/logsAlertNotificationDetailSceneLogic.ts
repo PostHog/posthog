@@ -293,15 +293,15 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             ): LogsAlertDestinationGroup | null => {
                 const groups = groupLogsAlertDestinations(hogFunctions, () => null)
                 const group = groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
-                // The alert's own list splits groups that differ by more than the URL, such as a header,
-                // so the page keeps to the functions that list puts in this destination.
+                // The alert's own list decides which functions form this destination. A URL input is secret,
+                // so the HogFunction API masks it and the functions cannot be grouped by URL here.
                 const listed = alert?.destinations.find((d) => d.hog_function_ids.includes(hogFunctionId))
                 if (!group || !listed) {
                     return group
                 }
                 return {
                     ...group,
-                    hogFunctions: group.hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)),
+                    hogFunctions: hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)),
                 }
             },
         ],

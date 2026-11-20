@@ -73,21 +73,27 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
         expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual(expected)
     })
 
-    it('keeps to the functions the alert lists as this destination', async () => {
+    it.each([
+        ['splits a URL group the alert lists apart', false, [['fn-firing'], ['fn-resolved']], ['fn-resolved']],
+        ['joins functions whose URL is secret', true, [['fn-firing', 'fn-resolved']], ['fn-firing', 'fn-resolved']],
+    ])('keeps to the functions the alert lists as this destination: %s', async (_name, secret, listed, expected) => {
+        if (secret) {
+            mockList.mockResolvedValue({
+                results: ['fn-firing', 'fn-resolved'].map((id) => ({
+                    ...webhookFunction(id, '$logs_alert_firing'),
+                    inputs: { url: { secret: true } },
+                })),
+            })
+        }
         ;(logsAlertsRetrieve as jest.Mock).mockResolvedValue({
-            destinations: [
-                { id: null, hog_function_ids: ['fn-firing'] },
-                { id: null, hog_function_ids: ['fn-resolved'] },
-            ],
+            destinations: listed.map((ids) => ({ id: null, hog_function_ids: ids })),
         })
         const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.destinationGroup?.hogFunctions.map((hogFunction) => hogFunction.id)).toEqual([
-            'fn-resolved',
-        ])
+        expect(logic.values.destinationGroup?.hogFunctions.map((hogFunction) => hogFunction.id)).toEqual(expected)
     })
 
     it('loads the sends when the flag turns on after the functions loaded', async () => {
