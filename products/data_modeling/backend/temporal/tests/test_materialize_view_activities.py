@@ -3182,6 +3182,42 @@ class TestMaterializeViewStagesAccountPropertyRows:
         table = pq.read_table(BytesIO(await staged_object["Body"].read()))
         assert table.column_names == ["mrr", "organization_id"]
 
+    async def test_a_rust_panic_while_reading_the_snapshot_turns_account_sync_off(
+        self, activity_environment, ateam, anode, ajob, adag, bucket_name
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+        ]
+        panic = _rust_panic()
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+            unittest.mock.patch.object(deltalake.DeltaTable, "version", side_effect=panic),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.row_count == 2
+        assert result.account_property_sync_enabled is False
+        assert result.delta_version is None
+
 
 class TestAwsStorageOptions:
     @override_settings(

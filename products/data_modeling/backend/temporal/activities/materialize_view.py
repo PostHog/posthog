@@ -1483,8 +1483,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await _open_delta_table(table_uri, storage_options)
-                delta_version = delta_table.version()
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
                 capture_exception(error)
