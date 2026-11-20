@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_analytics", "0013_mcpcustomharness_icon"),
+        ("mcp_analytics", "0014_mcpanalyticswrapped"),
         ("posthog", "1405_user_onboarding_skipped_reason_connector"),
     ]
 

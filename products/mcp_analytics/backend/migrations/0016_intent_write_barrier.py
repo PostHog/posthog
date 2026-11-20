@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_analytics", "0014_mcpintenttopic_mcpintentclusteringrun"),
+        ("mcp_analytics", "0015_mcpintenttopic_mcpintentclusteringrun"),
         ("posthog", "1435_ema_issuer_management"),
     ]
 

@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_analytics", "0015_intent_write_barrier"),
+        ("mcp_analytics", "0016_intent_write_barrier"),
         ("posthog", "1435_ema_issuer_management"),
     ]
 
