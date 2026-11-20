@@ -990,7 +990,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if effective_enabled or filters:
             _validate_filters(filters)
         # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
-        starts_reading = self.instance is None or "filters" in attrs or not self.instance.enabled
+        # The edit form sends the stored filters back on every save, so compare values, not keys.
+        starts_reading = (
+            self.instance is None
+            or not self.instance.enabled
+            or attrs.get("filters", self.instance.filters) != self.instance.filters
+        )
         if effective_enabled and starts_reading:
             self._require_pipeline_log_access(filters)
 
