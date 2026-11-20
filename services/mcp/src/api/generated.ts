@@ -1689,6 +1689,26 @@ export namespace Schemas {
       delete_view?: boolean;
     }
 
+    export interface AccessControl {
+      /** @nullable */
+      access_level: string | null;
+      /** @maxLength 32 */
+      resource: string;
+      /**
+         * @maxLength 36
+         * @nullable
+         */
+      resource_id?: string | null;
+      /** @nullable */
+      organization_member?: string | null;
+      /** @nullable */
+      role?: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface AccessControlResourceDefault {
       /**
          * The stored default level for this resource type. Null when the PostHog default applies.

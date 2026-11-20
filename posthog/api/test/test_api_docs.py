@@ -210,6 +210,16 @@ class TestAPIDocsSchema(APIBaseTest):
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
         assert int(str(schema_response.headers.get("Content-Length"))) > 0
 
+        paths = schema_response.data["paths"]
+        assert {
+            path: set(operations)
+            for path, operations in paths.items()
+            if path.endswith(("/access_controls/", "/resource_access_controls/", "/global_access_controls/"))
+        } == {"/api/projects/{id}/access_controls/": {"put"}}
+        assert {path for path in paths if re.fullmatch(r"/api/projects/\{id\}/[^/]+/", path)} == {
+            "/api/projects/{id}/access_controls/"
+        }
+
     def test_llm_prompt_schema_includes_search_and_prompt_name_path_param(self) -> None:
         self.client.logout()
 

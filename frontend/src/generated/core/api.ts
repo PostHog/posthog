@@ -9,6 +9,7 @@ import { apiMutator } from '../../lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AccessControlApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
@@ -1537,6 +1538,26 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccessControlsUpdateUrl = (id: number) => {
+    return `/api/projects/${id}/access_controls/`
+}
+
+/**
+ * Get or update access controls for the resource.
+ */
+export const accessControlsUpdate = async (
+    id: number,
+    accessControlApi: NonReadonly<AccessControlApi>,
+    options?: RequestInit
+): Promise<AccessControlApi | void> => {
+    return apiMutator<AccessControlApi | void>(getAccessControlsUpdateUrl(id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accessControlApi),
     })
 }
 

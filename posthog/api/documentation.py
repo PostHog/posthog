@@ -881,8 +881,14 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
 
     for path, path_regex, method, callback in endpoints:
         force_include = getattr(callback.cls, "force_include_in_api_docs", False)
+        action = getattr(callback, "actions", {}).get(method.lower())
+        include_action = method in getattr(callback.cls, "include_actions_in_api_docs", {}).get(action, ())
 
-        if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
+        if (
+            getattr(callback.cls, "param_derived_from_user_current_team", None)
+            and not force_include
+            and not include_action
+        ):
             # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
             # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
@@ -893,7 +899,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         # wants to appear in the docs.
         if not has_scope_object and not getattr(callback.cls, "include_in_api_docs", False):
             continue
-        if getattr(callback.cls, "hide_api_docs", False):
+        if getattr(callback.cls, "hide_api_docs", False) and not include_action:
             continue
         if has_scope_object:
             scope = callback.cls.scope_object
