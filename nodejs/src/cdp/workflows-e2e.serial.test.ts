@@ -4714,7 +4714,7 @@ describe('Workflows E2E (classify queue)', () => {
             deps,
             new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         )
-        classifyWorker = new CdpCyclotronWorkerClassify(hub, deps, createClassifyJobQueue(hub))
+        classifyWorker = new CdpCyclotronWorkerClassify(hub, deps, createClassifyJobQueue(hub, limiterValkey))
         await Promise.all([hogflowWorker.start(), classifyWorker.start()])
     })
 

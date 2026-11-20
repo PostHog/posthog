@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
@@ -125,6 +126,30 @@ registerAsyncFunction('postHogClassify', {
     },
 })
 
+// Longer than the UTC day a key counts, so a key never expires while its day still runs.
+const DAILY_COUNT_TTL_SECONDS = 2 * 24 * 60 * 60
+
+/** Counts each team's classifications per UTC day, so one team cannot spend the whole model budget. */
+export class ClassifyDailyCap {
+    constructor(
+        private valkey: RedisV2,
+        readonly dailyCap: number
+    ) {}
+
+    /** Counts one classification and says whether it fits. A Valkey error lets it through: the queue's limiter still bounds the rate. */
+    async countAndCheck(teamId: number): Promise<boolean> {
+        const day = new Date(Date.now()).toISOString().slice(0, 10)
+        const key = `@posthog/classify-day/{${teamId}}/${day}`
+        const count = await this.valkey.useClient({ name: 'classify-daily-cap', failOpen: true }, async (client) => {
+            const [[, counted]] = (await client.multi().incr(key).expire(key, DAILY_COUNT_TTL_SECONDS).exec()) ?? [
+                [null, 0],
+            ]
+            return Number(counted)
+        })
+        return count === null || count <= this.dailyCap
+    }
+}
+
 export interface ClassifyRetryPolicy {
     maxAttempts: number
     backoffBaseMs: number
@@ -173,7 +198,8 @@ const isRetriable = (answer: DjangoAnswer): boolean =>
 export async function classifyOnce(
     invocation: CyclotronJobInvocationHogFunction,
     internalApiBaseUrl: string,
-    retryPolicy: ClassifyRetryPolicy
+    retryPolicy: ClassifyRetryPolicy,
+    dailyCap: ClassifyDailyCap | null
 ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
     const params = invocation.queueParameters
     if (params?.type !== 'classify') {
@@ -188,6 +214,14 @@ export async function classifyOnce(
         addLog('error', message)
         result.error = new Error(message)
         result.finished = true
+        return result
+    }
+
+    // Only the first attempt counts, because a retry is the same classification.
+    if (invocation.state.attempts === 0 && dailyCap && !(await dailyCap.countAndCheck(invocation.teamId))) {
+        const message = `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
+        addLog('warn', message)
+        result.invocation.state.vmState?.stack.push({ status: 409, body: { detail: message } })
         return result
     }
 
