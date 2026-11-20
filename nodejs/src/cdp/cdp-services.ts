@@ -16,6 +16,7 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
+import { ClassifyDailyCap } from './async-functions/classify'
 import type { CdpConfig } from './config'
 import {
     CdpEventsDlqOutput,
@@ -161,6 +162,7 @@ export type CdpCoreServicesConfig = Pick<
     UsageIngestionConfig &
     Pick<
         CdpConfig,
+        | 'CDP_CLASSIFY_TEAM_DAILY_CAP'
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
@@ -277,6 +279,8 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    /** The rate limiter's Valkey pool, opened only on the classify worker, which counts each team's daily classifications in it. */
+    classifyValkey?: RedisV2 | null
     sandboxEmail?: SandboxEmailRuntime | null
 }
 
@@ -625,6 +629,9 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            classifyDailyCap: deps.classifyValkey
+                ? new ClassifyDailyCap(deps.classifyValkey, config.CDP_CLASSIFY_TEAM_DAILY_CAP)
+                : null,
         }
     )
 

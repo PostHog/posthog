@@ -8,7 +8,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
-import { classifyOnce } from '../async-functions/classify'
+import { ClassifyDailyCap, classifyOnce } from '../async-functions/classify'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -75,6 +75,8 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
+    /** Null on every worker except the classify worker, which makes the calls the cap counts. */
+    classifyDailyCap: ClassifyDailyCap | null
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -205,11 +207,16 @@ export class HogExecutorAsyncService {
                     if (invocation.queue !== 'classify' && !options?.isTest) {
                         result = this.routeClassifyToQueue(nextInvocation, invocation)
                     } else {
-                        result = await classifyOnce(nextInvocation, this.config.internalApiBaseUrl, {
-                            maxAttempts: options?.isTest ? 1 : this.config.fetchRetries,
-                            backoffBaseMs: this.config.fetchBackoffBaseMs,
-                            backoffMaxMs: this.config.fetchBackoffMaxMs,
-                        })
+                        result = await classifyOnce(
+                            nextInvocation,
+                            this.config.internalApiBaseUrl,
+                            {
+                                maxAttempts: options?.isTest ? 1 : this.config.fetchRetries,
+                                backoffBaseMs: this.config.fetchBackoffBaseMs,
+                                backoffMaxMs: this.config.fetchBackoffMaxMs,
+                            },
+                            this.deps.classifyDailyCap
+                        )
                         if (invocation.queue === 'classify' && !result.invocation.queueScheduledAt) {
                             // The rest of the run goes back, so its other steps never spend the classify budget.
                             this.returnFromClassifyQueue(result, invocation)
