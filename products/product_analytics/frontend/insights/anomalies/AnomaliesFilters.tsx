@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
-
 import { SignalsAnomaliesSearchRetrieveInterval } from 'products/signals/frontend/generated/api.schemas'
 
+import { AnomaliesDashboardPicker } from './AnomaliesDashboardPicker'
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
 import { anomaliesTabLogic } from './anomaliesTabLogic'
 
@@ -21,7 +20,6 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
 export function AnomaliesFilters(): JSX.Element {
     const { filters } = useValues(anomaliesTabLogic)
     const { setFilters } = useActions(anomaliesTabLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -48,20 +46,7 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(interval) => setFilters({ interval })}
                 data-attr="anomalies-tab-interval"
             />
-            <LemonSelect<number | null>
-                size="small"
-                value={filters.dashboardId}
-                options={[
-                    { value: null, label: 'All dashboards' },
-                    ...nameSortedDashboards.map((dashboard) => ({
-                        value: dashboard.id,
-                        label: dashboard.name || 'Untitled dashboard',
-                    })),
-                ]}
-                onChange={(dashboardId) => setFilters({ dashboardId })}
-                dropdownMatchSelectWidth={false}
-                data-attr="anomalies-tab-dashboard"
-            />
+            <AnomaliesDashboardPicker />
         </div>
     )
 }

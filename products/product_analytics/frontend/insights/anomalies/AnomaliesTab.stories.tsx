@@ -170,6 +170,11 @@ const meta: Meta = {
                 // One saved insight, so the scene shows its tabs rather than the first-run screen.
                 '/api/environments/:team_id/insights': toPaginatedResponse(insightsJson.results.slice(0, 1)),
                 '/api/projects/:team_id/insights/': toPaginatedResponse(insightsJson.results.slice(0, 1)),
+                // The dashboards filter searches these once it opens.
+                '/api/projects/:team_id/dashboards/': toPaginatedResponse([
+                    { id: 1, name: 'Growth' },
+                    { id: 2, name: 'Checkout health' },
+                ]),
             },
         }),
     ],

@@ -10,10 +10,18 @@ import type {
     AnomalySeriesApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { ANOMALIES_PAGE_SIZE, anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
+import { anomaliesDashboardPickerLogic } from './anomaliesDashboardPickerLogic'
+import {
+    ANOMALIES_PAGE_SIZE,
+    CHART_POINTS_MAX_ATTEMPTS,
+    CHART_POINTS_RETRY_DELAY_MS,
+    anomaliesTabLogic,
+    anomalySeriesKey,
+} from './anomaliesTabLogic'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
 const POINTS_URL = '/api/projects/:team_id/signals/anomalies/points/'
+const DASHBOARDS_URL = '/api/projects/:team_id/dashboards/'
 const POINTS_DATE_TO = '2026-11-17T00:00:00+00:00'
 const POINT = { bucket_start: '2026-11-15T00:00:00+00:00', value: 42, flag: true }
 const TOTAL_ROWS = ANOMALIES_PAGE_SIZE + 5
@@ -71,12 +79,19 @@ describe('anomaliesTabLogic', () => {
     let pointsStatus: number
     let searchRequests: URLSearchParams[]
     let pointsRequests: AnomalyPointsRequestApi[]
+    let dashboardSearches: (string | null)[]
+    // Holds back the response of the first points request until the test releases it.
+    let holdFirstPoints: boolean
+    let releaseFirstPoints: () => void
 
     beforeEach(() => {
         status = 200
         pointsStatus = 200
         searchRequests = []
         pointsRequests = []
+        dashboardSearches = []
+        holdFirstPoints = false
+        releaseFirstPoints = () => {}
         useMocks({
             get: {
                 [SEARCH_URL]: ({ request }) => {
@@ -87,18 +102,33 @@ describe('anomaliesTabLogic', () => {
                     searchRequests.push(params)
                     return [200, searchPage(Number(params.get('offset')), Number(params.get('limit')))]
                 },
+                [DASHBOARDS_URL]: ({ request }) => {
+                    dashboardSearches.push(new URL(request.url).searchParams.get('search'))
+                    return [200, { count: 1, next: null, previous: null, results: [{ id: 1, name: 'Growth' }] }]
+                },
             },
             post: {
                 [POINTS_URL]: async ({ request }) => {
                     const body = (await request.json()) as AnomalyPointsRequestApi
                     pointsRequests.push(body)
+                    const requestNumber = pointsRequests.length
+                    if (requestNumber === 1 && holdFirstPoints) {
+                        await new Promise<void>((resolve) => {
+                            releaseFirstPoints = resolve
+                        })
+                    }
                     if (pointsStatus !== 200) {
                         return [pointsStatus, { detail: 'Server error.' }]
                     }
                     // The API leaves out a series the user cannot read, here insight 0.
+                    // The value tells the responses apart.
                     const series = body.series
                         .filter((ref) => ref.insight_id !== 0)
-                        .map((ref) => ({ ...ref, date_from: '2026-11-03T00:00:00+00:00', points: [POINT] }))
+                        .map((ref) => ({
+                            ...ref,
+                            date_from: '2026-11-03T00:00:00+00:00',
+                            points: [{ ...POINT, value: requestNumber }],
+                        }))
                     return [200, { date_to: POINTS_DATE_TO, series }]
                 },
             },
@@ -108,6 +138,7 @@ describe('anomaliesTabLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     it('appends the next page and groups its series under the insights already shown', async () => {
@@ -157,21 +188,75 @@ describe('anomaliesTabLogic', () => {
         })
         expect(logic.values.chartPoints[anomalySeriesKey(readable)]).toEqual({
             chartFrom: '2026-11-03T00:00:00+00:00',
-            points: [POINT],
+            points: [{ ...POINT, value: 1 }],
         })
         expect(logic.values.chartPointsStatus).toEqual({})
     })
 
-    it('marks the charts of a page as failed when its points do not load', async () => {
-        pointsStatus = 500
+    it('ignores chart points that arrive after a filter change replaced their list', async () => {
+        holdFirstPoints = true
         logic = anomaliesTabLogic()
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadAnomaliesSuccess', 'loadChartPoints'])
+
+        logic.actions.setFilters({ dateFrom: '-30d' })
+        await expectLogic(logic).toDispatchActions(['loadAnomaliesSuccess', 'setChartPoints'])
+        releaseFirstPoints()
         await expectLogic(logic).toFinishAllListeners()
+
+        expect(pointsRequests).toHaveLength(2)
+        const readable = logic.values.series[1]
+        expect(logic.values.chartPoints[anomalySeriesKey(readable)].points).toEqual([{ ...POINT, value: 2 }])
+        expect(logic.values.chartPointsStatus).toEqual({})
+    })
+
+    it('retries a failed chart batch a limited number of times and does not retry it for the next page', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        pointsStatus = 500
+        const settleRetries = async (): Promise<void> => {
+            for (let attempt = 1; attempt < CHART_POINTS_MAX_ATTEMPTS; attempt++) {
+                await jest.advanceTimersByTimeAsync(CHART_POINTS_RETRY_DELAY_MS * 2 ** attempt)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await settleRetries()
 
         expect(logic.values.series).toHaveLength(ANOMALIES_PAGE_SIZE)
         expect(logic.values.chartPoints).toEqual({})
         expect(new Set(Object.values(logic.values.chartPointsStatus))).toEqual(new Set(['failed']))
         expect(Object.keys(logic.values.chartPointsStatus)).toHaveLength(ANOMALIES_PAGE_SIZE)
+
+        logic.actions.loadMoreAnomalies()
+        await settleRetries()
+
+        expect(pointsRequests.map((body) => [body.series[0].series_key, body.series.length])).toEqual([
+            ...Array(CHART_POINTS_MAX_ATTEMPTS).fill(['series-0', ANOMALIES_PAGE_SIZE]),
+            ...Array(CHART_POINTS_MAX_ATTEMPTS).fill([
+                `series-${ANOMALIES_PAGE_SIZE}`,
+                TOTAL_ROWS - ANOMALIES_PAGE_SIZE,
+            ]),
+        ])
+        expect(Object.keys(logic.values.chartPointsStatus)).toHaveLength(TOTAL_ROWS)
+    })
+
+    it('loads dashboards only when the picker opens, and searches them on the server', async () => {
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dashboardSearches).toEqual([])
+
+        const picker = anomaliesDashboardPickerLogic()
+        picker.mount()
+        picker.actions.ensureOptionsLoaded()
+        await expectLogic(picker).toFinishAllListeners()
+        picker.actions.setSearch('growth')
+        await expectLogic(picker).toDispatchActions(['loadOptionsSuccess', 'loadOptionsSuccess'])
+
+        expect(dashboardSearches).toEqual([null, 'growth'])
+        expect(picker.values.dashboardOptions.map((dashboard) => dashboard.name)).toEqual(['Growth'])
+        picker.unmount()
     })
 
     it('collapses expanded insights when the filters change', async () => {
