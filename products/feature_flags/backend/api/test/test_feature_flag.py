@@ -4637,6 +4637,31 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            ("tags_mixed_case", "tags", ["Finance"], {"finance-flag"}),
+            ("tags_upper_case_with_whitespace", "tags", [" FINANCE "], {"finance-flag"}),
+            ("excluded_tags_mixed_case", "excluded_tags", ["Finance"], {"untagged-flag"}),
+        ]
+    )
+    def test_list_tag_filters_match_stored_tag_names(self, _name, param, tags, expected_keys):
+        for key, flag_tags in [("finance-flag", ["finance"]), ("untagged-flag", [])]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "key": key,
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                    "tags": flag_tags,
+                },
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/", {param: json.dumps(tags)})
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert keys & {"finance-flag", "untagged-flag"} == expected_keys
+
+    @parameterized.expand(
+        [
             ("filtered", "?eligible_for_experiment=true", {"eligible-flag", "control-second-flag"}),
             ("unfiltered", "", {"eligible-flag", "control-second-flag", "single-variant-flag"}),
         ]

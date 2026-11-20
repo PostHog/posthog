@@ -89,6 +89,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.tag import tagify_filter
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -5872,7 +5873,7 @@ class FeatureFlagViewSet(
                     # Handle both list and JSON string
                     tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
                     if tags:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                        queryset = queryset.filter(tagged_items__tag__name__in=tagify_filter(tags)).distinct()
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "excluded_tags":
@@ -5885,7 +5886,8 @@ class FeatureFlagViewSet(
                         # Exclude by ID subquery so a flag carrying both an excluded and a
                         # non-excluded tag is still reliably filtered out.
                         flags_with_excluded_tags = FeatureFlag.objects.filter(
-                            team__project_id=self.project_id, tagged_items__tag__name__in=excluded_tags
+                            team__project_id=self.project_id,
+                            tagged_items__tag__name__in=tagify_filter(excluded_tags),
                         ).values("pk")
                         queryset = queryset.exclude(pk__in=flags_with_excluded_tags)
                 except (json.JSONDecodeError, TypeError):

@@ -104,6 +104,7 @@ from posthog.models.group_type_mapping import (
     get_group_type_mapping_dashboard_ids,
 )
 from posthog.models.quick_filter import QuickFilter
+from posthog.models.tag import tagify_filter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -3399,7 +3400,7 @@ class DashboardsViewSet(
 
         tags = self.request.query_params.getlist("tags")
         if tags:
-            queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+            queryset = queryset.filter(tagged_items__tag__name__in=tagify_filter(tags)).distinct()
 
         folder = self.request.query_params.get("folder")
         if folder is not None:

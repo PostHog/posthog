@@ -868,6 +868,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
+    @parameterized.expand([("mixed_case", '["Finance"]'), ("upper_case_with_whitespace", '[" FINANCE "]')])
+    def test_list_tag_filter_matches_stored_tag_names(self, _name: str, tags: str) -> None:
+        from posthog.models.tag import Tag
+
+        tagged = Insight.objects.create(short_id="tagged", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        Insight.objects.create(short_id="untagged", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        tagged.tagged_items.create(tag=Tag.objects.create(name="finance", team=self.team))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?tags={tags}")
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["short_id"] for r in response.json()["results"]] == ["tagged"]
+
     @parameterized.expand(
         [
             ("search", "search=needle"),

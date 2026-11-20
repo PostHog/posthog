@@ -44,6 +44,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.event.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
 from posthog.models.property.util import build_selector_regex
+from posthog.models.tag import tagify_filter
 from posthog.permissions import is_service_auth
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
@@ -492,7 +493,7 @@ class ActionViewSet(
         return contracts.ActionListFilters(
             search=request.query_params.get("search") or None,
             created_by_ids=creator_ids,
-            tags=tuple(tags_list) if tags_list else (),
+            tags=tuple(tagify_filter(tags_list)) if tags_list else (),
             ordering=self._ordering_from_request(request),
         )
 

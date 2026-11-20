@@ -122,6 +122,7 @@ from posthog.models.activity_logging.activity_page import (
 )
 from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
+from posthog.models.tag import tagify_filter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.permissions import (
@@ -2675,7 +2676,9 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(
+                            tag__name__in=tagify_filter(tags_list)
+                        )
                         queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
