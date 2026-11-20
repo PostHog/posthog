@@ -2,9 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("notebooks", "0029_squash_2026_11_02_schema_addons"),
-    ]
+    dependencies = [("notebooks", "0030_notebook_app_layout")]
 
     operations = [
         migrations.AddField(
