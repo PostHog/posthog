@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -25,12 +26,16 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDeni
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.entitlements.contracts import Entitlements
+from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitlement_reactions_enabled
+from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
 from posthog.models.organization_provisioning import get_billing_lock_partner, record_partner_paid
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
@@ -584,24 +589,16 @@ class BillingManager:
 
         distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
 
+        admin_memberships = organization.memberships.with_effective_level().filter(
+            resolved_level__gte=OrganizationMembership.Level.ADMIN
+        )
         admin_emails = [
-            email
-            for email in organization.members.filter(
-                organization_membership__level__gte=OrganizationMembership.Level.ADMIN
-            ).values_list("email", flat=True)
-            if _is_valid_email(email)
+            email for email in admin_memberships.values_list("user__email", flat=True) if _is_valid_email(email)
         ]
-
         org_users = list(
-            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
-            .order_by("email")  # Deterministic order for tests
-            .annotate(role=F("organization_membership__level"))
-            .filter(role__gte=OrganizationMembership.Level.ADMIN)
-            .values(
-                "email",
-                "distinct_id",
-                "role",
-            )
+            admin_memberships.exclude(Q(user__distinct_id__isnull=True) | Q(user__distinct_id=""))
+            .order_by("user__email")  # Deterministic order for tests
+            .values(email=F("user__email"), distinct_id=F("user__distinct_id"), role=F("resolved_level"))
         )
 
         return self.update_billing(
@@ -800,6 +797,10 @@ class BillingManager:
         org_modified = False
 
         data = billing_status["customer"]
+        available_product_features = data.get("available_product_features", None)
+        use_entitlement_reactions = bool(available_product_features) and entitlement_reactions_enabled(
+            str(organization.id), fail_on_error=False
+        )
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
@@ -856,7 +857,7 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
-        available_product_features = data.get("available_product_features", None)
+        previous_entitlements: Entitlements | None = None
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
         previous_retention_months: int | None = None
@@ -865,6 +866,8 @@ class BillingManager:
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            if use_entitlement_reactions:
+                previous_entitlements = Entitlements.from_features(organization.available_product_features or [])
             previous_feature_keys = {
                 feature.get("key") for feature in (organization.available_product_features or []) if feature
             }
@@ -925,8 +928,29 @@ class BillingManager:
             organization.usage["billing_status_computed_at"] = computed_at.isoformat()
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
+        checkpoints: list[OrganizationEntitlementAppliedState] = []
+        if previous_entitlements is not None:
+            current_entitlements = Entitlements.from_features(available_product_features or [])
+            applied_at = timezone.now()
+            for reactor in get_entitlement_reactor_registry():
+                previous = previous_entitlements.restricted_to(reactor.feature_keys)
+                if previous != current_entitlements.restricted_to(reactor.feature_keys):
+                    checkpoints.append(
+                        OrganizationEntitlementAppliedState(
+                            organization=organization,
+                            reactor_key=reactor.key,
+                            snapshot=previous.to_snapshot(),
+                            applied_at=applied_at,
+                        )
+                    )
+
         if org_modified:
-            organization.save()
+            with transaction.atomic(using="default"):
+                organization.save(using="default")
+                if checkpoints:
+                    OrganizationEntitlementAppliedState.objects.using("default").bulk_create(
+                        checkpoints, ignore_conflicts=True
+                    )
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
@@ -936,6 +960,14 @@ class BillingManager:
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
+
+        if available_product_features:
+            dispatch_entitlement_reactions(
+                str(organization.id),
+                Entitlements.from_features(available_product_features),
+                watched_value_changed=bool(checkpoints),
+                enabled=use_entitlement_reactions,
+            )
 
         return organization
 

@@ -369,15 +369,46 @@ class Pipeline:
         return self.pending_lifting_attestations()
 
     @property
-    def _attestations(self) -> tuple[Attestation, ...]:
-        """The policy attestations that count for this PR's author.
+    def _publisher_pinned_attestations(self) -> tuple[Attestation, ...]:
+        """The usable policy attestations that pin their publisher, the only ones an admitted bot and routing count.
 
-        For an admitted bot only an entry that pins its publisher counts, because a job of any PR
-        can post the check of every other entry.
+        A job of any PR can post the check of every other entry. An unusable entry proves nothing, so
+        routing never waits for its check.
         """
+        return tuple(
+            attestation for attestation in POLICY.attestations if attestation.pins_publisher and attestation.usable
+        )
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author."""
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.pins_publisher)
+        return self._publisher_pinned_attestations
+
+    def attestation_proof(self) -> dict:
+        """What the pinned attestations prove about every path of the diff, for the server's reviewer routing.
+
+        Only an entry that pins its publisher counts, as for an admitted bot (see
+        ``_publisher_pinned_attestations``). ``checks`` names each such entry whose `paths` match a path
+        of the diff, and stays empty unless together they match every path. ``proven`` is True only when
+        their verified proofs name every path, the old path of a rename included.
+        """
+        paths = self.pr.deny_paths
+        matching = [
+            attestation
+            for attestation in self._publisher_pinned_attestations
+            if any(covers(attestation, path) for path in paths)
+        ]
+        if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
+            return {"checks": [], "proven": False}
+        pr = self.pr
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        proven = pinned_files(matching, pr.check_runs, paths, reviewed)
+        return {
+            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "proven": set(paths) <= proven,
+        }
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.

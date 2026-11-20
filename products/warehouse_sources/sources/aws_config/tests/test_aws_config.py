@@ -294,7 +294,7 @@ def test_fan_out_walks_every_parent_and_child_page(
     batches = list(cast(Iterable[Any], response.items()))
 
     rows = [row for batch in batches for row in batch]
-    assert [(row[aws_config.snake_case(param)], row["resource_id"]) for row in rows] == [
+    assert [(row[aws_config.camel_to_snake(param)], row["resource_id"]) for row in rows] == [
         ("a", "bucket-1"),
         ("a", "bucket-2"),
         ("c", "bucket-3"),

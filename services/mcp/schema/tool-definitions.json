@@ -802,20 +802,6 @@
         },
         "feature_flag": "workflows-mcp-disable"
     },
-    "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Enable workflow",
-        "title": "Enable workflow",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "workflows-archive": {
         "description": "Archive a workflow — sets its status to 'archived', retiring it from active use while keeping it readable via workflows-list / workflows-get. Use when the user asks to archive, retire, or clean up a workflow they no longer run; the workflow must be a draft or disabled first. Not a delete: no content or history is removed. Adjacent intents: workflows-enable takes a workflow live; workflows-discard-draft throws away staged edits without changing status.",
         "category": "Workflows",
