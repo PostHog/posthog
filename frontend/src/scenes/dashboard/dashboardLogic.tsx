@@ -233,6 +233,8 @@ import {
     deferOffscreenTiles,
     isTelemetryInsight,
     dashboardV2Logic,
+    loadScrolledInTiles,
+    omitsTileResultsOnLoad,
     refreshThroughBoardStream,
     telemetryTileLoadQueue,
 } from './dashboardV2Logic'
@@ -859,7 +861,8 @@ export interface dashboardLogicValues {
         refresh?: RefreshType | undefined,
         filtersOverride?: DashboardFilter | undefined,
         variablesOverride?: Record<string, HogQLVariable> | undefined,
-        layoutSize?: 'sm' | 'xs' | undefined
+        layoutSize?: 'sm' | 'xs' | undefined,
+        omitTileResults?: boolean | undefined
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
     autoBreakdownColorsEnabled: boolean
@@ -2045,7 +2048,8 @@ export interface dashboardLogicMeta {
             refresh?: RefreshType | undefined,
             filtersOverride?: DashboardFilter | undefined,
             variablesOverride?: Record<string, HogQLVariable> | undefined,
-            layoutSize?: 'sm' | 'xs' | undefined
+            layoutSize?: 'sm' | 'xs' | undefined,
+            omitTileResults?: boolean | undefined
         ) => string
         currentLayoutSize: (containerWidth: number | null) => 'sm' | 'xs'
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
@@ -2696,7 +2700,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const apiUrl = values.apiUrl(
                             'force_cache',
                             values.filtersOverrideForRequests,
-                            values.currentDashboardVariables
+                            values.currentDashboardVariables,
+                            undefined,
+                            omitsTileResultsOnLoad(
+                                values.dashboardV2Enabled,
+                                action === DashboardLoadAction.InitialLoad ||
+                                    action === DashboardLoadAction.InitialLoadWithVariables,
+                                values.placement
+                            )
                         )
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
@@ -4346,13 +4357,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    layoutSize?: 'sm' | 'xs'
+                    layoutSize?: 'sm' | 'xs',
+                    omitTileResults?: boolean
                 ) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
                         layout_size: layoutSize,
+                        omit_tile_results: omitTileResults || undefined,
                     })}`
             },
         ],
@@ -6633,7 +6646,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
         },
-        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }) => {
+        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }, breakpoint) => {
             const settings = deferredSettings ?? values.settingsForRefresh
             const tiles = (values.insightTiles || []).filter(
                 (tile): tile is DashboardTile & { insight: InsightModel } => !!tile.insight && tileIds.includes(tile.id)
@@ -6670,7 +6683,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardV2Ui: values.dashboardV2Enabled,
                 tileLoads: tileLoads(cache),
             }
-            await Promise.all(tiles.map((tile) => refreshInsightTile(tile, tileRefresh)))
+            const scrolledIn = values.dashboardV2Enabled
+                ? await loadScrolledInTiles(cache, tiles, tileRefresh, {
+                      placement: values.placement,
+                      report: reportDashboardTileRefreshed,
+                      breakpoint,
+                  })
+                : null
+            const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
+            await Promise.all((scrolledIn?.leftTiles ?? tiles).map((tile) => refreshInsightTile(tile, perTileRefresh)))
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values

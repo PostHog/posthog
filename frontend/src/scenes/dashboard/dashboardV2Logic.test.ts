@@ -391,5 +391,126 @@ describe('dashboardV2Logic', () => {
                 }
             }
         })
+
+        it('a first load reads tile metadata only, then one stream paints the first screen', async () => {
+            setDashboardV2(true)
+            const dashboardGets: URLSearchParams[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/21/': ({ request }) => {
+                        dashboardGets.push(new URL(request.url).searchParams)
+                        return [200, dashboardResult(21, tiles)]
+                    },
+                },
+            })
+            const streams: URLSearchParams[] = []
+            streamBoard(async (send, params) => {
+                streams.push(params)
+                const ids = params.get('tile_ids')!.split(',').map(Number)
+                send({
+                    type: 'cached',
+                    tiles: ids.map((id) => ({ id, status: 'hit', stale: false, insight: { result: ['cached'] } })),
+                    pending: [],
+                })
+                send({ type: 'complete' })
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(dashboardGets.map((params) => params.get('omit_tile_results'))).toEqual(['true'])
+            expect(streams.map((params) => params.get('tile_ids'))).toEqual([
+                firstScreen.map((tile) => tile.id).join(','),
+            ])
+            expect(refreshInsight).not.toHaveBeenCalled()
+            expect(resultOf(firstScreen[11].id)).toEqual(['cached'])
+        })
+
+        it('tiles that scroll into view together load through one more stream', async () => {
+            setDashboardV2(true)
+            const streams: URLSearchParams[] = []
+            streamBoard(async (send, params) => {
+                streams.push(params)
+                const ids = params.get('tile_ids')!.split(',').map(Number)
+                send({ type: 'cached', tiles: [], pending: ids })
+                ids.forEach((id) => send(computedTile(tiles.find((tile) => tile.id === id)!)))
+                send({ type: 'complete' })
+            })
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            streams.length = 0
+
+            await expectLogic(logic, () => {
+                v2Logic().actions.setTileInView(tiles[12].id, true)
+                v2Logic().actions.setTileInView(tiles[13].id, true)
+                v2Logic().actions.setTileInView(tiles[14].id, true)
+            }).toFinishAllListeners()
+
+            expect(logic.values.refreshStatus[tiles[14].insight!.short_id]).toMatchObject({ refreshed: true })
+            expect(streams.map((params) => params.get('tile_ids'))).toEqual([
+                tiles
+                    .slice(12)
+                    .map((tile) => tile.id)
+                    .join(','),
+            ])
+            expect(refreshInsight).not.toHaveBeenCalled()
+            expect(resultOf(tiles[13].id)).toEqual(['computed'])
+        })
+
+        it('a scrolled-in batch whose stream fails loads one request per tile', async () => {
+            setDashboardV2(true)
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            refreshInsight.mockClear()
+
+            await expectLogic(logic, () => {
+                v2Logic().actions.setTileInView(tiles[12].id, true)
+                v2Logic().actions.setTileInView(tiles[13].id, true)
+            }).toFinishAllListeners()
+
+            expect(
+                boardStream.mock.calls.map(([url]) => new URL(url, 'http://localhost').searchParams.get('tile_ids'))
+            ).toEqual([firstScreen.map((tile) => tile.id).join(','), `${tiles[12].id},${tiles[13].id}`])
+            expect(loadedShortIds()).toEqual(['long-12', 'long-13'])
+            expect(refreshInsight.mock.calls.map((call) => call[9])).toEqual([1, 1])
+        })
+
+        it('a scrolled-in batch cancelled during its debounce starts no stream', async () => {
+            setDashboardV2(true)
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            boardStream.mockClear()
+
+            await expectLogic(logic, () => {
+                v2Logic().actions.setTileInView(tiles[12].id, true)
+                v2Logic().actions.setTileInView(tiles[13].id, true)
+                logic.actions.cancelDashboardRefresh()
+            }).toFinishAllListeners()
+
+            expect(boardStream).not.toHaveBeenCalled()
+        })
+
+        it('without dashboard-v2, the dashboard GET carries every tile result', async () => {
+            setDashboardV2(false)
+            const dashboardGets: URLSearchParams[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/21/': ({ request }) => {
+                        dashboardGets.push(new URL(request.url).searchParams)
+                        return [200, dashboardResult(21, tiles)]
+                    },
+                },
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(dashboardGets.map((params) => params.has('omit_tile_results'))).toEqual([false])
+        })
     })
 })
