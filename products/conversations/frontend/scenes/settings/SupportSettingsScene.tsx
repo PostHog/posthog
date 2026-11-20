@@ -2,38 +2,13 @@ import { router } from 'kea-router'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
-import { SettingId } from 'scenes/settings/types'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { CONVERSATIONS_LOGIC_KEY, supportSettingsSceneLogic } from './supportSettingsSceneLogic'
-
-const VALID_SETTING_IDS = new Set<SettingId>([
-    'conversations-general',
-    'conversations-channels',
-    'conversations-ai',
-    'conversations-learn-from-support',
-    'conversations-notifications',
-    'conversations-imports',
-    'conversations-macros',
-])
-
-const DEFAULT_SETTING_ID: SettingId = 'conversations-general'
-
-export function resolveSettingId(hashParams: Record<string, any>): SettingId {
-    const candidate = hashParams.selectedSetting
-    const hasNoSection = typeof candidate !== 'string' || !VALID_SETTING_IDS.has(candidate as SettingId)
-    if (hashParams.channel && (hasNoSection || candidate === DEFAULT_SETTING_ID)) {
-        return 'conversations-channels'
-    }
-    if (!hasNoSection) {
-        return candidate as SettingId
-    }
-    return DEFAULT_SETTING_ID
-}
+import { CONVERSATIONS_LOGIC_KEY, resolveSettingId, supportSettingsSceneLogic } from './supportSettingsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
