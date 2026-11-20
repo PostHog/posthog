@@ -7,7 +7,7 @@ import { buildMCPRequestContext } from '@/hono/mcp-context'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { HOGQL_GUIDE_ID } from '@/lib/instructions-formatter'
+import { HOGQL_GUIDE_ID, HOGQL_TABLES_GUIDE_ID } from '@/lib/instructions-formatter'
 import { parseRequestProperties } from '@/lib/request-properties'
 import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
@@ -56,9 +56,12 @@ describe('formatExecuteSqlDescription', () => {
     })
 
     it('swaps the metric rule for the save offer when a project has no saved metrics', () => {
-        const rendered = builder.formatExecuteSqlDescription({
-            metricCatalog: { hasMetrics: false },
-        } as unknown as ExecToolState)
+        const rendered = builder.formatExecuteSqlDescription(
+            {
+                metricCatalog: { hasMetrics: false },
+            } as unknown as ExecToolState,
+            { inlineReference: true }
+        )
 
         expect(rendered).not.toContain('The first call for that shape is `metric-list`')
         expect(rendered).toContain(
@@ -117,11 +120,12 @@ describe('formatExecuteSqlDescription', () => {
         const builder = new InstructionsBuilder(GUIDELINES)
         const full = builder.formatExecuteSqlDescription()
         const compact = builder.formatExecuteSqlDescription(state)
-        const guide = await builder.buildExecLearnCatalog(state, undefined)!.execute(HOGQL_GUIDE_ID)
+        const catalog = builder.buildExecLearnCatalog(state, undefined)!
+        const guides = await Promise.all([HOGQL_GUIDE_ID, HOGQL_TABLES_GUIDE_ID].map((id) => catalog.execute(id)))
 
         const missing = full
             .split('\n')
-            .filter((line) => line.trim() && !compact.includes(line) && !guide.includes(line))
+            .filter((line) => line.trim() && !compact.includes(line) && !guides.some((guide) => guide.includes(line)))
         expect(missing).toEqual([])
     })
 })

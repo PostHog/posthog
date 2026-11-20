@@ -310,9 +310,9 @@ tools:
             'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in
             'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft'
             holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in
-            actions/edges is what's running. Step inputs leave out the bytecode PostHog compiles from them. An email step
-            leaves out its editor `design` unless you pass `expand` with its path; you need it to address blocks by id
-            in workflows-patch-action-email.
+            actions/edges is what's running. Step inputs leave out the bytecode PostHog compiles from them. An email
+            step leaves out its editor `design` unless you pass `expand` with its path. Use the design to address blocks
+            by id in workflows-patch-action-email.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
         response:

@@ -4,7 +4,12 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
-import { HOGQL_GUIDE_ID, type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import {
+    HOGQL_GUIDE_ID,
+    HOGQL_TABLES_GUIDE_ID,
+    type InstructionsContext,
+    InstructionsFormatter,
+} from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
@@ -14,8 +19,8 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import EXEC_READ_ONLY_LEAD from '@/templates/sections/exec-read-only-lead.md'
-import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
+import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
@@ -45,7 +50,6 @@ export type ExecToolState = Pick<
     | 'requestContext'
     | 'sessionContext'
     | 'toolFeatureFlags'
-    | 'useSingleExec'
 > & { allTools: readonly { name: string }[] }
 
 /** Tool availability accounts for the client's scopes and selected features. */
@@ -306,7 +310,7 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(state?: ExecToolState): string {
+    formatExecuteSqlDescription(state?: ExecToolState, options?: { inlineReference?: boolean }): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
         const metricDiscovery = this.formatter.buildMetricDiscovery({
@@ -314,7 +318,7 @@ export class InstructionsBuilder {
             metricCatalog: state?.metricCatalog,
         })
         const schemaDiscovery = `${metricDiscovery}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-        const referencePointer = state?.useSingleExec ? this.hogqlReferencePointer(state) : undefined
+        const referencePointer = state && !options?.inlineReference ? this.hogqlReferencePointer(state) : undefined
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             hogql: referencePointer
                 ? formatPrompt(HOGQL_ESSENTIALS, { reference_pointer: referencePointer })
@@ -330,7 +334,7 @@ export class InstructionsBuilder {
             return 'The full HogQL reference is in your bundled `querying-posthog-data` skill: read its `references/guidelines.md`, and its `models-*.md` references for `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`.'
         }
         if (this.getExecLearnCapabilities(state).guidesEnabled) {
-            return `Run \`learn ${HOGQL_GUIDE_ID}\` for the full HogQL reference, with examples and the observability and LLM tables.`
+            return `Run \`learn ${HOGQL_GUIDE_ID}\` for the HogQL guidelines. Run \`learn ${HOGQL_TABLES_GUIDE_ID}\` for examples and the observability and LLM tables.`
         }
         return undefined
     }

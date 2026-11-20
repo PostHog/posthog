@@ -575,10 +575,9 @@ tools:
             - trigger
         hooks: logs/queryLogsHooks
         response:
-            exclude:
-                - query
-                - maxExportableLogs
-                - results.*.observed_timestamp
-                - results.*.severity_number
-                - results.*.level
-                - results.*.live_logs_checkpoint
+            include:
+                - results
+                - columns
+                - hasMore
+                - nextCursor
+                - next

@@ -959,13 +959,12 @@ const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._Logs
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
                 body: await transformRequestBody(hooks_queryLogs, context, params, body),
             })
-            const filtered = omitResponseFields(result, [
-                'query',
-                'maxExportableLogs',
-                'results.*.observed_timestamp',
-                'results.*.severity_number',
-                'results.*.level',
-                'results.*.live_logs_checkpoint',
+            const filtered = pickResponseFields(result, [
+                'results',
+                'columns',
+                'hasMore',
+                'nextCursor',
+                'next',
             ]) as typeof result
             return filtered
         }

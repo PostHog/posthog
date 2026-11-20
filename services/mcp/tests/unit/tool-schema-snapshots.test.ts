@@ -8,6 +8,7 @@ import { z } from 'zod'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
+import { compactPropertyFilterSchema } from '@/hono/property-filter-schema'
 import { dedupeRepeatedDescriptions, toMcpInputSchema } from '@/hono/tool-catalog'
 import { CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT, OAUTH_SCOPES_HIDDEN } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
@@ -185,7 +186,7 @@ describe('Tool schema snapshots', () => {
 
     describe('schema budgets', () => {
         // Ratchet: the number of oversized tool schemas may only go down.
-        const OVERSIZED_SCHEMA_COUNT = 39
+        const OVERSIZED_SCHEMA_COUNT = 38
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
         const TOOL_SCHEMA_CHAR_BUDGET = 40_000
@@ -198,11 +199,9 @@ describe('Tool schema snapshots', () => {
             'query-trends': 63_000,
             'query-funnel-actors': 54_000,
             'query-funnel': 51_000,
-            'query-retention-actors': 47_000,
-            'query-retention': 46_000,
         }
         // About 1% over the measured total, so help_text edits pass and new tools need a reviewed raise.
-        const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_920_000
+        const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_965_000
 
         interface DescriptionCoverage {
             described: number
@@ -256,7 +255,7 @@ describe('Tool schema snapshots', () => {
                     tools.map((tool) => ({
                         name: tool.name,
                         description: tool.description,
-                        inputSchema: toMcpInputSchema(tool.schema),
+                        inputSchema: compactPropertyFilterSchema(toMcpInputSchema(tool.schema)),
                     }))
                 )
                 .map((entry) => ({ name: entry.name, size: JSON.stringify(entry.inputSchema).length }))

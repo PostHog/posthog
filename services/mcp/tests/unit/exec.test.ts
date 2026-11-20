@@ -467,11 +467,11 @@ describe('exec tool', () => {
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
-        const exec = createExec()
-        const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
-        const parsed = JSON.parse(result as string)
-        expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
-    })
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
 
         it('returns JSON for tool with outputFormat json even without --json flag', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })

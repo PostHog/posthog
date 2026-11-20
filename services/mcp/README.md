@@ -352,8 +352,6 @@ The `features` and `tools` filters do not hide it, as with the tools marked `alw
 Its `command` takes the skill commands above, with or without the leading `learn`, and serves them from the same catalog.
 The tools-mode `instructions` then tell the agent to search with `learn` before non-trivial PostHog work.
 
-Other clients keep the full inline command reference.
-
 ### Tool filtering
 
 In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.

@@ -42,7 +42,6 @@ export function renderWebMcpExecTool(): WebMcpExecToolDefinition {
         requestContext,
         sessionContext: null,
         toolFeatureFlags,
-        useSingleExec: true,
     })
 
     const serialized = JSON.stringify({
