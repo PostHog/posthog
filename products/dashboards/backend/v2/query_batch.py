@@ -41,6 +41,7 @@ from posthog.api.services.query import (
     run_planned_query,
 )
 from posthog.api.utils import is_async_query, is_insight_actors_options_query, is_insight_actors_query
+from posthog.api_queries_budget import BudgetSpec
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import tags_context
@@ -58,6 +59,7 @@ from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
     assert_can_read_logs,
+    logql_budget,
     promql_interval,
     run_logql,
 )
@@ -505,9 +507,10 @@ class QueryBatch:
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+        budget = logql_budget(self._team) if logql else None
         for index in logql:
             self._jobs.append(
-                (index, f"{self._client_query_id}-{index}", partial(self._run_logql, index, inputs[index]))
+                (index, f"{self._client_query_id}-{index}", partial(self._run_logql, index, inputs[index], budget))
             )
 
     def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
@@ -731,7 +734,7 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
 
-    def _run_logql(self, index: int, item: QueryBatchInput) -> dict[str, Any]:
+    def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         if self._cancelled:
             return {"i": index, "error": _FAILED}
         try:
@@ -742,6 +745,7 @@ class QueryBatch:
                 date_to=item.date_to,
                 min_interval=item.interval,
                 max_data_points=item.max_data_points,
+                budget=budget,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
