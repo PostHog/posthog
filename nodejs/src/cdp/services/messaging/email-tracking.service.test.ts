@@ -298,6 +298,21 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com/?u=href='a" ses:tags="phl:0">a</a><a href='https://example.com/b' data-ph-no-track ses:no-track>b</a>`,
                 ],
                 [
+                    'a quoted > before the href of an opted-out link',
+                    `<a data-href="https://example.com/p" title="1 > 0" href="https://example.com/b" data-ph-no-track>b</a>`,
+                    `<a data-href="https://example.com/p" title="1 > 0" href="https://example.com/b" data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
+                    'a link inside a quoted value of a tag without a usable href',
+                    `<a href="javascript:x" title="<a href='https://example.com/y'>y</a>">x</a>`,
+                    `<a href="javascript:x" title="<a href='https://example.com/y'>y</a>">x</a>`,
+                ],
+                [
+                    'an opted-out link after a tag named a and a non-breaking space',
+                    `<a\u00a0title="x>y" t="<a href='https://example.com/b' data-ph-no-track>b</a>">`,
+                    `<a\u00a0title="x>y" t="<a href='https://example.com/b' data-ph-no-track ses:no-track>b</a>">`,
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',

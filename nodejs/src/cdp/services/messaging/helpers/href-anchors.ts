@@ -81,35 +81,33 @@ const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) =>
 }
 
 const attribute =
-    /([\t\n\f\r /]*)([^\t\n\f\r />][^\t\n\f\r />=]*)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"[^"]*"?|'[^']*'?|[^\t\n\f\r >]*))?/y
-
-const firstHrefAttribute = (attributes: string): number => {
-    attribute.lastIndex = 0
-    for (let found = attribute.exec(attributes); found; found = attribute.exec(attributes)) {
-        if (found[2].toLowerCase() === 'href') {
-            return found.index + found[1].length
-        }
-    }
-    return -1
-}
+    /([\t\n\f\r /]*)([^\t\n\f\r />][^\t\n\f\r />=]*)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"[^"]*"|'[^']*'|[^\t\n\f\r >]*))?/y
 
 export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) => string): string => {
-    const nextAnchorStart = memoizedFinder(html, /<a\b/gi)
-    const nextOpeningTagEnd = memoizedFinder(html, />/g)
+    const nextAnchorStart = memoizedFinder(html, /<a(?=[\t\n\f\r />])/gi)
     const hrefMatchAt = hrefMatcher(html)
+    const nextAttribute = (from: number): RegExpExecArray | null => {
+        attribute.lastIndex = from
+        return attribute.exec(html)
+    }
 
     const pieces: string[] = []
     let copiedUpTo = 0
     let searchFrom = 0
 
     for (let start = nextAnchorStart(searchFrom); start !== -1; start = nextAnchorStart(searchFrom)) {
-        const attributesStart = start + '<a'.length
-        const openingTagEnd = nextOpeningTagEnd(attributesStart)
-        const tagEnd = openingTagEnd === -1 ? html.length : openingTagEnd
-        const hrefStart = firstHrefAttribute(html.slice(attributesStart, tagEnd))
-        const match = hrefStart === -1 ? null : hrefMatchAt(attributesStart + hrefStart)
+        let attributesEnd = start + '<a'.length
+        let hrefRead = false
+        let match: HrefValue | null = null
+        for (let found = nextAttribute(attributesEnd); found && !match; found = nextAttribute(attributesEnd)) {
+            attributesEnd = found.index + found[0].length
+            if (!hrefRead && found[2].toLowerCase() === 'href') {
+                hrefRead = true
+                match = hrefMatchAt(found.index + found[1].length)
+            }
+        }
         if (!match) {
-            searchFrom = tagEnd
+            searchFrom = attributesEnd
             continue
         }
         pieces.push(html.slice(copiedUpTo, start), replace({ html: html.slice(start, match.end), href: match.href }))
