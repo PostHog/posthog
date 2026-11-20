@@ -460,14 +460,6 @@ def prepare_ast_for_printing(
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
 
-        # We support global query settings, and local subquery settings.
-        # If the global query is a select query with settings, merge the two. Property resolution reads the result.
-        if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
-            for key, value in node.settings.model_dump().items():
-                if value is not None:
-                    settings.__setattr__(key, value)
-            node.settings = None
-
         with context.timings.measure("clickhouse_property_resolution"):
             # Deferred to break the module-level cycle cpr → printer.base → printer package init →
             # utils → cpr, so clickhouse_property_resolution imports standalone in a bare
@@ -486,6 +478,14 @@ def prepare_ast_for_printing(
         # After property resolution, so the timestamp column is already wrapped and every table type is final.
         with context.timings.measure("metrics_time_bucket_bounds"):
             node = add_metrics_time_bucket_bounds(node)
+
+        # We support global query settings, and local subquery settings.
+        # If the global query is a select query with settings, merge the two.
+        if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
+            for key, value in node.settings.model_dump().items():
+                if value is not None:
+                    settings.__setattr__(key, value)
+            node.settings = None
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
