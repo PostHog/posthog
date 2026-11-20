@@ -210,6 +210,9 @@ class TestSandboxEmailSteps(APIBaseTest):
             return self.client.patch(self._url(str(flow.id)), {"status": "active"}, format="json")
         if path == "test_run_saved_workflow":
             return self.client.post(f"{self._url(str(flow.id))}/invocations", {"globals": {}}, format="json")
+        return self._publish(flow)
+
+    def _publish(self, flow: HogFlow) -> Any:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as cdp:
             cdp.get(
                 f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/{flow.id}/in_flight_count",
@@ -248,6 +251,31 @@ class TestSandboxEmailSteps(APIBaseTest):
         workflow = response.json().get("workflow", response.json())
         assert [warning["code"] for warning in workflow["warnings"]] == ["test_sender_live"]
         assert f"/project/{self.team.id}/workflows/channels/email/new" in workflow["warnings"][0]["message"]
+
+    def test_publishing_a_draft_on_an_own_sender_clears_the_warning(self) -> None:
+        sync_template_to_db(_email_function_template())
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+        live = _flow(_sandbox_step())
+        staged = _flow(_own_email_step(sender_id=sender.id))
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Sandbox flow",
+            status="active",
+            actions=live["actions"],
+            edges=live["edges"],
+            draft={"actions": staged["actions"], "edges": staged["edges"]},
+        )
+
+        with _flag(True), _runtime(True):
+            response = self._publish(flow)
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["workflow"]["warnings"] == []
 
     @parameterized.expand(
         [
