@@ -202,7 +202,12 @@ def insert_backfilled_events(team_id: int, rows: Sequence[PlatformAlertEventRow]
     sync_execute(
         _INSERT_SQL,
         [row.as_row() for row in rows],
-        settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
+        settings={
+            "insert_deduplication_token": _deduplication_token(team_id, rows),
+            # The distributed table otherwise queues the rows for aux and returns, so a rejected
+            # insert would still be reported as copied.
+            "insert_distributed_sync": 1,
+        },
         team_id=team_id,
         workload=Workload.OFFLINE,  # a backfill command, no person waits for it
         ch_user=ClickHouseUser.ALERTS_PLATFORM,

@@ -12,6 +12,7 @@ contiguous with the platform's own, and the source rows it has not reached yet s
 """
 
 from collections.abc import Callable, Collection, Iterable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import groupby
 from typing import Final
@@ -220,7 +221,7 @@ def _row(
     configuration: PlatformAlertConfiguration, entry: LegacyHistoryEntry, instance: PlatformAlert | None
 ) -> PlatformAlertEventRow:
     is_check = entry.kind == AlertEventKind.CHECK
-    return event_row(
+    row = event_row(
         configuration,
         alert=instance if is_check else None,
         evaluation_key=legacy_evaluation_key(entry.legacy_id),
@@ -236,3 +237,6 @@ def _row(
         error_message=entry.error_message,
         source_detail=entry.source_detail,
     )
+    # The source kept no snapshot of what it checked against, so the copy states none rather than
+    # today's settings, which a reader would take for the ones the check ran under.
+    return replace(row, condition_snapshot={}, source_config_snapshot={})

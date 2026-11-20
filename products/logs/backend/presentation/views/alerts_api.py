@@ -436,6 +436,10 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
 _PLATFORM_CHANGE: Final = "platform_change"
 _SNOOZE_EXPIRY: Final = "snooze_expiry"
 _SNOOZE_KINDS: Final = (LogsAlertEvent.Kind.SNOOZE, LogsAlertEvent.Kind.UNSNOOZE)
+# From the platform's oldest change on, a logs row of one of these kinds is a second copy of a
+# platform row. A handback is not one of them, because the platform holds one only as a copy.
+_PLATFORM_RECORDED_KINDS: Final = PLATFORM_CONTROL_KINDS - {LogsAlertEvent.Kind.HANDBACK}
+
 _PLATFORM_TIMELINE_LOGS_KINDS: Final = (
     LogsAlertEvent.Kind.ENABLE,
     LogsAlertEvent.Kind.DISABLE,
@@ -686,7 +690,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             event
             for event in self._timeline_events(obj, window_start)
             if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
-            and (control is None or event.kind not in PLATFORM_CONTROL_KINDS or event.created_at < control.oldest_at)
+            and (control is None or event.kind not in _PLATFORM_RECORDED_KINDS or event.created_at < control.oldest_at)
         ]
         if control is not None:
             logs_events.extend(change for change in control.changes if change.kind in _PLATFORM_TIMELINE_LOGS_KINDS)
@@ -1690,13 +1694,15 @@ def _with_platform_history(
         if reads_checks and cutover_at is not None
         else None
     )
+    control_kinds = PLATFORM_CONTROL_KINDS if kind is None else {kind}
+    # The platform holds a handback only as a copy of a logs row, so while the logs rows remain they
+    # are shown and the copies are not. Hiding them by time instead would hide a handback not yet copied.
+    if LogsAlertEvent.Kind.HANDBACK in control_kinds and events.filter(kind=LogsAlertEvent.Kind.HANDBACK).exists():
+        control_kinds = control_kinds - {LogsAlertEvent.Kind.HANDBACK}
     changes = (
         _read_platform_history(
             lambda: platform_control_rows(
-                team_id=alert.team_id,
-                alert_id=alert.id,
-                kinds=PLATFORM_CONTROL_KINDS if kind is None else [kind],
-                limit=rows_needed,
+                team_id=alert.team_id, alert_id=alert.id, kinds=control_kinds, limit=rows_needed
             )
         )
         if reads_changes
@@ -1705,7 +1711,7 @@ def _with_platform_history(
     if (reads_checks and checks is None) or (reads_changes and changes is None):
         return events
     if changes is not None and changes.oldest_at is not None:
-        logs_events = logs_events.exclude(kind__in=PLATFORM_CONTROL_KINDS, created_at__gte=changes.oldest_at)
+        logs_events = logs_events.exclude(kind__in=_PLATFORM_RECORDED_KINDS, created_at__gte=changes.oldest_at)
     # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
     logs_events = stable_queryset_ordering(logs_events)
     merged: list[LogsAlertEvent] = [*logs_events[:rows_needed]]

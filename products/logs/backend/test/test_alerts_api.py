@@ -4124,12 +4124,15 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(f"{self.base_url}{self.alert.id}/", {"enabled": False}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # The platform records no handback, so one after its first change has no platform row to stand for it.
+        self._logs_event(LogsAlertEvent.Kind.HANDBACK, hours_ago=-0.5, state_after="firing")
         before = self._control_events()
-        assert len(before) == len(old_kinds) + 1
+        assert len(before) == len(old_kinds) + 2
 
-        assert "7 to copy, 0 copied" in self._copy_history()
-        assert "1 recorded by the platform, 7 to copy, 7 copied" in self._copy_history("--apply")
-        assert "7 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        assert "8 to copy, 0 copied" in self._copy_history()
+        assert "1 recorded by the platform, 8 to copy, 8 copied" in self._copy_history("--apply")
+        assert "8 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        assert self._control_events() == before
         LogsAlertEvent.objects.filter(alert=self.alert).delete()
 
         assert self._control_events() == before
