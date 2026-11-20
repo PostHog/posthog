@@ -413,6 +413,7 @@ export-shape	products.dashboards.backend.query_sharing_stream.DashboardQueryShar
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingErrorEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingStream	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingTileEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
+export-shape	products.dashboards.backend.v2.cached_tiles.CachedTileStatus	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.logic.metrics._Unset	products.data_catalog.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.api	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.models	export-denied(model)	1
@@ -1049,6 +1050,7 @@ facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.cre
 facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	insight_ids_on_dashboard	return	django.db.models.query.QuerySet	1
 facade-signature	products.dashboards.backend.facade.api	plan_insight_tile_placement	param:query	typing.Any	1
+facade-signature	products.dashboards.backend.facade.api	read_cached_tiles	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	search_dashboards	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	tile_filters_overrides	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	tile_for_insight_on_dashboard	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
@@ -1130,6 +1132,7 @@ facade-signature	products.data_modeling.backend.facade.api	latest_saved_query_ma
 facade-signature	products.data_modeling.backend.facade.api	latest_saved_query_materialization_job	return	products.data_modeling.backend.models.data_modeling_job.DataModelingJob	1
 facade-signature	products.data_modeling.backend.facade.api	mark_node_suspended	param:node	products.data_modeling.backend.models.node.Node	1
 facade-signature	products.data_modeling.backend.facade.api	materialize_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.api	narrow_to_incremental_window	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	promote_view_nodes_to_matview	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	query_fingerprint	param:query	builtins.dict	1
 facade-signature	products.data_modeling.backend.facade.api	record_incremental_history	param:saved_query	?	1
@@ -1151,7 +1154,9 @@ facade-signature	products.data_modeling.backend.facade.api	unsuspend_nodes	param
 facade-signature	products.data_modeling.backend.facade.api	unsuspend_nodes	param:only_if	products.data_modeling.backend.models.node.Node	1
 facade-signature	products.data_modeling.backend.facade.api	unsuspend_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	update_node_type	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.api	view_ready_for_enrichment	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	window_start	return	typing.Any	1
+facade-signature	products.data_modeling.backend.facade.api	wrap_with_incremental_guard	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	IncrementalConfig.canonical	return	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	IncrementalState.__init__	field:watermark	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	ViewEngine.from_annotated	param:row	typing.Any	1
@@ -1284,6 +1289,7 @@ facade-signature	products.error_tracking.backend.facade.api	create_assignment_ru
 facade-signature	products.error_tracking.backend.facade.api	create_bypass_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_grouping_rule	param:assignee	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_grouping_rule	param:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.api	create_issue_tag_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_release	param:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_severity_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_suppression_rule	param:filters	builtins.dict	1
@@ -1307,6 +1313,7 @@ facade-signature	products.error_tracking.backend.facade.api	update_assignment_ru
 facade-signature	products.error_tracking.backend.facade.api	update_assignment_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_bypass_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_grouping_rule	param:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.api	update_issue_tag_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_release	param:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_severity_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_suppression_rule	param:filters	builtins.dict	1
@@ -1320,6 +1327,8 @@ facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingB
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingBypassRule.__init__	field:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingGroupingRule.__init__	field:disabled_data	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingGroupingRule.__init__	field:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingIssueTagRule.__init__	field:disabled_data	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingIssueTagRule.__init__	field:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingRecommendation.__init__	field:meta	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingRelease.__init__	field:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingSeverityRule.__init__	field:disabled_data	builtins.dict	1
@@ -2615,6 +2624,7 @@ no-product-lists-in-core	posthog.tasks.scheduled	products.legal_documents.backen
 no-product-lists-in-core	posthog.tasks.scheduled	products.logs.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.managed_warehouse.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.messaging.backend.tasks.tasks	1
+no-product-lists-in-core	posthog.tasks.scheduled	products.metrics.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.notebooks.backend.tasks.widget_snapshots	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.product_analytics.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.pulse.backend.tasks	1
@@ -3611,6 +3621,8 @@ thin-commands	products.error_tracking.backend.management.commands.backfill_error
 thin-commands	products.error_tracking.backend.management.commands.backfill_error_tracking_release_metadata	products.error_tracking.backend.logic	1
 thin-commands	products.error_tracking.backend.management.commands.backfill_error_tracking_release_metadata	products.error_tracking.backend.models	1
 thin-commands	products.error_tracking.backend.management.commands.drop_error_tracking_stack_frame_code_variables	products.error_tracking.backend.models	1
+thin-commands	products.error_tracking.backend.management.commands.rerun_error_tracking_issue_taggers	products.error_tracking.backend.logic.issue_tags.rerun	1
+thin-commands	products.error_tracking.backend.management.commands.rerun_error_tracking_issue_taggers	products.error_tracking.backend.logic.issue_tags.runner	1
 thin-commands	products.feature_flags.backend.management.commands.audit_flag_filters	products.feature_flags.backend.models.feature_flag	1
 thin-commands	products.feature_flags.backend.management.commands.delete_feature_flag_usage_insights	products.feature_flags.backend.models.feature_flag	1
 thin-commands	products.feature_flags.backend.management.commands.repair_replay_linked_flag_keys	products.feature_flags.backend.models.feature_flag	1
@@ -3637,6 +3649,8 @@ thin-commands	products.signals.backend.management.commands.emit_signals_from_llm
 thin-commands	products.signals.backend.management.commands.exempt_signal_report_billing	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.ingest_report_json	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.list_signal_reports	products.signals.backend.models	1
+thin-commands	products.signals.backend.management.commands.purge_signal_reports	products.signals.backend.models	1
+thin-commands	products.signals.backend.management.commands.purge_signal_scratchpad	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.reingest_signal_report	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.rerun_signal_report	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.reset_signals_self_driving	products.signals.backend.models	1
@@ -3712,6 +3726,7 @@ wiring-watched	products/managed_warehouse/backend/admin/view_translation_admin.p
 wiring-watched	products/messaging/backend/admin.py	1
 wiring-watched	products/product_analytics/backend/admin.py	1
 wiring-watched	products/product_analytics/backend/hogql_queries/__init__.py	1
+wiring-watched	products/product_analytics/backend/logic.py	1
 wiring-watched	products/subscriptions/backend/admin.py	1
 wiring-watched	products/visual_review/backend/admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/__init__.py	1
@@ -3719,6 +3734,12 @@ wiring-watched	products/warehouse_sources/backend/admin/custom_oauth2_integratio
 wiring-watched	products/warehouse_sources/backend/admin/data_warehouse_table_admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/external_data_schema_admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/external_data_source_admin.py	1
+wiring-watched	products/warehouse_sources/backend/file_uploads.py	1
+wiring-watched	products/warehouse_sources/backend/logic/credential_auth_types.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_credentials.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_credentials_rollout.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_inputs.py	1
+wiring-watched	products/warehouse_sources/backend/temporal/data_imports/retry_limits.py	1
 wiring-watched	products/workflows/backend/admin/__init__.py	1
 wiring-watched	products/workflows/backend/admin/hog_flow_admin.py	1
 wiring-watched	products/workflows/backend/admin/hog_flow_batch_job_admin.py	1

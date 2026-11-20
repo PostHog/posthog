@@ -15,7 +15,7 @@ import { tracingSpansAttributeBreakdownCreate } from 'products/tracing/frontend/
 import type { _TracingAttributeBreakdownRowApi } from 'products/tracing/frontend/generated/api.schemas'
 import type { Span } from 'products/tracing/frontend/types'
 
-import { TIME_RANGE_LABELS, TimeRange } from '../applicationObservabilityLogic'
+import { TIME_RANGE_LABELS, TIME_RANGE_MS, TimeRange } from '../applicationObservabilityLogic'
 import { splitDependencies, type DependencySplit } from '../dependencies'
 import { apmDependenciesList, apmDeploymentsList, apmEndpointsList, apmServicesList } from '../generated/api'
 import type {
@@ -72,13 +72,6 @@ export const ERROR_SAMPLE_LIMIT = 200
 export const LATEST_VERSIONS_LIMIT = 5
 
 const DEFAULT_TIME_RANGE: TimeRange = '-1h'
-
-const TIME_RANGE_MS: Record<TimeRange, number> = {
-    '-1h': 60 * 60 * 1000,
-    '-6h': 6 * 60 * 60 * 1000,
-    '-24h': 24 * 60 * 60 * 1000,
-    '-7d': 7 * 24 * 60 * 60 * 1000,
-}
 
 function isTimeRange(value: unknown): value is TimeRange {
     return typeof value === 'string' && Object.hasOwn(TIME_RANGE_LABELS, value)

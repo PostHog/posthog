@@ -247,6 +247,15 @@ impl SeriesLabelGate {
         }
     }
 
+    /// A full cache reports the token's uncached series as new on every row.
+    pub fn cache_full(&self, token: &str) -> bool {
+        self.len.load(Ordering::Acquire) >= self.limits.max_entries
+            || self
+                .per_token
+                .get(&token_key(token))
+                .is_some_and(|count| *count >= self.limits.max_entries_per_token)
+    }
+
     pub fn strip_repeats(&self, rows: &mut [KafkaMetricRow], labelled: &LabelledSeries) {
         if !self.enabled {
             return;
@@ -1070,6 +1079,8 @@ mod tests {
         let mut rows = vec![row(2)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+        assert!(gate.cache_full("token-a"));
+        assert!(!gate.cache_full("token-b"));
 
         let mut rows = vec![row(1), row(1)];
         gate.apply("token-b", &mut rows);

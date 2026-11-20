@@ -13,6 +13,7 @@ from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -27,6 +28,8 @@ from products.signals.backend.spend_billing import (
     uses_spend_billing,
 )
 from products.signals.backend.trial.funding import TrialFunding
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -200,9 +203,14 @@ def record_llm_spend(
     with transaction.atomic():
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id, trial_grant_id=trial_grant_id)
         if spend.finalized_at is not None:
-            if source_id and not strict:
-                return
-            raise ValueError("Cannot add generation costs to finalized spend")
+            if strict:
+                raise ValueError("Cannot add generation costs to finalized spend")
+            # Settlement runs after the model call, so raising would discard a paid response and fail every retry.
+            if not source_id:
+                logger.warning(
+                    "signals.spend.finalized_generation_skipped", team_id=team_id, signal_id=signal_id, stage=stage
+                )
+            return
         if trial_grant_id:
             if str(spend.trial_grant_id) != trial_grant_id:
                 raise ValueError("Generation funding cannot change")

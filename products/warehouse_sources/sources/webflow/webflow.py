@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSourceManager,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -91,11 +92,7 @@ def _flatten_map(config: WebflowEndpointConfig) -> Callable[[dict[str, Any]], di
     under a ``product`` key alongside ``skus``)."""
 
     def _map(item: dict[str, Any]) -> dict[str, Any]:
-        if config.flatten_key and isinstance(item.get(config.flatten_key), dict):
-            rest = {**item}
-            flattened = rest.pop(config.flatten_key)
-            return {**flattened, **rest}
-        return item
+        return lift_nested(item, config.flatten_key) if config.flatten_key else item
 
     return _map
 
