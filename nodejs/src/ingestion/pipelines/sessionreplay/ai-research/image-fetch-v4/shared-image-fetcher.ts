@@ -12,7 +12,7 @@ const ENTRY_OVERHEAD_BYTES = 1024
 
 /**
  * Serves one fetch of a URL to every job that asks for it within a short time. The v4 recorder sends one job per team
- * for the same URL and month, so without this each team costs the host a request. Only the plain bytes are shared, in
+ * and key month for the same URL, so without this each one costs the host a request. Only the plain bytes are shared, in
  * this process: the sink still seals each team's copy under that team's key.
  */
 export class SharedImageFetcher implements ImageFetcher {
@@ -72,5 +72,5 @@ export class SharedImageFetcher implements ImageFetcher {
 
 /** A redirect depends on the hops a job has left, so only a direct image is shared. */
 function isShareable(result: ImageFetchResult): boolean {
-    return result.outcome === 'ok' && result.redirects === 0 && !!result.bytes
+    return result.outcome === 'ok' && result.redirects === 0
 }

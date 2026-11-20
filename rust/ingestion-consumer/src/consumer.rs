@@ -66,7 +66,7 @@ pub struct IngestionConsumerOptions {
     pub group_id: String,
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub commit_interval: Duration,
-    pub revoke_drain_timeout: Option<Duration>,
+    pub revoke_drain_timeout: Duration,
     pub ledger: Arc<TopicOffsetLedger>,
     pub partition_budget: BudgetLimits,
 }
@@ -91,7 +91,7 @@ pub struct IngestionConsumer {
     debug_recorder: Option<Arc<DebugRecorder>>,
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     assignment_epoch: AssignmentEpoch,
-    revoke_drain_timeout: Option<Duration>,
+    revoke_drain_timeout: Duration,
     settlement: Arc<GroupSettlement>,
     committer: Committer,
 }

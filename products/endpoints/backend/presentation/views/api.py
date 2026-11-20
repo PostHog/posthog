@@ -13,6 +13,7 @@ and response serialization. Business logic lives in ``backend/logic``:
 import re
 import builtins
 import dataclasses
+from functools import cached_property
 from typing import Literal, cast
 from uuid import UUID
 
@@ -62,6 +63,7 @@ from products.data_modeling.backend.facade.api import (
     allowed_saved_query_ids,
     blocked_lineage_node_id,
     describe_dependents,
+    read_plan_refresh_floor,
 )
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.models import DataModelingJob
@@ -393,6 +395,11 @@ class EndpointViewSet(
             return annotated
         return endpoint.versions.count()
 
+    @cached_property
+    def _plan_refresh_floor_seconds(self) -> int | None:
+        floor = read_plan_refresh_floor(self.team_id)
+        return int(floor.total_seconds()) if floor is not None else None
+
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -429,6 +436,7 @@ class EndpointViewSet(
             "query": version.query,
             "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
             "data_freshness_seconds": version.data_freshness_seconds,
+            "plan_refresh_floor_seconds": self._plan_refresh_floor_seconds,
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
             "ui_url": ui_url,

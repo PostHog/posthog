@@ -1,5 +1,15 @@
 export type DashboardAddTileKey = 'insight' | 'text' | 'image' | 'button' | 'widget' | 'group'
 
+// pinned: autocapture data-attrs for the Add menu items, in the header and in empty groups
+export const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
+    insight: 'dashboard-add-insight',
+    text: 'dashboard-add-text-tile',
+    image: 'dashboard-add-image-tile',
+    button: 'dashboard-add-button-tile',
+    widget: 'dashboard-add-widget',
+    group: 'dashboard-add-tile-group',
+}
+
 /** Content adds a tile; layout organizes the tiles already there. */
 export type DashboardAddTileSection = 'content' | 'layout'
 

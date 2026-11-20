@@ -28,11 +28,12 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.logger import restored_structlog_config
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_all
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import drop_clickhouse_kafka_tables, truncate_all
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -123,7 +124,7 @@ async def aorganization(db):
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -132,7 +133,7 @@ async def ateam(aorganization):
 
     yield team
     await sync_to_async(delete_batch_exports_for_teams)([team.pk])
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -141,7 +142,7 @@ async def another_ateam(aorganization):
 
     yield team
     await sync_to_async(delete_batch_exports_for_teams)([team.pk])
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -163,6 +164,12 @@ async def s3_compatible_integration(ateam):
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def drop_kafka_tables_after_the_session():
+    yield
+    drop_clickhouse_kafka_tables()
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

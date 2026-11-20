@@ -116,6 +116,15 @@ describe('MetricsPanel', () => {
             expect(screen.getByText('340 ms')).toBeInTheDocument()
         })
 
+        it.each([
+            ['shows the graph by default', undefined, true],
+            ['hides the graph when statSparkline is off', false, false],
+        ])('stat %s', (_name, statSparkline, showsGraph) => {
+            renderPanel([seriesWith({}, [100, 200, 340], 'm', 'ms')], { type: 'stat', statSparkline })
+            expect(screen.getByText('340 ms')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="metric-sparkline"]') !== null).toBe(showsGraph)
+        })
+
         it('stat maps the deprecated statSummary', () => {
             renderPanel([seriesWith({}, [100, 200, 300], 'm', 'ms')], { type: 'stat', statSummary: 'average' })
             expect(screen.getByText('200 ms')).toBeInTheDocument()

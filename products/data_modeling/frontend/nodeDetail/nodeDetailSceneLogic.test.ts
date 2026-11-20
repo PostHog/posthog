@@ -3,6 +3,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import {
@@ -16,6 +18,8 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
+
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
@@ -52,6 +56,7 @@ describe('nodeDetailSceneLogic', () => {
     }
 
     beforeEach(() => {
+        localStorage.clear()
         node = buildNode('view')
         savedQuery = { id: SAVED_QUERY_ID, name: 'orders', columns: [], is_materialized: false }
         useMocks({
@@ -185,20 +190,50 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual('lineage')
     })
 
-    it('keeps the current model in its lineage when its type is hidden', async () => {
+    it.each([
+        { typeFilter: ['table'] as DataModelingNodeType[], searchTerm: '', visible: ['source', NODE_ID] },
+        { typeFilter: undefined, searchTerm: ' REV ', visible: ['revenue', NODE_ID] },
+        { typeFilter: ['table'] as DataModelingNodeType[], searchTerm: 'rev', visible: [NODE_ID] },
+    ])(
+        'keeps the current model in its lineage with type filter $typeFilter and search "$searchTerm"',
+        async ({ typeFilter, searchTerm, visible }) => {
+            await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
+            logic.actions.loadLineageGraphSuccess({
+                currentNodeId: NODE_ID,
+                nodes: [
+                    buildNode('table', { id: 'source', name: 'raw_orders' }),
+                    node,
+                    buildNode('metric', { id: 'revenue', name: 'monthly_revenue' }),
+                ],
+                edges: [
+                    { id: 'e1', source_id: 'source', target_id: NODE_ID },
+                    { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
+                ],
+            })
+
+            if (typeFilter) {
+                logic.actions.setLineageTypeFilter(typeFilter)
+            }
+            const visibleBeforeDebounce = logic.values.lineageVisibleNodeIds
+
+            await expectLogic(logic, () => {
+                logic.actions.setLineageSearchTerm(searchTerm)
+                expect(logic.values.lineageVisibleNodeIds).toBe(visibleBeforeDebounce)
+            }).toDispatchActions(['setLineageDebouncedSearchTerm'])
+
+            expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(visible))
+            expect(logic.values.lineageIsFiltered).toBe(true)
+        }
+    )
+
+    it('remembers the lineage type filter when another model opens', async () => {
         await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
-        logic.actions.loadLineageGraphSuccess({
-            currentNodeId: NODE_ID,
-            nodes: [buildNode('table', { id: 'source' }), node, buildNode('metric', { id: 'revenue' })],
-            edges: [
-                { id: 'e1', source_id: 'source', target_id: NODE_ID },
-                { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
-            ],
-        })
+        logic.actions.setLineageTypeFilter(['table', 'view'])
+        logic.unmount()
 
-        logic.actions.setLineageTypeFilter(['table'])
+        await mountScene(urls.nodeDetail('node-2', 'lineage'), 'node-2')
 
-        expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(['source', NODE_ID]))
+        expect(logic.values.lineageTypeFilter).toEqual(['table', 'view'])
     })
 
     it('replaces a backing-resource URL with the canonical node URL', async () => {
@@ -398,6 +433,17 @@ describe('nodeDetailSceneLogic', () => {
         expect(screen.getByText('11 of 11 columns')).toBeTruthy()
     })
 
+    it.each([
+        ['opens the data quality tab for its own view', SAVED_QUERY_ID, 'data-quality'],
+        ['stays put for another view', 'other-view', 'query'],
+    ])('when a toast asks to show run results, %s', async (_, subjectId, expectedTab) => {
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        suiteRunResultsLogic.actions.revealSubjectResults({ subjectType: 'view', subjectId })
+
+        expect(logic.values.effectiveTab).toEqual(expectedTab)
+    })
+
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
@@ -502,6 +548,26 @@ describe('nodeDetailSceneLogic', () => {
         dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], deletedId)
 
         expect(router.values.location.pathname).toEqual(expectedPath)
+    })
+
+    it('leads back to Data catalog tables instead of Models on the catalog restructure path', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.breadcrumbs.map(({ name, path }) => [name, path])).toEqual([
+            ['Data catalog', urls.dataCatalog()],
+            ['Tables & views', urls.dataCatalog('tables')],
+            ['orders', undefined],
+        ])
+
+        dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], SAVED_QUERY_ID)
+
+        expect(router.values.location.pathname + router.values.location.search).toEqual(
+            `/project/997${urls.dataCatalog('tables')}`
+        )
     })
 
     // Reverting and cancelling materialization only announce themselves through this action. Without

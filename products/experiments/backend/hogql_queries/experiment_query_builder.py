@@ -62,6 +62,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.metric_source_precompute import (
+    spread_metric_events_reads_across_replicas,
+)
 from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
@@ -182,6 +185,7 @@ class ExperimentQueryBuilder:
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
+        feature_flag_rule_id: str | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -222,6 +226,7 @@ class ExperimentQueryBuilder:
             resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
+            feature_flag_rule_id=feature_flag_rule_id,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -269,6 +274,7 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, ratio, retention, and quantile metrics are supported. Got {type(self.metric)}"
                 )
 
+        query = spread_metric_events_reads_across_replicas(query)
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 

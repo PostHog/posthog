@@ -31,6 +31,7 @@ schedules = [
     marketing_precompute.marketing_precompute_schedule,
     marketing_sessions_precompute.marketing_sessions_precompute_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
+    cache_favicons.cache_aeo_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
     health_rollups.events_health_daily_rollup.schedule,
     health_rollups.host_proxy_daily_rollup.schedule,
@@ -51,6 +52,7 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog,
         cache_favicons.cache_favicons,
         cache_favicons.cache_authorized_domain_favicons,
+        cache_favicons.cache_aeo_domain_favicons,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_team_selection_has_data,
@@ -67,6 +69,7 @@ defs = dagster.Definitions(
         marketing_precompute.marketing_precompute_job,
         marketing_sessions_precompute.marketing_sessions_precompute_job,
         cache_favicons.cache_authorized_domain_favicons_job,
+        cache_favicons.cache_aeo_domain_favicons_job,
         clear_oom_pins.web_analytics_clear_precompute_oom_pins_job,
         migrate_custom_bot_rules.web_analytics_migrate_custom_bot_rules_job,
         health_rollups.events_health_daily_rollup.job,

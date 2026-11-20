@@ -19,7 +19,7 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-FIXTURE_VERSION = "2026-11-03.1"
+FIXTURE_VERSION = "2026-11-18.1"
 
 ORG = "fernhill"
 BOT_MENTION = "@PostHog"
@@ -33,6 +33,11 @@ ANDROID_SDK = f"{ORG}/fernhill-android"
 PAYMENTS_UI = f"{ORG}/payments-ui"
 HERMES = f"{ORG}/hermes"
 ATLAS = f"{ORG}/atlas"
+SHOP_WEB = f"{ORG}/shop-web"
+OPENAPI_SNAPSHOTS = f"{ORG}/openapi-snapshots"
+CHECKOUT_EXPERIMENTS = f"{ORG}/checkout-experiments"
+CHAT_WIDGET = f"{ORG}/chat-widget"
+CHAT_WIDGET_INTERNAL = f"{ORG}/chat-widget-internal"
 
 
 @frozen
@@ -44,6 +49,9 @@ class FixtureRepository:
     private: bool
     readme: str
     tree_paths: tuple[str, ...]
+    commits_last_30_days: int
+    recent_author_count: int
+    merged_pull_request_count: int
     archived: bool = False
 
     @property
@@ -98,6 +106,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "tests/checkout/pay-button.spec.ts",
             "tests/signup/signup-form.spec.ts",
         ),
+        commits_last_30_days=240,
+        recent_author_count=9,
+        merged_pull_request_count=1850,
     ),
     FixtureRepository(
         full_name=CORE_API,
@@ -133,6 +144,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "billing/invoices.py",
             "billing/tests/test_webhooks.py",
         ),
+        commits_last_30_days=310,
+        recent_author_count=11,
+        merged_pull_request_count=2400,
     ),
     FixtureRepository(
         full_name=DOCS_SITE,
@@ -160,6 +174,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "public/images/getting-started/dashboard-overview.png",
             "public/images/getting-started/install-snippet.png",
         ),
+        commits_last_30_days=60,
+        recent_author_count=6,
+        merged_pull_request_count=900,
     ),
     FixtureRepository(
         full_name=MARKETING_SITE,
@@ -182,6 +199,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "src/components/PricingTable.tsx",
             "content/blog/2026-launch-week.md",
         ),
+        commits_last_30_days=25,
+        recent_author_count=4,
+        merged_pull_request_count=410,
     ),
     FixtureRepository(
         full_name=IOS_SDK,
@@ -207,6 +227,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "Tests/FernhillTests/ReplayTests.swift",
             "Tests/FernhillTests/AppLaunchTests.swift",
         ),
+        commits_last_30_days=45,
+        recent_author_count=5,
+        merged_pull_request_count=620,
     ),
     FixtureRepository(
         full_name=ANDROID_SDK,
@@ -229,6 +252,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "fernhill/src/main/java/com/fernhill/replay/ReplayConfig.kt",
             "fernhill/src/test/java/com/fernhill/replay/FrameBatcherTest.kt",
         ),
+        commits_last_30_days=52,
+        recent_author_count=5,
+        merged_pull_request_count=700,
     ),
     # Misleading name: the checkout code lives in the storefront. This repo holds old prototypes.
     FixtureRepository(
@@ -248,6 +274,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "prototypes/pay-page-v2.html",
             "prototypes/assets/pay-page.css",
         ),
+        commits_last_30_days=0,
+        recent_author_count=2,
+        merged_pull_request_count=6,
     ),
     # Routing-rule targets. Nothing in their caches ties them to the rules' topics, so only the
     # rule can steer a request here.
@@ -267,6 +296,9 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "hermes/store.py",
             "tests/test_query.py",
         ),
+        commits_last_30_days=14,
+        recent_author_count=3,
+        merged_pull_request_count=160,
     ),
     FixtureRepository(
         full_name=ATLAS,
@@ -283,7 +315,131 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
             "src/lib/fetcher.ts",
             "tests/home.spec.ts",
         ),
+        commits_last_30_days=9,
+        recent_author_count=2,
+        merged_pull_request_count=95,
     ),
+)
+
+_STOREFRONT = next(repo for repo in REPOSITORIES if repo.full_name == STOREFRONT)
+
+# Repositories that match request keywords but are not where the work happens. Only the activity
+# figures in the candidate list separate them from the repository people work in.
+REPOSITORIES += (
+    # An export of the storefront for an outside build pipeline: the same README and file tree, and
+    # the same commits and authors, but no pull request is ever merged there.
+    FixtureRepository(
+        full_name=SHOP_WEB,
+        description=_STOREFRONT.description,
+        primary_language=_STOREFRONT.primary_language,
+        topics=_STOREFRONT.topics,
+        private=True,
+        readme=_STOREFRONT.readme,
+        tree_paths=_STOREFRONT.tree_paths,
+        commits_last_30_days=240,
+        recent_author_count=9,
+        merged_pull_request_count=0,
+    ),
+    # Written by a release bot only. Its paths name order discounts, which the API code does not.
+    FixtureRepository(
+        full_name=OPENAPI_SNAPSHOTS,
+        description="OpenAPI specs for the orders, projects, and accounts endpoints.",
+        primary_language="YAML",
+        topics=("openapi",),
+        private=True,
+        readme="# openapi-snapshots\n\nOpenAPI specs for the orders, projects, and accounts endpoints.\n",
+        tree_paths=(
+            "specs/accounts.yaml",
+            "specs/projects.yaml",
+            "specs/orders.yaml",
+            "specs/orders/discounts.yaml",
+            "specs/orders/totals.yaml",
+        ),
+        commits_last_30_days=30,
+        recent_author_count=1,
+        merged_pull_request_count=0,
+    ),
+    # A small side project nobody has touched for months. Its paths name postcodes, which the storefront's do not.
+    FixtureRepository(
+        full_name=CHECKOUT_EXPERIMENTS,
+        description="Checkout form experiments.",
+        primary_language="TypeScript",
+        topics=("experiment",),
+        private=True,
+        readme="# checkout-experiments\n\nVariants of the checkout address form.\n",
+        tree_paths=(
+            "package.json",
+            "checkout/AddressFields.tsx",
+            "checkout/postcode.ts",
+            "checkout/postcode.test.ts",
+        ),
+        commits_last_30_days=0,
+        recent_author_count=2,
+        merged_pull_request_count=3,
+    ),
+)
+
+_CHAT_WIDGET_LOCALES = (
+    "ar", "cs", "cy", "da", "de", "el", "en", "es", "fi", "fr", "he", "hu", "it",
+    "ja", "ko", "nb", "nl", "pl", "pt", "ro", "ru", "sv", "tr", "uk", "zh",
+)  # fmt: skip
+
+_CHAT_WIDGET = FixtureRepository(
+    full_name=CHAT_WIDGET,
+    description="Embeddable chat widget that customer sites load from a script tag.",
+    primary_language="TypeScript",
+    topics=("widget", "chat", "typescript"),
+    private=False,
+    readme=(
+        "# Chat widget\n\n"
+        "The embeddable chat widget that customer sites load from a script tag. It renders the launcher, "
+        "the chat window, and the unread badge, and keeps a socket open to the chat backend.\n\n"
+        "## Translations\n\n"
+        "Each language has one JSON file in `src/i18n/locales/`. Message timestamps are formatted by "
+        "`src/i18n/format-timestamp.ts`.\n\n"
+        "## Development\n\n`pnpm install && pnpm build`\n"
+    ),
+    tree_paths=(
+        "package.json",
+        "rollup.config.mjs",
+        "src/index.ts",
+        "src/widget/ChatLauncher.ts",
+        "src/widget/ChatWindow.ts",
+        "src/widget/MessageList.ts",
+        "src/widget/Composer.ts",
+        "src/widget/unread-badge.ts",
+        "src/transport/socket-client.ts",
+        "src/transport/reconnect.ts",
+        "src/i18n/format-timestamp.ts",
+        "src/i18n/load-locale.ts",
+        *(f"src/i18n/locales/{locale}.json" for locale in _CHAT_WIDGET_LOCALES),
+        "tests/widget/unread-badge.test.ts",
+        "tests/transport/reconnect.test.ts",
+        "tests/i18n/format-timestamp.test.ts",
+    ),
+    commits_last_30_days=130,
+    recent_author_count=7,
+    merged_pull_request_count=1300,
+)
+
+# A public repository and its private copy. Only the figures and the `same files as` note separate
+# them. The copy is seeded first, so a path query with one shared limit returns only the copy's
+# locale files.
+REPOSITORIES += (
+    # Synced from the public repository, so it has the same commits and authors, but no pull request is merged there.
+    FixtureRepository(
+        full_name=CHAT_WIDGET_INTERNAL,
+        description=_CHAT_WIDGET.description,
+        primary_language=_CHAT_WIDGET.primary_language,
+        topics=_CHAT_WIDGET.topics,
+        private=True,
+        readme=_CHAT_WIDGET.readme,
+        tree_paths=_CHAT_WIDGET.tree_paths,
+        commits_last_30_days=130,
+        recent_author_count=7,
+        merged_pull_request_count=0,
+    ),
+    _CHAT_WIDGET,
 )
 
 REPOSITORY_NAMES: tuple[str, ...] = tuple(repo.full_name for repo in REPOSITORIES)
@@ -336,6 +492,8 @@ class RepoSelectionScenario:
     description: str
     thread: tuple[ThreadMessage, ...]
     routing_rules: tuple[RoutingRuleFixture, ...] = ()
+    # The repository the request was filed in, as for a GitHub issue. Its visibility limits the candidates.
+    source_repository: str | None = None
 
     @property
     def mention_text(self) -> str:
@@ -381,8 +539,15 @@ def _scenario(
     description: str,
     thread: tuple[ThreadMessage, ...],
     routing_rules: Sequence[RoutingRuleFixture] = (),
+    source_repository: str | None = None,
 ) -> RepoSelectionScenario:
-    return RepoSelectionScenario(name=name, description=description, thread=thread, routing_rules=tuple(routing_rules))
+    return RepoSelectionScenario(
+        name=name,
+        description=description,
+        thread=thread,
+        routing_rules=tuple(routing_rules),
+        source_repository=source_repository,
+    )
 
 
 # Scenarios that reach the discovery agent, shared by both suites so a selector change and an
@@ -638,6 +803,90 @@ SELECTOR_CASES: tuple[SelectorCase, ...] = (
         ),
         expected=SelectorExpectation(abstain=True),
         category="no_match",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_mirror",
+            "The storefront and its export have the same files; only merged pull requests separate them.",
+            _ask("@PostHog the order summary on the checkout page shows the wrong item count, can you fix it"),
+        ),
+        expected=SelectorExpectation(accepted=(STOREFRONT,)),
+        category="mirror",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "bot_target_matches_keyword",
+            "Only a bot-written spec repository has paths about order discounts; the API code owns the bug.",
+            _ask("@PostHog discounted orders come back from the orders endpoint with the wrong total, can you fix it"),
+        ),
+        expected=SelectorExpectation(accepted=(CORE_API,)),
+        category="bot_target",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "stale_repo_matches_keyword",
+            "Only a stale side project has postcode paths; the live checkout form is in the storefront.",
+            _ask("@PostHog the postcode field on the checkout page rejects valid postcodes, can you fix it"),
+        ),
+        expected=SelectorExpectation(accepted=(STOREFRONT,)),
+        category="stale",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_support_ticket",
+            "A customer support ticket about public widget code; a private copy has the same files.",
+            _ask(
+                "@PostHog a customer support ticket says the unread badge on our chat launcher still shows 1 "
+                "after they read every message, can you fix it"
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_stack_trace",
+            "An error tracking stack trace from public widget code; a private copy has the same files.",
+            _thread(
+                (
+                    "tester",
+                    "@PostHog this error keeps showing up in error tracking from the chat widget, can you fix it",
+                ),
+                (
+                    "other",
+                    "TypeError: Cannot read properties of undefined (reading 'close')\n"
+                    "    at scheduleReconnect (src/transport/reconnect.ts:42:18)\n"
+                    "    at SocketClient.onClose (src/transport/socket-client.ts:88:9)",
+                ),
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_private_source",
+            "Filed in a private repository, so the code filter drops the public widget and the private copy is right.",
+            _ask(
+                "@PostHog the chat widget reconnects in a tight loop when the socket closes and floods the API "
+                "with requests, can you add a backoff to the widget's reconnect"
+            ),
+            source_repository=CORE_API,
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET_INTERNAL,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_shared_limit",
+            "A path search for locale files fills a shared row limit with the private copy's paths.",
+            _ask(
+                "@PostHog the Welsh translation of the chat widget shows English month names in message "
+                "timestamps, can you fix the locale file"
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="shared_limit",
     ),
 )
 

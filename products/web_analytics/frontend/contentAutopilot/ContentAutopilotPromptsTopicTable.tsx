@@ -1,7 +1,6 @@
 import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
-import { percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -15,11 +14,11 @@ const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): 
         <span className="text-muted">No answers</span>
     ) : (
         <span className="tabular-nums">
-            {percentage(rate, 0)} <span className="text-muted">of {answers}</span>
+            {percentage(rate, 0)} <span className="text-muted">of {humanFriendlyNumber(answers)}</span>
         </span>
     )
 
-/** One row per topic. Picking a row opens the prompt list filtered to that topic. */
+/** One row per topic. Picking a row filters the page to that topic, and picking it again clears the filter. */
 export const ContentAutopilotPromptsTopicTable = ({
     rows,
     selectedTopic,
@@ -83,11 +82,6 @@ export const ContentAutopilotPromptsTopicTable = ({
             rowClassName="cursor-pointer"
             onRow={(row) => ({ onClick: () => onSelect(row.topic) })}
             emptyState="No topics yet"
-            footer={
-                <span className="px-3 py-2 text-xs text-muted">
-                    {pluralize(rows.length, 'topic')}. Pick one to see its prompts.
-                </span>
-            }
         />
     )
 }

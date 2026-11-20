@@ -20,7 +20,6 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -182,14 +181,15 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return False
 
     def has_activated_product_analytics(self) -> bool:
+        # Local import: the dashboards facade pulls in posthog.event_usage -> posthog.models (circular).
+        from products.dashboards.backend.facade import api as dashboards  # noqa: PLC0415
+
         insights = Insight.objects.filter(team=self.team, created_by__isnull=False)
 
         if insights.count() < 3:
             return False
 
-        dashboards = Dashboard.objects.filter(team=self.team, created_by__isnull=False)
-
-        if dashboards.count() < 1:
+        if not dashboards.has_user_created_dashboard(team_id=self.team_id):
             return False
 
         return self.team.ingested_event

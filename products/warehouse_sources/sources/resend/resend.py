@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -19,7 +20,6 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
-    validate_via_probe,
 )
 
 RESEND_BASE_URL = "https://api.resend.com"
@@ -278,13 +278,40 @@ def resend_source(
     )
 
 
-def validate_credentials(token: str) -> bool:
-    # /domains is a cheap read-only call that requires a valid credential with at least read scope —
-    # Resend returns 401 for bad tokens and 200 for good ones. Works for a static API key or an OAuth
-    # access token (both are sent as bearer tokens).
-    ok, _status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(token,)),
-        f"{RESEND_BASE_URL}/domains",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-    )
-    return ok
+class ResendProbeResult(Enum):
+    OK = "ok"
+    RESTRICTED_KEY = "restricted_key"
+    REJECTED = "rejected"
+    UNREACHABLE = "unreachable"
+
+
+def _is_restricted_key_body(response: Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("name") == "restricted_api_key"
+
+
+def probe_credentials(token: str) -> ResendProbeResult:
+    # /domains is a cheap read-only call that requires a valid credential with at least read scope.
+    # Works for a static API key or an OAuth access token (both are sent as bearer tokens).
+    try:
+        session = make_tracked_session(redact_values=(token,))
+        response = session.get(
+            f"{RESEND_BASE_URL}/domains",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=10.0,
+        )
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; no answer means "not validated"
+        return ResendProbeResult.UNREACHABLE
+
+    status = response.status_code
+    if status == 200:
+        return ResendProbeResult.OK
+    if status == 429 or status >= 500:
+        return ResendProbeResult.UNREACHABLE
+    # A "Sending access" key is genuine but gets 401 on every endpoint except sending.
+    if _is_restricted_key_body(response):
+        return ResendProbeResult.RESTRICTED_KEY
+    return ResendProbeResult.REJECTED

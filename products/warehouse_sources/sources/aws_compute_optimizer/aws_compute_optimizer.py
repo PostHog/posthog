@@ -28,12 +28,13 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
+    flatten_nested,
     frozen,
     make_tracked_session,
     sign_aws_request,
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 TRANSPORT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=1,
@@ -134,22 +135,8 @@ class AwsComputeOptimizerClient:
         return result
 
 
-def _column(key: str) -> str:
-    return _CAMEL_BOUNDARY.sub("_", key).lower()
-
-
 def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
-    def flatten(obj: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-        row: dict[str, Any] = {}
-        for key, value in obj.items():
-            column = prefix + _column(key)
-            if isinstance(value, dict):
-                row.update(flatten(value, column + "_"))
-            else:
-                row[column] = value
-        return row
-
-    row = flatten(item)
+    row = flatten_nested(item)
     timestamp = row.get("last_refresh_timestamp")
     if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
         row["last_refresh_timestamp"] = datetime.fromtimestamp(timestamp, tz=UTC)
@@ -162,11 +149,11 @@ def projected_metric_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for option in result.get(result_key) or []:
-        option_columns = {_column(key): value for key, value in option.items() if key != "projectedMetrics"}
+        option_columns = {camel_to_snake(key): value for key, value in option.items() if key != "projectedMetrics"}
         for metric in option.get("projectedMetrics") or []:
             # Each metric holds parallel lists: `values` for EC2, `upperBoundValues` and `lowerBoundValues` for ECS.
             series = {
-                _column(key).removesuffix("s"): value
+                camel_to_snake(key).removesuffix("s"): value
                 for key, value in metric.items()
                 if key not in {"name", "timestamps"} and isinstance(value, list)
             }
@@ -204,7 +191,7 @@ def get_projected_metric_rows(
     state: AwsComputeOptimizerResumeConfig,
 ) -> Iterator[list[dict[str, Any]]]:
     parent = ENDPOINTS[fanout.parent]
-    arn_column = _column(fanout.arn_field)
+    arn_column = camel_to_snake(fanout.arn_field)
     token = state.next_token
     # The cursor keeps the unprocessed parents themselves, because a refetched page can drop or reorder resources.
     pending = tuple((str(arn), int(lookback)) for arn, lookback in state.pending)

@@ -5,6 +5,7 @@ from django.core.cache import cache
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -305,6 +306,7 @@ class TestOnboarding:
 
         assert onboarding.EVENT_COMPLETED not in [c.args[1] for c in mock_capture.call_args_list]
 
+    @pytest.mark.parametrize("through_sdk", [False, True])
     @pytest.mark.parametrize(
         "slack_team_id,scope,workspace_already_linked,onboards",
         [
@@ -325,17 +327,20 @@ class TestOnboarding:
         scope,
         workspace_already_linked,
         onboards,
+        through_sdk,
     ):
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        config = {"scope": scope, "authed_user": {"id": "U_INSTALL"}}
 
         with django_capture_on_commit_callbacks(execute=True):
-            Integration.objects.create(
-                team=other_team,
-                kind="slack",
-                integration_id=slack_team_id,
-                config={"scope": scope, "authed_user": {"id": "U_INSTALL"}},
-                created_by=self.user,
-            )
+            if through_sdk:
+                IntegrationManager.slack.oauth.create(
+                    other_team.id, external_id=slack_team_id, config=config, created_by_id=self.user.id
+                )
+            else:
+                Integration.objects.create(
+                    team=other_team, kind="slack", integration_id=slack_team_id, config=config, created_by=self.user
+                )
 
         mock_capture.assert_called_once()
         assert mock_capture.call_args.args[1] == "slack app installed"
@@ -349,20 +354,44 @@ class TestOnboarding:
         # Without the inbox scopes there is no inbox workflow to start it, so the installer's onboarding starts directly.
         assert mock_start_installer_onboarding.called is not onboards
 
+    @pytest.mark.parametrize(
+        "write,onboards",
+        [
+            ("model_save", True),
+            ("sdk_upsert", True),
+            ("sdk_config_update", True),
+            ("sdk_errors_update", False),
+        ],
+    )
     @patch("products.slack_app.backend.signals._start_installer_onboarding")
     @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
     @patch("products.slack_app.backend.analytics.capture_slack_event")
     def test_reinstall_starts_only_the_installers_onboarding(
-        self, mock_capture, mock_start, mock_start_installer_onboarding, django_capture_on_commit_callbacks
+        self,
+        mock_capture,
+        mock_start,
+        mock_start_installer_onboarding,
+        django_capture_on_commit_callbacks,
+        write,
+        onboards,
     ):
-        self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
+        config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
+        team_id, row_id = self.team.id, self.integration.id
 
         with django_capture_on_commit_callbacks(execute=True):
-            self.integration.save()
+            if write == "model_save":
+                self.integration.config = config
+                self.integration.save()
+            elif write == "sdk_upsert":
+                IntegrationManager.slack.oauth.upsert(team_id, "T12345", config=config)
+            elif write == "sdk_config_update":
+                IntegrationManager.slack.oauth.update(team_id, row_id, config_patch=config)
+            else:
+                IntegrationManager.slack.oauth.update(team_id, row_id, errors="token_revoked")
 
         mock_capture.assert_not_called()
         mock_start.assert_not_called()
-        mock_start_installer_onboarding.assert_called_once()
+        assert mock_start_installer_onboarding.call_count == (1 if onboards else 0)
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):

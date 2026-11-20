@@ -39,6 +39,11 @@ describe('GitHub Actions', () => {
     test.each([
         ['a job without id-token: write', { GITHUB_ACTIONS: 'true' }, undefined],
         ['GitHub refusing the request', JOB, 'oidc_token_unavailable'],
+        [
+            'a request token a header cannot carry',
+            { ...JOB, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'request-\nsecret' },
+            'network_error',
+        ],
     ])('%s gets no token', async (_name, env, code) => {
         const runtime = fakeRuntime({ env, respond: () => ({ status: 403, body: {} }) })
 
@@ -47,6 +52,7 @@ describe('GitHub Actions', () => {
         )
 
         expect(outcome instanceof HogError ? outcome.code : outcome).toBe(code)
+        expect(outcome instanceof HogError ? outcome.message : '').not.toContain('secret')
     })
 
     test.each([

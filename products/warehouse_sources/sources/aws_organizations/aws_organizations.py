@@ -34,6 +34,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     aws_redact_values,
+    flatten_nested,
     make_tracked_session,
     retry_with_deadline,
     sign_aws_request,
@@ -49,7 +50,6 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"organizations:[A-Za-z0-9]+")
 
@@ -96,11 +96,6 @@ def result_key(endpoint_config: AwsOrganizationsEndpointConfig) -> str:
     return endpoint_config.result_key
 
 
-def _snake(name: str) -> str:
-    """`MasterAccountId` -> `master_account_id`, `FeatureSet` -> `feature_set`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _parse_timestamp(value: Any) -> Any:
     """Organizations serializes timestamps as epoch seconds; leave anything else untouched."""
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -114,21 +109,10 @@ def _parse_timestamp(value: Any) -> Any:
     return value
 
 
-def _flatten(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten(column, value))
-        else:
-            flattened[column] = value
-    return flattened
-
-
 def normalize_row(endpoint_config: AwsOrganizationsEndpointConfig, obj: dict[str, Any]) -> dict[str, Any]:
     """Flatten nested structures into snake_case columns and parse epoch timestamps."""
     kept = {key: value for key, value in obj.items() if key not in endpoint_config.drop_keys}
-    row = _flatten("", kept)
+    row = flatten_nested(kept)
     for column in endpoint_config.timestamp_columns:
         if column in row:
             row[column] = _parse_timestamp(row[column])

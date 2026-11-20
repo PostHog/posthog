@@ -1,5 +1,5 @@
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { urls } from 'scenes/urls'
 
@@ -74,7 +74,7 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImp
     const items = getNavProductPages()
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportShown(item, featureFlags)) {
             continue
         }
         const existing = destinations.get(item.href)

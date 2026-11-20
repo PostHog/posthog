@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     sign_aws_request,
@@ -44,7 +45,6 @@ TRANSPORT_RETRY = BoundedRetry(
     allowed_methods=frozenset({"POST"}),
     raise_on_status=False,
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION_PATTERN = re.compile(r"(?:us-gov|[a-z]{2})-[a-z]+-\d+")
 
 
@@ -182,7 +182,7 @@ def endpoint_spec(endpoint: str) -> GlueEndpoint:
 
 
 def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_payload: dict[str, Any]) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    row = {camel_to_snake(key): value for key, value in item.items()}
     row["region"] = region
     for column in endpoint_spec(endpoint).timestamp_columns:
         value = row.get(column)
@@ -190,7 +190,7 @@ def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_paylo
             row[column] = datetime.fromtimestamp(value, tz=UTC)
     for key in ("DatabaseName", "TableName", "JobName", "CrawlerName", "CatalogId", "Type"):
         if key in parent_payload:
-            row[_CAMEL_BOUNDARY.sub("_", key).lower()] = parent_payload[key]
+            row[camel_to_snake(key)] = parent_payload[key]
     if endpoint == "partitions":
         # JSON preserves value boundaries, so different partition tuples cannot share a key.
         row["partition_values"] = json.dumps(item["Values"], ensure_ascii=False, separators=(",", ":"))

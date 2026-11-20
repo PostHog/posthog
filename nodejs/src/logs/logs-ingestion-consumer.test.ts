@@ -471,6 +471,17 @@ describe('LogsIngestionConsumer', () => {
             expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'team_not_found', team_id: 'unknown' })
         })
 
+        it('records a token with no team for capture-logs to turn away', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            const messages = await createKafkaMessages([createLogMessage()], { token: 'phc_belongs_to_no_team' })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(record).toHaveBeenCalledTimes(1)
+            expect(record).toHaveBeenCalledWith('phc_belongs_to_no_team')
+        })
+
         it('should drop messages when team lookup fails and record unknown team_id', async () => {
             jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
 
@@ -486,6 +497,16 @@ describe('LogsIngestionConsumer', () => {
                 reason: 'team_lookup_error',
                 team_id: 'unknown',
             })
+        })
+
+        it('does not record the token when the team lookup fails, so a database blip cannot blacklist it', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(record).not.toHaveBeenCalled()
         })
     })
 
@@ -2828,6 +2849,40 @@ describe('LogsIngestionConsumer', () => {
 
             expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
+        })
+
+        it.each([
+            { label: 'drops spans with the span rules when the team is enabled', enabled: true },
+            { label: 'leaves spans untouched when the team is not enabled', enabled: false },
+        ])('$label', async ({ enabled }) => {
+            const getCompiledRuleSet = jest.fn().mockResolvedValue(
+                compileRuleSet([
+                    {
+                        id: '00000000-0000-0000-0000-0000000000bb',
+                        rule_type: 'path_drop',
+                        scope_service: null,
+                        scope_path_pattern: null,
+                        scope_attribute_filters: [],
+                        config: { patterns: ['.*'] },
+                    },
+                ])
+            )
+            await consumer.stop()
+            consumer = createTracesIngestionConsumer({ TRACES_SAMPLING_ENABLED_TEAMS: enabled ? String(team.id) : '' })
+            consumer['deps'].samplingRulesCache = { getCompiledRuleSet } as unknown as SamplingRulesCache
+            await consumer.start()
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            if (enabled) {
+                expect(getCompiledRuleSet).toHaveBeenCalledWith(team.id, 'spans')
+                expect(produced).toHaveLength(0)
+            } else {
+                expect(getCompiledRuleSet).not.toHaveBeenCalled()
+                expect(produced).toHaveLength(1)
+            }
         })
 
         it('evaluates the span retention rules, not the log ones', () => {

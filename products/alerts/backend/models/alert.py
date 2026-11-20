@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
     from collections.abc import Collection
-    from uuid import UUID
 
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
+    from products.alerts.backend.facade.contracts import AlertValidationState
     from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
 
 import pydantic
@@ -274,6 +275,22 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         return presented_alerts(views, team_id=team_id)
 
+    def validation_state(self) -> AlertValidationState:
+        from products.alerts.backend.facade.contracts import AlertValidationState
+
+        return AlertValidationState(
+            id=self.id,
+            enabled=self.enabled,
+            condition=self.condition,
+            config=self.config,
+            threshold_configuration=self.threshold.configuration if self.threshold else None,
+            calculation_interval=self.calculation_interval,
+            detector_config=self.detector_config,
+            evaluation_delay_intervals=self.evaluation_delay_intervals,
+            investigation_agent_enabled=self.investigation_agent_enabled,
+            investigation_gates_notifications=self.investigation_gates_notifications,
+        )
+
     @property
     def has_no_insight_row(self) -> bool:
         """Whether `from_platform_view` built this alert, because only the platform keeps it."""
@@ -447,6 +464,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             native_only=True,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            # An alert with no insight row carries its platform alert's id.
+            exclude_id=UUID(exclude_id) if exclude_id else None,
         )
         return rows.count() + native
 

@@ -45,6 +45,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_row_is_proven_canonical,
 )
+from products.signals.backend.scout_harness.operational import operational_config_q
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import (
     _canonicalize_team_config_keys,
@@ -440,19 +441,6 @@ def _backfill_unset_column(
         )
 
 
-def _harness_seeded_skill_exists() -> Exists:
-    """Whether the config's skill is the live, harness-seeded canonical row, not a team's own copy."""
-    return Exists(
-        LLMSkill.objects.filter(
-            team_id=OuterRef("team_id"),
-            name=OuterRef("skill_name"),
-            is_latest=True,
-            deleted=False,
-            metadata__seeded_by=HARNESS_SEEDED_BY,
-        )
-    )
-
-
 def operational_configs_needing_reconcile() -> dict[int, set[str]]:
     """Operational scout names per team whose config `reconcile_operational_configs` would change.
 
@@ -462,17 +450,15 @@ def operational_configs_needing_reconcile() -> dict[int, set[str]]:
     A human pause and a breaker pause match only while the exemption is missing, and the
     reconcile stamps it on the first pass, so they stop matching after one tick.
     """
-    operational = canonical_operational_scout_names()
-    if not operational:
+    if not canonical_operational_scout_names():
         return {}
     rows = (
-        SignalScoutConfig.all_teams.filter(skill_name__in=operational)
+        SignalScoutConfig.all_teams.filter(operational_config_q())
         .filter(
             Q(auto_pause_exempt=False)
             | Q(pause_reason__in=SignalScoutConfig.INACTIVITY_PAUSE_REASONS)
             | Q(status=SignalScoutConfig.Status.PAUSED_BY_USER, status_changed_at__isnull=True)
         )
-        .filter(_harness_seeded_skill_exists())
         .values_list("team_id", "skill_name")
     )
     needing: dict[int, set[str]] = {}
@@ -598,11 +584,10 @@ def _setup_pause_candidates(*, max_gap: timedelta | None, team_id: int | None) -
     ).order_by("-created_at")
     configs = (
         SignalScoutConfig.all_teams.filter(
-            skill_name__in=canonical_operational_scout_names(),
+            operational_config_q(),
             status=SignalScoutConfig.Status.PAUSED_BY_USER,
             status_changed_at__isnull=False,
         )
-        .filter(_harness_seeded_skill_exists())
         .annotate(
             pause_log_exists=Exists(pause_log),
             pause_log_client=Subquery(pause_log.values("client")[:1]),
@@ -787,7 +772,7 @@ def unchosen_general_scout_configs(
     chosen_other_scout = (
         SignalScoutConfig.all_teams.filter(team_id=OuterRef("team_id"))
         .exclude(skill_name=GENERAL_SCOUT_SKILL_NAME)
-        .exclude(skill_name__in=canonical_operational_scout_names())
+        .exclude(operational_config_q())
         .filter(Q(enabled_by__isnull=False) | Q(created_by__isnull=False))
     )
     logged_names = field_name_overrides.get("SignalScoutConfig", {})

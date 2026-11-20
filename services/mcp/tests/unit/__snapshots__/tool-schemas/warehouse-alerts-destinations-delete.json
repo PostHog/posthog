@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination_ids": {
+            "description": "IDs of the alert's destinations to delete, as the list endpoint returns them.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "destination_ids"],
+    "type": "object"
+}

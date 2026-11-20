@@ -86,7 +86,9 @@ class _IdentitySecret:
 IDENTITY_VERIFICATION_COUNTER = Counter(
     "conversations_identity_verification_total",
     "Widget identity verification attempts by outcome and which stored secret matched",
-    labelnames=["outcome", "source"],
+    # team_id keeps invalid_hash spikes attributable to the emitting team. Cardinality is
+    # bounded: only teams whose widget actually sends identity payloads create series.
+    labelnames=["outcome", "source", "team_id"],
 )
 
 SIGNING_SECRET_STALE_COUNTER = Counter(
@@ -186,15 +188,17 @@ def _verify_identity(
             "Identity verification attempted but team has no signing secret or legacy token",
             extra={"team_id": team.id},
         )
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none", team_id=str(team.id)).inc()
         raise IdentityVerificationNotConfigured("Team has no signing secret")
 
     for identity_secret in resolved_secrets:
         if verify_identity_hash(distinct_id, hash_value, identity_secret.secret):
-            IDENTITY_VERIFICATION_COUNTER.labels(outcome="verified", source=identity_secret.source).inc()
+            IDENTITY_VERIFICATION_COUNTER.labels(
+                outcome="verified", source=identity_secret.source, team_id=str(team.id)
+            ).inc()
             return distinct_id
 
-    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none", team_id=str(team.id)).inc()
     raise IdentityVerificationFailed("Invalid identity hash")
 
 
@@ -219,7 +223,7 @@ def _verify_identity_claim(
     if not value or not hash_value or not expires_at:
         return None
     if identity_claim_has_expired(expires_at):
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_expired", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_expired", source="none", team_id=str(team.id)).inc()
         return None
 
     resolved_secrets = secrets if secrets is not None else _identity_secrets(team)
@@ -229,7 +233,7 @@ def _verify_identity_claim(
     try:
         canonical = canonicalize_claim_value(field, value)
     except ValueError:
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none", team_id=str(team.id)).inc()
         return None
 
     for identity_secret in resolved_secrets:
@@ -241,10 +245,12 @@ def _verify_identity_claim(
             identity_secret.secret,
             expires_at=expires_at,
         ):
-            IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_verified", source=identity_secret.source).inc()
+            IDENTITY_VERIFICATION_COUNTER.labels(
+                outcome="claim_verified", source=identity_secret.source, team_id=str(team.id)
+            ).inc()
             return canonical
 
-    IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none", team_id=str(team.id)).inc()
     return None
 
 
@@ -678,13 +684,21 @@ class WidgetMessagesView(APIView):
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        ticket_fields = {
+            "ticket_id": str(ticket.id),
+            "ticket_status": ticket.status,
+            "unread_count": ticket.unread_customer_count,
+        }
+
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
+        last_message_at_str = ticket.last_message_at.isoformat() if ticket.last_message_at else None
         use_cache = limit == 50  # Only cache the limit used by widget polling
         if use_cache:
-            cached = get_cached_messages(team.id, ticket_id, after_str)
+            cached = get_cached_messages(team.id, ticket_id, last_message_at=last_message_at_str, after=after_str)
             if cached is not None:
-                return Response(cached)
+                response_data = {**ticket_fields, **cached}
+                return Response(response_data)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -736,18 +750,16 @@ class WidgetMessagesView(APIView):
                 }
             )
 
-        response_data = {
-            "ticket_id": str(ticket.id),
-            "ticket_status": ticket.status,
-            "unread_count": ticket.unread_customer_count,
+        messages_page = {
             "messages": message_list,
             "has_more": len(messages) == limit,  # Hint if there are more messages
         }
 
         # Cache the response
         if use_cache:
-            set_cached_messages(team.id, ticket_id, response_data, after_str)
+            set_cached_messages(team.id, ticket_id, messages_page, last_message_at=last_message_at_str, after=after_str)
 
+        response_data = {**ticket_fields, **messages_page}
         return Response(response_data)
 
 

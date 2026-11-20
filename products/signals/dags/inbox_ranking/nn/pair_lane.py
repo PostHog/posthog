@@ -32,6 +32,7 @@ A partition without pair examples, report examples, the dt=D snapshots or, for a
 user history, the dt=D interactions snapshot keeps what it holds.
 """
 
+import datetime
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -68,6 +69,7 @@ from products.signals.dags.inbox_ranking.nn.dag import (
     NN_EXAMPLES_TABLE,
     DayInputs,
     _day_inputs,
+    skip_family,
     write_candidate,
 )
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, examples_from_arrow, network_inputs
@@ -83,6 +85,7 @@ from products.signals.dags.inbox_ranking.nn.pairs import (
 from products.signals.dags.inbox_ranking.training.dag import check_recipe
 from products.signals.dags.inbox_ranking.training.families import MODEL_FAMILIES, PAIR_BROADCAST_HEAD_NAMES, ModelFamily
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
+from products.signals.dags.inbox_ranking.training.telemetry import FamilySkipReason
 
 # The pair labels' horizon and the pair object's schema, in a pair family's recipe.
 PAIR_SETTINGS: dict[str, Any] = {
@@ -316,9 +319,15 @@ def _family(name: str | None) -> ModelFamily | None:
     return next((family for family in MODEL_FAMILIES if family.name == name), None) if name is not None else None
 
 
-def _skipped(context: dagster.AssetExecutionContext, message: str) -> dict[str, dagster.MetadataValue]:
+def _skipped(
+    context: dagster.AssetExecutionContext,
+    partition_key: str,
+    family: ModelFamily,
+    reason: FamilySkipReason,
+    message: str,
+) -> dict[str, dagster.MetadataValue]:
     context.log.warning(message)
-    return {"skipped": dagster.MetadataValue.bool(True)}
+    return skip_family(context, partition_key, family, reason)
 
 
 def reference_scores(
@@ -351,11 +360,15 @@ def train_pair_candidate(
     """Fit the day's network for the pair-grain `family`, grade it against its pair baseline and its
     reference, write its graphs and `metadata.json` under `<model_name>/dt=D/`, and return the asset
     metadata."""
+    started_at = datetime.datetime.now(datetime.UTC)
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     pairs = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_PAIR_EXAMPLES_TABLE, partition_key))
     if pairs is None:
         return _skipped(
             context,
+            partition_key,
+            family,
+            FamilySkipReason.MISSING_EXAMPLES,
             f"no {NN_PAIR_EXAMPLES_TABLE} for dt={partition_key}; {family.name} keeps this partition as it stands. "
             f"Run inbox_ranking_nn_pair_examples_job for dt={partition_key}",
         )
@@ -364,7 +377,11 @@ def train_pair_candidate(
     )
     if report_arrow is None:
         return _skipped(
-            context, f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands"
+            context,
+            partition_key,
+            family,
+            FamilySkipReason.MISSING_EXAMPLES,
+            f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands",
         )
     examples = examples_from_arrow(report_arrow)
     del report_arrow
@@ -383,16 +400,19 @@ def train_pair_candidate(
         if arm is None:
             continue
         rows = examples.table.rows if arm is reference else table.rows
-        missing = [column for column in arm.feature_set.state_columns if column not in rows]
+        missing = [column for column in arm.feature_set.required_state_columns() if column not in rows]
         if missing:
             return _skipped(
                 context,
+                partition_key,
+                family,
+                FamilySkipReason.MISSING_STATE_COLUMN,
                 f"the nn examples for dt={partition_key} have no {', '.join(missing)} column for {arm.name}; "
                 f"{family.name} keeps this partition as it stands",
             )
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SNAPSHOT)
     arms = [arm for arm in (family, baseline, reference) if arm is not None]
     wanted = sorted({key for arm in arms for key in arm.feature_set.missing_extras(day.extras)})
     extras = {**day.extras, **load_side_inputs(client, bucket, prefix, partition_key, wanted)}
@@ -400,6 +420,9 @@ def train_pair_candidate(
     if missing_extras:
         return _skipped(
             context,
+            partition_key,
+            family,
+            FamilySkipReason.MISSING_SIDE_INPUT,
             f"no {', '.join(missing_extras)} side input for dt={partition_key}; {family.name} keeps this partition "
             "as it stands",
         )
@@ -409,6 +432,9 @@ def train_pair_candidate(
         if history is None:
             return _skipped(
                 context,
+                partition_key,
+                family,
+                FamilySkipReason.MISSING_SNAPSHOT,
                 f"no {USER_INTERACTIONS_TABLE} snapshot for dt={partition_key}; {family.name} reads user history "
                 "and keeps this partition as it stands",
             )
@@ -504,6 +530,7 @@ def train_pair_candidate(
         trained,
         windows={name: window for name, window in examples.windows.items() if name in family.heads},
         vs_baseline=vs_baseline,
+        started_at=started_at,
         pair_settings=PAIR_SETTINGS,
     )
     with_history = table.rows["prior_views"].to_numpy() > 0

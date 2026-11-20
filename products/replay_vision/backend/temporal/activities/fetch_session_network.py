@@ -50,6 +50,10 @@ _MAX_BATCH_COMPRESSED_BYTES = 16 * 1024 * 1024
 @activity.defn
 @track_activity()
 async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> None:
+    return await fetch_session_network(inputs)
+
+
+async def fetch_session_network(inputs: FetchSessionNetworkInputs) -> None:
     """Decode the session's network requests into Redis; idempotent, and never fails the scan.
 
     Network data is a side input: it sharpens a finding when it is there, and the scan is still valid

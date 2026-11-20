@@ -94,11 +94,7 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
 
 def sync_config_state(team_id: int) -> dict[str, Any]:
     try:
-        config = OptOutSyncConfig.objects.select_related(
-            "app_integration",
-            "webhook_integration",
-            "track_integration",
-        ).get(team_id=team_id)
+        config = OptOutSyncConfig.objects.get(team_id=team_id)
     except OptOutSyncConfig.DoesNotExist:
         return {
             "app_integration_id": None,
@@ -110,21 +106,25 @@ def sync_config_state(team_id: int) -> dict[str, Any]:
             "has_track_credentials": False,
         }
 
+    webhook = _linked_row(IntegrationManager.customerio_webhook.any, team_id, config.webhook_integration_id)
+    track = _linked_row(IntegrationManager.customerio_track.any, team_id, config.track_integration_id)
     return {
-        "app_integration_id": config.app_integration.id if config.app_integration else None,
+        "app_integration_id": config.app_integration_id,
         "app_import_result": config.app_import_result,
         "csv_import_result": config.csv_import_result,
         "webhook_enabled": config.webhook_enabled,
-        "has_webhook_secret": bool(
-            config.webhook_integration and config.webhook_integration.sensitive_config.get("webhook_signing_secret")
-        ),
+        "has_webhook_secret": bool(webhook and webhook.sensitive_config.get("webhook_signing_secret")),
         "track_enabled": config.track_enabled,
         "has_track_credentials": bool(
-            config.track_integration
-            and config.track_integration.sensitive_config.get("site_id")
-            and config.track_integration.sensitive_config.get("api_key")
+            track and track.sensitive_config.get("site_id") and track.sensitive_config.get("api_key")
         ),
     }
+
+
+def _linked_row(accessor: IntegrationReader, team_id: int, integration_id: int | None) -> IntegrationRecord | None:
+    if integration_id is None:
+        return None
+    return accessor.get_many(team_id, [integration_id]).get(integration_id)
 
 
 def _delete_integrations(accessor: IntegrationReader, team_id: int) -> None:

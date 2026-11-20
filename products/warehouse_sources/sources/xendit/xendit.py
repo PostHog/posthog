@@ -16,7 +16,6 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.xendit.settings import (
     DEFAULT_INCREMENTAL_FIELD,
-    PAGE_SIZE,
     XENDIT_BASE_URL,
     XENDIT_ENDPOINTS,
     XenditEndpointConfig,
@@ -41,29 +40,53 @@ def _format_datetime(value: Any) -> str:
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def _body_value(body: Any, path: tuple[str, ...]) -> Any:
+    value = body
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
 class XenditCursorPaginator(BasePaginator):
     """Cursor pagination for Xendit list endpoints.
 
-    Responses are shaped `{"data": [...], "has_more": bool, "links": [...]}`. The next page is
-    requested by passing the last row's `id` as `after_id`; the `links` HATEOAS entry carries the
-    same cursor but as a path-relative URL, so building it from the last row keeps every request
-    anchored to our own base URL.
+    Transactions and accounts respond `{"data": [...], "has_more": bool, "links": [...]}` and take
+    the last row's `id` as `after_id`; the `links` HATEOAS entry carries the same cursor but as a
+    path-relative URL, so building it from the last row keeps every request anchored to our own
+    base URL. Disputes and bill payment products return the next cursor in the body instead.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        cursor_param: str = "after_id",
+        next_cursor_path: tuple[str, ...] = (),
+        has_more_path: tuple[str, ...] | None = ("has_more",),
+    ) -> None:
         super().__init__()
-        self._after_id: Optional[str] = None
+        self._cursor_param = cursor_param
+        self._next_cursor_path = next_cursor_path
+        self._has_more_path = has_more_path
+        self._cursor: Optional[str] = None
 
     def _apply_cursor(self, request: Request) -> None:
-        if self._after_id is None:
+        if self._cursor is None:
             return
         if request.params is None:
             request.params = {}
-        request.params["after_id"] = self._after_id
+        request.params[self._cursor_param] = self._cursor
 
     def init_request(self, request: Request) -> None:
         # Honour a seeded resume cursor on the first request.
         self._apply_cursor(request)
+
+    def _next_cursor(self, body: Any, data: Optional[list[Any]]) -> Any:
+        if self._next_cursor_path:
+            return _body_value(body, self._next_cursor_path)
+        rows = data if data is not None else (body.get("data") if isinstance(body, dict) else None) or []
+        last_row = rows[-1] if rows else None
+        return last_row.get("id") if isinstance(last_row, dict) else None
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -71,36 +94,33 @@ class XenditCursorPaginator(BasePaginator):
         except Exception:
             body = {}
 
-        rows = data if data is not None else (body.get("data") if isinstance(body, dict) else None) or []
-        last_row = rows[-1] if rows else None
-        next_after_id = last_row.get("id") if isinstance(last_row, dict) else None
+        next_cursor = self._next_cursor(body, data)
+        has_more = bool(_body_value(body, self._has_more_path)) if self._has_more_path is not None else True
 
         # A cursor identical to the one just used means the page didn't advance; stop instead of
         # refetching it until the activity times out.
-        if not (isinstance(body, dict) and body.get("has_more")) or next_after_id is None:
-            self._has_next_page = False
-            return
-        if str(next_after_id) == self._after_id:
+        if not has_more or not next_cursor or str(next_cursor) == self._cursor:
             self._has_next_page = False
             return
 
-        self._after_id = str(next_after_id)
+        self._cursor = str(next_cursor)
         self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         self._apply_cursor(request)
 
+    # The state key stays `after_id` for every endpoint so resume state saved by earlier runs still loads.
     def get_resume_state(self) -> Optional[dict[str, Any]]:
-        return {"after_id": self._after_id} if self._has_next_page and self._after_id is not None else None
+        return {"after_id": self._cursor} if self._has_next_page and self._cursor is not None else None
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         after_id = state.get("after_id")
         if after_id is not None:
-            self._after_id = str(after_id)
+            self._cursor = str(after_id)
             self._has_next_page = True
 
     def __str__(self) -> str:
-        return "XenditCursorPaginator()"
+        return f"XenditCursorPaginator(cursor_param={self._cursor_param!r})"
 
 
 def _build_params(
@@ -109,7 +129,7 @@ def _build_params(
     db_incremental_field_last_value: Any,
     incremental_field: Optional[str],
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
+    params: dict[str, Any] = {"limit": config.page_size, **config.extra_params}
 
     if not (should_use_incremental_field and db_incremental_field_last_value is not None):
         return params
@@ -177,7 +197,11 @@ def xendit_source(
                     "path": config.path,
                     "params": params,
                     "data_selector": "data",
-                    "paginator": XenditCursorPaginator(),
+                    "paginator": XenditCursorPaginator(
+                        cursor_param=config.cursor_param,
+                        next_cursor_path=config.next_cursor_path,
+                        has_more_path=config.has_more_path,
+                    ),
                 },
             }
         ],

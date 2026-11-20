@@ -17,7 +17,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPerson
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
@@ -147,6 +147,11 @@ _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
 # to Float, the raw String value has to flow through for the parser to work.
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
+# These functions return one of their arguments unchanged, so the call around them receives the property itself.
+# A property that the outer call needs as its stored string must stay unconverted through them, as in
+# `JSONExtractArrayRaw(properties.items ?? '[]')`.
+NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
+
 
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
@@ -154,6 +159,10 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.GtEq,
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
+    }
+    _EQUALITY_OPS: set[str] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
     }
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
@@ -185,6 +194,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
 
@@ -264,6 +274,17 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
+        # ClickHouse reads the first argument of a JSON function as JSON text and raises ILLEGAL_TYPE_OF_ARGUMENT on
+        # any other type, so a typed property in that position keeps its stored string. The other arguments are keys
+        # and type names, which convert as in any other call.
+        self._suppress_numeric_conversion = True
+        document = self.visit(node.args[0])
+        self._suppress_numeric_conversion = False
+        call = super().visit_call(dataclasses.replace(node, args=node.args[1:]))
+        call.args.insert(0, document)
+        return call
+
     def visit_call(self, node: ast.Call):
         rewritten = self._rewrite_json_property_call(node)
         if rewritten is not None:
@@ -271,13 +292,19 @@ class PropertySwapper(CloningVisitor):
 
         # Track whether the immediate enclosing call parses its argument as a
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
-        # toFloatOrZero(toString(prop))) correctly reset the flag.
+        # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
+        # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS
+        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
+            saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
+        )
 
         self._inside_call_depth += 1
         try:
-            result = super().visit_call(node)
+            if node.name in JSON_FUNCTIONS and node.args:
+                result = self._visit_json_function_call(node)
+            else:
+                result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
@@ -565,7 +592,12 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        saved_operand_ids = self._string_compared_operand_ids
+        self._string_compared_operand_ids = saved_operand_ids | self._string_compared_operand_ids_for(node)
+        try:
+            result = super().visit_compare_operation(node)
+        finally:
+            self._string_compared_operand_ids = saved_operand_ids
 
         if (
             not self.setTimeZones
@@ -576,6 +608,25 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    @classmethod
+    def _string_compared_operand_ids_for(cls, node: ast.CompareOperation) -> frozenset[int]:
+        """Find the operand of an equality check against '' that is itself a field.
+
+        ClickHouse cannot parse '' as a DateTime, so the property must stay a string
+        for this comparison. Only the operand itself qualifies, never a field nested in a
+        function call, and other constants keep the DateTime conversion.
+        """
+        if node.op not in cls._EQUALITY_OPS:
+            return frozenset()
+        operand_ids: set[int] = set()
+        for operand, other in ((node.left, node.right), (node.right, node.left)):
+            if isinstance(other, ast.Constant) and other.value == "":
+                while isinstance(operand, ast.Alias):
+                    operand = operand.expr
+                if isinstance(operand, ast.Field):
+                    operand_ids.add(id(operand))
+        return frozenset(operand_ids)
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
@@ -831,6 +882,8 @@ class PropertySwapper(CloningVisitor):
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
+            if id(node) in self._string_compared_operand_ids:
+                return ast.Call(name="toString", args=[node])
             # Carry the return type so an enclosing toDateTime() resolves its
             # already-a-datetime overload instead of re-parsing this value
             # (parseDateTime64BestEffortOrNull only accepts strings). Only

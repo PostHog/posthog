@@ -37,7 +37,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
     const burstCount = burstPlan.sessionIds.length
     const costLine =
         spendMode === 'free'
-            ? `Free credits only${freeCreditsLeft !== null ? `, ${formatCreditCount(freeCreditsLeft)} left` : ''}. Stops by itself at the limit.`
+            ? `Free credits only${freeCreditsLeft !== null ? `, ${formatCreditCount(freeCreditsLeft)} left` : ''}. Stops when they run out.`
             : freeAvailable
               ? 'A monthly budget you set. Free credits are used first.'
               : 'Free credits are used up, so this scanner needs a monthly limit.'
@@ -52,7 +52,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
                 ) : volume ? (
                     'Your week in recordings'
                 ) : (
-                    'Nothing to watch yet'
+                    'No highlights to watch yet'
                 )
             }
             body={

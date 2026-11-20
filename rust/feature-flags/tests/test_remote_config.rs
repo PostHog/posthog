@@ -877,6 +877,43 @@ async fn test_remote_config_empty_payload_returns_empty_body() {
 }
 
 #[tokio::test]
+async fn test_remote_config_disabled_flag_returns_json_null() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let flag_id = insert_rc_flag(&context, team.id, "rc-disabled", PLAINTEXT, true, false).await;
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query("UPDATE posthog_featureflag SET active = false WHERE id = $1")
+        .bind(flag_id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-disabled"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
+    assert_eq!(response.text().await.unwrap(), "null");
+}
+
+#[tokio::test]
 async fn test_remote_config_etag_roundtrip() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;

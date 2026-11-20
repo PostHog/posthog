@@ -11,17 +11,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cre
     ChangedFrozenValueError,
     render_credential_kinds,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
-    CLASSIFICATION_AUDIT_PATH,
-    render_classification_audit,
-)
 
 
 class Command(BaseCommand):
     help = (
-        "Write the audit table of which job_inputs keys of each warehouse source are connection fields, "
-        "references, selectors, sync settings or runtime state, and write the frozen credential kind of "
-        "each source and the default auth type of each kind. A test fails when a committed file is out of date."
+        "Write the frozen credential kind of each source and the default auth type of each kind. "
+        "`hogli build:projections` writes these and the field classification audit. Use this command only with "
+        "--allow-changed-defaults, to accept a changed value of an existing entry."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -46,5 +42,3 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Wrote {CREDENTIAL_KINDS_PATH}"))
         CREDENTIAL_AUTH_TYPES_PATH.write_text(auth_types)
         self.stdout.write(self.style.SUCCESS(f"Wrote {CREDENTIAL_AUTH_TYPES_PATH}"))
-        CLASSIFICATION_AUDIT_PATH.write_text(render_classification_audit())
-        self.stdout.write(self.style.SUCCESS(f"Wrote {CLASSIFICATION_AUDIT_PATH}"))

@@ -8,10 +8,24 @@ a receiver that keys on labels.
 
 from collections.abc import Collection, Mapping
 from typing import Final
+from urllib.parse import quote
 
 import re2
+import structlog
 
-from products.alerts_platform.backend.facade.grouping import UNSTORABLE, encoded_length
+from posthog.dataclasses import frozen
+
+from products.alerts_platform.backend.facade.grouping import UNSTORABLE, clipped_to, encoded_length
+
+logger = structlog.get_logger(__name__)
+
+
+@frozen
+class _Template:
+    start: int
+    end: int
+    body: str
+
 
 MAX_RULE_LABELS: Final = 20
 _MAX_RULE_ANNOTATIONS: Final = 20
@@ -71,31 +85,86 @@ def _check_link(name: str, value: str) -> None:
         raise InvalidRuleMetadata(f"Annotation `{name}` must name its host without a template.")
 
 
+def render_annotations(
+    annotations: Mapping[str, str], *, labels: Mapping[str, str], value: float | None
+) -> dict[str, str]:
+    """Each annotation with its templates filled in from one group's labels and value.
+
+    A label the group does not carry renders as nothing, as in Prometheus. An annotation that no
+    longer validates is left out rather than sent with its template showing.
+
+    A rendered annotation is held to the size a stored one may have. A template that repeats a long
+    label can otherwise grow past what a provider accepts, and PagerDuty refuses the whole event. A
+    cut link would open the wrong page, so a link that renders too long is left out instead.
+    """
+    rendered: dict[str, str] = {}
+    for name, template in annotations.items():
+        try:
+            text = _render(name, template, labels, value)
+            if name.endswith("_url") and encoded_length(text) > _MAX_ANNOTATION_VALUE_BYTES:
+                raise InvalidRuleMetadata(f"Annotation `{name}` renders a link that is too long.")
+            rendered[name] = clipped_to(text, _MAX_ANNOTATION_VALUE_BYTES)
+        except InvalidRuleMetadata:
+            logger.warning("alerts_platform.annotation_not_rendered", annotation=name)
+    return rendered
+
+
+def _render(name: str, template: str, labels: Mapping[str, str], value: float | None) -> str:
+    quote_values = name.endswith("_url")
+    parts: list[str] = []
+    position = 0
+    for template_part in _templates(name, template):
+        reference = _reference(name, template_part.body)
+        if reference is None:
+            filled = "" if value is None else f"{value:g}"
+        else:
+            filled = labels.get(reference, "")
+        parts.append(template[position : template_part.start])
+        parts.append(quote(filled, safe="") if quote_values else filled)
+        position = template_part.end
+    parts.append(template[position:])
+    rendered = "".join(parts)
+    if quote_values and _has_dot_segment(rendered):
+        raise InvalidRuleMetadata(f"Annotation `{name}` renders a link that leaves its path.")
+    return rendered
+
+
+def _has_dot_segment(url: str) -> bool:
+    # Quoting stops a label value adding a segment, but a browser still resolves `..` and `%2e%2e`.
+    # It also drops tabs and newlines and reads a backslash as a slash, so this check does too.
+    path = re2.split(r"[?#]", re2.sub(r"[\t\n\r]", "", url), maxsplit=1)[0]
+    return any(segment.lower().replace("%2e", ".") in (".", "..") for segment in re2.split(r"[/\\]", path)[3:])
+
+
 def _referenced_labels(name: str, value: str) -> list[str]:
-    """The label names a template references. Raises for anything but `$labels.<name>` and `$value`."""
-    references: list[str] = []
-    for body in _template_bodies(name, value):
-        if label := _LABEL_REFERENCE.fullmatch(body):
-            references.append(label.group(1))
-        elif not _VALUE_REFERENCE.fullmatch(body):
-            raise InvalidRuleMetadata(
-                f"Annotation `{name}` has an unsupported template `{{{{{body}}}}}`. "
-                "Use {{ $labels.<name> }} or {{ $value }}."
-            )
-    return references
+    return [
+        reference for template in _templates(name, value) if (reference := _reference(name, template.body)) is not None
+    ]
 
 
-def _template_bodies(name: str, value: str) -> list[str]:
+def _reference(name: str, body: str) -> str | None:
+    """The label a template body names, or None for `$value`. Raises for anything else."""
+    if label := _LABEL_REFERENCE.fullmatch(body):
+        return label.group(1)
+    if _VALUE_REFERENCE.fullmatch(body):
+        return None
+    raise InvalidRuleMetadata(
+        f"Annotation `{name}` has an unsupported template `{{{{{body}}}}}`. "
+        "Use {{ $labels.<name> }} or {{ $value }}."
+    )
+
+
+def _templates(name: str, value: str) -> list[_Template]:
     # A pattern needing both delimiters would skip an unclosed `{{` and every check after it.
-    bodies: list[str] = []
+    templates: list[_Template] = []
     position = 0
     while (start := value.find("{{", position)) != -1:
         end = value.find("}}", start + 2)
         if end == -1:
             raise InvalidRuleMetadata(f"Annotation `{name}` has a `{{{{` with no closing `}}}}`.")
-        bodies.append(value[start + 2 : end])
         position = end + 2
-    return bodies
+        templates.append(_Template(start=start, end=position, body=value[start + 2 : end]))
+    return templates
 
 
 def _check_name(name: str, kind: str) -> None:

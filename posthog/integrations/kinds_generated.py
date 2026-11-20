@@ -31,6 +31,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     DATABRICKS = "databricks"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     FIREBASE = "firebase"
     GITHUB = "github"
     GITLAB = "gitlab"
@@ -50,6 +51,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     LINKEDIN_ADS = "linkedin-ads"
     META_ADS = "meta-ads"
+    MOTHERDUCK = "motherduck"
     PARDOT = "pardot"
     PINTEREST_ADS = "pinterest-ads"
     POSTGRESQL = "postgresql"
@@ -156,6 +158,12 @@ class EmailKind(KindAccessor):
     kind = "email"
     credentials = AuthAccessor(kind="email", auth_type=AuthType.CREDENTIALS)  # the default
     any = IntegrationReader(kinds=frozenset({"email"}))
+
+
+class Email_sandboxKind(KindAccessor):
+    kind = "email_sandbox"
+    credentials = AuthAccessor(kind="email_sandbox", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"email_sandbox"}))
 
 
 class FirebaseKind(KindAccessor):
@@ -276,6 +284,12 @@ class MetaAdsKind(KindAccessor):
     kind = "meta-ads"
     oauth = OAuthAccessor(kind="meta-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"meta-ads"}))
+
+
+class MotherduckKind(KindAccessor):
+    kind = "motherduck"
+    credentials = AuthAccessor(kind="motherduck", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"motherduck"}))
 
 
 class PardotKind(KindAccessor):
@@ -408,6 +422,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     customerio_webhook = CustomerioWebhookKind()
     databricks = DatabricksKind()
     email = EmailKind()
+    email_sandbox = Email_sandboxKind()
     firebase = FirebaseKind()
     github = GithubKind()
     gitlab = GitlabKind()
@@ -427,6 +442,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     linear = LinearKind()
     linkedin_ads = LinkedinAdsKind()
     meta_ads = MetaAdsKind()
+    motherduck = MotherduckKind()
     pardot = PardotKind()
     pinterest_ads = PinterestAdsKind()
     postgresql = PostgresqlKind()

@@ -182,6 +182,10 @@ Need more granular access to queries than these dashboards provide? Take a look 
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
 
+### HogQL cross joins
+
+The `hogql-optimize-cross-joins` project feature flag enables the `optimizeCrossJoins` modifier for queries whose modifier is unset. The compiler can move direct equality conditions between two sources from `WHERE` into an `ALL INNER JOIN` before resolving lazy person joins. This preserves duplicate matches and corrected person identities without editing saved HogQL. Nullable keys keep the existing path because HogQL equality in `WHERE` matches two nulls, whereas join equality does not. Keys of different types, such as a float and an integer, also keep the existing path, because ClickHouse can reject a join between them. Ambiguous join chains, predicates inside `OR` or `NOT`, sampling, and subqueries in result or filter expressions also keep their existing paths. Set the modifier to `false` to disable the transform for one query or project. The feature flag defaults off.
+
 ### Repeated HogQL CTEs
 
 The `hogql-materialize-repeated-ctes` project flag, or `materializeRepeatedCTEs` query modifier, can reuse eligible repeated event aggregates within one execution. It defaults off and additionally requires `HOGQL_MATERIALIZED_CTE_SUPPORTED=true` on deployments whose application ClickHouse profile enables materialized CTEs and the analyzer. Explicit materialization hints take precedence. The initial path requires literal timestamp bounds, deterministic aggregates, and references within the same SELECT without filters or keyed joins; other queries retain their existing compilation. Compare equivalent results, median duration, bytes read, and peak memory over five paired runs before enabling a project, and disable the flag or capability setting if errors, latency, or memory regress.

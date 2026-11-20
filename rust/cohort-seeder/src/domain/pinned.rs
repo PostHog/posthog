@@ -62,8 +62,8 @@ pub struct UnknownTriggerKind(pub String);
 /// The only event `flag_evaluations` stores.
 const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
 
-/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. The Node fork
-/// step in `fork-flag-evaluations-step.ts` mirrors it too. Change all three together.
+/// Mirror of `ttl_days` in `posthog/models/flag_evaluations/crosslang/flag_evaluations.json`. Edit
+/// that file first. `ttl_days_mirrors_the_shared_json` fails while the two differ.
 const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 92;
 
 /// The ClickHouse table a scan reads.
@@ -902,6 +902,28 @@ mod tests {
     use super::*;
 
     const BYTECODE: &[Value] = &[];
+
+    #[test]
+    fn ttl_days_mirrors_the_shared_json() {
+        const RELATIVE_PATH: &str =
+            "posthog/models/flag_evaluations/crosslang/flag_evaluations.json";
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = loop {
+            let candidate = dir.join(RELATIVE_PATH);
+            if candidate.is_file() {
+                break candidate;
+            }
+            assert!(dir.pop(), "could not locate {RELATIVE_PATH}");
+        };
+        let raw = std::fs::read_to_string(&path).expect("the shared json is readable");
+        let parsed: Value = serde_json::from_str(&raw).expect("the shared json parses");
+
+        assert_eq!(
+            parsed["ttl_days"].as_i64(),
+            Some(i64::from(FLAG_EVALUATIONS_TTL_DAYS)),
+            "FLAG_EVALUATIONS_TTL_DAYS has drifted from {RELATIVE_PATH}. Edit the json first, then the mirror."
+        );
+    }
 
     #[test]
     fn validation_rejects_unknown_schema_and_malformed_hashes() {

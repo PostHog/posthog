@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as SplashScreen from 'expo-splash-screen'
 
+import { viewRangesLoaded } from '@/features/views/rangeStore'
 import { track } from '@/lib/analytics'
 
 import RootLayout from '../../app/_layout'
@@ -33,6 +34,7 @@ jest.mock(
 jest.mock('@/auth/authStore', () => {
     const { create } = jest.requireActual<typeof import('zustand')>('zustand')
     return {
+        addSessionEndTask: jest.fn(),
         installAuthProvider: jest.fn(),
         useAuthStore: create(() => ({ status: 'loading', restore: async () => undefined })),
     }
@@ -62,7 +64,8 @@ jest.mock('@/ui/RouteErrorBoundary', () => ({ RouteErrorBoundary: jest.fn() }))
 jest.mock('@/ui/icons/AnimatedLogomark', () => ({ AnimatedLogomark: require('react-native').View }))
 
 describe('boot splash handoff', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        await viewRangesLoaded
         jest.useFakeTimers()
         jest.clearAllMocks()
         useAuthStore.setState({ status: 'loading' })

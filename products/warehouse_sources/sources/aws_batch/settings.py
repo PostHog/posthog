@@ -61,6 +61,12 @@ AWS_BATCH_ENDPOINTS: dict[str, AwsBatchEndpoint] = {
         primary_key="consumable_resource_arn",
         description="Consumable resources with their total, in-use, and available quantities.",
     ),
+    "job_queue_snapshots": AwsBatchEndpoint(
+        operation="GetJobQueueSnapshot",
+        result_key="frontOfQueue",
+        primary_key="job_queue_arn",
+        description="The current state of each job queue: the first runnable jobs in dispatch order and the capacity in use.",
+    ),
 }
 ENDPOINTS = tuple(AWS_BATCH_ENDPOINTS)
 ENDPOINT_DESCRIPTIONS = {name: endpoint.description for name, endpoint in AWS_BATCH_ENDPOINTS.items()}
@@ -72,7 +78,7 @@ PERMISSION_MESSAGE = (
     "AWS denied access to Batch. Grant batch:DescribeJobQueues, batch:ListJobs, batch:DescribeJobs, "
     "batch:ListServiceJobs, batch:DescribeComputeEnvironments, batch:DescribeJobDefinitions, "
     "batch:ListSchedulingPolicies, batch:DescribeSchedulingPolicies, batch:ListConsumableResources, "
-    "and batch:DescribeConsumableResource for the tables you select."
+    "batch:DescribeConsumableResource, and batch:GetJobQueueSnapshot for the tables you select."
 )
 CREDENTIAL_MESSAGE = "AWS rejected the credentials. Check the access key ID, secret access key, and session token."
 NON_RETRYABLE_ERRORS: dict[str, str] = {
@@ -97,6 +103,7 @@ AWS_SESSION_ACTIONS = (
     "batch:DescribeJobQueues",
     "batch:DescribeJobs",
     "batch:DescribeSchedulingPolicies",
+    "batch:GetJobQueueSnapshot",
     "batch:ListConsumableResources",
     "batch:ListJobs",
     "batch:ListSchedulingPolicies",

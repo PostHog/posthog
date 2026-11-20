@@ -19,7 +19,9 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     frozen,
+    lift_nested,
     make_tracked_session,
     sign_aws_request,
 )
@@ -29,7 +31,6 @@ if TYPE_CHECKING:
     from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 _REGION = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d+")
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _THROTTLE_CODES = {"Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded"}
 _TIMESTAMP_COLUMNS = {
     "configuration_item_capture_time",
@@ -174,16 +175,10 @@ def incremental_start(
     return None
 
 
-def snake_case(key: str) -> str:
-    return _CAMEL_BOUNDARY.sub("_", key).lower()
-
-
 def normalize_row(item: dict[str, Any], region: str, flatten: tuple[str, ...] = ()) -> dict[str, Any]:
     for key in flatten:
-        nested = item.get(key)
-        if isinstance(nested, dict):
-            item = {**nested, **{name: value for name, value in item.items() if name != key}}
-    row = {snake_case(key): value for key, value in item.items()}
+        item = lift_nested(item, key)
+    row = {camel_to_snake(key): value for key, value in item.items()}
     row["region"] = region
     for key in _TIMESTAMP_COLUMNS & row.keys():
         value = row[key]
@@ -283,7 +278,7 @@ def get_fan_out_rows(
     parent, params = endpoint.parent, endpoint.parent_params
     if parent is None or not params:
         raise ValueError(f"AWS Config table {endpoint.operation} has no parent.")
-    columns = [snake_case(param) for param in params]
+    columns = [camel_to_snake(param) for param in params]
     parent_token = resume.parent_next_token if resume else None
     resume_key = resume.parent_key if resume else None
     child_token = resume.next_token if resume else None

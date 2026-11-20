@@ -3,6 +3,7 @@
   list([
     'action',
     'ai_observability_clusters',
+    'canvas',
     'dashboard',
     'dataset',
     'early_access_feature',
@@ -32,8 +33,10 @@
 # name: test_resources_with_object_access_controls_snapshot
   list([
     'account',
+    'account_note',
     'action',
     'ai_observability_clusters',
+    'canvas',
     'customer_analytics',
     'customer_journey',
     'dashboard',
