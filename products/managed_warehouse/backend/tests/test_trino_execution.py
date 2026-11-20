@@ -5,7 +5,15 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from structlog.testing import capture_logs
-from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
+from trino.exceptions import (
+    Http502Error,
+    Http503Error,
+    Http504Error,
+    HttpError,
+    TrinoConnectionError,
+    TrinoQueryError,
+    TrinoUserError,
+)
 
 from products.managed_warehouse.backend import trino_execution as execution
 
@@ -124,6 +132,10 @@ async def test_reports_cpu_time() -> None:
         (TrinoQueryError({"errorName": "TOO_MANY_REQUESTS_FAILED", "message": "Query killed"}), 2),
         (TrinoQueryError({"errorName": "PAGE_TRANSPORT_TIMEOUT", "message": "Query killed"}), 2),
         (HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"), 2),
+        (Http502Error("error 502: bad gateway"), 2),
+        (Http503Error("error 503: service unavailable"), 2),
+        (Http504Error("error 504: gateway timeout"), 2),
+        (TrinoConnectionError("failed to fetch: connection reset"), 2),
         (HttpError("error 403: b'Forbidden'"), 1),
         (
             TrinoUserError(

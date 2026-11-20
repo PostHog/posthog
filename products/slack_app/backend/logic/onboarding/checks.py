@@ -27,8 +27,9 @@ def is_org_admin(user_id: int, team_id: int) -> bool:
     if org_id is None:
         return False
     level = (
-        OrganizationMembership.objects.filter(organization_id=org_id, user_id=user_id)
-        .values_list("level", flat=True)
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization_id=org_id, user_id=user_id)
+        .values_list("resolved_level", flat=True)
         .first()
     )
     return level is not None and level >= OrganizationMembership.Level.ADMIN
@@ -40,6 +41,14 @@ def has_enabled_source(team_id: int) -> bool:
     )
 
     return signals_has_enabled_source(team_id)
+
+
+def enabled_source_keys(team_id: int) -> list[str]:
+    from products.signals.backend.facade.api import (
+        onboarding_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
+    )
+
+    return [source.key for source in onboarding_sources(team_id) if source.enabled]
 
 
 def approve_ai_data_processing_for_team(team_id: int) -> bool:

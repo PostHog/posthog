@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Response
@@ -13,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -64,16 +64,6 @@ def _auth_config(api_key: str) -> AuthConfig:
     return {"type": "api_key", "api_key": api_key, "name": "Beamer-Api-Key", "location": "header"}
 
 
-def _format_datetime(value: Any) -> str:
-    """Format an incremental cursor value as the ISO-8601 `...Z` string Beamer's `dateFrom` expects."""
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day, tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return str(value)
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # A bad key 401s; a valid-but-unscoped key 403s (the 'Read posts' permission is optional). Both
     # mean the key is genuine, so only a 401 fails source-create — per-endpoint scope is surfaced
@@ -107,7 +97,7 @@ def _top_level_resource(
 ) -> Resource:
     params: dict[str, Any] = {"maxResults": config.max_results}
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["dateFrom"] = _format_datetime(db_incremental_field_last_value)
+        params["dateFrom"] = format_datetime(db_incremental_field_last_value)
 
     rest_config: RESTAPIConfig = {
         "client": {

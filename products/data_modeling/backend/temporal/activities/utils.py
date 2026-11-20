@@ -133,6 +133,8 @@ TRINO_INFRA_ERROR_PATTERN = re.compile(
     rf"|{re.escape(TRINO_INSTANCE_REPLACED_ERROR_PREFIX)}"
     # the gateway refused the query with an HTTP 403 before any cluster ran it
     r"|error 403: b'This tenant is not admitted to the pool yet"
+    # gateway failures do not identify model faults, so they must not count toward suspension
+    r"|error 50[234]:"
 )
 
 STREAM_FAULT_ERROR_PREFIXES = (

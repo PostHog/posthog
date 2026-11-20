@@ -42,6 +42,17 @@ describe("posthog-analytics", () => {
     );
   });
 
+  it("turns person processing off only while no user is identified", () => {
+    posthogNodeAnalytics.track("app_started");
+    posthogNodeAnalytics.setCurrentUserId("user-1");
+    posthogNodeAnalytics.track("app_started");
+
+    expect(mockCapture.mock.calls.map(([message]) => message.options)).toEqual([
+      { process_person_profile: false },
+      { process_person_profile: true },
+    ]);
+  });
+
   it("lets caller-supplied properties coexist with the app version", () => {
     posthogNodeAnalytics.track("app_quit", { reason: "user-initiated" });
 
@@ -70,14 +81,13 @@ describe("posthog-analytics", () => {
   it("includes the app version on captured exceptions", () => {
     posthogNodeAnalytics.captureException(new Error("boom"));
 
-    expect(mockCaptureException).toHaveBeenCalledWith(
-      expect.any(Error),
-      expect.any(String),
-      expect.objectContaining({
+    expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+      distinctId: expect.any(String),
+      properties: expect.objectContaining({
         team: "posthog-code",
         app_version: "0.0.0-test",
       }),
-    );
+    });
   });
 
   it("does not let additionalProperties override app_version on exceptions", () => {
@@ -85,13 +95,12 @@ describe("posthog-analytics", () => {
       app_version: "spoofed",
     });
 
-    expect(mockCaptureException).toHaveBeenCalledWith(
-      expect.any(Error),
-      expect.any(String),
-      expect.objectContaining({
+    expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+      distinctId: expect.any(String),
+      properties: expect.objectContaining({
         app_version: "0.0.0-test",
       }),
-    );
+    });
   });
 
   it("stamps the main-owned session id and ignores a caller override", () => {
@@ -99,8 +108,10 @@ describe("posthog-analytics", () => {
       $session_id: "spoofed",
     });
 
-    const [, , props] = mockCaptureException.mock.calls.at(-1) ?? [];
-    expect(props.$session_id).toBe(posthogNodeAnalytics.getOrCreateSessionId());
+    const [, options] = mockCaptureException.mock.calls.at(-1) ?? [];
+    expect(options.properties.$session_id).toBe(
+      posthogNodeAnalytics.getOrCreateSessionId(),
+    );
   });
 
   it("mints a stable valid uuidv7 session id", () => {
