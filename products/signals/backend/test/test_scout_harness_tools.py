@@ -4,6 +4,7 @@ import uuid
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -823,6 +824,54 @@ class TestSearchScratchpad(BaseTest):
         keys = {e.key for e in results}
         # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
         assert keys == {"k1", "checkout-key"}
+
+    @parameterized.expand(
+        [
+            ("body_quotes_the_prefix", "report:", ["report:checkout"]),
+            ("percent_is_literal", "rate%:", ["rate%:checkout"]),
+            ("underscore_is_literal", "ai_:", ["ai_:checkout"]),
+        ]
+    )
+    def test_key_prefix_matches_only_keys_that_start_with_it(
+        self, _name: str, key_prefix: str, expected: list[str]
+    ) -> None:
+        remember(team_id=self.team.id, key="report:checkout", content="v")
+        remember(team_id=self.team.id, key="dedupe:checkout", content="filed as report:checkout")
+        remember(team_id=self.team.id, key="rate%:checkout", content="v")
+        remember(team_id=self.team.id, key="rate-limit:checkout", content="v")
+        remember(team_id=self.team.id, key="ai_:checkout", content="v")
+        remember(team_id=self.team.id, key="aix:checkout", content="v")
+
+        results = search_scratchpad(team_id=self.team.id, key_prefix=key_prefix)
+
+        assert [e.key for e in results] == expected
+
+    def test_key_prefix_pages_one_scouts_family_with_the_other_filters(self) -> None:
+        errors_run = str(_create_run(self.team).id)
+        flags_run = str(_create_run(self.team, skill_name="signals-scout-flags").id)
+        for key in ("followup:errors:old", "followup:errors:new", "watch:errors:new"):
+            remember(team_id=self.team.id, key=key, content="pending", run_id=errors_run)
+        remember(team_id=self.team.id, key="followup:errors:sibling", content="pending", run_id=flags_run)
+        SignalScratchpad.objects.filter(team=self.team, key="followup:errors:old").update(
+            updated_at=timezone.now() - timedelta(days=2)
+        )
+        search = partial(
+            search_scratchpad,
+            team_id=self.team.id,
+            key_prefix="followup:errors:",
+            skill_name="signals-scout-errors",
+            keys_only=True,
+            limit=1,
+        )
+
+        first = search()
+        assert first[0].updated_at is not None
+        second = search(date_to=datetime.fromisoformat(first[0].updated_at))
+
+        assert [(e.key, e.content) for e in first + second] == [
+            ("followup:errors:new", ""),
+            ("followup:errors:old", ""),
+        ]
 
     @parameterized.expand(
         [
