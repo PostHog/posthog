@@ -3,8 +3,8 @@ Invalidate flags-service auth cache entries for a team.
 
 Clears cached token entries in Redis so the Rust feature-flags service
 re-validates against Postgres on the next request. Does NOT revoke the
-tokens themselves. Covers team secret tokens, project secret API keys,
-and personal API keys that have access to the team.
+tokens themselves. Covers project secret API keys and personal API keys
+that have access to the team.
 
 Usage:
     python manage.py invalidate_flags_auth_cache --team-id 12345
@@ -61,7 +61,6 @@ class Command(BaseCommand):
             else f"Invalidated flags auth cache entries for team {team_id}:"
         )
         self.stdout.write(header)
-        self.stdout.write(f"  Secret tokens:       {counts['secret_tokens']}")
         self.stdout.write(f"  Project secret keys: {counts['project_secret_keys']}")
         self.stdout.write(f"  Personal keys:       {counts['personal_keys']}")
 

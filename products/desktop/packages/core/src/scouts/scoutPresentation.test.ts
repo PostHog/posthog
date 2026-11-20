@@ -21,7 +21,6 @@ import {
   listScoutsNeedingAttention,
   nextRunAt,
   normalizeRunStatus,
-  prettifyScoutSkillName,
   resolveScoutRouteName,
   runDurationSeconds,
   runMatchesFilter,
@@ -74,16 +73,6 @@ function makeConfig(overrides: Partial<ScoutConfig> = {}): ScoutConfig {
 }
 
 describe("naming", () => {
-  it("prettifies skill names", () => {
-    expect(prettifyScoutSkillName("signals-scout-error-tracking")).toBe(
-      "Error tracking",
-    );
-    expect(prettifyScoutSkillName("signals-scout-ai-observability")).toBe(
-      "Ai observability",
-    );
-    expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
-  });
-
   it.each<[string, string[], string]>([
     [
       "signals-scout-error-tracking",
@@ -403,15 +392,20 @@ describe("intervals and ordering", () => {
     expect(formatRunIntervalShort(minutes)).toBe(label);
   });
 
-  it("sorts enabled scouts first, then alphabetically", () => {
+  it("sorts enabled scouts first, then alphabetically by display name", () => {
     const configs = [
       makeConfig({ skill_name: "signals-scout-logs", enabled: false }),
       makeConfig({ skill_name: "signals-scout-surveys" }),
       makeConfig({ skill_name: "signals-scout-error-tracking" }),
+      makeConfig({
+        skill_name: "signals-scout-zz-custom",
+        display_name: "Billing watch",
+      }),
     ];
     expect(
       sortConfigsForDisplay(configs).map((config) => config.skill_name),
     ).toEqual([
+      "signals-scout-zz-custom",
       "signals-scout-error-tracking",
       "signals-scout-surveys",
       "signals-scout-logs",

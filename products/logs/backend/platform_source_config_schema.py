@@ -21,8 +21,7 @@ from products.logs.backend.alert_deletion import delete_platform_owned, remove_a
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
 from products.logs.backend.models import CHECK_INTERVAL_MINUTES, LogsAlertConfiguration
-from products.logs.backend.platform_cutover import creates_native_alert
-from products.logs.backend.platform_ownership import admit_platform_write, create_platform_owned, mirror_platform_edit
+from products.logs.backend.platform_ownership import admit_platform_write, create_platform_owned, creates_native_alert
 from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter, logs_alert_url
 
 
@@ -32,7 +31,7 @@ class LogsPlatformAlertCondition(BaseModel):
     threshold_count: int = Field(
         ...,
         ge=0,
-        # The logs row stores it in an `integer` column, which a mirrored edit writes.
+        # The logs row stores it in an `integer` column.
         le=MAX_STORED_INTEGER,
         description="Number of matching log entries in the window that breaches the threshold. "
         "Use 0 with the above operator to fire on any matching log.",
@@ -71,7 +70,6 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     model=LogsPlatformAlertSourceConfig,
     validate=validate_logs_edit,
     admit=admit_platform_write,
-    mirror=mirror_platform_edit,
     create=create_platform_owned,
     delete=delete_platform_owned,
     # For a logs alert with no logs row. `admit_platform_write` holds the cap, so the platform keeps none,

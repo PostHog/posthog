@@ -967,7 +967,7 @@ export const VisionScannersListQueryParams = () => zod.object({
         .describe(
             'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`\/`false`. Omit to list every scanner.'
         ),
-    experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
+    experiment_id: zod.string().optional().describe('Filter to scanners whose scope watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -980,6 +980,10 @@ export const VisionScannersListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.'),
+    scope_kind: zod
+        .enum(['experiment'])
+        .optional()
+        .describe('Filter to scanners whose scope is of this kind.\n\n\* `experiment` - Experiment'),
     search: zod
         .string()
         .optional()
@@ -1017,6 +1021,10 @@ export const visionScannersCreateBodySamplingRateMax = 1
 export const visionScannersCreateBodyCreditLimitMax = 2147483647
 
 export const visionScannersCreateBodyExperimentTargetingOneVariantMax = 400
+
+export const visionScannersCreateBodyScopeOneVariantsItemMax = 400
+
+export const visionScannersCreateBodyScopeOneVariantsMax = 128
 
 export const VisionScannersCreateBody = () => zod
     .object({
@@ -1143,6 +1151,59 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
             ),
+        scope: zod
+            .union([
+                zod
+                    .object({
+                        kind: zod
+                            .enum(['experiment'])
+                            .describe('\* `experiment` - Experiment')
+                            .describe(
+                                'The kind of scope. Only `experiment` exists today.\n\n\* `experiment` - Experiment'
+                            ),
+                        experiment_id: zod
+                            .number()
+                            .min(1)
+                            .describe('The experiment whose exposed sessions the scanner watches.'),
+                        variants: zod
+                            .array(zod.string().max(visionScannersCreateBodyScopeOneVariantsItemMax))
+                            .max(visionScannersCreateBodyScopeOneVariantsMax)
+                            .optional()
+                            .describe(
+                                'Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
+                            ),
+                        variants_source: zod
+                            .enum(['all_at_creation', 'user'])
+                            .describe(
+                                '\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked'
+                            )
+                            .optional()
+                            .describe(
+                                "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked"
+                            ),
+                        balance: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true."
+                            ),
+                        start_on_launch: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.'
+                            ),
+                    })
+                    .describe(
+                        'An experiment scope: the sessions of people exposed to an experiment, labeled by variant.'
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope.'
+            ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
 
@@ -1186,6 +1247,10 @@ export const visionScannersPartialUpdateBodySamplingRateMax = 1
 export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
 
 export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax = 400
+
+export const visionScannersPartialUpdateBodyScopeOneVariantsItemMax = 400
+
+export const visionScannersPartialUpdateBodyScopeOneVariantsMax = 128
 
 export const VisionScannersPartialUpdateBody = () => zod
     .object({
@@ -1315,6 +1380,59 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe(
                 "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+            ),
+        scope: zod
+            .union([
+                zod
+                    .object({
+                        kind: zod
+                            .enum(['experiment'])
+                            .describe('\* `experiment` - Experiment')
+                            .describe(
+                                'The kind of scope. Only `experiment` exists today.\n\n\* `experiment` - Experiment'
+                            ),
+                        experiment_id: zod
+                            .number()
+                            .min(1)
+                            .describe('The experiment whose exposed sessions the scanner watches.'),
+                        variants: zod
+                            .array(zod.string().max(visionScannersPartialUpdateBodyScopeOneVariantsItemMax))
+                            .max(visionScannersPartialUpdateBodyScopeOneVariantsMax)
+                            .optional()
+                            .describe(
+                                'Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
+                            ),
+                        variants_source: zod
+                            .enum(['all_at_creation', 'user'])
+                            .describe(
+                                '\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked'
+                            )
+                            .optional()
+                            .describe(
+                                "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked"
+                            ),
+                        balance: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true."
+                            ),
+                        start_on_launch: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.'
+                            ),
+                    })
+                    .describe(
+                        'An experiment scope: the sessions of people exposed to an experiment, labeled by variant.'
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope.'
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { QuillToolbarSelect } from 'products/product_analytics/frontend/insights/shared/QuillToolbarSelect'

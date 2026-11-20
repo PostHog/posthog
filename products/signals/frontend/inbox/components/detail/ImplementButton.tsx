@@ -50,6 +50,7 @@ export function ImplementButton({
         failed: githubCheckFailed,
         loading: githubCheckLoading,
         repositoryRequired,
+        repositorySelectionRequests,
         repositoryIntegrationId,
         selectedRepository,
         githubIntegrations,
@@ -69,10 +70,10 @@ export function ImplementButton({
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
     useEffect(() => {
-        if (repositoryRequired) {
+        if (repositorySelectionRequests > 0) {
             setChoicesOpen(true)
         }
-    }, [repositoryRequired])
+    }, [repositorySelectionRequests])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -220,6 +221,7 @@ export function ImplementButton({
                                                 value={selectedRepository}
                                                 valueKey="full_name"
                                                 onChange={setSelectedRepository}
+                                                selectOnlyOption
                                             />
                                         ) : (
                                             <LemonButton

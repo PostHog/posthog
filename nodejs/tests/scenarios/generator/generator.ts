@@ -113,6 +113,11 @@ export async function drive(
     signal: AbortSignal,
     context: DriveContext
 ): Promise<DriveSummary> {
+    const needsLocal = card.drive.traffic.map(({ name }) => trafficKind(name)).filter((kind) => kind.needsLocal)
+    if (needsLocal.length > 0 && (context.cdpApi === undefined || context.sesFeedback === undefined)) {
+        const names = needsLocal.map(({ name }) => name).join(', ')
+        throw new Error(`${names} needs the local CDP API and SES feedback, which this run target does not offer`)
+    }
     const planned = stepsOf(card.drive)
     const schedules = stepScheduleOf({ card, profile })
     const chance = new Chance(card.seed)
