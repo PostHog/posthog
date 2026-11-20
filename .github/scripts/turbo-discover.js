@@ -1425,19 +1425,18 @@ const TRUSTED_PRODUCT_CASCADE_PHASE = 1
 const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
 const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
 
-// Python test code and syrupy snapshots. Any other file under a test directory is a fixture,
-// and core tests can read a product's fixture from disk, which no import edge shows: the
-// hogql tests read products/logs/backend/test/test_logs.jsonnd.
+// Test modules pytest collects, and syrupy snapshots. Nothing else imports a test module.
+// Any other file under a test directory can reach core by a path no import edge shows: a
+// helper loaded by name (warehouse_sources' facade/testing.py loads backend/test/utils.py
+// through __getattr__), or a fixture core tests read from disk (the hogql tests read
+// products/logs/backend/test/test_logs.jsonnd).
 function isProductTestFile(file) {
-    const parts = file.split('/').slice(2)
+    const parts = file.split('/')
     const name = parts.at(-1) ?? ''
     if (parts.at(-2) === '__snapshots__') {
         return name.endsWith('.ambr')
     }
-    if (!name.endsWith('.py')) {
-        return false
-    }
-    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test') || name.startsWith('test_')
+    return /^test_.*\.py$/.test(name) || /_test\.py$/.test(name)
 }
 
 // How far a product cascade has to be trusted for the selector's subset to replace the
@@ -1445,7 +1444,7 @@ function isProductTestFile(file) {
 // The full matrices exist because core can reach a product's internals through edges no
 // import shows: signal receivers, URL registration, Celery task names. Each phase widens
 // what the selector is trusted to see past them.
-//   1  every changed product file is Python test code or a snapshot. Facade files are not here:
+//   1  every changed product file is a test module or a snapshot. Facade files are not here:
 //      core imports many facades inside functions, and the selector's import graph records
 //      module-level imports only, so it cannot see those callers
 //   2  an isolated product's contract cascade
