@@ -238,8 +238,6 @@ class ReportDecision:
     # `None` for the no-repo branch, which does no research and so never asks.
     charts_enabled: bool | None = None
     # Suggested prompts to store with the title/summary (see `RunAgenticReportOutput.suggested_prompts`).
-    # A decision with a freshly written title and summary always carries a list, `[]` included:
-    # prompts written against the prose this decision replaces would describe the old report.
     # `None` for the no-repo branch, which keeps the prose and so keeps the prompts too.
     suggested_prompts: list[str] | None = field(default_factory=list)
     # The report's whole tag set to store with the title/summary, or `None` to keep the stored set.
@@ -1200,8 +1198,7 @@ class MarkReportReadyInput:
     # workflow history replays as.
     layers: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
-    # default. The research pipeline passes the prompts its run wrote and the safety judge passed,
-    # or `[]`, because the stored ones were written against the summary this transition replaces.
+    # default. The research pipeline passes a judged list, which may be `[]`.
     suggested_prompts: list[str] | None = None
     # The chart rollout state the research run saw, for the completion event. Not persisted.
     charts_enabled: bool | None = None

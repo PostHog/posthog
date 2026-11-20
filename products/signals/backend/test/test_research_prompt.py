@@ -764,6 +764,35 @@ class TestReportPresentationOutputTags:
         assert "Do not repeat the title type" in prompt
 
 
+class TestReportPresentationOutputSuggestedPrompts:
+    @pytest.mark.parametrize(
+        "prompts,expected",
+        [
+            (["Which teams hit this?", 3, None], ["Which teams hit this?"]),
+            ("Which teams hit this?", []),
+            (None, []),
+        ],
+    )
+    def test_malformed_prompts_are_dropped_and_the_prose_survives(self, prompts: object, expected: list[str]):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(checkout): Handle the timeout",
+                "summary": "Checkout times out.",
+                "suggested_prompts": prompts,
+            }
+        )
+
+        assert parsed.suggested_prompts == expected
+        assert parsed.summary == "Checkout times out."
+
+    @pytest.mark.parametrize("stored,shown", [(["Which teams hit this?"], True), ([], False)])
+    def test_prompt_shows_the_stored_prompts(self, stored: list[str], shown: bool) -> None:
+        prompt = build_report_presentation_prompt(1, current_suggested_prompts=stored)
+
+        assert ("## Prompts this report already suggests" in prompt) is shown
+        assert ('"Which teams hit this?"' in prompt) is shown
+
+
 class TestReportPresentationOutputSourceSuggestion:
     @pytest.mark.parametrize(
         "suggestion",

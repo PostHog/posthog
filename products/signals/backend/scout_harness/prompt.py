@@ -91,7 +91,6 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "SANDBOX_REPOSITORIES_ROOT": SANDBOX_REPOSITORIES_ROOT,
     "MAX_REPORT_CHARTS": MAX_REPORT_CHARTS,
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
-    # Rendered with blank caller parts, which hashes the shared text and the bounds it states.
     "suggested_prompts_guidance": suggested_prompts_guidance(heading="", field_location="", whole_set_rule=""),
     "MAX_SOURCE_SUGGESTION_REASON_LENGTH": MAX_SOURCE_SUGGESTION_REASON_LENGTH,
     "SUGGESTED_SOURCE_PRODUCTS": SUGGESTED_SOURCE_PRODUCTS,

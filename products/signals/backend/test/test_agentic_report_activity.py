@@ -1764,7 +1764,6 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
         ),
         ("refused", ["Which teams hit this?"], LLMRefusalError(), [], ["Which teams hit this?"]),
         ("judge_error", ["Which teams hit this?"], RuntimeError("judge unavailable"), [], ["Which teams hit this?"]),
-        # The bounds are checked after trimming, so these two only collide once normalized.
         ("duplicate_after_trim", ["Which teams hit this?", "Which teams hit this? "], None, [], None),
         ("blank_only", [" ", ""], None, [], None),
     ],
