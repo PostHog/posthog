@@ -26,6 +26,31 @@ import {
 import type { BillingFeatureType } from '../types'
 import { urls } from './urls'
 
+// Each open tab holds its own copy of the user. Without this message, an intro that the person dismissed in one tab
+// stays on screen in every other tab until that tab reloads the user.
+const PRODUCT_INTRO_SEEN_STORAGE_KEY = 'product-intro-seen'
+
+function announceProductIntroSeen(productKey: string, value: boolean): void {
+    try {
+        // `at` makes every write differ, because the browser sends no storage event when the stored value is unchanged.
+        localStorage.setItem(PRODUCT_INTRO_SEEN_STORAGE_KEY, JSON.stringify({ productKey, value, at: Date.now() }))
+    } catch {
+        // With storage disabled, the other tabs show the intro until they reload, which is the old behavior.
+    }
+}
+
+function productIntroSeenFromStorageEvent(event: StorageEvent): { productKey: string; value: boolean } | null {
+    if (event.storageArea !== localStorage || event.key !== PRODUCT_INTRO_SEEN_STORAGE_KEY || !event.newValue) {
+        return null
+    }
+    try {
+        const { productKey, value } = JSON.parse(event.newValue)
+        return typeof productKey === 'string' && typeof value === 'boolean' ? { productKey, value } : null
+    } catch {
+        return null
+    }
+}
+
 export interface UserDetailsFormType {
     first_name: string
     email: string
@@ -121,6 +146,33 @@ export interface userLogicActions {
         user: UserType | null
         payload?: {
             fields: Partial<UserType>
+        }
+    }
+    applyProductIntroSeen: (
+        productKey: string,
+        value: boolean
+    ) => {
+        productKey: string
+        value: boolean
+    }
+    applyProductIntroSeenFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    applyProductIntroSeenSuccess: (
+        user: UserType | null,
+        payload?: {
+            productKey: string
+            value: boolean
+        }
+    ) => {
+        user: UserType | null
+        payload?: {
+            productKey: string
+            value: boolean
         }
     }
     cancelEmailChangeRequest: () => {
@@ -459,6 +511,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         addFullStageUserFields: (fields: Partial<UserType>) => ({ fields }),
+        applyProductIntroSeen: (productKey: string, value: boolean) => ({ productKey, value }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         updateCurrentOrganizationFailure: true,
         logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
@@ -556,6 +609,17 @@ export const userLogic = kea<userLogicType>([
                 // No listeners, so the late fields do not rerun what a user load triggers.
                 addFullStageUserFields: ({ fields }): UserType | null =>
                     values.user ? { ...values.user, ...fields } : null,
+                // Another tab already saved this key, so this tab updates its copy of the user without a request.
+                applyProductIntroSeen: ({ productKey, value }): UserType | null =>
+                    values.user
+                        ? {
+                              ...values.user,
+                              has_seen_product_intro_for: {
+                                  ...values.user.has_seen_product_intro_for,
+                                  [productKey]: value,
+                              },
+                          }
+                        : null,
                 updateUser: async ({ user, successCallback, failureCallback }): Promise<UserType> => {
                     const previousUpdate = cache.pendingUserUpdate as Promise<void> | undefined
                     let completeUpdate: () => void = () => {}
@@ -837,6 +901,7 @@ export const userLogic = kea<userLogicType>([
                 // It also merges the key server-side, so two tabs can't drop each other's write.
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersProductIntroSeenPartialUpdate() from '~/generated/core/api' instead.
                 await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value })
+                announceProductIntroSeen(productKey, value)
                 actions.loadUser()
             } catch (error: any) {
                 // Marking an intro seen runs behind whatever the user is already doing, so a failure is
@@ -1120,6 +1185,21 @@ export const userLogic = kea<userLogicType>([
                 return () => window.removeEventListener('storage', clearSQLEditorDraftFromStorageEvent)
             },
             'sqlEditorDraftLogout',
+            { pauseOnPageHidden: false }
+        )
+        cache.disposables.add(
+            () => {
+                const onStorage = (event: StorageEvent): void => {
+                    const seen = productIntroSeenFromStorageEvent(event)
+                    if (seen) {
+                        actions.applyProductIntroSeen(seen.productKey, seen.value)
+                    }
+                }
+                window.addEventListener('storage', onStorage)
+                return () => window.removeEventListener('storage', onStorage)
+            },
+            'productIntroSeenFromOtherTabs',
+            // A background tab must hear the dismissal too, or the intro shows there when the person switches back.
             { pauseOnPageHidden: false }
         )
         const preloadedUser = getAppContext()?.current_user

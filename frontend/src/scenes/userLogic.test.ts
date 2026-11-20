@@ -49,6 +49,23 @@ describe('userLogic', () => {
         }
     })
 
+    it('marks an intro seen in this tab when another tab saves it', async () => {
+        useMocks({ patch: { '/api/users/@me/product_intro_seen': () => [200, {}] } })
+        await expectLogic(userLogic, () => {
+            userLogic.actions.updateHasSeenProductIntroFor('today_pane_intro_settings')
+        }).toFinishAllListeners()
+        // The mocked reload returns the user without the key, as a tab that loaded the user earlier still has it.
+        expect(userLogic.values.user?.has_seen_product_intro_for?.today_pane_intro_settings).toBeUndefined()
+
+        const key = 'product-intro-seen'
+        window.dispatchEvent(
+            new StorageEvent('storage', { key, newValue: localStorage.getItem(key), storageArea: localStorage })
+        )
+
+        expect(userLogic.values.user?.has_seen_product_intro_for?.today_pane_intro_settings).toBe(true)
+        localStorage.clear()
+    })
+
     describe('SQL draft logout cleanup', () => {
         beforeEach(() => {
             localStorage.clear()
