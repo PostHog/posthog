@@ -1,8 +1,13 @@
-from clickhouse_driver.errors import ServerException, UnknownTypeError
+from clickhouse_driver.errors import (
+    Error as ClickHouseDriverError,
+    ServerException,
+    UnknownTypeError,
+)
 from parameterized import parameterized
 
 from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
+    CLICKHOUSE_ERROR_CODE_LOOKUP,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
@@ -14,12 +19,41 @@ from posthog.errors import (
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    clickhouse_error_message,
+    error_code_from_type,
+    internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
 
 
 class TestWrapClickhouseQueryError:
+    @parameterized.expand([("with_detail", "private diagnostic"), ("without_detail", None)])
+    def test_every_clickhouse_code_has_public_guidance(self, _case: str, detail: str | None) -> None:
+        for code in (*CLICKHOUSE_ERROR_CODE_LOOKUP, 999999, None):
+            raw = ServerException(detail, code=code, nested=ServerException("private nested detail"))
+            wrapped = wrap_clickhouse_query_error(raw)
+            message = clickhouse_error_message(wrapped) if isinstance(wrapped, ClickHouseDriverError) else str(wrapped)
+            status_message = internal_ch_error_user_message(error_code_from_type(raw))
+
+            assert message and "private" not in message, code
+            assert status_message and "private" not in status_message, code
+            if isinstance(wrapped, ExposedCHQueryError):
+                assert "private" not in wrapped.message, code
+                assert wrapped.nested is None, code
+
+    def test_unknown_code_preserves_only_its_driver_number(self) -> None:
+        error = InternalCHQueryError("private diagnostic", code=999999, code_name="caller_supplied")
+        assert error_code_from_type(error) == "clickhouse_999999"
+        assert clickhouse_error_message(error) == (
+            "ClickHouse couldn't complete this query. Contact support and include the error code 999999."
+        )
+
+    def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
+        assert internal_ch_error_user_message("other_database_error") is None
+        assert internal_ch_error_user_message("clickhouse_private") is None
+        assert internal_ch_error_user_message(None) is None
+
     @parameterized.expand(
         [
             (44, "ILLEGAL_COLUMN"),
@@ -64,7 +98,11 @@ class TestWrapClickhouseQueryError:
             ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
-            (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
+            (
+                69,
+                "ARGUMENT_OUT_OF_BOUND",
+                "A function argument is outside its allowed range. Check its bounds and the values passed to it.",
+            ),
             (
                 70,
                 "CANNOT_CONVERT_TYPE",
@@ -118,7 +156,11 @@ class TestWrapClickhouseQueryError:
                 "INVALID_JOIN_ON_EXPRESSION",
                 "Invalid JOIN ON expression. Check that the condition uses supported comparisons between the joined tables.",
             ),
-            (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                407,
+                "DECIMAL_OVERFLOW",
+                "A decimal result exceeds its precision. Use a wider decimal type before the calculation.",
+            ),
             (
                 427,
                 "CANNOT_COMPILE_REGEXP",
@@ -210,14 +252,14 @@ class TestWrapClickhouseQueryError:
             (
                 "aggregate_state",
                 "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
-                "This query returns a column of type `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))`, "
+                "This query returns a column of type `AggregateFunction`, "
                 "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the "
                 "matching -Merge function, for example `argMinMerge(column)`, to get the final value.",
             ),
             (
                 "mixed_value_types",
                 "Variant(Int64, UInt64)",
-                "This query returns a column of type `Variant(Int64, UInt64)`, which PostHog can't send back in "
+                "This query returns a column of type `Variant`, which PostHog can't send back in "
                 "results. The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` "
                 "or `ifNull()` arguments, or `if()` branches that return different types. Make them return one "
                 "type, for example with `toString()` or `toFloat()`.",
@@ -258,14 +300,14 @@ class TestWrapClickhouseQueryError:
                 "DB::Exception: Expected end of line: (at row 115622)\n: Row 115621: private-row-value "
                 "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat. "
                 "Stack trace: private-stack-frame",
-                "A row in a CSV file backing this table is malformed at row 115622 of example-bucket/data/export.csv. "
+                "A row in a CSV file backing this table is malformed at row 115622. "
                 "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
             ),
             (
                 "with_file_uri_text_in_row",
                 "DB::Exception: Expected end of line: (at row 7)\n: Row 6: (in file/uri private-row-value) "
                 "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat.",
-                "A row in a CSV file backing this table is malformed at row 7 of example-bucket/data/export.csv. "
+                "A row in a CSV file backing this table is malformed at row 7. "
                 "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
             ),
             (

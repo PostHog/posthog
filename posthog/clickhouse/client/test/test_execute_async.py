@@ -532,7 +532,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             (
                 "unknown_server_fault",
                 InternalCHQueryError("DB::Exception: stored-secret", code=999_999),
-                "unknown_exception",
+                "clickhouse_999999",
             ),
             (
                 "python_error",
@@ -566,7 +566,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 True,
                 InternalCHQueryError("Unknown column", code=47),
                 "unknown_identifier",
-                "Code: 47.\nUnknown column",
+                None,
                 True,
             ),
             (

@@ -2517,10 +2517,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
         with self.assertRaises(InternalCHQueryError) as e:
             execute_hogql_query(query, team=self.team)
-        assert (
-            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
-            in str(e.exception)
-        )
+        assert "cannot use an argument of type String here." in str(e.exception)
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
@@ -2650,8 +2647,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(
             str(error.exception).startswith(
-                "The `mixed` and `also_mixed` columns have type `Variant(String, UInt8)`, "
-                "which PostHog can't send back in results."
+                "The `mixed` and `also_mixed` columns have type `Variant`, which PostHog can't send back in results."
             ),
             str(error.exception),
         )

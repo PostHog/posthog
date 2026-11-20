@@ -380,20 +380,20 @@ class TestMCPToolsAPI(APIBaseTest):
             param(
                 CHQueryErrorS3Error("Storage read failed", code=499),
                 "api_5xx",
-                "Tool failed: MaxToolTransientError: Code: 499.\nStorage read failed. You may retry this operation once without changes.",
+                "Tool failed: MaxToolTransientError: PostHog couldn't read from storage while running this query. Wait a few minutes, then run the query again. If the problem continues, contact support. You may retry this operation once without changes.",
                 error_code="s3_error",
             ),
             param(
                 InternalCHQueryError("Too many parts", code=252, code_name="caller-supplied-name"),
-                "internal",
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 252.\nToo many parts. You may retry with adjusted inputs.",
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: The database had a temporary problem while it ran this query. Wait a few minutes, then run the query again. If the problem continues, contact support. You may retry this operation once without changes.",
                 error_code="too_many_parts",
             ),
             param(
                 InternalCHQueryError("Unknown failure", code=99999, code_name="s3_error"),
                 "internal",
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 99999.\nUnknown failure. You may retry with adjusted inputs.",
-                error_code="unknown_exception",
+                "Tool failed: MaxToolFatalError: ClickHouse couldn't complete this query. Contact support and include the error code 99999.",
+                error_code="clickhouse_99999",
             ),
             (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),

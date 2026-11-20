@@ -57,7 +57,6 @@ class AccountsTableQueryViewSet(
     get_throttles = QueryViewSet.get_throttles
     check_team_api_queries_concurrency = QueryViewSet.check_team_api_queries_concurrency
     _raise_concurrency_throttled = QueryViewSet._raise_concurrency_throttled
-    handle_column_ch_error = QueryViewSet.handle_column_ch_error
     _tag_client_query_id = QueryViewSet._tag_client_query_id
     _try_format_for_llm = QueryViewSet._try_format_for_llm
     _validate_query_kind = QueryViewSet._validate_query_kind

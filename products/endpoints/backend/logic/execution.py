@@ -8,7 +8,6 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 ``EndpointQueryStrategy`` classes.
 """
 
-import re
 import time
 import uuid
 from collections.abc import Callable
@@ -22,10 +21,11 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -61,6 +61,8 @@ from posthog.errors import (
     CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
     ExposedCHQueryError,
+    clickhouse_error_message,
+    error_code_from_type,
 )
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
@@ -226,7 +228,7 @@ def _emit_endpoint_failure_signal(
 
     try:
         error_class = type(exc).__name__
-        error_msg = str(exc)
+        error_msg = clickhouse_error_message(exc) if isinstance(exc, ClickHouseDriverError) else str(exc)
         version_str = f" v{version}" if version else ""
 
         if materialized:
@@ -691,6 +693,8 @@ class EndpointExecutionService(PydanticModelMixin):
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
+            if isinstance(e, ClickHouseDriverError):
+                raise APIException(clickhouse_error_message(e), code=error_code_from_type(e)) from e
             raise
         finally:
             self._track_last_executed(endpoint, version_obj)
@@ -1030,7 +1034,6 @@ class EndpointExecutionService(PydanticModelMixin):
             return result
 
         except Exception as e:
-            self.handle_column_ch_error(e)
             if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
@@ -1140,14 +1143,6 @@ class EndpointExecutionService(PydanticModelMixin):
             result = {"results": result.pop("results"), **result}
 
         return Response(result, status=status.HTTP_200_OK, headers=headers)
-
-    def handle_column_ch_error(self, error) -> None:
-        if getattr(error, "message", None):
-            match = re.search(r"There's no column.*in table", error.message)
-            if match:
-                # TODO: remove once we support all column types
-                raise ValidationError(match.group(0) + ". Not all column types are fully supported yet.")
-        return
 
     def _tag_client_query_id(self, query_id: str | None) -> None:
         if query_id is None:

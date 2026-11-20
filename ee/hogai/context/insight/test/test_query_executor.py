@@ -416,7 +416,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
                 "Server failure",
                 "internal",
-                "unknown_exception",
+                "clickhouse_99999",
             ),
         ]
     )
@@ -560,21 +560,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
-            (
+            param(
                 "known_server_code",
                 None,
                 "TOO_MANY_PARTS",
                 "The database had a temporary problem while it ran this query. "
                 "Wait a few minutes, then run the query again. If the problem continues, contact support.",
                 "too_many_parts",
+                expected_error_type="api_5xx",
             ),
-            (
+            param(
                 "storage_failure",
                 None,
                 "s3_error",
                 "PostHog couldn't read from storage while running this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
                 "s3_error",
+                expected_error_type="api_5xx",
             ),
             (
                 "unrecognized_code",
@@ -613,12 +615,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
+        expected_class = MaxToolTransientError if expected_error_type == "api_5xx" else MaxToolRetryableError
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(MaxToolRetryableError) as context:
+            with self.assertRaises(expected_class) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertEqual(str(context.exception), expected_message)
-        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, expected_error_type)
         self.assertEqual(context.exception.error_code, expected_code)
 
@@ -639,7 +641,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "Look up the table columns in `system.information_schema.columns`. "
                 "In a join, prefix each column with its table alias.",
             ),
-            ("unsupported_method", None, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            (
+                "unsupported_method",
+                None,
+                "This operation isn't supported here. Simplify the expression or use a different SQL function.",
+            ),
             ("unsupported_method", "Use a supported query method.", "Use a supported query method."),
             (
                 "bad_arguments",
@@ -692,14 +698,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 (
                     1,
                     "unsupported_method",
-                    "ClickHouse rejected the query with error UNSUPPORTED_METHOD.",
+                    "This operation isn't supported here. Simplify the expression or use a different SQL function.",
                     MaxToolRetryableError,
                 ),
                 (
                     62,
                     "syntax_error",
-                    "There was an unknown error running this query: Code: 62.\nstored-secret",
-                    Exception,
+                    "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+                    MaxToolFatalError,
                 ),
             ]
             for code_name in [name, None]
@@ -714,23 +720,38 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
         self.assertIs(type(context.exception), expected_exception)
         self.assertEqual(str(context.exception), expected_message)
-        if isinstance(context.exception, MaxToolRetryableError):
-            self.assertEqual(context.exception.error_type, "validation")
-            self.assertEqual(context.exception.error_code, expected_code)
-            self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+        self.assertEqual(context.exception.error_code, expected_code)
+        self.assertEqual(
+            context.exception.error_type, "validation" if expected_exception is MaxToolRetryableError else "internal"
+        )
 
     @parameterized.expand(
         [
-            ("keeper_exception", "keeper_exception"),
-            ("syntax_error", "syntax_error"),
-            ("UNKNOWN_EXCEPTION", "unknown_exception"),
-            (None, None),
+            (
+                "keeper_exception",
+                "keeper_exception",
+                MaxToolFatalError,
+                "ClickHouse couldn't complete this query. Contact support and include the error code KEEPER_EXCEPTION.",
+            ),
+            (
+                "syntax_error",
+                "syntax_error",
+                MaxToolFatalError,
+                "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+            ),
+            (
+                "UNKNOWN_EXCEPTION",
+                "unknown_exception",
+                MaxToolFatalError,
+                "ClickHouse couldn't complete this query. Contact support and include the error code UNKNOWN_EXCEPTION.",
+            ),
+            (None, None, MaxToolRetryableError, "The query failed because of an internal error"),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_server_fault_stays_unknown(
-        self, error_code, expected_code, mock_get_query_status, mock_process_query
+    async def test_async_server_fault_preserves_its_code(
+        self, error_code, expected_code, expected_exception, expected_message, mock_get_query_status, mock_process_query
     ):
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_get_query_status.return_value = Mock(
@@ -743,9 +764,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             }
         )
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(MaxToolRetryableError) as context:
+            with self.assertRaises(expected_exception) as context:
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
-        self.assertEqual(str(context.exception), "The query failed because of an internal error")
+        self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.error_type, "internal")
         self.assertEqual(context.exception.error_code, expected_code)
 
