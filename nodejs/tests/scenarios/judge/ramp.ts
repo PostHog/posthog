@@ -3,7 +3,7 @@ import type { Profile } from '../cards/schema'
 import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
-import { BarResult, CpuPoint, judgeStep } from './bars'
+import { BarResult, WriterCpu, judgeStep, unsourced } from './bars'
 import { refusalsOf } from './invariants'
 import type { InvariantResult, JournalEntry } from './judge'
 import {
@@ -45,7 +45,7 @@ export type LiveRamp = {
     samples(): readonly MetricSample[]
     queue(): readonly QueueSample[]
     host(): readonly HostSample[]
-    writerCpu(window: DriveWindow): Promise<CpuPoint[] | { unread: string }>
+    writerCpu(window: DriveWindow): Promise<WriterCpu>
 }
 
 export type RampWatch = {
@@ -54,6 +54,7 @@ export type RampWatch = {
     halt: AbortSignal
     stopped(): RampStop | undefined
     settled(): ReadonlyMap<number, readonly BarResult[]>
+    pending(): Promise<void>
 }
 
 const REFUSED_AT_INTAKE = 'refused_at_intake'
@@ -197,6 +198,7 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
     const crossingAt = Math.max(0, Math.floor(gate))
     let stop: RampStop | undefined
+    const judging: Promise<void>[] = []
 
     const stopWith = (stopped: RampStop): void => {
         if (stop === undefined || stopped.index < stop.index) {
@@ -209,6 +211,9 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
         halt: halt.signal,
         stopped: () => stop,
         settled: () => settled,
+        pending: async () => {
+            await Promise.all(judging)
+        },
         record: (entry) => {
             if (signal.aborted || !live.judgesRefusals || refusalsOf([entry]).length === 0) {
                 return
@@ -229,34 +234,40 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
                 })
             }
         },
-        gate: async (window, offered) => {
-            try {
-                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
-                if (signal.aborted) {
-                    return
-                }
-                const { results, stop: stopped } = await judgeLive(live, window, offered())
-                if (signal.aborted) {
-                    return
-                }
-                if (results) {
-                    settled.set(window.index, results)
-                }
-                if (stopped) {
-                    stopWith({ index: window.index, ...stopped })
-                }
-            } catch (error) {
-                if (signal.aborted) {
-                    return
-                }
-                stopWith({
-                    index: window.index,
-                    end: 'harness_limit',
-                    reason: `the live judge failed at the ${window.scale}x step: ${messageOf(error)}`,
-                    broke: harness({ ...window, offeredUnits: offered() }, 'run_host'),
-                })
-            }
+        gate: (window, offered) => {
+            const judged = judgeGate(window, offered)
+            judging.push(judged)
+            return judged
         },
+    }
+
+    async function judgeGate(window: StepWindow, offered: () => number): Promise<void> {
+        try {
+            await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
+            if (signal.aborted) {
+                return
+            }
+            const { results, stop: stopped } = await judgeLive(live, window, offered())
+            if (signal.aborted) {
+                return
+            }
+            if (results) {
+                settled.set(window.index, results)
+            }
+            if (stopped) {
+                stopWith({ index: window.index, ...stopped })
+            }
+        } catch (error) {
+            if (signal.aborted) {
+                return
+            }
+            stopWith({
+                index: window.index,
+                end: 'harness_limit',
+                reason: `the live judge failed at the ${window.scale}x step: ${messageOf(error)}`,
+                broke: harness({ ...window, offeredUnits: offered() }, 'run_host'),
+            })
+        }
     }
 }
 
@@ -270,6 +281,7 @@ export type RampEvidence = {
     gates: Record<string, number>
     journal: readonly JournalEntry[]
     admissions: readonly Admission[]
+    converged: boolean
 }
 
 type Candidate = { index: number; rank: number; broke: Broke; reason: string }
@@ -401,6 +413,22 @@ export function rampOf(evidence: RampEvidence): Ramp {
             reason: `the drive ended before the ${scale}x step`,
         }
     }
+    if (!evidence.converged) {
+        return {
+            end: 'broke',
+            sustainedScale: null,
+            broke: { scale: null, offeredPerSecond: null, by: 'convergence', kind: 'invariant', at: null, part: null },
+            reason: 'the run did not converge, and no step can be blamed for it',
+        }
+    }
     const ceiling = planned[planned.length - 1].scale
-    return { end: 'ceiling', sustainedScale: ceiling, reason: `every step held up to the ${ceiling}x ceiling` }
+    const notJudged = evidence.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    return {
+        end: 'ceiling',
+        sustainedScale: ceiling,
+        reason:
+            notJudged.length === 0
+                ? `every step held up to the ${ceiling}x ceiling`
+                : [`every judged bar held up to the ${ceiling}x ceiling`, ...notJudged].join('; '),
+    }
 }
