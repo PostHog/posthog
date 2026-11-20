@@ -22,7 +22,7 @@ export function EmailPreview({ email, title }: { email: EmailContent; title: str
         )
     }
     return email.text ? (
-        <div className="rounded-md border p-2.5 text-left text-[12.5px] leading-snug">
+        <div className="ph-no-capture rounded-md border p-2.5 text-left text-[12.5px] leading-snug">
             <div className="line-clamp-6 whitespace-pre-line break-words">
                 {person ? renderEmailPreviewText(email.text, person) : plainVariables(email.text)}
             </div>
