@@ -254,6 +254,10 @@
                 {
                     "description": "An experiment scope: the sessions of people exposed to an experiment, labeled by variant.",
                     "properties": {
+                        "balance": {
+                            "description": "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true.",
+                            "type": "boolean"
+                        },
                         "experiment_id": {
                             "description": "The experiment whose exposed sessions the scanner watches.",
                             "minimum": 1,
@@ -263,6 +267,10 @@
                             "description": "The kind of scope. Only `experiment` exists today.\n\n* `experiment` - Experiment",
                             "enum": ["experiment"],
                             "type": "string"
+                        },
+                        "start_on_launch": {
+                            "description": "Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.",
+                            "type": "boolean"
                         },
                         "variants": {
                             "description": "Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.",
