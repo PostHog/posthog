@@ -164,6 +164,9 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
         steps=tuple(run.steps),
         run_id=str(run_id),
         settings=run.settings,
+        completed_steps=tuple(
+            key for key in run.steps if run.progress.get(key, {}).get("status") == ImportStepStatus.COMPLETED.value
+        ),
     )
     try:
         _check_required_steps(provider, run, step)
@@ -419,19 +422,22 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
     with transaction.atomic():
         run, progress = _lock_owned_step(team_id, run_id, step, attempt)
         saved = page.save()
-        progress["processed"] += page.processed
-        progress["imported"] += saved.imported
-        _add_warnings(progress, saved.warnings)
-        _add_counts(progress, saved.counts)
-        _add_items(progress, saved.items)
-        if saved.people_imports:
-            progress["people_imports"] = progress.get("people_imports", []) + [
-                asdict(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
-            ]
-        progress["checkpoint"] = page.checkpoint
-        if page.checkpoint is None:
-            _mark_completed(progress)
-        run.save(update_fields=["progress"])
+        if saved.error is None:
+            progress["processed"] += page.processed
+            progress["imported"] += saved.imported
+            _add_warnings(progress, saved.warnings)
+            _add_counts(progress, saved.counts)
+            _add_items(progress, saved.items)
+            if saved.people_imports:
+                progress["people_imports"] = progress.get("people_imports", []) + [
+                    asdict(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
+                ]
+            progress["checkpoint"] = page.checkpoint
+            if page.checkpoint is None:
+                _mark_completed(progress)
+            run.save(update_fields=["progress"])
+    if saved.error is not None:
+        raise ImportStepError(saved.error)
 
 
 def _update_owned_step(

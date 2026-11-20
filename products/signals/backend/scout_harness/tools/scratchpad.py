@@ -263,6 +263,20 @@ def search_scratchpad(
     return []
 
 
+def has_live_entry_created_by(*, team_id: int, skill_name: str) -> bool:
+    """Whether `skill_name` created an unexpired entry on the team, in one existence query.
+
+    Not an agent tool. The run prompt reads it to decide whether a section about another scout's
+    entries applies, so it matches the creator the same indexed way `search_scratchpad` does.
+    """
+    return (
+        SignalScratchpad.objects.filter(team_id=team_id)
+        .filter(_creator_filter(team_id=team_id, skill_name=skill_name))
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .exists()
+    )
+
+
 def search_scratchpad_naming(
     *,
     team_id: int,
@@ -289,6 +303,12 @@ def search_scratchpad_naming(
         .only(*_ENTRY_FIELDS)
     )
     qs = _project_content_in_sql(qs, keys_only=True, content_max_chars=None)
+    # The UPPER(...) trigram indexes cannot serve `iregex`, so narrow with `icontains` first. Any
+    # whole-token match is also a substring match, so the regex then only drops partial matches.
+    contains_any = Q()
+    for term in wanted:
+        contains_any |= Q(content__icontains=term) | Q(key__icontains=term)
+    qs = qs.filter(contains_any)
     qs = qs.filter(Q(content__iregex=pattern) | Q(key__iregex=pattern))
     qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     qs = qs.order_by("-updated_at", "-id")[: _clamp_search_limit(limit)]

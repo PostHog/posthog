@@ -13,6 +13,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 
+import { openDeleteGroupTypeDialog } from 'lib/components/DeleteGroupTypeDialog/openDeleteGroupTypeDialog'
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -36,7 +37,6 @@ import {
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
-import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 

@@ -7,6 +7,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import {
     MAX_SCOUT_TAG_LENGTH,
     MAX_SCOUT_TAGS,
@@ -90,7 +91,7 @@ export function ScoutTagsEditor({
                     }}
                     size="xsmall"
                     placeholder={atCap ? `${MAX_SCOUT_TAGS} tag limit` : 'Add tag'}
-                    aria-label={`${config.skill_name} tags`}
+                    aria-label={`${scoutDisplayName(config)} tags`}
                     disabledReason={
                         updating
                             ? 'Saving scout settings'

@@ -2,12 +2,12 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     RETENTION_FIRST_EVER_OCCURRENCE,
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_RECURRING,
 } from 'lib/constants'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

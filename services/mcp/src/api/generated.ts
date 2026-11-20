@@ -16690,10 +16690,16 @@ export namespace Schemas {
       series: AnomalySeries[];
       /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
+      /** The applied noise filter limit. 1 means the filter is off. */
+      max_anomaly_rate: number;
+      /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
+      hidden_series: number;
       /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
       has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
       truncated: boolean;
+      /** True when the project has more scored series in the range than one search reads (10,000), so some series that match the filters are missing from every page. Narrow the range or the filters to see them. With `only_flagged`, series with a flagged bucket are read first, so this is true only when flagged series alone pass the cap. */
+      series_capped: boolean;
       /**
          * Says why the result is empty. Null when it is not.
          * @nullable
@@ -57708,6 +57714,18 @@ export namespace Schemas {
          * @nullable
          */
       install_url?: string | null;
+    }
+
+    /**
+     * Response when the team's GitHub App installation is suspended or uninstalled.
+     */
+    export interface GitHubInstallationUnavailableError {
+      /** Stable code for a suspended or uninstalled GitHub App installation. */
+      readonly code: string;
+      /** What happened to the GitHub connection, and who can fix it. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
     }
 
     export interface GitHubLinkExistingRequest {
@@ -119412,6 +119430,34 @@ export namespace Schemas {
       Errored: 'errored',
     } as const;
 
+    export interface SignalReportPlanStepAddRequest {
+      /** Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged. */
+      report_id: string;
+      /**
+         * Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on?: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportPlanStepDependenciesRequest {
+      /**
+         * Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
     export interface SignalReportPriorityUpdate {
       /** New report priority, from P0 (critical) to P4 (minimal).
        *
@@ -149331,6 +149377,12 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
+     * @minimum 0
+     * @maximum 1
+     */
+    max_anomaly_rate?: number;
+    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -149466,6 +149518,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.
+     */
+    plan?: string;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
@@ -149555,6 +149611,14 @@ export namespace Schemas {
       Me: 'me',
       Mine: 'mine',
     } as const;
+
+    export type SignalsReportsPlanStepsDestroyParams = {
+    /**
+     * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+     * @maxLength 500
+     */
+    reason?: string;
+    };
 
     export type SignalsReportPrChecksParams = {
     /**
