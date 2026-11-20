@@ -142,7 +142,7 @@ target/debug/personhog-test-harness gate --publish --pg-target-table posthog_per
 ### Changelog followers
 
 `--followers N` spawns N follower replicas and checks followed reads two ways: live, a read two seconds after each acked probe write must show it, and at the end every acked write must be visible through a followed read. A follower that cannot answer leaves the read to Postgres, so the stack runs on `posthog_person`, the table a replica reads, and `--followers` refuses any other `--pg-target-table`.
-With `--migrate-pause-writer` only the end-of-run check applies: every follower rebuilds during a migration, and Postgres answers for them from as far back as the pause.
+The live check needs a follower or Postgres to keep up throughout the run. A migration disturbs both, and so does a follower crash together with a writer pause or crash, so those runs have the end-of-run check only.
 
 ```bash
 # Followed reads while Postgres does not hold the writes yet
