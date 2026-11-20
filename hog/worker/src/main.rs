@@ -3,10 +3,10 @@
 // stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
 // each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
 // and keeps running after a failure. R for each `op`:
-//   detect      {"sourcemap":[index],"composed":[index]}
-//   read_pairs  {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
-//   inject      {"outcomes":[{"action":"injected","chunkId":"...","warnings":[],"pair":{...}}]}
-//   drop, save  {}
+//   detect             {"sourcemap":[index],"composed":[index]}
+//   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
+//   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
+//   drop, save         {}
 // Pairs stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL
 // changes whenever a request or an answer does, because hog and the worker ship as two files.
 
