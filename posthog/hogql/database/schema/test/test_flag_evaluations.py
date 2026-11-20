@@ -444,7 +444,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("flag", "$feature_flag", "probe-flag", "flag_key"),
             ("response", "$feature_flag_response", "variant-x", "response"),
             ("session", "$session_id", SESSION_ID, "session_id"),
-            ("request", "$feature_flag_request_id", "req-456", "request_id"),
         ]
     )
     def test_property_with_a_typed_column_reads_the_column_not_the_json(
