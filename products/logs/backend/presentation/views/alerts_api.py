@@ -1027,8 +1027,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             _validate_filters(filters)
         # Only a rename, a snooze or a change to when the alert fires leaves what it reads and who it tells as
         # they were. The edit form sends unchanged settings back on every save, so compare values, not keys.
-        starts_reading = self.instance is None or not self.instance.enabled or self._changes_reads_or_recipients(attrs)
-        if effective_enabled and starts_reading:
+        starts_reading = (
+            self.instance is None
+            or (effective_enabled and not self.instance.enabled)
+            or self._changes_reads_or_recipients(attrs)
+        )
+        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
+        if starts_reading:
             self._require_pipeline_log_access(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))

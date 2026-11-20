@@ -116,12 +116,13 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("restricted_pipeline", "restricted", [_PIPELINE], 403),
             ("restricted_all_services", "restricted", [], 403),
             ("restricted_app", "restricted", [_APP], 201),
+            ("restricted_pipeline_draft", "restricted", [_PIPELINE], 403, False),
             ("granted_pipeline", "granted", [_PIPELINE], 201),
             ("admin_pipeline", "admin", [_PIPELINE], 201),
         ]
     )
     def test_alert_on_pipeline_logs_follows_property_access(
-        self, _name: str, access: PropertyAccess, services: list[str], expected: int
+        self, _name: str, access: PropertyAccess, services: list[str], expected: int, enabled: bool = True
     ) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 
@@ -130,6 +131,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.pk}/logs/alerts/",
                 {
                     "name": "Pipeline alert",
+                    "enabled": enabled,
                     "filters": {"serviceNames": services, "severityLevels": ["error"]},
                     "threshold_count": 0,
                     "threshold_operator": "above",
@@ -155,6 +157,8 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
+            ("rename_draft", False, {"name": "Renamed"}, 200),
+            ("change_draft_filters", False, {"filters": {"severityLevels": ["warn"]}}, 403),
             ("change_routing_labels", True, {"labels": {"team": "payments"}}, 403),
             ("change_grouping", True, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
             ("change_threshold", True, {"threshold_count": 5}, 200),
