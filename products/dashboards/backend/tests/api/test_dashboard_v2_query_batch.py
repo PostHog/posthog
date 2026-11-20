@@ -312,6 +312,15 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertIn("too much data", lines[0]["error"])
 
+    def test_a_logql_body_that_outlasts_the_timeout_is_an_error_line(self) -> None:
+        with (
+            override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=-1),
+            patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))),
+        ):
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertEqual(lines, [{"i": 0, "error": "The LogQL query timed out. Try a shorter date range."}])
+
     def test_a_huge_relative_date_fails_only_its_own_panel(self) -> None:
         lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
 
@@ -388,6 +397,8 @@ class TestResolveQuery(SimpleTestCase):
             time_range("2026-11-01T00:00:00", "now", tz=berlin, at=at).start,
             dt.datetime(2026, 11, 1, tzinfo=berlin),
         )
+        across_dst = time_range("now-30m", "now", tz=berlin, at=dt.datetime(2026, 3, 29, 1, 15, tzinfo=dt.UTC))
+        self.assertEqual(across_dst.end - across_dst.start, dt.timedelta(minutes=30))
 
     @parameterized.expand(
         [
@@ -425,6 +436,8 @@ class TestResolveQuery(SimpleTestCase):
             ("a_filter_quoting_a_function_name", '{service_name="api"} |= "rate("', True),
             ("a_backtick_filter", '{service_name="api"} |~ `count_over_time(`', True),
             ("a_metric_query", 'sum(rate({service_name="api"} |= "x" [1m]))', False),
+            ("an_escaped_quote_inside_a_filter", r'{service_name="api"} |= "a\"rate("', True),
+            ("an_unterminated_filter", '{service_name="api"} |= "rate(' + '\\"' * 20000, True),
         ]
     )
     def test_classifies_logql_by_its_functions_not_its_strings(self, _name: str, logql: str, expected: bool) -> None:
