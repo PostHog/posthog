@@ -46,6 +46,7 @@ from posthog.storage.test.cluster_cache import reject_multi_key_commands
 from posthog.tasks.gateway_credential import (
     drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
+    reproject_organization_gateway_credentials_task,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
@@ -979,6 +980,32 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         team.save()
 
         mock_delay.assert_called_with(self.team.id)
+
+    @parameterized.expand([("phs", True), ("pha", True), ("phs", None)])
+    def test_organization_deactivation_clears_blob_until_the_flag_leaves_false(self, kind, restored_state):
+        credential = self._make_secret_key([GATEWAY_SCOPE])[0] if kind == "phs" else self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(credential)
+        cache_hash = credential_hash(credential)
+        assert self._read_blob(cache_hash) is not None
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=reproject_organization_gateway_credentials_task,
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+            self.organization.is_active = False
+            self.organization.save()
+            self.assertIsNone(self._read_blob(cache_hash))
+
+            self.organization.is_active = restored_state
+            self.organization.save()
+            self.assertIsNotNone(self._read_blob(cache_hash))
 
     @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")

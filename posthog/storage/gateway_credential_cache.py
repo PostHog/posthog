@@ -35,7 +35,7 @@ from django_redis.exceptions import ConnectionInterrupted
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
@@ -123,6 +123,7 @@ class _RefreshMemo:
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
         self._org_roots: dict[Any, int | None] = {}
+        self._deactivated_orgs: dict[Any, bool] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -145,6 +146,11 @@ class _RefreshMemo:
         if organization_id not in self._org_roots:
             self._org_roots[organization_id] = load()
         return self._org_roots[organization_id]
+
+    def organization_deactivated(self, organization_id: Any, load: Callable[[], bool]) -> bool:
+        if organization_id not in self._deactivated_orgs:
+            self._deactivated_orgs[organization_id] = load()
+        return self._deactivated_orgs[organization_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -208,6 +214,13 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
     if team_id is None:
         return None
     return _team_by_id(team_id, memo)
+
+
+def _organization_deactivated(organization_id: Any, memo: "_RefreshMemo | None") -> bool:
+    def load() -> bool:
+        return Organization.objects.filter(pk=organization_id, is_active=False).exists()
+
+    return memo.organization_deactivated(organization_id, load) if memo else load()
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -289,6 +302,9 @@ def _policy_for_credential(
 
     team = _team_for_credential(credential, memo)
     if team is None:
+        return HyperCacheStoreMissing()
+
+    if _organization_deactivated(team.organization_id, memo):
         return HyperCacheStoreMissing()
 
     project_token = team.api_token

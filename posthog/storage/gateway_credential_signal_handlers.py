@@ -23,7 +23,7 @@ from django.db.models.signals import post_delete, post_init, post_save, pre_dele
 import structlog
 
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -321,6 +321,18 @@ def _reproject_team_on_change(sender: type[Team], instance: Team, created: bool,
     transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
+def _reproject_organization_on_active_change(
+    sender: type[Organization], instance: Organization, created: bool, **kwargs: Any
+) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL or created or not instance._is_active_changed:
+        return
+
+    from posthog.tasks.gateway_credential import reproject_organization_gateway_credentials_task  # noqa: PLC0415
+
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: reproject_organization_gateway_credentials_task.delay(organization_id))
+
+
 def _capture_old_membership_level_if_deferred(
     sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
 ) -> None:
@@ -390,6 +402,8 @@ def connect_signal_handlers() -> None:
     # every load.
     pre_save.connect(_capture_old_team_fields_if_deferred, sender=Team)
     post_save.connect(_reproject_team_on_change, sender=Team)
+
+    post_save.connect(_reproject_organization_on_active_change, sender=Organization)
 
     post_init.connect(_snapshot_user, sender=User)
     pre_save.connect(_capture_old_user_fields_if_deferred, sender=User)
