@@ -3,16 +3,30 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { AuthorizedDomains } from '../../scenes/settings/AuthorizedDomains'
 import { IdentityVerificationSecretSection } from '../../scenes/settings/IdentityVerificationSecretSection'
 import { supportSettingsLogic } from '../../scenes/settings/supportSettingsLogic'
+import { QuillWebAndApiAccessSettings } from '../QuillWebAndApiAccessSettings/QuillWebAndApiAccessSettings'
 import { WEB_AND_API_ACCESS_ANCHOR_ID } from './webAndApiAccessAnchor'
 
 export function WebAndApiAccessSettings(): JSX.Element {
     const { isAddingDomain, editingDomainIndex } = useValues(supportSettingsLogic)
     const { setIsAddingDomain } = useActions(supportSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showAddDomainButton = !isAddingDomain && editingDomainIndex === null
+
+    if (todayRailNav) {
+        return (
+            <QuillWebAndApiAccessSettings
+                showAddDomainButton={showAddDomainButton}
+                onAddDomain={() => setIsAddingDomain(true)}
+            />
+        )
+    }
 
     return (
         <div
@@ -40,7 +54,7 @@ export function WebAndApiAccessSettings(): JSX.Element {
                 >
                     <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                         <AuthorizedDomains />
-                        {!isAddingDomain && editingDomainIndex === null && (
+                        {showAddDomainButton && (
                             <LemonButton
                                 onClick={() => setIsAddingDomain(true)}
                                 type="secondary"

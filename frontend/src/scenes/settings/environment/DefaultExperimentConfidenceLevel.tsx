@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
@@ -16,6 +19,7 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useQuillSurface()
 
     const currentValue = Number(experimentsConfig?.default_experiment_confidence_level ?? 0.95)
 
@@ -26,12 +30,35 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
         updateExperimentsConfig({ default_experiment_confidence_level: value })
     }
 
+    const disabledReason = experimentsConfigLoading ? 'Loading...' : restrictedReason
+
+    if (todayRailNav) {
+        return (
+            <Select
+                items={CONFIDENCE_LEVEL_OPTIONS}
+                value={currentValue}
+                onValueChange={(value) => handleChange(value as number | null)}
+            >
+                <SelectTrigger className="w-fit" disabledReason={disabledReason}>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {CONFIDENCE_LEVEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        )
+    }
+
     return (
         <LemonSelect
             value={currentValue}
             onChange={handleChange}
             options={CONFIDENCE_LEVEL_OPTIONS}
-            disabledReason={experimentsConfigLoading ? 'Loading...' : restrictedReason}
+            disabledReason={disabledReason}
         />
     )
 }

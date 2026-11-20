@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import __funnelTimeToConvert from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import __funnelTopToBottom from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'

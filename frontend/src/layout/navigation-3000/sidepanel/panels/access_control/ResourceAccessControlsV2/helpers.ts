@@ -1,3 +1,4 @@
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
@@ -44,6 +45,26 @@ export function humanizeAccessControlLevel(level: AccessControlLevel | null | un
     }
     return toSentenceCase(level)
 }
+
+/** The levels an object rule can take, with the ones below the resource's minimum unavailable. */
+export function objectRuleLevelOptions(
+    levels: AccessControlLevel[],
+    minimumLevel?: AccessControlLevel | null
+): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
+    const minimumIndex = minimumLevel ? levels.indexOf(minimumLevel) : -1
+
+    return levels.map((level, index) => ({
+        value: level,
+        label: humanizeAccessControlLevel(level),
+        disabledReason: index < minimumIndex ? 'Not available for this resource type' : undefined,
+    }))
+}
+
+/** The property access levels with plain-text labels, for selects that lay out their own options. */
+export const PROPERTY_RULE_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS.map(({ value, label }) => ({
+    value,
+    label: typeof label === 'string' ? label : value,
+}))
 
 export function isRoleEntry(entry: AccessControlSettingsEntry): entry is AccessControlRoleEntry {
     return 'role_id' in entry
