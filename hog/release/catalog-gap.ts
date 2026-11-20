@@ -223,6 +223,10 @@ interface GeneratedModule {
     allowedImports: boolean
     // The generated schema files it imports values from, which must be declarative too.
     schemaImports: string[]
+    // The names it imports generated schema files under as namespaces, and whether it imports them any
+    // other way.
+    schemaNamespaces: string[]
+    otherSchemaImports: boolean
     // The import statements, as compiled.
     imports: string
     blocks: Map<string, Block>
@@ -253,6 +257,8 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
     const blocks = new Map<string, Block>()
     const imports: string[] = []
     const schemaImports: string[] = []
+    const schemaNamespaces: string[] = []
+    let otherSchemaImports = false
     let declarative = true
     let allowedImports = true
 
@@ -267,6 +273,11 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
                 allowedImports &&= !!clause && !clause.name && !!bindings && (fromZod || schemaFile !== undefined)
                 if (schemaFile) {
                     schemaImports.push(schemaFile)
+                    if (!clause?.name && bindings && ts.isNamespaceImport(bindings)) {
+                        schemaNamespaces.push(bindings.name.text)
+                    } else {
+                        otherSchemaImports = true
+                    }
                 }
             }
             if (clause?.name) {
@@ -370,7 +381,15 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
     }
 
     declarative &&= [...consts.values()].every((initializer) => eager(initializer))
-    return { declarative, allowedImports, schemaImports, imports: imports.join('\n'), blocks }
+    return {
+        declarative,
+        allowedImports,
+        schemaImports,
+        schemaNamespaces,
+        otherSchemaImports,
+        imports: imports.join('\n'),
+        blocks,
+    }
 }
 
 // Whether the generated module at a path is declarative and imports only what's allowed, along with every
@@ -419,15 +438,37 @@ function alteredSchemas(input: GapInput, file: string): Set<string> | undefined 
     return altered
 }
 
-// Undefined when a tool the module registers can't be traced, so every tool counts.
-function schemasByTool(source: string | undefined): Map<string, Set<string>> | undefined {
+// Undefined when a tool the module registers can't be traced, so every tool counts. Tracing follows the
+// module's consts and `<namespace>.<Schema>` reads of the schema files it imports as namespaces, so a module
+// that isn't declarative, imports a schema file any other way, or uses a namespace other than to read a
+// schema by name can't be traced.
+function schemasByTool(source: string | undefined, path: string): Map<string, Set<string>> | undefined {
     if (!source) {
         return undefined
     }
-    const { blocks } = generatedModule(source, '')
+    const { declarative, otherSchemaImports, schemaNamespaces, blocks } = generatedModule(source, path)
+    const untraceable = [...blocks.values()].some(({ text }) =>
+        schemaNamespaces.some(
+            (namespace) =>
+                text.match(new RegExp(`\\b${namespace}\\b`, 'g'))?.length !==
+                text.match(new RegExp(`\\b${namespace}\\.\\w+`, 'g'))?.length
+        )
+    )
+    if (
+        !declarative ||
+        otherSchemaImports ||
+        untraceable ||
+        schemaNamespaces.some((namespace) => !/^\w+$/.test(namespace))
+    ) {
+        return undefined
+    }
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
         const text = blocks.get(name)?.text ?? ''
-        const schemas = new Set([...text.matchAll(/orvalSchemas\.(\w+)/g)].map((match) => match[1]!))
+        const schemas = new Set(
+            schemaNamespaces.flatMap((namespace) =>
+                [...text.matchAll(new RegExp(`\\b${namespace}\\.(\\w+)`, 'g'))].map((match) => match[1]!)
+            )
+        )
         for (const other of blocks.keys()) {
             if (other !== name && !seen.has(other) && referencesAny(text, [other])) {
                 seen.add(other)
@@ -517,7 +558,7 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
 
     return importers.filter((importer) => {
         if (generatedModuleName(importer)) {
-            const byTool = schemasByTool(input.readHead(importer))
+            const byTool = schemasByTool(input.readHead(importer), importer)
             const affected = byTool
                 ? [...byTool]
                       .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))

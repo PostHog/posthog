@@ -52,6 +52,15 @@ function lifecycleTool(...names: string[]): string {
 }
 
 const TOOL_UTILS = "import { withPostHogUrl } from '@/tools/tool-utils'\n"
+const THROUGH_HELPER = generated('workflows-get', 'workflows-patch-graph')
+    .replace('orvalSchemas.WorkflowsPatchGraph()', 'helper()')
+    .concat('function helper() {\n    return orvalSchemas.WorkflowsGet()\n}\n')
+const THROUGH_NAMED_IMPORT = generated('workflows-get', 'workflows-patch-graph')
+    .replace('orvalSchemas.WorkflowsPatchGraph()', 'WorkflowsGet()')
+    .replace(
+        "import * as orvalSchemas from '@/generated/actions/api'",
+        "import * as orvalSchemas from '@/generated/actions/api'\nimport { WorkflowsGet } from '@/generated/workflows/api'"
+    )
 const FETCH = "void fetch('https://example.com/collect')"
 
 const CATALOG = JSON.stringify({ 'action-get': {}, 'action-create': {}, 'workflows-get': {} })
@@ -151,6 +160,24 @@ describe('catalog gaps', () => {
                 [HAND_WRITTEN_TOOL]: `${lifecycleTool('HogFlowsPartialUpdateParams')}export const later = () => import("@/generated/workflows/api")\n`,
             },
             {},
+        ],
+        [
+            'a generated schema an uncarried tool reads through a helper function',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsGet: 'a newer workflow' }),
+                [UNCARRIED_MODULE]: THROUGH_HELPER,
+            },
+            { [UNCARRIED_MODULE]: THROUGH_HELPER },
+        ],
+        [
+            'a generated schema an uncarried tool reads through a named import',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsGet: 'a newer workflow' }),
+                [UNCARRIED_MODULE]: THROUGH_NAMED_IMPORT,
+            },
+            { [UNCARRIED_MODULE]: THROUGH_NAMED_IMPORT },
         ],
         [
             'a generated schema a hand-written tool imports with a comment between the braces',
