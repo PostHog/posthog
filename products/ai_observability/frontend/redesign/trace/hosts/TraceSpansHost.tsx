@@ -4,7 +4,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
-import { OpenDistributedTraceButton } from '../components/OpenDistributedTraceButton'
 import { TraceSplitView } from '../components/TraceSplitView'
 import { traceFeedbackLogic } from '../traceFeedbackLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
@@ -65,21 +64,13 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
                           onViewInThread: canViewInThread ? viewInThread : null,
                           messagesOpening,
                           onMessagesOpeningChange: setMessagesOpening,
-                          actions: (
-                              <>
-                                  <OpenDistributedTraceButton
-                                      traceId={traceId}
-                                      event={selectedNodeLoad.status === 'ready' ? selectedNodeLoad.node.event : null}
-                                      fallbackTimestamp={createdAt}
+                          actions:
+                              datasetsEnabled && createdAt ? (
+                                  <SaveToDatasetButton
+                                      key={selectedNodeId}
+                                      step={{ traceId, nodeId: selectedNodeId, timestamp: createdAt }}
                                   />
-                                  {datasetsEnabled && createdAt ? (
-                                      <SaveToDatasetButton
-                                          key={selectedNodeId}
-                                          step={{ traceId, nodeId: selectedNodeId, timestamp: createdAt }}
-                                      />
-                                  ) : null}
-                              </>
-                          ),
+                              ) : null,
                           stepFeedback: selectedStepFeedback
                               ? {
                                     feedback: selectedStepFeedback,

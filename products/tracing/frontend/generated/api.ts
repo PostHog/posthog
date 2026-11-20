@@ -25,10 +25,12 @@ import type {
     TracingRetentionRulesReorderCreateParams,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
+    TracingSpansStoredTraceRetrieveParams,
     TracingSpansValuesRetrieveParams,
     TracingViewApi,
     TracingViewsListParams,
     _HasSpansResponseApi,
+    _StoredTraceResponseApi,
     _SymbolStatsRequestApi,
     _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
@@ -572,6 +574,40 @@ export const tracingSpansSparklineCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingSparklineRequestApi),
+    })
+}
+
+export const getTracingSpansStoredTraceRetrieveUrl = (
+    projectId: string,
+    params: TracingSpansStoredTraceRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/spans/stored_trace/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/spans/stored_trace/`
+}
+
+/**
+ * Resolve a trace id from another product to a trace that Tracing stores spans for, so a
+ * link to the trace can stay hidden when it would open nothing.
+ */
+export const tracingSpansStoredTraceRetrieve = async (
+    projectId: string,
+    params: TracingSpansStoredTraceRetrieveParams,
+    options?: RequestInit
+): Promise<_StoredTraceResponseApi> => {
+    return apiMutator<_StoredTraceResponseApi>(getTracingSpansStoredTraceRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

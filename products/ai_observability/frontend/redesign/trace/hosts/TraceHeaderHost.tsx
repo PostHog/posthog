@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
+import type { MouseEvent } from 'react'
+
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ReviewQueuePickerModal } from '../../../reviewQueues/ReviewQueuePickerModal'
 import { TraceReviewButton } from '../../../traceReviews/TraceReviewButton'
 import { TraceHeader } from '../components/TraceHeader'
+import { traceDistributedTraceLogic } from '../traceDistributedTraceLogic'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceReviewLogic } from '../traceReviewLogic'
 import { traceViewLogic } from '../traceViewLogic'
@@ -29,6 +33,8 @@ export function TraceHeaderHost({
     const reviewLogic = traceReviewLogic({ traceId })
     const { reviewStatus, reviewStatusFailed } = useValues(reviewLogic)
     const { loadReviewStatus } = useActions(reviewLogic)
+    const { distributedTraceId } = useValues(traceDistributedTraceLogic({ traceId, timestampHint }))
+    const openTraceDialog = useOpenTraceDialog()
 
     if (!overview) {
         return null
@@ -58,6 +64,18 @@ export function TraceHeaderHost({
                 ) : null}
             </>
         ) : null
+    const distributedTraceAction = distributedTraceId
+        ? {
+              traceId: distributedTraceId,
+              timestamp: overview.createdAt,
+              onOpen: (event: MouseEvent) =>
+                  openTraceDialog(
+                      event,
+                      { traceId: distributedTraceId, ts: overview.createdAt },
+                      { entryPoint: 'ai_trace' }
+                  ),
+          }
+        : undefined
     return (
         <TraceHeader
             name={overview.name}
@@ -66,6 +84,7 @@ export function TraceHeaderHost({
             search={trace ? { ...searchBox, onQueryChange: setQuery, onStep: stepMatch } : null}
             copyAction={trace ? { loading: traceCopying, onCopy: copyTrace } : undefined}
             exportAction={trace ? { loading: traceExportLoading, onExport: exportTrace } : undefined}
+            distributedTraceAction={distributedTraceAction}
             actions={reviewActions}
         />
     )

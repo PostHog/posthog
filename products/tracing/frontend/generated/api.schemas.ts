@@ -1066,6 +1066,14 @@ export interface _TracingSparklineResponseApi {
     results: _TracingSparklineRowApi[]
 }
 
+export interface _StoredTraceResponseApi {
+    /**
+     * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+     * @nullable
+     */
+    traceId: string | null
+}
+
 export interface _SymbolStatsSymbolApi {
     /**
      * Opaque identifier (e.g. the function name) echoed back on the matching result row.
@@ -1726,6 +1734,15 @@ export type TracingSpansServiceNamesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string
 }
 
 export type TracingSpansValuesRetrieveParams = {

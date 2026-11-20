@@ -25,7 +25,7 @@ export type TraceDialogEntryPoint =
     | 'metric_sample'
     | 'metric_exemplar'
     | 'exception_card'
-    | 'ai_trace_step'
+    | 'ai_trace'
 
 export type TraceDialogCloseReason = 'dismissed' | 'back_to_log' | 'open_in_tracing' | 'navigated' | 'replaced'
 
