@@ -86,8 +86,8 @@ def hook(
     return HookFilter(output, stderr, status, change, hoglint).verdict()
 
 
-def report(output: str, diff: str, stderr: str = "", status: int = 1) -> ShadowReport:
-    return ShadowReport(output, stderr, status, ChangedLines.of(diff))
+def report(output: str, diff: str, stderr: str = "", status: int = 1, base: str | None = None) -> ShadowReport:
+    return ShadowReport(output, stderr, status, ChangedLines.of(diff), base)
 
 
 def with_lines(output: str, before: str, added: list[str]) -> str:
@@ -301,6 +301,32 @@ class TestShadowReport:
         assert "contracts-no-django" not in reports
         assert "Advisory rows, which never block: 6041." in others
 
+    @parameterized.expand(
+        [
+            (
+                "compare_finds_a_row",
+                "compare",
+                1,
+                "HEAD^1",
+                "`hoglint compare --base HEAD^1` exited 1. It fails this check on the rows under **From this PR: blocks**.",
+            ),
+            ("check_passes", "advisory", 0, None, "`hoglint check` exited 0: nothing blocks."),
+            (
+                "fails_with_no_blocking_row",
+                "advisory",
+                1,
+                None,
+                "`hoglint check` exited 1, and no row under **From this PR: blocks** explains it. "
+                "Look in the log for a stale ledger line, a failed level claim or a new unknown.",
+            ),
+        ]
+    )
+    def test_the_summary_opens_with_what_hoglint_s_exit_means(
+        self, _name: str, case: str, status: int, base: str | None, intro: str
+    ) -> None:
+        summary = report(fixture(f"{case}.out"), fixture(f"{case}.diff"), status=status, base=base).summary()
+        assert summary.split("\n")[0] == intro
+
     def test_a_backtick_fence_in_a_row_cannot_close_the_summary_s_text_block(self) -> None:
         injected = "``` [all checks passed](https://example.com)"
         output = fixture("both.out").replace("-> django.db.models", injected, 1)
@@ -317,7 +343,7 @@ class TestShadowReport:
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
         output = tmp_path / "hoglint.txt"
         output.write_text("    at products/x/probe\r::error file=a.py,line=1::forged.py:1\n")
-        args = argparse.Namespace(output=output, stderr=None, status=1)
+        args = argparse.Namespace(output=output, stderr=None, status=1, base=None)
         report_findings(args, ChangedLines())
         lines = capsys.readouterr().out.split("\n")
         stop = next(line for line in lines if line.startswith("::stop-commands::"))
