@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionStepType, ActionType } from '~/types'
+import type { ProjectType } from '~/types'
 
 import { actionsReferencesList } from '../generated/api'
 import type { ActionReferenceApi } from '../generated/api.schemas'
@@ -78,10 +79,10 @@ export interface actionEditLogicActions {
         url: string | null
     } // eventDefinitionsTableLogic
     loadCurrentProjectSuccess: (
-        currentProject: null | import('~/types').ProjectType,
+        currentProject: ProjectType | null,
         payload?: any
     ) => {
-        currentProject: null | import('~/types').ProjectType
+        currentProject: ProjectType | null
         payload?: any
     } // projectLogic
     actionAlreadyExists: (actionId: number | null) => {
