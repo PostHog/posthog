@@ -962,6 +962,38 @@ async def test_delete_folder_reports_throttling_that_outlasts_the_retry_budget()
 
 
 @pytest.mark.asyncio
+async def test_delete_folder_reports_once_per_call_when_every_old_folder_fails() -> None:
+    # A storage condition that rejects every delete leaves each old folder in place, so every later
+    # sync lists it and fails it again. One report per folder grows with that backlog and floods
+    # error tracking; one report per call grows only with the number of affected syncs.
+    stale = [f"my_table__query_{_stale_epoch() - offset}" for offset in range(3)]
+    delete_error = OSError(errno.EIO, "The object store refused the request.")
+    s3 = _fake_s3(
+        _ls=AsyncMock(return_value=_job_folder_listing(*stale)),
+        _rm=AsyncMock(side_effect=delete_error),
+    )
+
+    with (
+        patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+        patch(f"{_UTIL_MODULE}.capture_exception") as mock_capture_exception,
+    ):
+        await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="my_table",
+            file_uris=[],
+            existing_queryable_folder="my_table__query_current",
+            delete_existing=True,
+        )
+
+    assert s3._rm.await_count == len(stale)
+    mock_capture_exception.assert_called_once()
+    captured, properties = mock_capture_exception.call_args.args
+    assert isinstance(captured, S3OperationError)
+    assert captured.__cause__ is delete_error
+    assert properties == {"failed_folder_deletes": len(stale), "folder_deletes": len(stale)}
+
+
+@pytest.mark.asyncio
 @patch(f"{_UTIL_MODULE}.capture_exception")
 async def test_delete_folder_treats_an_already_deleted_folder_as_done(mock_capture_exception: MagicMock) -> None:
     # Two cleanup passes can pick the same timestamped folder, and s3fs raises FileNotFoundError for
