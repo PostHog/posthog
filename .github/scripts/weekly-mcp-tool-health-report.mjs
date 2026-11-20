@@ -3,9 +3,12 @@
 // Sibling of weekly-flaky-report.mjs: one HogQL read of the `$mcp_tool_call` events the MCP
 // server already captures, ranked by failed calls, with owner attribution through
 // packages/owners-yaml. Each tool maps to the YAML file that defines it, so the team that owns
-// the definition sees its own failing tools without the MCP team relaying them.
+// the definition sees its own failing tools without the MCP team relaying them: each owning team
+// also gets one Signals inbox report, suggested to the members of the PostHog role named after
+// its GitHub team. Unowned tools stay in the Slack digest only.
 //
-//   GHA cron ──> HogQL over $mcp_tool_call ──> owners.yaml ──> Slack
+//   GHA cron ──> HogQL over $mcp_tool_call ──> owners.yaml ──> Slack digest
+//                                                         └──> Signals inbox report per team
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -18,9 +21,12 @@ import {
     deliverTeamDigests,
     DRY_RUN,
     editWorkflowBlock,
+    GITHUB_REPOSITORY,
     hogql,
+    HOST,
     postToSlack,
     PROJECT_ID,
+    requestPosthog,
     resolveOwners,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL,
@@ -31,6 +37,25 @@ const TEAM_CHANNEL_POSTS = process.env.MCP_TOOL_HEALTH_TEAM_CHANNELS === 'true'
 const FEEDBACK_CHANNEL = '#team-context-and-mcp'
 // The name a team uses under `notifications:` in owners.yaml to redirect or silence this report.
 const OWNERS_PRODUCER = 'mcp_tool_health'
+
+// The inbox the team reports go to, and a personal API key with inbox:write, project:read,
+// organization:read and organization_member:read, limited to the organization since roles and
+// members are organization endpoints. The
+// key's owner files every report, so they need the inbox-reports-create-mcp flag.
+const SIGNALS_PROJECT_ID = process.env.SIGNALS_PROJECT_ID || ''
+const SIGNALS_API_KEY = process.env.SIGNALS_API_KEY || ''
+// owners.yaml names GitHub teams, and the organization's roles mostly carry the same names
+// ('team-feature-flags' is 'Team Feature Flags'). These are the owners whose role is named differently.
+const ROLE_FOR_TEAM = {
+    'team-devex': 'Team Developer Experience',
+    'team-managed-warehouse': 'Team Warehouse',
+    'team-warehouse-sources': 'Team Warehouse Pipelines',
+}
+// The inbox report API's cap on suggested reviewers.
+const MAX_SIGNAL_REVIEWERS = 10
+// Each request can spend about 8.5 minutes on retries, so no team starts or files past this budget,
+// and the job's timeout-minutes leaves room for the query and one last slow reviewer lookup.
+const SIGNALS_BUDGET_MS = 10 * 60_000
 
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 25
@@ -258,6 +283,139 @@ function teamPostsWithheld(enabled = TEAM_CHANNEL_POSTS) {
     return enabled ? null : 'shadow: would post to'
 }
 
+// A null channel on an owned tool means the team set `mcp_tool_health: false` in owners.yaml, which
+// opts it out of this report everywhere, its inbox included.
+function ownedTeams(items, ownerFor) {
+    const byOwner = new Map()
+    for (const item of items) {
+        const { owner, slack } = ownerFor(item)
+        if (owner === 'unowned' || !slack) {
+            continue
+        }
+        if (!byOwner.has(owner)) {
+            byOwner.set(owner, { owner, items: [] })
+        }
+        byOwner.get(owner).items.push(item)
+    }
+    return [...byOwner.values()].sort((a, b) => b.items.length - a.items.length)
+}
+
+function toolLine(item) {
+    return `\`${item.tool}\` failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. Top error: ${item.topError || 'no message captured'}`
+}
+
+function signalReport(now, { owner, items }, reviewerUuids) {
+    // The Monday that starts the run's week, so a re-run later that week replays rather than duplicates.
+    const monday = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7))
+    )
+    const week = monday.toISOString().slice(0, 10)
+    const count = items.length === 1 ? '1 MCP tool is' : `${items.length} MCP tools are`
+    const reviewers = reviewerUuids.slice(0, MAX_SIGNAL_REVIEWERS).map((uuid) => ({
+        user_uuid: uuid,
+        reason: `Member of the role for ${owner}, which owns these tools in owners.yaml.`,
+    }))
+    return {
+        title: `fix(mcp): ${count} failing for agents (${teamLabel(owner)})`,
+        summary: [
+            `${count} failing for AI agents in the PostHog MCP server, and the ${teamLabel(owner)} team owns their definitions.`,
+            '',
+            ...items.map((item) => `- ${toolLine(item)}`),
+            '',
+            `${FLOOR_NOTE} Wrong owner or a tool that should be off? Tell ${FEEDBACK_CHANNEL}.`,
+        ].join('\n'),
+        evidence: items.map((item) => ({
+            source_id: item.tool,
+            description: `Defined in ${item.selector}: ${toolLine(item)}`,
+        })),
+        actionability: 'immediately_actionable',
+        actionability_explanation: `Each tool failed for at least ${MIN_USERS} users on at least ${MIN_ERROR_RATE_PCT}% of its calls in the last ${REPORT_WINDOW_DAYS} days, and the top error names where to look.`,
+        repository: GITHUB_REPOSITORY,
+        tags: ['mcp-tool-health', owner],
+        idempotency_key: `mcp-tool-health:${week}:${owner}`,
+        ...(reviewers.length > 0 ? { suggested_reviewers: reviewers } : {}),
+    }
+}
+
+const roleKey = (name) =>
+    name
+        .toLowerCase()
+        .replace(/^team\b/, '')
+        .replace(/[^a-z0-9]/g, '')
+
+function roleMembers(roles, owner) {
+    const key = roleKey(ROLE_FOR_TEAM[owner] ?? owner)
+    const role = roles.find((candidate) => roleKey(candidate.name) === key)
+    return (role?.members ?? []).map((member) => member.user?.uuid).filter(Boolean)
+}
+
+// Errors carry the label, not the path, so the organization id stays out of the public Actions logs.
+const signalsGet = (path, label) =>
+    requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, label)
+
+// Roles still list deactivated users, and the report API rejects a whole report that names one, so
+// reviewers are limited to the organization's active members.
+async function fetchReviewerDirectory(projectId = SIGNALS_PROJECT_ID, get = signalsGet) {
+    const project = await get(`/api/projects/${projectId}/`, 'signals project')
+    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`, 'organization roles')
+    const active = new Set()
+    let page = `/api/organizations/${project.organization}/members/?limit=500`
+    while (page) {
+        const members = await get(page, 'organization members')
+        for (const member of members.results) {
+            active.add(member.user.uuid)
+        }
+        page = members.next ? new URL(members.next).pathname + new URL(members.next).search : null
+    }
+    return (owner) => roleMembers(roles.results, owner).filter((uuid) => active.has(uuid))
+}
+
+function fileInboxReport(body) {
+    return requestPosthog(
+        `${HOST}/api/projects/${SIGNALS_PROJECT_ID}/signals/reports/`,
+        {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${SIGNALS_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        },
+        'signals report'
+    )
+}
+
+// One team's failure, at either step, must not keep the teams behind it from their reports. A team
+// whose members can't be read is left unfiled, since a re-run replays a filed report unchanged and
+// could never add its reviewers.
+async function fileTeamSignals(
+    teams,
+    { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf, file = fileInboxReport }
+) {
+    const filed = []
+    for (const team of teams) {
+        if (Date.now() > deadline) {
+            console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
+            break
+        }
+        try {
+            const uuids = await membersOf(team.owner)
+            if (Date.now() > deadline) {
+                console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
+                break
+            }
+            if (uuids.length === 0) {
+                console.warn(`no active role members found for ${team.owner}, filing without reviewers`)
+            }
+            const result = await file(signalReport(now, team, uuids))
+            console.info(
+                `${team.owner}: inbox report ${result.report_id} (${result.report_status ?? result.skipped_reason})`
+            )
+            filed.push({ owner: team.owner, reportId: result.report_id })
+        } catch (err) {
+            console.warn(`signals report for ${team.owner} failed: ${err.message}`)
+        }
+    }
+    return filed
+}
+
 async function main() {
     if (!PROJECT_ID || !API_KEY) {
         console.warn('POSTHOG_PROJECT_ID / POSTHOG_API_KEY not set - skipping report. Wire them to enable.')
@@ -276,6 +434,7 @@ async function main() {
     const entries = items.map((item, i) => ({ ...ownerFor(item), row: rows[i] }))
     const blocks = buildBlocks(now, rows)
     const teamDigests = buildTeamDigests(entries)
+    const signalTeams = ownedTeams(items, ownerFor)
     if (DRY_RUN) {
         // Actions logs on this public repo are readable by anyone, so a dry run prints only the routing.
         // Shadow mode previews the full report, with its counts and errors, in the Slack digest thread.
@@ -283,6 +442,7 @@ async function main() {
             const { owner, slack } = ownerFor(item)
             console.info(`${item.tool} -> ${owner} (${slack ?? 'digest only'})`)
         }
+        console.info(`Would file inbox reports for: ${signalTeams.map((t) => t.owner).join(', ') || 'no team'}`)
         return
     }
     if (!SLACK_BOT_TOKEN) {
@@ -296,6 +456,21 @@ async function main() {
         withheld: teamPostsWithheld(),
     })
     console.info(`Posted ${posted.length}/${teamDigests.length} team slice(s) to team channels.`)
+    if (!SIGNALS_PROJECT_ID || !SIGNALS_API_KEY) {
+        console.warn('SIGNALS_PROJECT_ID / SIGNALS_API_KEY not set - skipping team signals reports.')
+        return
+    }
+    let directory
+    const filed = await fileTeamSignals(signalTeams, {
+        now,
+        membersOf: async (owner) => (await (directory ??= fetchReviewerDirectory()))(owner),
+    })
+    console.info(`Filed ${filed.length}/${signalTeams.length} team signals report(s).`)
+    // Every team is still attempted, but any team left without a report fails the run. A re-run that
+    // week replays the reports already filed and files the rest.
+    if (filed.length < signalTeams.length) {
+        process.exitCode = 1
+    }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -308,7 +483,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 export {
     definitionPathFor,
     fetchFailingTools,
+    fetchReviewerDirectory,
+    fileTeamSignals,
     HANDWRITTEN_TOOL_PATH,
+    MAX_SIGNAL_REVIEWERS,
+    ownedTeams,
+    roleMembers,
+    signalReport,
     teamPostsWithheld,
     teamReport,
     toolDefinitionIndex,
