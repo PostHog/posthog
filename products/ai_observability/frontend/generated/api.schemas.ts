@@ -2219,6 +2219,31 @@ export interface TraceAvailabilityApi {
     available_trace_ids: string[]
 }
 
+export interface TracePageWithBoundsRequestApi {
+    /**
+     * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 100
+     */
+    trace_ids: string[]
+    /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+    earliest_created_at: string
+    /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+    latest_created_at: string
+}
+
+export interface TracePersonItemApi {
+    /** The trace the person belongs to. */
+    traceId: string
+    /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+    person: TracePersonApi | null
+}
+
+export interface TracePeopleListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TracePersonItemApi[]
+}
+
 export interface TracePageRequestApi {
     /**
      * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
@@ -2252,6 +2277,33 @@ export interface TracePreviewApi {
 export interface TracePreviewListApi {
     /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
     items: TracePreviewApi[]
+}
+
+export type TraceSentimentLabelEnumApi = (typeof TraceSentimentLabelEnumApi)[keyof typeof TraceSentimentLabelEnumApi]
+
+export const TraceSentimentLabelEnumApi = {
+    Positive: 'positive',
+    Neutral: 'neutral',
+    Negative: 'negative',
+} as const
+
+export interface TraceSentimentApi {
+    /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+    label: TraceSentimentLabelEnumApi
+    /** The average score of the label, from 0 to 1. */
+    score: number
+}
+
+export interface TraceSentimentItemApi {
+    /** The trace the sentiment belongs to. */
+    traceId: string
+    /** Null when the trace is not found or has no sentiment result. */
+    sentiment: TraceSentimentApi | null
+}
+
+export interface TraceSentimentListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TraceSentimentItemApi[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean

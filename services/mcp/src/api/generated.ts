@@ -126787,6 +126787,31 @@ export namespace Schemas {
       trace_ids: string[];
     }
 
+    export interface TracePageWithBoundsRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+      /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+      earliest_created_at: string;
+      /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+      latest_created_at: string;
+    }
+
+    export interface TracePersonItem {
+      /** The trace the person belongs to. */
+      traceId: string;
+      /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+      person: TracePerson | null;
+    }
+
+    export interface TracePeopleList {
+      /** One item per requested trace, in the order requested. */
+      items: TracePersonItem[];
+    }
+
     export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
 
 
@@ -126861,6 +126886,34 @@ export namespace Schemas {
       total: number;
       /** Matching steps in tree order, the root first. Steps without a match are left out. */
       matches: TraceSearchMatch[];
+    }
+
+    export type TraceSentimentLabelEnum = typeof TraceSentimentLabelEnum[keyof typeof TraceSentimentLabelEnum];
+
+
+    export const TraceSentimentLabelEnum = {
+      Positive: 'positive',
+      Neutral: 'neutral',
+      Negative: 'negative',
+    } as const;
+
+    export interface TraceSentiment {
+      /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+      label: TraceSentimentLabelEnum;
+      /** The average score of the label, from 0 to 1. */
+      score: number;
+    }
+
+    export interface TraceSentimentItem {
+      /** The trace the sentiment belongs to. */
+      traceId: string;
+      /** Null when the trace is not found or has no sentiment result. */
+      sentiment: TraceSentiment | null;
+    }
+
+    export interface TraceSentimentList {
+      /** One item per requested trace, in the order requested. */
+      items: TraceSentimentItem[];
     }
 
     export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];

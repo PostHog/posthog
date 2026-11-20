@@ -9,12 +9,21 @@ FALLBACK_BEFORE_HINT = timedelta(minutes=10)
 FALLBACK_AFTER_HINT = timedelta(days=7)
 # The legacy trace view used this date as its default range start when a link carried no timestamp.
 UNHINTED_FALLBACK_START = datetime(2025, 1, 10, tzinfo=UTC)
+# The default of `ai_events.retention_days` in posthog/models/ai_events/sql.py. No ingestion path writes another value.
+AI_EVENTS_RETENTION_DAYS = 30
 
 
 @frozen
 class FallbackWindow:
     start: datetime
     end: datetime
+
+    def may_hold_aged_out_events(self, now: datetime) -> bool:
+        """Whether `posthog.ai_events` may already have dropped events of this window, so a read that finds nothing
+        there cannot tell an event that never existed from one that aged out."""
+        # A row leaves ai_events at the start of the day `retention_days` after its date, so up to a day before the full
+        # retention has passed.
+        return self.start < now - timedelta(days=AI_EVENTS_RETENTION_DAYS - 1)
 
 
 def fallback_window(timestamp_hint: datetime) -> FallbackWindow:

@@ -8,8 +8,11 @@ from unittest.mock import patch
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
+
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.test.persons import create_person
 
 from products.ai_observability.backend.facade import api, contracts
 from products.ai_observability.backend.logic.traces import trace_queries
@@ -153,6 +156,25 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
         assert {item.id: (item.totals_partial, item.totals.input_tokens, item.default_node_id) for item in items} == {
             "big": (True, 20, None),
             "small": (False, 10, "00000000-0000-4000-8000-000000000003"),
+        }
+
+    def test_a_trace_read_from_the_shared_table_from_the_edge_of_the_read_reports_partial_totals(self) -> None:
+        read_start_minutes = int((SELECTION.window.read_bounds().start - STARTED_AT) / timedelta(minutes=1))
+        for trace_id, first_minutes in (
+            ("aged-at-edge", read_start_minutes),
+            ("aged-inside", 0),
+            ("kept-at-edge", read_start_minutes),
+        ):
+            self.events.add(trace_id, minutes=first_minutes)
+            self.events.add(trace_id, minutes=1)
+        self.events.seed(aged_out={"aged-at-edge", "aged-inside"})
+
+        items = self._list().items
+
+        assert {item.id: item.totals_partial for item in items} == {
+            "aged-at-edge": True,
+            "aged-inside": False,
+            "kept-at-edge": False,
         }
 
     def test_a_support_trace_is_marked(self) -> None:
@@ -305,4 +327,102 @@ class TestTracePreviews(ClickhouseTestMixin, BaseTest):
         assert self._previews("with-state", "without-state") == [
             self._preview("with-state", "Opening question", "Answered from the state."),
             self._preview("without-state", "Opening question", "Final answer"),
+        ]
+
+
+class TestTracePeople(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.events = TraceEvents(self.team, start=STARTED_AT)
+
+    def test_a_page_labels_each_trace_by_its_person_in_request_order(self) -> None:
+        create_person(team=self.team, distinct_ids=["ada-id"], properties={"email": "ada@example.com"})
+        create_person(team=self.team, distinct_ids=["grace-id"], properties={"name": "Grace"})
+        create_person(team=self.team, distinct_ids=["anonymous-id"], properties={"plan": "pro"})
+        self.events.add("ada", distinct_id="ada-id")
+        self.events.add("grace", minutes=1, distinct_id="grace-id")
+        self.events.add("anonymous", minutes=2, distinct_id="anonymous-id")
+        self.events.add("no-distinct-id", minutes=3, distinct_id="")
+        self.events.seed()
+
+        people = api.load_trace_people(
+            self.team,
+            self.user,
+            ["grace", "unknown", "ada", "anonymous", "no-distinct-id", "grace"],
+            earliest=STARTED_AT,
+            latest=STARTED_AT + timedelta(minutes=3),
+        )
+
+        assert people.items == [
+            contracts.TracePersonItem(
+                trace_id="grace", person=contracts.TracePerson(distinct_id="grace-id", label="Grace")
+            ),
+            contracts.TracePersonItem(trace_id="unknown", person=None),
+            contracts.TracePersonItem(
+                trace_id="ada", person=contracts.TracePerson(distinct_id="ada-id", label="ada@example.com")
+            ),
+            contracts.TracePersonItem(
+                trace_id="anonymous", person=contracts.TracePerson(distinct_id="anonymous-id", label="anonymous-id")
+            ),
+            contracts.TracePersonItem(trace_id="no-distinct-id", person=None),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "labelled by the project's display name",
+                "user-1",
+                contracts.TracePerson(distinct_id="user-1", label="Ada"),
+            ),
+            ("no distinct id", "", None),
+        ]
+    )
+    def test_a_page_and_the_trace_read_give_a_trace_the_same_person(
+        self, _name: str, distinct_id: str, expected: contracts.TracePerson | None
+    ) -> None:
+        self.team.person_display_name_properties = ["nickname"]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["user-1"], properties={"nickname": "Ada", "email": "a@example.com"})
+        self.events.add("trace-1", distinct_id=distinct_id)
+        self.events.seed()
+
+        [item] = api.load_trace_people(self.team, self.user, ["trace-1"], earliest=STARTED_AT, latest=STARTED_AT).items
+        trace = api.get_trace(self.team, self.user, "trace-1", None)
+
+        assert (item.person, trace.person) == (expected, expected)
+
+
+class TestTraceSentiments(ClickhouseTestMixin, BaseTest):
+    def test_a_page_gets_one_sentiment_item_per_trace_in_request_order(self) -> None:
+        events = TraceEvents(self.team, start=STARTED_AT)
+        events.add("rated")
+        events.add(
+            "rated",
+            event="$ai_evaluation",
+            properties={
+                "$ai_evaluation_runtime": "sentiment",
+                "$ai_target_event_id": "generation-1",
+                "$ai_sentiment_label": "positive",
+                "$ai_sentiment_score": 0.9,
+                "$ai_sentiment_scores": {"positive": 0.9, "neutral": 0.08, "negative": 0.02},
+                "$ai_sentiment_message_count": 1,
+            },
+        )
+        events.add("unrated", minutes=1)
+        events.seed()
+
+        sentiments = api.load_trace_sentiments(
+            self.team,
+            self.user,
+            ["unrated", "rated", "unknown", "unrated"],
+            earliest=STARTED_AT,
+            latest=STARTED_AT + timedelta(minutes=1),
+        )
+
+        assert sentiments.items == [
+            contracts.TraceSentimentItem(trace_id="unrated", sentiment=None),
+            contracts.TraceSentimentItem(
+                trace_id="rated", sentiment=contracts.TraceSentiment(label="positive", score=0.9)
+            ),
+            contracts.TraceSentimentItem(trace_id="unknown", sentiment=None),
         ]

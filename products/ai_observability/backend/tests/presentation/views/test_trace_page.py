@@ -9,14 +9,15 @@ from parameterized import parameterized
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 
-from .trace_fixtures import T0, post_page_read
+from .trace_fixtures import PAGE_BOUNDS, T0, post_page_read
 
-PAGE_READS = ["previews"]
+PAGE_READS = ["previews", "people", "sentiment"]
+BOUNDED_READS = ["people", "sentiment"]
 LONG_TRACE_ID = "t" * 300
 
 
 def page_body(read: str, trace_ids: list[str]) -> dict[str, object]:
-    return {"trace_ids": trace_ids}
+    return {"trace_ids": trace_ids} if read == "previews" else {"trace_ids": trace_ids, **PAGE_BOUNDS}
 
 
 @time_machine.travel(T0 + timedelta(days=1), tick=False)
@@ -33,6 +34,8 @@ class TestTracePageReads(ClickhouseTestMixin, APIBaseTest):
                 "previews",
                 {"input": None, "output": None, "inputMissingReason": None, "outputMissingReason": None},
             ),
+            ("people", {"person": None}),
+            ("sentiment", {"sentiment": None}),
         ]
     )
     def test_a_trace_id_of_any_length_is_read(self, read: str, empty_cells: dict[str, None]) -> None:
@@ -51,6 +54,22 @@ class TestTracePageReads(ClickhouseTestMixin, APIBaseTest):
                 for name, trace_ids in [
                     ("no trace ids", []),
                     ("too many trace ids", [f"trace-{index}" for index in range(101)]),
+                ]
+            ),
+            ("people without the earliest bound", "people", {"trace_ids": ["trace-1"], "latest_created_at": T0}),
+            ("sentiment without the latest bound", "sentiment", {"trace_ids": ["trace-1"], "earliest_created_at": T0}),
+            *(
+                (
+                    f"{read} with bounds {name}",
+                    read,
+                    {"trace_ids": ["trace-1"], "earliest_created_at": earliest, "latest_created_at": latest},
+                )
+                for read in BOUNDED_READS
+                for name, earliest, latest in [
+                    ("out of order", T0, T0 - timedelta(minutes=1)),
+                    ("at the start of time", "0001-01-01T00:05:00Z", "0001-01-01T00:05:00Z"),
+                    ("at the end of time", "9999-12-31T00:00:00Z", "9999-12-31T00:00:00Z"),
+                    ("reaching the end of time", T0, "9999-12-31T00:00:00Z"),
                 ]
             ),
         ]

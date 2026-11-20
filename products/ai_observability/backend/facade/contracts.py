@@ -581,6 +581,38 @@ class TracePreviewList(Contract):
     )
 
 
+class TracePersonItem(Contract):
+    trace_id: str = Field(description="The trace the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the trace ran for, labeled by the project's display name properties or else by "
+        "their distinct id. Null when the trace is not found or carries no distinct id."
+    )
+
+
+class TracePeopleList(Contract):
+    items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+TraceSentimentLabel = Literal["positive", "neutral", "negative"]
+
+
+class TraceSentiment(Contract):
+    label: TraceSentimentLabel = Field(
+        description="The trace's sentiment, from the average of its latest sentiment result per generation. Neutral "
+        "when neither positive nor negative beats neutral by a clear margin."
+    )
+    score: float = Field(description="The average score of the label, from 0 to 1.")
+
+
+class TraceSentimentItem(Contract):
+    trace_id: str = Field(description="The trace the sentiment belongs to.")
+    sentiment: TraceSentiment | None = Field(description="Null when the trace is not found or has no sentiment result.")
+
+
+class TraceSentimentList(Contract):
+    items: list[TraceSentimentItem] = Field(description="One item per requested trace, in the order requested.")
+
+
 class TraceSearchMatch(Contract):
     node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
     count: int = Field(

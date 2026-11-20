@@ -19,6 +19,8 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
         [
             ("the list", "get", ""),
             ("the list's previews", "post", "previews/"),
+            ("the list's people", "post", "people/"),
+            ("the list's sentiment", "post", "sentiment/"),
             ("the trace", "get", f"{TRACE}/"),
             ("a node", "get", f"{TRACE}/nodes/{TRACE}/"),
             ("its evaluations", "get", f"{TRACE}/evaluations/"),

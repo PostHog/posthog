@@ -1,5 +1,5 @@
 import base64
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -96,6 +96,7 @@ class TraceEvents:
         self.team = team
         self.start = start
         self._events: list[dict[str, object]] = []
+        self._trace_ids: list[str] = []
 
     def add(
         self,
@@ -105,22 +106,26 @@ class TraceEvents:
         minutes: int = 0,
         properties: dict[str, object] | None = None,
         person_id: str | None = None,
+        distinct_id: str = "user-1",
     ) -> None:
         self._events.append(
             {
                 "event": event,
                 "event_uuid": f"00000000-0000-4000-8000-{len(self._events):012d}",
-                "distinct_id": "user-1",
+                "distinct_id": distinct_id,
                 "team": self.team,
                 "timestamp": self.start + timedelta(minutes=minutes),
                 "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, **(properties or {})},
                 **({"person_id": person_id} if person_id is not None else {}),
             }
         )
+        self._trace_ids.append(trace_id)
 
-    def seed(self) -> None:
+    def seed(self, *, aged_out: Collection[str] = ()) -> None:
         bulk_create_events(self._events)
-        bulk_create_ai_events(self._events)
+        bulk_create_ai_events(
+            [event for event, trace_id in zip(self._events, self._trace_ids) if trace_id not in aged_out]
+        )
 
     def seed_traces(self, *trace_ids: str) -> None:
         for minutes, trace_id in enumerate(trace_ids):
@@ -146,6 +151,9 @@ def restrict_property(test: APIBaseTest, name: str) -> None:
 
 def encode_segment(trace_id: str) -> str:
     return base64.urlsafe_b64encode(trace_id.encode()).decode().rstrip("=")
+
+
+PAGE_BOUNDS = {"earliest_created_at": T0.isoformat(), "latest_created_at": T0.isoformat()}
 
 
 def post_page_read(

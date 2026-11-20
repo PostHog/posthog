@@ -13,16 +13,22 @@ from posthog.models import Team
 from posthog.models.ai_events.sql import AI_EVENTS_MV_SQL
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import create_person_distinct_id
+from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.events_fallback import FallbackWindow
+from products.ai_observability.backend.logic.traces.person import person_label
 from products.ai_observability.backend.logic.traces.trace_queries import (
     GitStampRow,
     LoadedTrace,
     PageTraceRows,
+    PersonRow,
     SearchNeedles,
     TraceRootLookup,
+    load_people,
     load_trace,
+    load_trace_distinct_ids,
     load_trace_feedback_rows,
     load_trace_git_rows,
     load_trace_node,
@@ -75,11 +81,12 @@ class TraceEventsMixin:
         event: str = "$ai_span",
         timestamp: datetime = T0,
         properties: dict[str, object] | None = None,
+        distinct_id: str = "user-1",
     ) -> dict[str, object]:
         return {
             "event": event,
             "event_uuid": uuid,
-            "distinct_id": "user-1",
+            "distinct_id": distinct_id,
             "team": self.team,
             "timestamp": timestamp,
             "properties": {"$ai_trace_id": trace_id, **(properties or {})},
@@ -192,7 +199,7 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         person = load_trace(self.team, None, "trace-1", None).person
 
-        assert person is not None and (person.distinct_id, person.email) == ("user-1", "ada@example.com")
+        assert person == PersonRow(distinct_id="user-1", display_name="ada@example.com")
 
     def test_reads_no_feedback_or_metric_events(self) -> None:
         bulk_create_ai_events(
@@ -679,3 +686,138 @@ class TestLoadTracesRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             loaded = load_traces_rows(self.team, self.user, [], WINDOW)
 
         assert loaded == {} and queries == []
+
+
+class TestLoadPeople(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("email first", None, {"email": "ada@example.com", "name": "Ada", "username": "ada"}, "ada@example.com"),
+            ("then name", None, {"name": "Ada", "username": "ada"}, "Ada"),
+            ("then username", None, {"username": "ada"}, "ada"),
+            ("then the distinct id", None, {"plan": "pro"}, "user-1"),
+            (
+                "the project's properties",
+                ["nickname"],
+                {"nickname": "Countess", "email": "ada@example.com"},
+                "Countess",
+            ),
+            ("an empty property is skipped", None, {"email": "", "name": "Ada"}, "Ada"),
+        ]
+    )
+    def test_a_person_is_labelled_by_the_projects_display_name_properties(
+        self, _name: str, display_name_properties: list[str] | None, properties: dict[str, str], expected: str
+    ) -> None:
+        if display_name_properties is not None:
+            self.team.person_display_name_properties = display_name_properties
+            self.team.save()
+        create_person(team=self.team, distinct_ids=["user-1"], properties=properties)
+
+        [person] = load_people(self.team, self.user, ["user-1"]).values()
+
+        assert person_label(person) == expected
+
+    def test_a_display_name_key_with_quoting_characters_reads_only_that_property(self) -> None:
+        self.team.person_display_name_properties = ["nick`name x"]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["named"], properties={"nick`name x": "Countess"})
+        create_person(team=self.team, distinct_ids=["unnamed"], properties={"email": "ada@example.com"})
+
+        people = load_people(self.team, self.user, ["named", "unnamed"])
+
+        assert {distinct_id: person_label(person) for distinct_id, person in people.items()} == {
+            "named": "Countess",
+            "unnamed": "unnamed",
+        }
+
+    def test_every_requested_person_is_read_in_one_query(self) -> None:
+        create_person(team=self.team, distinct_ids=["ada"], properties={"email": "ada@example.com"})
+        create_person(team=self.team, distinct_ids=["grace"], properties={"email": "grace@example.com"})
+
+        with self.capture_select_queries() as queries:
+            people = load_people(self.team, self.user, ["ada", "grace"])
+
+        assert people == {
+            "ada": PersonRow(distinct_id="ada", display_name="ada@example.com"),
+            "grace": PersonRow(distinct_id="grace", display_name="grace@example.com"),
+        }
+        assert len(queries) == 1
+
+    def test_a_distinct_id_without_a_person_of_this_team_has_no_display_name(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        create_person(team=other_team, distinct_ids=["other-team"], properties={"email": "ada@example.com"})
+        person = create_person(team=self.team, distinct_ids=["kept"], properties={"email": "grace@example.com"})
+        add_distinct_id(person=person, distinct_id="removed")
+        create_person_distinct_id(self.team.pk, "removed", str(person.uuid), version=1, is_deleted=True)
+        deleted = create_person(team=self.team, distinct_ids=["deleted"], properties={"email": "joan@example.com"})
+        delete_person(deleted)
+        distinct_ids = ["unknown", "other-team", "removed", "deleted"]
+
+        people = load_people(self.team, self.user, distinct_ids)
+
+        assert people == {
+            distinct_id: PersonRow(distinct_id=distinct_id, display_name=None) for distinct_id in distinct_ids
+        }
+
+    def test_a_moved_distinct_id_reads_the_person_it_moved_to(self) -> None:
+        create_person(team=self.team, distinct_ids=["moved"], properties={"email": "first@example.com"})
+        second = create_person(team=self.team, distinct_ids=["second"], properties={"email": "second@example.com"})
+        add_distinct_id(person=second, distinct_id="moved", version=1)
+
+        assert load_people(self.team, self.user, ["moved"]) == {
+            "moved": PersonRow(distinct_id="moved", display_name="second@example.com")
+        }
+
+
+class TestLoadTraceDistinctIds(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_a_trace_takes_its_trace_events_distinct_id_else_its_earliest_events(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(_uuid(1), trace_id="rooted", event="$ai_generation", distinct_id="generation-user"),
+                self._event(
+                    _uuid(2),
+                    trace_id="rooted",
+                    event="$ai_trace",
+                    timestamp=T0 + timedelta(seconds=1),
+                    distinct_id="root-user",
+                ),
+                self._event(_uuid(3), trace_id="rootless", timestamp=T0 + timedelta(seconds=2), distinct_id="late"),
+                self._event(_uuid(4), trace_id="rootless", timestamp=T0 + timedelta(seconds=1), distinct_id="early"),
+                self._event(
+                    _uuid(5),
+                    trace_id="rootless",
+                    event="$ai_generation",
+                    timestamp=T0 + timedelta(seconds=3),
+                    distinct_id="generation-user",
+                ),
+            ]
+        )
+
+        distinct_ids = load_trace_distinct_ids(self.team, self.user, ["rooted", "rootless", "unknown"], WINDOW)
+
+        assert distinct_ids == {"rooted": "root-user", "rootless": "early"}
+
+    def test_a_trace_missing_from_ai_events_is_read_from_the_shared_table_inside_the_window(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        earlier = T0 - timedelta(seconds=1)
+        bulk_create_ai_events(
+            [
+                self._event(_uuid(1), trace_id="recent", distinct_id="recent-user"),
+                {
+                    **self._event(_uuid(2), trace_id="recent", timestamp=earlier, distinct_id="other"),
+                    "team": other_team,
+                },
+            ]
+        )
+        bulk_create_events(
+            [
+                self._event(_uuid(3), trace_id="aged", distinct_id="aged-user"),
+                self._event(
+                    _uuid(4), trace_id="outside", timestamp=WINDOW.end + timedelta(minutes=1), distinct_id="outside"
+                ),
+                {**self._event(_uuid(5), trace_id="aged", timestamp=earlier, distinct_id="other"), "team": other_team},
+            ]
+        )
+
+        distinct_ids = load_trace_distinct_ids(self.team, self.user, ["recent", "aged", "outside"], WINDOW)
+
+        assert distinct_ids == {"recent": "recent-user", "aged": "aged-user"}

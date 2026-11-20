@@ -13,7 +13,7 @@ from posthog.models import Team, User
 
 from ..message_normalizer.values import Value
 from .previews import PreviewReads, TracePreviewSources, pick_preview_events, preview_sources, timed_out_sources
-from .trace_queries import _AI_EVENTS_HAS_STATE, _ai_events, _column_in, _event_in, _read_ai_events_table, read_flag
+from .trace_queries import AI_EVENTS_HAS_STATE, ai_events, column_in, event_in, read_ai_events_table, read_flag
 from .turn import TURN_INPUT_TAIL
 
 PREVIEW_PICKS_QUERY_NAME = "ai_traces_preview_picks"
@@ -115,7 +115,7 @@ def _input_tail() -> ast.Expr:
 def _for(event_ids: Sequence[str], expr: ast.Expr, otherwise: ast.Expr) -> ast.Expr:
     if not event_ids:
         return otherwise
-    return _call("if", _column_in("uuid", event_ids), expr, otherwise)
+    return _call("if", column_in("uuid", event_ids), expr, otherwise)
 
 
 def _read_for(reads: PreviewReads) -> dict[str, Sequence[str]]:
@@ -157,10 +157,10 @@ def _events_query(trace_ids: Sequence[str], *, latest: bool) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=[
             *(_field(column) for column in _EVENT_COLUMNS[:-1]),
-            ast.Alias(alias="has_state", expr=clone_expr(_AI_EVENTS_HAS_STATE)),
+            ast.Alias(alias="has_state", expr=clone_expr(AI_EVENTS_HAS_STATE)),
         ],
-        select_from=_ai_events(),
-        where=ast.And(exprs=[_column_in("trace_id", trace_ids), _event_in(_PICKED_EVENT_NAMES)]),
+        select_from=ai_events(),
+        where=ast.And(exprs=[column_in("trace_id", trace_ids), event_in(_PICKED_EVENT_NAMES)]),
         order_by=[
             ast.OrderExpr(expr=_field("timestamp"), order="DESC" if latest else "ASC"),
             ast.OrderExpr(expr=_field("uuid"), order="ASC"),
@@ -191,8 +191,8 @@ def _picks_query(trace_ids: Sequence[str]) -> ast.SelectQuery:
 def _values_query(reads: PreviewReads) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=_values_select(reads),
-        select_from=_ai_events(),
-        where=ast.And(exprs=[_column_in("trace_id", reads.trace_ids), _column_in("uuid", reads.event_ids)]),
+        select_from=ai_events(),
+        where=ast.And(exprs=[column_in("trace_id", reads.trace_ids), column_in("uuid", reads.event_ids)]),
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[_field("uuid")]),
         limit=ast.Constant(value=len(reads.event_ids)),
     )
@@ -207,7 +207,7 @@ def _parsed(raw: Any) -> Value:
 
 
 def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[PreviewEventRow]:
-    results = _read_ai_events_table(PREVIEW_PICKS_QUERY_NAME, _picks_query(trace_ids), team, user, _settings())
+    results = read_ai_events_table(PREVIEW_PICKS_QUERY_NAME, _picks_query(trace_ids), team, user, _settings())
     return [
         PreviewEventRow(
             trace_id=str(trace_id),
@@ -223,7 +223,7 @@ def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[s
 def load_preview_values(team: Team, user: User | None, reads: PreviewReads) -> dict[str, PreviewEventValues]:
     if not reads.event_ids:
         return {}
-    results = _read_ai_events_table(PREVIEWS_QUERY_NAME, _values_query(reads), team, user, _settings())
+    results = read_ai_events_table(PREVIEWS_QUERY_NAME, _values_query(reads), team, user, _settings())
     rows = (
         PreviewEventValues(
             uuid=str(uuid),

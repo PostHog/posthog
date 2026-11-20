@@ -6,6 +6,7 @@ from .event import TraceEvent
 from .git import GitRef
 from .node_ids import NodeIdResolver, NodeIds
 from .node_labels import number_repeated_names
+from .person import person_label
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
@@ -119,7 +120,7 @@ class Trace:
     def person_label(self) -> str | None:
         if self.person is None or not self.person.distinct_id:
             return None
-        return self.person.email or self.person.name or self.person.distinct_id
+        return person_label(self.person)
 
     def _total_latency_s(self) -> float:
         # The root $ai_trace event reports the whole trace's wall clock, so its children are already inside it.

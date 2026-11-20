@@ -112,9 +112,7 @@ def test_thread_node_ids_hold_the_user_visible_generation() -> None:
 
 @parameterized.expand(
     [
-        ("email wins", PersonRow(distinct_id="u", email="ada@example.com", name="Ada"), "ada@example.com"),
-        ("then name", PersonRow(distinct_id="u", email=None, name="Ada"), "Ada"),
-        ("then distinct id", PersonRow(distinct_id="u", email=None, name=None), "u"),
+        ("a person", PersonRow(distinct_id="u", display_name="Ada"), "Ada"),
         ("no person", None, None),
     ]
 )
