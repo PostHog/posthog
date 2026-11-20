@@ -1,9 +1,9 @@
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconClock, IconInfo, IconPin, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,11 +21,8 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
-import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
-import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
 import { userLogic } from 'scenes/userLogic'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -37,11 +34,12 @@ import {
     aiFirstHomepageLogic,
 } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
+import { HomepageAiConsentNotice } from './HomepageAiConsentNotice'
 import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
-    const { query, fillInHint } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, setFillInHint } = useActions(aiFirstHomepageLogic)
+    const { query, fillInHint, aiConsentRequired, dataProcessingAccepted } = useValues(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, submitAiQuery, enterAiMode, setFillInHint } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
@@ -57,7 +55,7 @@ function IdleInput(): JSX.Element {
             return
         }
         posthog.capture('homepage query submitted', { mode: 'ai' })
-        submitQuery('ai')
+        submitAiQuery()
     }
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
@@ -159,10 +157,7 @@ function IdleInput(): JSX.Element {
                             </ButtonPrimitive>
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
-                                    onClick={() => {
-                                        posthog.capture('homepage query submitted', { mode: 'ai' })
-                                        submitQuery('ai')
-                                    }}
+                                    onClick={submitAi}
                                     iconOnly
                                     className="-mr-0.5 shrink-0"
                                     disabled={!query.trim()}
@@ -174,14 +169,18 @@ function IdleInput(): JSX.Element {
                     </div>
                 </div>
             </label>
+            {aiConsentRequired && !dataProcessingAccepted && (
+                <div className="w-full mt-2">
+                    <HomepageAiConsentNotice onApproved={submitAiQuery} />
+                </div>
+            )}
         </form>
     )
 }
 
 export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
@@ -191,31 +190,7 @@ export function HomepageAiInput(): JSX.Element {
     }
 
     if (!dataProcessingAccepted) {
-        const isAdmin = !dataProcessingApprovalDisabledReason
-        return (
-            <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
-                <p className="font-medium text-pretty m-0">
-                    {isAdmin
-                        ? 'PostHog AI needs your approval to potentially process identifying user data with external AI providers.'
-                        : 'PostHog AI needs an organization admin to approve processing identifying user data with external AI providers.'}
-                </p>
-                <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
-                {isAdmin ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => openAIConsentLegalDialog({ onConfirm: () => acceptDataProcessing() })}
-                        sideIcon={<IconArrowRight />}
-                    >
-                        I allow AI analysis in this organization
-                    </LemonButton>
-                ) : (
-                    <div className="flex">
-                        <AIAccessRequest size="small" />
-                    </div>
-                )}
-            </div>
-        )
+        return <HomepageAiConsentNotice />
     }
 
     return (

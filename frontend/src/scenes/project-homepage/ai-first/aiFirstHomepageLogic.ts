@@ -119,6 +119,7 @@ export interface aiFirstHomepageLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
+    dataProcessingAccepted: boolean // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     isPhaiSandboxFlagOn: boolean // maxGlobalLogic
     conversationId: string | null // maxLogic
@@ -132,6 +133,7 @@ export interface aiFirstHomepageLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    aiConsentRequired: boolean
     animationPhase: AnimationPhase
     displayedSuggestionItems: HomepageGridItem[]
     fillInHint: string | null
@@ -187,6 +189,9 @@ export interface aiFirstHomepageLogicActions {
         item: HomepageGridItem
     }
     loadLatestWebTask: (_: void) => void
+    requireAiConsent: () => {
+        value: true
+    }
     loadLatestWebTaskFailure: (
         error: string,
         errorObject?: any
@@ -221,6 +226,9 @@ export interface aiFirstHomepageLogicActions {
     }
     setSelectedTopic: (key: string | null) => {
         key: string | null
+    }
+    submitAiQuery: () => {
+        value: true
     }
     submitQuery: (mode: 'ai' | 'search') => {
         mode: 'ai' | 'search'
@@ -289,7 +297,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             tabUiStateLogic,
             ['chatDraftFor'],
             maxGlobalLogic,
-            ['effectivePhaiView', 'isPhaiSandboxFlagOn', 'conversationHistory', 'conversationHistoryLoading'],
+            [
+                'effectivePhaiView',
+                'isPhaiSandboxFlagOn',
+                'conversationHistory',
+                'conversationHistoryLoading',
+                'dataProcessingAccepted',
+            ],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -305,6 +319,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        // Submits the typed prompt to PostHog AI, or shows the consent notice instead when the
+        // organization hasn't approved AI data processing, so the prompt stays in the input.
+        submitAiQuery: true,
+        requireAiConsent: true,
         enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
@@ -373,6 +391,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             {
                 setQuery: (_, { query }) => query,
                 returnToIdle: () => '',
+            },
+        ],
+        aiConsentRequired: [
+            false,
+            {
+                requireAiConsent: () => true,
+                returnToIdle: () => false,
             },
         ],
         threadStarted: [
@@ -555,7 +580,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                             actions.setFillInHint(fillInHint)
                             document.querySelector<HTMLElement>('#homepage-input')?.focus()
                         } else {
-                            actions.submitQuery('ai')
+                            actions.submitAiQuery()
                         }
                         cache.disposables.dispose('suggestionTyping')
                     }
@@ -594,6 +619,14 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         returnToIdle: () => {
             cache.disposables.dispose('suggestionTyping')
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
+        },
+        submitAiQuery: () => {
+            if (!values.dataProcessingAccepted) {
+                posthog.capture('homepage ai consent required')
+                actions.requireAiConsent()
+                return
+            }
+            actions.submitQuery('ai')
         },
         submitQuery: async ({ mode }, breakpoint) => {
             // A manual submit mid-animation sends what's in the input; the typewriter must not
