@@ -1,3 +1,4 @@
+import { gzipSync, strFromU8, strToU8 } from 'fflate'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -141,6 +142,23 @@ describe('sessionRecordingFilePlaybackLogic', () => {
             expect(parsed.snapshots).toHaveLength(1)
             expect(onUnreadableLines).toHaveBeenCalled()
             expect(captureSpy).not.toHaveBeenCalled()
+        })
+
+        it('stops an import whose nested fields expand past what the blocks leave of the budget', async () => {
+            // The mocked decompressor returns each block as is, so a block can open with a snappy length varint.
+            const claim200MiB = new Uint8Array([0x80, 0x80, 0x80, 0x64, 0x0a])
+            const field = gzipSync(strToU8(JSON.stringify({ node: { id: 1 } })))
+            field.set([0x00, 0x00, 0xa0, 0x0f], field.byteLength - 4)
+            const nested = JSON.stringify([
+                'window-a',
+                { cv: '2024-10', type: 2, timestamp: 1000, data: strFromU8(field, true) },
+            ])
+            const filler = new Uint8Array([...claim200MiB, ...new TextEncoder().encode(rawBlock(0))])
+            const block = new Uint8Array([...claim200MiB, ...new TextEncoder().encode(nested)])
+
+            // Four blocks claim 800 MiB, which leaves 224 MiB for the 250 MiB the nested field declares.
+            const file = encodeRawExport([filler, filler, filler, block])
+            await expect(parseRawExportedSessionRecording(file)).rejects.toThrow('more data than can be played back')
         })
 
         it.each([

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { ReplayTelemetry, createWindowIdRegistry } from '@posthog/replay-shared'
+import { ExpansionBudget, ReplayTelemetry, createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -131,7 +131,9 @@ export const parseRawExportedSessionRecording = async (
         },
         captureException: () => {},
     }
-    const snapshots = await parseEncodedSnapshots(blocks, header.session_id, undefined, undefined, telemetry)
+    // Nested compressed fields share the room left after the blocks themselves.
+    const budget = new ExpansionBudget(MAX_RAW_EXPANDED_BYTES - expandedBytes)
+    const snapshots = await parseEncodedSnapshots(blocks, header.session_id, undefined, undefined, telemetry, budget)
     if (!snapshots.length) {
         throw new Error('File contains no snapshots')
     }

@@ -1,5 +1,6 @@
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import { EncodedRecordingSnapshot, RecordingSnapshot } from '../types'
+import { ExpansionBudget, ExpansionBudgetExceededError } from './decompress'
 import { parseJsonSnapshots, createWindowIdRegistry, RegisterWindowIdCallback } from './process-all-snapshots'
 
 export type SnappyDecompressor = (block: Uint8Array) => Promise<Uint8Array>
@@ -82,7 +83,8 @@ export const parseEncodedSnapshots = async (
     sessionId: string,
     telemetry: ReplayTelemetry = noOpTelemetry,
     registerWindowId?: RegisterWindowIdCallback,
-    decompressor?: SnappyDecompressor
+    decompressor?: SnappyDecompressor,
+    budget?: ExpansionBudget
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
     const registerFn: RegisterWindowIdCallback = registerWindowId || createWindowIdRegistry()
@@ -93,14 +95,21 @@ export const parseEncodedSnapshots = async (
         if (!decompressor) {
             const textDecoder = new TextDecoder('utf-8')
             const text = textDecoder.decode(uint8Data)
-            return parseJsonSnapshots(splitLines(text), sessionId, telemetry, registerFn)
+            return parseJsonSnapshots(splitLines(text), sessionId, telemetry, registerFn, budget)
         }
 
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
                 const blocks = extractLengthPrefixedBlocks(uint8Data)
                 const lines = await decompressBlockLines(blocks, decompressor)
-                const snapshots = await parseEncodedSnapshots(lines, sessionId, telemetry, registerFn)
+                const snapshots = await parseEncodedSnapshots(
+                    lines,
+                    sessionId,
+                    telemetry,
+                    registerFn,
+                    undefined,
+                    budget
+                )
                 telemetry.capture('replay_parse_timing', {
                     snapshot_count: snapshots.length,
                     parse_duration_ms: performance.now() - startTime,
@@ -125,7 +134,7 @@ export const parseEncodedSnapshots = async (
             const textDecoder = new TextDecoder('utf-8')
             const text = textDecoder.decode(decompressedData)
             const lines = splitLines(text)
-            const snapshots = await parseEncodedSnapshots(lines, sessionId, telemetry, registerFn)
+            const snapshots = await parseEncodedSnapshots(lines, sessionId, telemetry, registerFn, undefined, budget)
             telemetry.capture('replay_parse_timing', {
                 snapshot_count: snapshots.length,
                 parse_duration_ms: performance.now() - startTime,
@@ -134,10 +143,13 @@ export const parseEncodedSnapshots = async (
             })
             return snapshots
         } catch (error) {
+            if (error instanceof ExpansionBudgetExceededError) {
+                throw error
+            }
             try {
                 const textDecoder = new TextDecoder('utf-8')
                 const text = textDecoder.decode(uint8Data)
-                return parseEncodedSnapshots(splitLines(text), sessionId, telemetry, registerFn)
+                return parseEncodedSnapshots(splitLines(text), sessionId, telemetry, registerFn, undefined, budget)
             } catch (decodeError) {
                 telemetry.captureException(new Error('Failed to process snapshot data'), {
                     sessionId,
@@ -151,5 +163,5 @@ export const parseEncodedSnapshots = async (
         }
     }
 
-    return parseJsonSnapshots(items, sessionId, telemetry, registerFn)
+    return parseJsonSnapshots(items, sessionId, telemetry, registerFn, budget)
 }

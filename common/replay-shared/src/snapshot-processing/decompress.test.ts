@@ -1,8 +1,8 @@
 import { gzipSync, strFromU8, strToU8 } from 'fflate'
-import { zstdCompressSync } from 'node:zlib'
+import { constants, zstdCompressSync } from 'node:zlib'
 
 import { ReplayTelemetry } from '../telemetry'
-import { decompressEvent } from './decompress'
+import { ExpansionBudget, ExpansionBudgetExceededError, MAX_EXPANDED_FIELD_BYTES, decompressEvent } from './decompress'
 import { clearThrottle } from './throttle-capturing'
 
 const FULL_SNAPSHOT_DATA = { node: { id: 1, tag: 'div' }, initialOffset: { left: 0, top: 16 } }
@@ -12,6 +12,13 @@ const toWire = (bytes: Uint8Array): string => strFromU8(bytes, true)
 const gzipWire = (value: unknown): string => toWire(gzipSync(strToU8(JSON.stringify(value))))
 // Fixtures compress via node:zlib (tests run in node); shipped code stays on decompress-only fzstd.
 const zstdWire = (value: unknown): string => toWire(zstdCompressSync(strToU8(JSON.stringify(value))))
+// A streaming encoder leaves the content size out of the frame header.
+const zstdWireWithoutSize = (value: unknown): string =>
+    toWire(
+        zstdCompressSync(strToU8(JSON.stringify(value)), {
+            params: { [constants.ZSTD_c_contentSizeFlag]: 0 },
+        })
+    )
 
 describe('decompressEvent', () => {
     let telemetry: ReplayTelemetry
@@ -69,11 +76,31 @@ describe('decompressEvent', () => {
         ['neither gzip nor zstd', (): string => 'not a compressed frame', 'neither gzip nor zstd'],
         ['gzip declaring more than the size limit', oversizedGzip, 'expanded size limit'],
         ['zstd declaring more than the size limit', oversizedZstd, 'expanded size limit'],
+        [
+            'zstd that declares no size and expands past the limit',
+            (): string => zstdWireWithoutSize('a'.repeat(MAX_EXPANDED_FIELD_BYTES)),
+            'expanded size limit',
+        ],
     ])('passes the event through and reports when the payload is %s', (_label, wire: () => string, reason: string) => {
         const ev = { cv: '2024-10', type: 2, timestamp: 1, data: wire() }
         const result = decompressEvent(ev, 'session-3', telemetry)
         expect(result).toBe(ev)
         expect(telemetry.captureException).toHaveBeenCalledTimes(1)
         expect((jest.mocked(telemetry.captureException).mock.calls[0][0] as Error).message).toContain(reason)
+    })
+
+    it.each([
+        ['gzip', gzipWire],
+        ['zstd without a declared size', zstdWireWithoutSize],
+    ])('stops at the shared budget across fields compressed as %s', (_label, wire: (value: unknown) => string) => {
+        const field = wire(FULL_SNAPSHOT_DATA)
+        const fieldBytes = JSON.stringify(FULL_SNAPSHOT_DATA).length
+        const budget = new ExpansionBudget(fieldBytes * 2)
+        const ev = { cv: '2024-10', type: 2, timestamp: 1, data: field }
+
+        decompressEvent(ev, 'session-4', telemetry, budget)
+        decompressEvent(ev, 'session-4', telemetry, budget)
+
+        expect(() => decompressEvent(ev, 'session-4', telemetry, budget)).toThrow(ExpansionBudgetExceededError)
     })
 })

@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 import { PostHog } from 'posthog-js'
 
 import {
+    ExpansionBudget,
     parseEncodedSnapshots as _parseEncodedSnapshots,
     ReplayTelemetry,
     SnappyDecompressor,
@@ -29,13 +30,15 @@ export const parseEncodedSnapshots = async (
     sessionId: string,
     posthogInstance?: PostHog,
     registerWindowId?: RegisterWindowIdCallback,
-    telemetry: ReplayTelemetry = posthogTelemetry
+    telemetry: ReplayTelemetry = posthogTelemetry,
+    budget?: ExpansionBudget
 ): Promise<RecordingSnapshot[]> => {
     return _parseEncodedSnapshots(
         items,
         sessionId,
         telemetry,
         registerWindowId,
-        createBrowserDecompressor(posthogInstance)
+        createBrowserDecompressor(posthogInstance),
+        budget
     )
 }
