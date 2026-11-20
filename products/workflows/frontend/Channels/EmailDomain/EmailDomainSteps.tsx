@@ -14,17 +14,25 @@ export interface EmailDomainStepsProps {
     domainLogicKey: string
     onDomainCreated: EmailDomainWizardLogicProps['onCreated']
     readyNextStep?: JSX.Element
+    existingOpensNewTab?: boolean
 }
 
 export function EmailDomainSteps({
     domainLogicKey,
     onDomainCreated,
     readyNextStep,
+    existingOpensNewTab,
 }: EmailDomainStepsProps): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
     switch (phase) {
         case 'domain':
-            return <DomainStep logicKey={domainLogicKey} onCreated={onDomainCreated} />
+            return (
+                <DomainStep
+                    logicKey={domainLogicKey}
+                    onCreated={onDomainCreated}
+                    existingOpensNewTab={existingOpensNewTab}
+                />
+            )
         case 'loading':
             return (
                 <div className="flex flex-col gap-4">

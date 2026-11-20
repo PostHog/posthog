@@ -40,6 +40,7 @@ export function EmailDomainSetupModal({
                     <EmailDomainSteps
                         domainLogicKey="modal"
                         onDomainCreated={(created) => setIntegrationId(created.id)}
+                        existingOpensNewTab={RETURNS_TO_EMAIL.includes(entry)}
                         readyNextStep={
                             integrationId !== null && RETURNS_TO_EMAIL.includes(entry) ? (
                                 <LemonButton
