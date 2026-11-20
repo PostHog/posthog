@@ -51,6 +51,9 @@ class Command(BaseCommand):
         parser.add_argument("--integration-id", type=int, help="The project's AWS S3 integration with a role ARN.")
         parser.add_argument("--bucket")
         parser.add_argument("--prefix", default="", help="Key prefix in the customer's bucket.")
+        parser.add_argument(
+            "--kms-key-id", help="Encrypt with this KMS key: a key ID in the role's account, or a key ARN."
+        )
         parser.add_argument("--shards-per-day", type=int, default=16)
         parser.add_argument("--max-parallel-shards", type=int, default=32)
         parser.add_argument("--yes", action="store_true", help="Start without asking for confirmation.")
@@ -102,7 +105,11 @@ class Command(BaseCommand):
         workflow_input = ExportRecordingsInput(
             team_id=quote.team_id,
             destination=ExportDestination(
-                integration_id=integration_id, bucket=bucket, region=region, prefix=options["prefix"]
+                integration_id=integration_id,
+                bucket=bucket,
+                region=region,
+                prefix=options["prefix"],
+                kms_key_id=options["kms_key_id"],
             ),
             quote_id=quote.quote_id,
             run_id=run_id,
@@ -114,7 +121,8 @@ class Command(BaseCommand):
             max_parallel_shards=options["max_parallel_shards"],
         )
         self.stdout.write(format_quote(quote))
-        self.stdout.write(f"Destination: s3://{bucket}/{options['prefix']} ({region}), run {run_id}")
+        encryption = f", KMS key {options['kms_key_id']}" if options["kms_key_id"] else ""
+        self.stdout.write(f"Destination: s3://{bucket}/{options['prefix']} ({region}{encryption}), run {run_id}")
         if not options["yes"] and input("Start the export? [y/N] ").strip().lower() != "y":
             raise CommandError("Not started")
         workflow_id = f"export-recordings-{quote.team_id}-{run_id}"

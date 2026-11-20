@@ -29,6 +29,8 @@ class ExportDestination:
     bucket: str
     region: str
     prefix: str
+    # A key ID in the role's account, or a key ARN. None writes with the bucket's default encryption.
+    kms_key_id: str | None = None
 
 
 @frozen

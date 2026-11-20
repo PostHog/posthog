@@ -298,15 +298,45 @@ async def resolve_s3_credentials(
         aws_role_arn,
         f"posthog-{team.organization_id}",
         session_name=f"PostHog-replay-export-{team_id}",
-        policy_statements=[
-            PolicyStatement(
-                Effect="Allow",
-                Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-                Resource=f"arn:aws:s3:::{destination.bucket}/{run_prefix(destination, team_id)}/*",
-            )
-        ],
+        policy_statements=policy_statements(destination, team_id, aws_role_arn),
     )
     return await refresh_using(), refresh_using
+
+
+def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn: str) -> list[PolicyStatement]:
+    statements = [
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:PutObject", "s3:AbortMultipartUpload"],
+            Resource=f"arn:aws:s3:::{destination.bucket}/{run_prefix(destination, team_id)}/*",
+        )
+    ]
+    if destination.kms_key_id:
+        # Completing a multipart upload decrypts each part's data key, so the role needs kms:Decrypt too.
+        statements.append(
+            PolicyStatement(
+                Effect="Allow",
+                Action=["kms:GenerateDataKey", "kms:Decrypt"],
+                Resource=kms_key_arn(destination.kms_key_id, destination.region, aws_role_arn),
+            )
+        )
+    return statements
+
+
+def kms_key_arn(kms_key_id: str, region: str, aws_role_arn: str) -> str:
+    if kms_key_id.startswith("arn:"):
+        return kms_key_id
+    # S3 reads a bare key ID as a key in the account that makes the request, which is the role's account.
+    parts = aws_role_arn.split(":")
+    if len(parts) < 6 or not parts[4]:
+        raise ApplicationError(f"Malformed role ARN {aws_role_arn!r}", non_retryable=True)
+    return f"arn:aws:kms:{region}:{parts[4]}:key/{kms_key_id}"
+
+
+def encryption_args(destination: ExportDestination) -> dict[str, Any]:
+    if not destination.kms_key_id:
+        return {}
+    return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": destination.kms_key_id}
 
 
 @contextlib.asynccontextmanager
@@ -322,10 +352,11 @@ async def destination_client(team_id: int, destination: ExportDestination) -> As
 class SessionUpload:
     """Streams one session file to S3: a single PUT when small, a multipart upload otherwise."""
 
-    def __init__(self, client: "S3Client", bucket: str, key: str) -> None:
+    def __init__(self, client: "S3Client", destination: ExportDestination, key: str) -> None:
         self.client = client
-        self.bucket = bucket
+        self.bucket = destination.bucket
         self.key = key
+        self.encryption = encryption_args(destination)
         self.buffer = bytearray()
         self.sha256 = hashlib.sha256()
         self.size = 0
@@ -341,7 +372,7 @@ class SessionUpload:
 
     async def finish(self) -> None:
         if self.upload_id is None:
-            await self.client.put_object(Bucket=self.bucket, Key=self.key, Body=bytes(self.buffer))
+            await self.client.put_object(Bucket=self.bucket, Key=self.key, Body=bytes(self.buffer), **self.encryption)
             return
         if self.buffer:
             await self._upload_part()
@@ -356,7 +387,7 @@ class SessionUpload:
 
     async def _upload_part(self) -> None:
         if self.upload_id is None:
-            created = await self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key)
+            created = await self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key, **self.encryption)
             self.upload_id = created["UploadId"]
         part_number = len(self.parts) + 1
         response = await self.client.upload_part(
@@ -400,7 +431,7 @@ async def export_session(
         return line(status="missing")
 
     key = session_key(input.destination, input.team_id, session.start_time, session.session_id)
-    upload = SessionUpload(s3, input.destination.bucket, key)
+    upload = SessionUpload(s3, input.destination, key)
     try:
         await upload.write(
             encode_header(
@@ -499,6 +530,7 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
                 Bucket=input.destination.bucket,
                 Key=f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
                 Body="".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
+                **encryption_args(input.destination),
             )
             checkpoint = ShardCheckpoint(
                 last_session_id=chunk[-1].session_id,
@@ -543,7 +575,13 @@ async def write_summary(input: WriteSummaryInput) -> None:
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
     async with destination_client(input.team_id, input.destination) as s3:
-        await s3.put_object(Bucket=input.destination.bucket, Key=f"{prefix}/quote.json", Body=quote_json.encode())
+        encryption = encryption_args(input.destination)
         await s3.put_object(
-            Bucket=input.destination.bucket, Key=f"{prefix}/summary.json", Body=json.dumps(summary).encode()
+            Bucket=input.destination.bucket, Key=f"{prefix}/quote.json", Body=quote_json.encode(), **encryption
+        )
+        await s3.put_object(
+            Bucket=input.destination.bucket,
+            Key=f"{prefix}/summary.json",
+            Body=json.dumps(summary).encode(),
+            **encryption,
         )

@@ -6,17 +6,19 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 
 from products.replay.backend.temporal.export_recordings import activities
-from products.replay.backend.temporal.export_recordings.activities import export_shard
+from products.replay.backend.temporal.export_recordings.activities import export_shard, policy_statements
 from products.replay.backend.temporal.export_recordings.quote import measure_usage
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportShardInput, ExportTotals
 
@@ -28,12 +30,15 @@ class FakeS3:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.uploads: dict[str, list[bytes]] = {}
+        self.encryption: dict[str, dict[str, str]] = {}
 
-    async def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> None:
+    async def put_object(self, *, Bucket: str, Key: str, Body: bytes, **encryption: str) -> None:
         self.objects[f"{Bucket}/{Key}"] = Body
+        self.encryption[f"{Bucket}/{Key}"] = encryption
 
-    async def create_multipart_upload(self, *, Bucket: str, Key: str) -> dict[str, str]:
+    async def create_multipart_upload(self, *, Bucket: str, Key: str, **encryption: str) -> dict[str, str]:
         self.uploads[f"{Bucket}/{Key}"] = []
+        self.encryption[f"{Bucket}/{Key}"] = encryption
         return {"UploadId": f"{Bucket}/{Key}"}
 
     async def upload_part(self, *, UploadId: str, Body: bytes, **_: Any) -> dict[str, str]:
@@ -166,13 +171,26 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert [key.rsplit("/", 1)[-1] for key in self.s3.objects] == [f"{self.day.date().isoformat()}-0000-0001.jsonl"]
         assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s2", "deleted")]
 
-    def test_uses_multipart_upload_for_large_sessions(self) -> None:
+    @parameterized.expand(
+        [
+            ("bucket_default_encryption", None, {}),
+            ("kms_key", "key-1", {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "key-1"}),
+        ]
+    )
+    def test_uses_multipart_upload_for_large_sessions(
+        self, _: str, kms_key_id: str | None, expected_encryption: dict[str, str]
+    ) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id=kms_key_id)
         with patch.object(activities, "UPLOAD_PART_BYTES", 64):
             self._run()
 
-        body = self.s3.objects[f"customer/exports/{self.team.pk}/{self.day.date().isoformat()}/s1.phrec"]
+        file_key = f"customer/exports/{self.team.pk}/{self.day.date().isoformat()}/s1.phrec"
+        body = self.s3.objects[file_key]
         assert body.endswith(EXPECTED_BLOCKS)
         assert self._manifest()[0]["sha256"] == hashlib.sha256(body).hexdigest()
+        manifest_key = next(key for key in self.s3.objects if "/manifests/" in key)
+        # The session file goes through a multipart upload and the manifest through a single PUT.
+        assert self.s3.encryption[file_key] == self.s3.encryption[manifest_key] == expected_encryption
 
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()
@@ -187,3 +205,27 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             1,
             50,
         )
+
+
+ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
+
+
+@pytest.mark.parametrize(
+    "kms_key_id,expected_kms_resource",
+    [
+        (None, None),
+        ("key-1", "arn:aws:kms:us-east-1:123456789012:key/key-1"),
+        ("arn:aws:kms:eu-west-1:210987654321:key/key-2", "arn:aws:kms:eu-west-1:210987654321:key/key-2"),
+    ],
+)
+def test_policy_allows_the_kms_key_only_when_one_is_set(
+    kms_key_id: str | None, expected_kms_resource: str | None
+) -> None:
+    destination = ExportDestination(
+        integration_id=1, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
+    )
+
+    statements = policy_statements(destination, 7, ROLE_ARN)
+
+    assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/*"
+    assert [s["Resource"] for s in statements[1:]] == ([expected_kms_resource] if expected_kms_resource else [])
