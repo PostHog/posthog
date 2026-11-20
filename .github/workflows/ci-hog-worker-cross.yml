@@ -14,7 +14,7 @@ on:
             - 'hog/release/check-worker.sh'
             - 'hog/release/shared.ts'
             - 'hog/release/worker-cross*'
-            - 'hog/src/updates/targets.ts'
+            - 'hog/src/updates/**'
             - '.github/workflows/ci-hog-worker-cross.yml'
     workflow_dispatch:
 
