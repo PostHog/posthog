@@ -310,21 +310,23 @@ def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> lis
     """`plan_platform_insight_round_activity` with each check's cadence, under its own name, because
     a run that recorded the old name must decode bare ids on replay."""
     from products.alerts.backend.llm_detector_limits import calls_ai_gateway  # noqa: PLC0415
-    from products.alerts.backend.platform_source_cycle import legacy_alerts_of, plan_insight_batch  # noqa: PLC0415
+    from products.alerts.backend.platform_insight_alert import interval_of  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import admitted_checks, plan_insight_batch  # noqa: PLC0415
 
     key = inputs.evaluation.batch_key
     cutoff = dt.datetime.fromisoformat(inputs.evaluation.cutoff)
     admitted = plan_insight_batch(key.team_id, key.slot, cutoff, expires_at=inputs.expires_at, exclude=inputs.exclude)
-    alerts = legacy_alerts_of(key.team_id, key.slot, cutoff, admitted)
+    due = admitted_checks(key.team_id, key.slot, cutoff, admitted)
     checks: list[AdmittedInsightCheck] = []
     for configuration_id in admitted:
-        alert = alerts.get(configuration_id)
+        check = due.get(configuration_id)
         checks.append(
             AdmittedInsightCheck(
                 configuration_id=configuration_id,
-                real_time=alert is not None and alert.calculation_interval == AlertCalculationInterval.REAL_TIME,
-                uses_llm_detector=alert is not None and calls_ai_gateway(alert.detector_config),
-                owned_by_platform=alert is not None and alert.platform_owned,
+                real_time=check is not None
+                and interval_of(check.check_interval_minutes) == AlertCalculationInterval.REAL_TIME,
+                uses_llm_detector=check is not None and calls_ai_gateway(check.condition.get("detector")),
+                owned_by_platform=check is not None and check.owned_by_platform,
             )
         )
     return checks

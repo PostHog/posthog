@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    flatten_nested,
     make_tracked_session,
     scrub_url,
 )
@@ -41,7 +42,6 @@ TRANSPORT_RETRY = BoundedRetry(
 # semantics are undocumented, and merge on the primary key absorbs the re-read rows.
 INCREMENTAL_OVERLAP = dt.timedelta(days=1)
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ses:[A-Za-z0-9]+")
 
@@ -96,11 +96,6 @@ def validate_region(region: str) -> str:
     return normalized
 
 
-def _snake(name: str) -> str:
-    """`IdentityName` -> `identity_name`, `SOARecord` -> `soa_record`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _parse_timestamp(value: Any) -> Any:
     """SESv2 serializes timestamps as epoch seconds; keep anything unrecognized untouched."""
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -130,20 +125,9 @@ def coerce_datetime(value: Any) -> Optional[dt.datetime]:
     return None
 
 
-def _flatten(prefix: str, obj: dict[str, Any], raw_keys: frozenset[str]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict) and key not in raw_keys:
-            flattened.update(_flatten(column, value, raw_keys))
-        else:
-            flattened[column] = value
-    return flattened
-
-
 def normalize_row(endpoint_config: AwsSesEndpointConfig, obj: dict[str, Any]) -> dict[str, Any]:
     """Flatten nested structures into snake_case columns and parse epoch timestamps."""
-    row = _flatten("", obj, endpoint_config.raw_keys)
+    row = flatten_nested(obj, keep_raw=endpoint_config.raw_keys)
     for column in endpoint_config.timestamp_columns:
         if column in row:
             row[column] = _parse_timestamp(row[column])

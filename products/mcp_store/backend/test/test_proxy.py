@@ -1123,6 +1123,89 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("posthog_credential", "https://mcp.example.com/mcp", "pha_" + "x" * 40),
+            ("posthog_mcp_host", "https://mcp.posthog.com/mcp", "opaque-token"),
+        ]
+    )
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_cannot_use_a_shared_posthog_connection(self, _name, url, token, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(
+            self.team, owner, scope="shared", url=url, sensitive_configuration={"api_key": token}
+        )
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_call_for_an_unlisted_tool_on_a_shared_posthog_connection_lists_nothing_upstream(
+        self, mock_client_cls, mock_fetch
+    ):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(
+            self.team, owner, scope="shared", sensitive_configuration={"api_key": "pha_" + "x" * 40}
+        )
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "unlisted"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_fetch.assert_not_called()
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
+    def test_teammate_refused_on_a_shared_posthog_connection_does_not_refresh_its_token(self, mock_refresh):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(
+            self.team,
+            owner,
+            scope="shared",
+            auth_type="oauth",
+            sensitive_configuration={
+                "access_token": "pha_" + "x" * 40,
+                "refresh_token": "refresh-token",
+                "token_retrieved_at": int(time.time()) - 7200,
+                "expires_in": 3600,
+            },
+        )
+
+        response = self.client.post(self._proxy_url(installation.id), data=self.JSON_RPC_BODY, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_refresh.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_teammate_on_shared_third_party_connection_cannot_choose_the_project(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", "password")
+        installation = self._create_installation(self.team, owner, scope="shared")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data=self.JSON_RPC_BODY,
+            format="json",
+            headers={"x-posthog-project-id": "999", "x-posthog-organization-id": "other-org"},
+        )
+
+        assert response.status_code == 200
+        _, kwargs = mock_client.build_request.call_args
+        forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
+        assert forwarded["authorization"] == "Bearer sk-secret"
+        assert "x-posthog-project-id" not in forwarded
+        assert "x-posthog-organization-id" not in forwarded
+
     def test_proxy_rejects_get_and_other_http_methods(self):
         installation = self._create_installation(self.team, self.user)
         url = self._proxy_url(installation.id)
