@@ -131,6 +131,18 @@ function operatorLabel(operator: PropertyOperator): string {
     return (allOperatorsMapping[operator] ?? operator).replace(/^[^\p{L}]+\s/u, '')
 }
 
+function filterOperator(filter: AnyPropertyFilter): string | null {
+    return 'operator' in filter && filter.operator ? operatorLabel(filter.operator) : null
+}
+
+function filterValues(filter: AnyPropertyFilter): string[] {
+    const value = 'value' in filter ? filter.value : null
+    if (value == null) {
+        return []
+    }
+    return (Array.isArray(value) ? value : [value]).map(String)
+}
+
 function promptFilter(filter: AnyPropertyFilter): ExperimentAgentPromptFilter | null {
     if (filter.type === PropertyFilterType.Cohort) {
         return {
@@ -146,12 +158,11 @@ function promptFilter(filter: AnyPropertyFilter): ExperimentAgentPromptFilter | 
     if (!filter.type || !('key' in filter) || !filter.key) {
         return null
     }
-    const value = 'value' in filter ? filter.value : null
     return {
         subject: `${filter.type.replace(/_/g, ' ')} property`,
         key: String(filter.key),
-        operator: 'operator' in filter && filter.operator ? operatorLabel(filter.operator) : null,
-        values: value == null ? [] : (Array.isArray(value) ? value : [value]).map(String),
+        operator: filterOperator(filter),
+        values: filterValues(filter),
     }
 }
 

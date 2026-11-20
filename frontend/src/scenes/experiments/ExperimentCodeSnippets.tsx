@@ -600,83 +600,92 @@ export function buildExperimentFlagAgentPrompt(input: ExperimentFlagAgentPromptI
     return prompt.length <= AGENT_PROMPT_MAX_CHARS ? prompt : composeExperimentFlagAgentPrompt(input, true)
 }
 
-function composeExperimentFlagAgentPrompt(
-    {
-        experimentName,
-        experimentUrl,
-        flagKey,
-        variantKeys,
-        baselineVariantKey,
-        customExposure = null,
-        activation = null,
-        groupType = null,
-        warehouseExposure = null,
-    }: ExperimentFlagAgentPromptInput,
-    omitProjectValues: boolean
-): string {
-    const projectValues = omitProjectValues
-        ? [
-              '- Flag key, variants and events: too long to include here. Read them on the experiment page or with the PostHog MCP server.',
-          ]
-        : [
-              `- Flag key: ${quote(flagKey)}`,
-              variantKeys.length > 0
-                  ? `- Variants: ${variantKeys
-                        .map((key) => (key === baselineVariantKey ? `${quote(key)} (baseline)` : quote(key)))
-                        .join(', ')}`
-                  : null,
-              groupType ? `- Group type: ${quote(groupType)}` : null,
-              customExposure ? `- Exposure ${customExposure.kind}: ${describeEvent(customExposure)}` : null,
-              activation ? `- Activation ${activation.kind}: ${describeEvent(activation)}` : null,
-              warehouseExposure
-                  ? `- Exposure source: a data warehouse query with one row per ${quote(warehouseExposure.unitType)}, identified by ${quote(warehouseExposure.idNamespace)}`
-                  : null,
-          ]
+const OMITTED_PROJECT_VALUES =
+    '- Flag key, variants and events: too long to include here. Read them on the experiment page or with the PostHog MCP server.'
+
+function projectValueLines({
+    flagKey,
+    variantKeys,
+    baselineVariantKey,
+    customExposure,
+    activation,
+    groupType,
+    warehouseExposure,
+}: ExperimentFlagAgentPromptInput): (string | null)[] {
+    return [
+        `- Flag key: ${quote(flagKey)}`,
+        variantKeys.length > 0
+            ? `- Variants: ${variantKeys
+                  .map((key) => (key === baselineVariantKey ? `${quote(key)} (baseline)` : quote(key)))
+                  .join(', ')}`
+            : null,
+        groupType ? `- Group type: ${quote(groupType)}` : null,
+        customExposure ? `- Exposure ${customExposure.kind}: ${describeEvent(customExposure)}` : null,
+        activation ? `- Activation ${activation.kind}: ${describeEvent(activation)}` : null,
+        warehouseExposure
+            ? `- Exposure source: a data warehouse query with one row per ${quote(warehouseExposure.unitType)}, identified by ${quote(warehouseExposure.idNamespace)}`
+            : null,
+    ]
+}
+
+function exposureSentences({
+    customExposure,
+    activation,
+    warehouseExposure,
+}: ExperimentFlagAgentPromptInput): (string | null)[] {
+    if (warehouseExposure) {
+        return [
+            'Read the flag where users see the change. Exposures come from the data warehouse query, not from the flag read.',
+            'Each unit that sees the change needs a row with its ID, the variant and a timestamp in the table that query reads. The experiment page shows the query.',
+            'If nothing writes those rows yet, ask me how they get there.',
+        ]
+    }
+    if (customExposure) {
+        return [
+            `Read the flag where users see the change. Users count as exposed when the exposure ${eventNoun(customExposure)} fires there, not on the flag read.`,
+            `Fire it after the flag loads, with the flag's value in its "$feature/<flag key>" property. Add it if the project doesn't send it.`,
+            filtersNote(customExposure),
+            customExposure.kind === 'action'
+                ? "Look up the action's events with the PostHog MCP server, or ask me."
+                : null,
+        ]
+    }
+    return [
+        "Read the flag where users see the change, not earlier, with a call that records an exposure, like getFeatureFlag. getAllFlags and payload-only calls don't.",
+        activation
+            ? `Users count as exposed only once the activation ${eventNoun(activation)} fires after that read. Add it if the project doesn't send it.`
+            : null,
+        activation ? filtersNote(activation) : null,
+    ]
+}
+
+function variantStep(variantKeys: string[], baselineVariantKey: string): string {
+    const testVariantCount = variantKeys.filter((key) => key !== baselineVariantKey).length
+    return [
+        'Show the change for each variant except the baseline.',
+        testVariantCount > 1 ? "If you can't tell what a variant should do, ask me." : null,
+        "Keep today's behavior for the baseline and when the flag has no value.",
+    ]
+        .filter(Boolean)
+        .join(' ')
+}
+
+function composeExperimentFlagAgentPrompt(input: ExperimentFlagAgentPromptInput, omitProjectValues: boolean): string {
     const context = [
-        `- Experiment: ${quote(clip(experimentName, EXPERIMENT_NAME_MAX_CHARS))}`,
-        experimentUrl ? `- Experiment page: ${experimentUrl}` : null,
-        ...projectValues,
+        `- Experiment: ${quote(clip(input.experimentName, EXPERIMENT_NAME_MAX_CHARS))}`,
+        input.experimentUrl ? `- Experiment page: ${input.experimentUrl}` : null,
+        ...(omitProjectValues ? [OMITTED_PROJECT_VALUES] : projectValueLines(input)),
     ]
         .filter(Boolean)
         .join('\n')
-
-    const exposureStep = warehouseExposure
-        ? [
-              'Read the flag where users see the change. Exposures come from the data warehouse query, not from the flag read.',
-              'Each unit that sees the change needs a row with its ID, the variant and a timestamp in the table that query reads. The experiment page shows the query.',
-              'If nothing writes those rows yet, ask me how they get there.',
-          ]
-        : customExposure
-          ? [
-                `Read the flag where users see the change. Users count as exposed when the exposure ${eventNoun(customExposure)} fires there, not on the flag read.`,
-                `Fire it after the flag loads, with the flag's value in its "$feature/<flag key>" property. Add it if the project doesn't send it.`,
-                filtersNote(customExposure),
-                customExposure.kind === 'action'
-                    ? "Look up the action's events with the PostHog MCP server, or ask me."
-                    : null,
-            ]
-          : [
-                "Read the flag where users see the change, not earlier, with a call that records an exposure, like getFeatureFlag. getAllFlags and payload-only calls don't.",
-                activation
-                    ? `Users count as exposed only once the activation ${eventNoun(activation)} fires after that read. Add it if the project doesn't send it.`
-                    : null,
-                activation ? filtersNote(activation) : null,
-            ]
-    const testVariantCount = variantKeys.filter((key) => key !== baselineVariantKey).length
     const steps = [
         "Find where users see the change this experiment tests. If it's unclear, ask me.",
         "Use the project's PostHog SDK, or install the one that fits.",
-        groupType
+        input.groupType
             ? "Before reading the flag, set the user's group for the group type with posthog.group(), or the flag returns no variant."
             : null,
-        exposureStep.filter(Boolean).join(' '),
-        [
-            'Show the change for each variant except the baseline.',
-            testVariantCount > 1 ? "If you can't tell what a variant should do, ask me." : null,
-            "Keep today's behavior for the baseline and when the flag has no value.",
-        ]
-            .filter(Boolean)
-            .join(' '),
+        exposureSentences(input).filter(Boolean).join(' '),
+        variantStep(input.variantKeys, input.baselineVariantKey),
         "Follow the project's conventions. Don't add frameworks.",
     ]
         .filter(Boolean)
