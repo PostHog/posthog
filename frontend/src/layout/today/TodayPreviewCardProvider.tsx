@@ -8,6 +8,24 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
 
+const TodayRailAnalyticsHoverCard = lazyWithRetry(() =>
+    import('products/today/frontend/rail/TodayRailAnalyticsHoverCard').then((m) => ({
+        default: m.TodayRailAnalyticsHoverCard,
+    }))
+)
+const TodayRailProductsHoverCard = lazyWithRetry(() =>
+    import('products/today/frontend/rail/TodayRailProductsHoverCard').then((m) => ({
+        default: m.TodayRailProductsHoverCard,
+    }))
+)
+
+const TodayRailHoverCard = lazyWithRetry(() =>
+    import('products/today/frontend/rail/TodayRailHoverCard').then((m) => ({ default: m.TodayRailHoverCard }))
+)
+const TodayRailChatsHoverCard = lazyWithRetry(() =>
+    import('products/today/frontend/rail/TodayRailChatsHoverCard').then((m) => ({ default: m.TodayRailChatsHoverCard }))
+)
+
 const TodayChatHoverCard = lazyWithRetry(() =>
     import('./TodayChatHoverCard').then((m) => ({ default: m.TodayChatHoverCard }))
 )
@@ -99,10 +117,20 @@ export function TodayPreviewCardProvider({
                                 <PreviewCard.Popup className="origin-[var(--transform-origin)] outline-none transition-[opacity,scale] duration-150 ease-out data-[ending-style]:scale-97 data-[ending-style]:opacity-0 data-[starting-style]:scale-97 data-[starting-style]:opacity-0 motion-reduce:transition-none">
                                     <Card
                                         size="sm"
-                                        className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
+                                        className="w-72 max-w-[calc(100vw-2rem)] gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
                                     >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                                            {payload.kind === 'chat' ? (
+                                            {payload.kind === 'rail' ? (
+                                                payload.pane === 'analytics' ? (
+                                                    <TodayRailAnalyticsHoverCard onAction={close} />
+                                                ) : payload.pane === 'products' ? (
+                                                    <TodayRailProductsHoverCard onAction={close} />
+                                                ) : payload.pane === 'spaces' ? (
+                                                    <TodayRailChatsHoverCard onAction={close} />
+                                                ) : (
+                                                    <TodayRailHoverCard pane={payload.pane} onAction={close} />
+                                                )
+                                            ) : payload.kind === 'chat' ? (
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'object' ? (
                                                 <TodayObjectHoverCard preview={payload} onAction={close} />
