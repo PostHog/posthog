@@ -1634,6 +1634,9 @@ class InsightSerializer(InsightBasicSerializer):
             else:
                 # Capture unexpected crashes so the API list doesn't fail
                 logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                if self.context.get("is_shared"):
+                    # An error can carry detail meant for signed-in users, such as a feature flag key.
+                    error_message = getattr(e, "public_message", error_message)
             return self._degraded_insight_result(
                 insight,
                 dashboard,
