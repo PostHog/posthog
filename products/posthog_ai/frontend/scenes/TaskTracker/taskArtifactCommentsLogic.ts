@@ -104,7 +104,7 @@ export interface taskArtifactCommentsLogicActions {
             body: string
             id: string
             label: string
-            screenshot?: string | undefined
+            screenshot?: string
             screenshotFile?: File | undefined
         } | null
     } // taskCommentContextsLogic

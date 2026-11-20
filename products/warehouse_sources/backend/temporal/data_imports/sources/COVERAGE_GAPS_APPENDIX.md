@@ -455,7 +455,7 @@ Note: Static schema list (no dynamic discovery). Coverage of the org/billing obj
 
 ## Alegra — gaps
 
-Today (18): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `purchase_orders`, `recurring_invoices`, `taxes`, `warehouse_transfers`, `warehouses`
+Today (22): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `payment_terms`, `price_lists`, `purchase_orders`, `recurring_invoices`, `remissions`, `taxes`, `users`, `warehouse_transfers`, `warehouses`
 
 Diffed against: <https://developer.alegra.com/reference>
 
@@ -474,13 +474,13 @@ Note: Read the official reference index and parsed embedded OpenAPI GET operatio
 
 Re-audited 2026-11-19 against: <https://developer.alegra.com/llms.txt>
 
-- [ ] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
-- [ ] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
+- [x] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
+- [x] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
 - [ ] `Retentions (GET /retentions)` — tax withholding definitions applied to documents (medium)
-- [ ] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
+- [x] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
 - [ ] `Currencies (GET /currencies)` — currency definitions and rates for multi-currency documents (medium)
 - [ ] `Custom fields (GET /custom-fields)` — definitions of user-defined fields on documents and contacts (medium)
-- [ ] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
+- [x] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
 - [ ] `Income debit notes (GET /income-debit-notes)` — debit notes issued to customers, the sales side of debit_notes (medium)
 - [ ] `Global invoices (GET /global-invoices)` — summary invoices for sales without a named customer (low)
 - [ ] `Recurring payments (GET /recurring-payments)` — scheduled recurring payments (low)
@@ -9675,14 +9675,14 @@ Note: The reference is a static HTML tree; the full endpoint list is readable fr
 
 ## Mercado Pago (Mercado Libre) — **thin**
 
-Today (3): `payments`, `subscription_plans`, `subscriptions`
+Today (7): `authorized_payments`, `customers`, `merchant_orders`, `payment_methods`, `payments`, `subscription_plans`, `subscriptions`
 
 Diffed against: <https://github.com/mercadopago/sdk-python/tree/master/mercadopago/resources>
 
-- [ ] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high)
-- [ ] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high)
-- [ ] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high)
-- [ ] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high)
+- [x] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high). Added as `payment_methods` (full refresh). The endpoint returns a bare array with no pagination.
+- [x] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high). Added as `customers` (full refresh). The reference documents no time filter.
+- [x] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high). Added as `merchant_orders` (incremental merge on `last_updated` via `last_updated_from`). Rows are under `elements` with a top-level `total`, and searches return only the last 90 days.
+- [x] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high). Added as `authorized_payments` (full refresh). The reference documents no time filter.
 - [ ] `Chargebacks (GET /v1/chargebacks/search)` — measure disputed payments, financial losses, and chargeback outcomes (high)
 - [ ] `Orders (GET /v1/orders)` — analyze Orders API transactions and lifecycle states alongside payment totals (medium)
 
@@ -10653,10 +10653,10 @@ Diffed against: <https://developer.onepagecrm.com/api/reference/>
 - [x] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
 - [x] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
 - [x] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
-- [ ] `company_fields` — definitions for custom company fields (medium)
-- [ ] `action_stream` — chronological activity/state-change feed across records (medium)
-- [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium)
-- [ ] `contacts/{contact_id}/relationships` — contact-to-contact relationship graph (medium)
+- [x] `company_fields` — definitions for custom company fields (medium)
+- [ ] `action_stream` — chronological activity/state-change feed across records (medium) Skipped: returns the same contact records as `contacts`, ordered by next action, with next actions that `actions` already syncs; not an activity feed.
+- [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium) Skipped: the account-wide variant of `action_stream`, a contact list ordered by next action; no new records and no activity history.
+- [ ] `contacts/{contact_id}/relationships` — contact-to-contact relationship graph (medium) Skipped: no account-level list, so it needs one request per contact on every sync; the vendor throttles sustained request rates with HTTP 403, which this source treats as a permanent auth failure.
 - [ ] `relationship_types` — lookup resolving relationship type IDs (medium)
 - [ ] `filters` — saved contact filter definitions used to segment the book of business (low)
 - [ ] `countries` — country code lookup for contact/company addresses (low)
