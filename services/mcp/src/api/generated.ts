@@ -3379,6 +3379,8 @@ export namespace Schemas {
       mergeFederatedAggregateJoins?: boolean | null;
       /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
       negatedPersonFiltersNotIn?: boolean | null;
+      /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+      optimizeCrossJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -65252,6 +65254,29 @@ export namespace Schemas {
       description: string;
     }
 
+    export interface ImportSettingChoice {
+      /** Value to send for this setting when starting an import. */
+      value: string;
+      /** Display name of the choice. */
+      label: string;
+    }
+
+    export interface ImportSettingOption {
+      /** Setting key to use in `settings` when starting an import, such as `region`. */
+      key: string;
+      /** Display name of the setting. */
+      label: string;
+      /** What the setting changes, and how to choose. */
+      help: string;
+      /** The values the setting accepts. */
+      choices: ImportSettingChoice[];
+      /**
+         * The value used when the request leaves this setting out. Null means it's required.
+         * @nullable
+         */
+      default: string | null;
+    }
+
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
@@ -65279,6 +65304,8 @@ export namespace Schemas {
       not_imported: string;
       /** What the person does once the import has finished, in order. */
       next_steps: string[];
+      /** Choices to make before starting an import, such as a region. Often empty. */
+      settings: ImportSettingOption[];
     }
 
     export interface ImportStepCount {
@@ -104861,6 +104888,11 @@ export namespace Schemas {
     }
 
     /**
+     * The settings the run started with, by setting key.
+     */
+    export type ProviderImportRunSettings = {[key: string]: string};
+
+    /**
      * * `queued` - Waiting to start
      * * `running` - Importing
      * * `completed` - Imported
@@ -104907,6 +104939,8 @@ export namespace Schemas {
          * @nullable
          */
       finished_at: string | null;
+      /** The settings the run started with, by setting key. */
+      settings: ProviderImportRunSettings;
     }
 
     export interface ProviderKeyAlternative {
@@ -121485,6 +121519,11 @@ export namespace Schemas {
       run: StaffWarmRun | null;
     }
 
+    /**
+     * Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.
+     */
+    export type StartProviderImportSettings = {[key: string]: string};
+
     export interface StartProviderImport {
       /** The provider to import from.
        *
@@ -121504,6 +121543,8 @@ export namespace Schemas {
          * @maxLength 512
          */
       api_key?: string;
+      /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required. */
+      settings?: StartProviderImportSettings;
     }
 
     export interface StartTrainingRequest {
