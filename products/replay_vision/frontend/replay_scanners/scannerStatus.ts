@@ -1,6 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import type { ScannerDisabledReasonEnumApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, ScannerDisabledReasonEnumApi, VisionQuotaApi } from '../generated/api.schemas'
 import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import { freeCreditsAllowance } from '../utils/quotaProjection'
 import type { ScanDrought } from './scanDrought'
@@ -44,6 +44,12 @@ export type ScannerStatusFields = Pick<
     | 'filter_error'
     | 'disabled_reason'
 >
+
+export function isOffByChoice(
+    scanner: Pick<ReplayScannerApi, 'enabled' | 'disabled_reason'> | null | undefined
+): boolean {
+    return !!scanner && scanner.enabled === false && (!scanner.disabled_reason || scanner.disabled_reason === 'manual')
+}
 
 /** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
 export function scannerStatus(
