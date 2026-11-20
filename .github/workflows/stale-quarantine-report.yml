@@ -1,0 +1,85 @@
+name: Stale test quarantine report
+
+# Lists Trunk quarantines whose test ran in the last 14 days without a failure, and posts them to
+# #flakey-tests. Each owning team's rows go to that team's channel when
+# vars.STALE_QUARANTINE_TEAM_CHANNELS is 'true', and stay in the digest thread otherwise.
+#
+# Requires (no-ops with a warning until set):
+#   - secrets.TRUNK_API_TOKEN, the same token the CI uploaders use. It has to be accepted as a
+#     Bearer key by api.trunk.io/v2. A rejected token fails the run.
+#   - vars.TRUNK_STALE_QUARANTINE_COLLECTION_IDS, comma-separated ids of this repository's test
+#     collections. The list endpoint is organization-wide, so the script refuses to run without it.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN, the existing DevEx Slack bot.
+
+on:
+    schedule:
+        - cron: '20 14 * * 1' # Mondays 14:20 UTC, after the weekly flaky report
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the report blocks instead of posting to Slack'
+                type: boolean
+                default: true
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    report:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Manual dispatch is master-only so branch-controlled code cannot run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        env:
+            SLACK_ALERT_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/stale-quarantine-report.mjs
+                      .github/scripts/weekly-report-common.mjs
+                      .nvmrc
+                      packages/owners-yaml
+                      owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install owners resolver dependency
+              run: python3 -m pip install --quiet pyyaml
+
+            - name: Build and post the stale quarantine report
+              env:
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  TRUNK_STALE_QUARANTINE_COLLECTION_IDS: ${{ vars.TRUNK_STALE_QUARANTINE_COLLECTION_IDS }}
+                  STALE_QUARANTINE_TEAM_CHANNELS: ${{ vars.STALE_QUARANTINE_TEAM_CHANNELS }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+              run: node .github/scripts/stale-quarantine-report.mjs
+
+            # Nobody watches a scheduled run, and a broken report looks the same as nothing being stale.
+            - name: Notify Slack on report failure
+              if: failure() && github.event_name == 'schedule'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_ALERT_CHANNEL }}"
+                      text: ":red_circle: Stale test quarantine report failed"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Stale test quarantine report failed.* Quarantines that outlived their flake may not have been reported. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
