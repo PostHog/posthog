@@ -60,6 +60,12 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
+
+# The same flag calls on the native-JSON events schema (see sharded_events_json). Each table is the
+# events_json table with the changes sharded_flag_evaluations makes to sharded_events: a flag_key-first
+# sort key, a 92-day TTL, and flag_key, response and request_id as DEFAULT columns that read JSON paths.
+FLAG_EVALUATIONS_JSON_TABLE = f"{FLAG_EVALUATIONS_TABLE}_json"
+
 # PostHog tells customers that this table keeps this many days. The frontend mirrors this value as
 # FLAG_EVALUATIONS_RETENTION_DAYS in flagEvaluationsTable.ts. Change both together.
 FLAG_EVALUATIONS_RETENTION_DAYS = 90
@@ -393,12 +399,6 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_MV_TABLE}
 TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_WRITABLE_TABLE}
 AS {FLAG_EVALUATIONS_MV_SELECT_SQL()}"""
 )
-
-
-# The same flag calls on the native-JSON events schema (see sharded_events_json). Each table is the
-# events_json table with the changes sharded_flag_evaluations makes to sharded_events: a flag_key-first
-# sort key, a 92-day TTL, and flag_key, response and request_id as DEFAULT columns that read JSON paths.
-FLAG_EVALUATIONS_JSON_TABLE = f"{FLAG_EVALUATIONS_TABLE}_json"
 FLAG_EVALUATIONS_JSON_DATA_TABLE = f"sharded_{FLAG_EVALUATIONS_JSON_TABLE}"
 FLAG_EVALUATIONS_JSON_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_JSON_TABLE}"
 KAFKA_FLAG_EVALUATIONS_JSON_TABLE = f"kafka_{FLAG_EVALUATIONS_JSON_TABLE}"

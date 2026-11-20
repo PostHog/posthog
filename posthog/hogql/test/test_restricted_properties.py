@@ -103,9 +103,12 @@ def _blob_label(table: Table, column: str) -> str:
     return f"{table.to_printed_hogql()}.{column} ({type(table).__name__})"
 
 
-@pytest.mark.parametrize("use_new_events_schema", [False, True])
+@pytest.mark.parametrize(
+    "use_new_events_schema,reads_flag_evaluations_json", [(False, False), (True, False), (True, True)]
+)
 def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_class(
     use_new_events_schema: bool,
+    reads_flag_evaluations_json: bool,
 ) -> None:
     # The printer wraps a JSON blob in JSONDropKeys only when the column name is in
     # RESTRICTABLE_JSON_BLOB_COLUMNS *and* restricted_property_keys_for_table_type returns keys for the
@@ -119,6 +122,7 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
         team_id=1,
         restricted_properties=_restrictions_covering_every_property_class(),
         use_new_events_schema=use_new_events_schema,
+        reads_flag_evaluations_json_pin=reads_flag_evaluations_json,
     )
 
     masked: dict[str, frozenset[str]] = {}
@@ -144,6 +148,15 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
             expected[label] |= {"$unparseable_properties"}
         # The native schema also restricts the `%2E` spelling of every dotted key.
         expected["events.properties (EventsTable)"] |= {
+            f"{container}%2E{_PERSON_KEY}" for container in PERSON_PROPERTY_CONTAINERS
+        }
+    if reads_flag_evaluations_json:
+        for label in (
+            "flag_evaluations.properties (FlagEvaluationsTable)",
+            "flag_evaluations.person_properties (FlagEvaluationsPersonSubTable)",
+        ):
+            expected[label] |= {"$unparseable_properties"}
+        expected["flag_evaluations.properties (FlagEvaluationsTable)"] |= {
             f"{container}%2E{_PERSON_KEY}" for container in PERSON_PROPERTY_CONTAINERS
         }
     assert masked == expected

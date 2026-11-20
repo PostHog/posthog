@@ -216,6 +216,23 @@ def events_read_table(use_new_events_schema: bool) -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if use_new_events_schema else "events"
 
 
+def flag_evaluations_reads_json(use_new_events_schema: bool) -> bool:
+    """Whether flag-call reads use flag_evaluations_json instead of flag_evaluations.
+
+    Only a read that uses the native events table can use it, and only while the FLAG_EVALUATIONS_READS_JSON instance
+    setting is on. Resolve `use_new_events_schema` once per query, as `events_read_table` asks.
+    """
+    return use_new_events_schema and bool(get_instance_setting("FLAG_EVALUATIONS_READS_JSON"))
+
+
+def flag_evaluations_read_table(use_new_events_schema: bool) -> str:
+    """The distributed flag-calls table that raw (non-HogQL) SQL should read from."""
+    # Deferred: flag_evaluations.sql pulls ClickHouse DDL machinery; this module is imported at django.setup().
+    from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_JSON_TABLE, FLAG_EVALUATIONS_TABLE  # noqa: PLC0415
+
+    return FLAG_EVALUATIONS_JSON_TABLE if flag_evaluations_reads_json(use_new_events_schema) else FLAG_EVALUATIONS_TABLE
+
+
 # The native table stores a dotted key `a.b` under the path `a%2Eb` (EVENTS_JSON_INSERT_SETTINGS), and ClickHouse
 # prints the dot again only for a query that sets the first setting. The second keeps a `/` inside an object or
 # array value unescaped, as the legacy text column returns it. The ClickHouse printer sets both on every HogQL

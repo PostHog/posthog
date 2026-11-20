@@ -195,6 +195,8 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
+`flag_evaluations` reads the same native JSON documents from `flag_evaluations_json` while the `FLAG_EVALUATIONS_READS_JSON` instance setting is on and the query reads the native events table. The native rules below then apply to its `properties` and `person_properties` too.
+
 Native event JSON keeps parsing diagnostics in `$unparseable_properties`, which can embed raw property values as a string. If an event or person property is restricted, the shared restriction resolver also restricts that class's diagnostic marker. Blob reads omit it, and direct or JSON-extraction reads cannot retrieve it. Unrestricted readers retain diagnostic access.
 
 Native event JSON stores a flat dotted key such as `customer.ssn` under the path `customer%2Essn`, and a read of `customer%2Essn` returns the same value. Restricting a dotted event or person property therefore also restricts its `%2E` spelling.

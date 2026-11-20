@@ -18,7 +18,7 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
+from posthog.models.event.new_events_schema import flag_evaluations_read_table, use_new_events_schema
 from posthog.redis import get_client, redis
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
@@ -405,12 +405,17 @@ def _flag_key_filter_sql() -> str:
     return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
 
 
-def _build_cross_project_evals_query(from_flag_evaluations: bool) -> str:
-    if from_flag_evaluations:
-        # flag_evaluations stores only $feature_flag_called rows, so it needs no event filter.
-        table, prewhere, flag_key_filter = FLAG_EVALUATIONS_TABLE, "", "flag_key = %(flag_key)s"
+def _flag_evaluations_tables_by_team(team_ids: list[int]) -> dict[int, str]:
+    """The flag-calls table that each team's flag calls are read from, which follows the team's events table."""
+    return {team_id: flag_evaluations_read_table(use_new_events_schema(team_id)) for team_id in team_ids}
+
+
+def _build_cross_project_evals_query(table: str) -> str:
+    if table != "events":
+        # The flag-calls tables store only $feature_flag_called rows, so they need no event filter.
+        prewhere, flag_key_filter = "", "flag_key = %(flag_key)s"
     else:
-        table, prewhere, flag_key_filter = "events", "PREWHERE event = '$feature_flag_called'", _flag_key_filter_sql()
+        prewhere, flag_key_filter = "PREWHERE event = '$feature_flag_called'", _flag_key_filter_sql()
     return f"""
 SELECT team_id, count() AS evaluations
 FROM {table}
@@ -427,7 +432,8 @@ def get_evaluations_7d_by_team(
 ) -> dict[int, int] | None:
     """Return per-team 7-day counts of `$feature_flag_called` events for flag_key.
 
-    Reads flag_evaluations when `from_flag_evaluations` is set, and events otherwise.
+    Reads flag_evaluations when `from_flag_evaluations` is set, and events otherwise. A team that reads the native
+    JSON events table reads flag_evaluations_json instead of flag_evaluations while FLAG_EVALUATIONS_READS_JSON is on.
     Returns a dict mapping team_id -> count (all requested team ids are present;
     teams with no events map to 0). Returns `None` when ClickHouse fails so the
     caller can render an unavailable state instead of a misleading zero.
@@ -436,18 +442,19 @@ def get_evaluations_7d_by_team(
         return {}
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="get_evaluations_7d_by_team")
-    try:
-        rows = sync_execute(
-            _build_cross_project_evals_query(from_flag_evaluations),
-            {"flag_key": flag_key, "team_ids": tuple(team_ids)},
-        )
-    except Exception as error:
-        capture_exception(error)
-        return None
-
+    tables = _flag_evaluations_tables_by_team(team_ids) if from_flag_evaluations else dict.fromkeys(team_ids, "events")
     counts = dict.fromkeys(team_ids, 0)
-    for team_id, evaluations in rows:
-        counts[int(team_id)] = int(evaluations)
+    for table in sorted(set(tables.values())):
+        try:
+            rows = sync_execute(
+                _build_cross_project_evals_query(table),
+                {"flag_key": flag_key, "team_ids": tuple(team_id for team_id, name in tables.items() if name == table)},
+            )
+        except Exception as error:
+            capture_exception(error)
+            return None
+        for team_id, evaluations in rows:
+            counts[int(team_id)] = int(evaluations)
     return counts
 
 
@@ -464,8 +471,9 @@ def get_cached_evaluations_7d_by_team(
         return {}
 
     from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
-    # The key names the source table, so a mode change cannot serve a count read from the other table.
-    source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
+    # The key names the source tables, so a mode or switch change cannot serve a count read from another table.
+    tables = _flag_evaluations_tables_by_team(team_ids) if from_flag_evaluations else {}
+    source = "+".join(sorted(set(tables.values()))) if from_flag_evaluations else "events"
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
     cached = cache.get(cache_key)
     if cached is not None:
