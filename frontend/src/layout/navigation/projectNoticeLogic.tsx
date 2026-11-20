@@ -34,6 +34,9 @@ import { brandingForProduct } from 'scenes/welcome/productBranding'
 import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, TeamPublicType, TeamType, UserType } from '~/types'
+import type { OrganizationType, PreflightStatus } from '~/types'
+
+import type { ProxyRecordApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
 import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
@@ -290,18 +293,18 @@ export interface projectNoticeLogicMeta {
             warehouseSetupStatus: ProductSetupStatus
         }
         postHogNoticeVariant: (
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             projectData: {
                 currentTeam: TeamPublicType | TeamType | null
                 warehouseSetupStatus: ProductSetupStatus
             },
-            preflight: null | import('~/types').PreflightStatus,
+            preflight: PreflightStatus | null,
             isCloudOrDev: boolean | undefined,
             user: UserType | null,
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
+            proxyRecords: ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string
@@ -330,7 +333,7 @@ export interface projectNoticeLogicMeta {
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             projectNoticeDismissKey: string | null,
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             user: UserType | null,
             canAccessBilling: boolean,
             currentLocation: {

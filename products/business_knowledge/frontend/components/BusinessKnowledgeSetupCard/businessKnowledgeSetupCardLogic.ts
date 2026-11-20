@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } from 'kea'
+import type { DeepPartial, FieldName } from 'kea-forms/lib'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import type { ProductSetupRoute } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
@@ -45,14 +47,14 @@ export interface businessKnowledgeSetupCardLogicActions {
         tab: CreateTab
     } // businessKnowledgeLogic
     setUrlSourceValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // businessKnowledgeLogic
-    setUrlSourceValues: (values: import('node_modules/kea-forms/lib').DeepPartial<UrlSourceFormValues>) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<UrlSourceFormValues>
+    setUrlSourceValues: (values: DeepPartial<UrlSourceFormValues>) => {
+        values: DeepPartial<UrlSourceFormValues>
     } // businessKnowledgeLogic
     submitUrlSource: () => {
         value: boolean
@@ -60,7 +62,7 @@ export interface businessKnowledgeSetupCardLogicActions {
     reportSetupInteraction: (
         action: string,
         mode: ProductEmptyStateMode,
-        route?: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute | undefined,
+        route?: ProductSetupRoute | null | undefined,
         preview?: boolean | undefined,
         wizardSession?:
             | {
@@ -72,7 +74,7 @@ export interface businessKnowledgeSetupCardLogicActions {
         action: string
         mode: ProductEmptyStateMode
         preview: boolean
-        route: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute
+        route: ProductSetupRoute | null
         wizardSession:
             | {
                   phase: string

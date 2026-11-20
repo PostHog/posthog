@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { waitFor } from '@testing-library/react'
+import { getPluginContext } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -21,7 +22,7 @@ import { myClaim } from './__mocks__/inboxMocks'
 import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
-import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
+import { InboxTabKey, SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
 
 function openedCalls(spy: jest.SpyInstance): any[][] {
     return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
@@ -179,14 +180,32 @@ describe('inboxSceneLogic routing', () => {
         expect(logic.values.activeTab).toBe(expectedTab)
     })
 
-    it.each([
+    it.each<[boolean, InboxTabKey]>([
         [true, 'monitoring'],
         [false, 'reports'],
-    ])('the Monitoring tab URL with the Monitoring flag %s lands on %s', (enabled, expectedTab) => {
+    ])('the Monitoring tab URL with the Monitoring flag %s lands on %s', async (enabled, expectedTab) => {
+        window.history.replaceState({}, '', '/')
+        Object.assign(getPluginContext('router'), { history: window.history, location: window.location })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled })
         mountLogic()
         router.actions.push(urls.inbox('monitoring'))
         expect(logic.values.activeTab).toBe(expectedTab)
+
+        router.actions.push(combineUrl(urls.inboxReport('reports', 'report-1'), { back: urls.inbox('monitoring') }).url)
+        expect(logic.values.selectedReportId).toBe('report-1')
+
+        window.history.back()
+        await waitFor(() => {
+            expect(logic.values.activeTab).toBe(expectedTab)
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(window.location.pathname.endsWith(urls.inbox(expectedTab))).toBe(true)
+        })
+
+        window.history.forward()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBe('report-1')
+            expect(window.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
+        })
     })
 
     it('a bare /inbox lands on the reports tab', () => {

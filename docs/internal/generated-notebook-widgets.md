@@ -12,6 +12,18 @@ Costs come from recorded gateway usage and include the same markup as PostHog AI
 Older versions and generations without available usage records do not show a cost.
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
+## Notebook apps and variables
+
+The app builder requires `notebook-app-builder`. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
+
+Generated code reads approved dataframe snapshots through `ph.readFrame`. It has no direct notebook-variable API. To expose control values, create a one-row SQL dataframe, for example `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`, and ask the widget to read that frame alongside the analytical results. The analytical cells must use the same variables for filtering and calculations. Run these cells before generation so their schemas are available.
+
+SQL inputs read the completed query's cached rows, rather than only its saved preview. Follow `nextOffset` to read subsequent pages and check `truncated` before presenting totals. Reaching the SQL result-cache ceiling marks the frame as truncated; aggregate large datasets in the notebook before passing them to a widget. Expired SQL results require rerunning the source cell.
+
+App inputs update shared notebook variables. They do not run the notebook automatically. A widget becomes stale when one of its SQL or Python inputs, including upstream dependencies, becomes stale. A successful notebook run refreshes the widget's preview with the latest dataframe snapshots. If Run all fails or is interrupted after one of the widget's source cells succeeds, the preview still refreshes when all its inputs are current. Individual source-cell runs refresh the widget once its dependencies are current. This does not change the selected widget version or grant preview approval for generated code.
+
+PostHog AI and MCP agents use the `building-notebook-apps` skill to compose source cells, variables, widget generation or reusable-widget bindings, and the app layout. An open app picks up the agent's source edits after the current notebook load finishes, provided the notebook has no unsaved local edits. Agents must inspect actual results, verify controls with a different value, and report unfinished runs, generation, or preview approval. Static app text is explanatory; live totals and rates belong in calculated cells or dataframe-backed widgets.
+
 ## Dashboard widgets
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
