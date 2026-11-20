@@ -354,7 +354,7 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, expected, response.content)
         view.refresh_from_db()
-        self.assertEqual(view.query["query"] == "SELECT event FROM events", expected == 200)
+        self.assertEqual((view.query or {}).get("query") == "SELECT event FROM events", expected == 200)
 
     @parameterized.expand(
         [
