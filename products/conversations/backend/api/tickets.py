@@ -2362,6 +2362,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             team=team, user=cast("User", request.user), message=serializer.validated_data["message"]
         )
 
+        # The first message is stored as a customer message with no author, so this entry is the
+        # record of which team member created the ticket.
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast("User", request.user),
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="created",
+                detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
         try:
             report_user_action(
                 request.user,

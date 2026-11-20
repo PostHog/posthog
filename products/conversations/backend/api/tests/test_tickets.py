@@ -1029,6 +1029,9 @@ class TestTicketAPI(APIBaseTest):
         assert ticket["tags"] == ["test"]
         assert ticket["last_message_text"] == "Does this work?"
         assert ticket["anonymous_traits"]["email"] == self.user.email
+        assert ActivityLog.objects.filter(
+            scope="Ticket", activity="created", item_id=ticket["id"], user=self.user
+        ).exists()
 
     def test_send_test_is_rejected_while_support_is_off(self, mock_on_commit):
         response = self.client.post(f"/api/projects/{self.team.id}/conversations/tickets/send_test/")
@@ -3768,7 +3771,13 @@ class TestTicketAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status, response.json())
 
-    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    @parameterized.expand(
+        [
+            ("none", status.HTTP_403_FORBIDDEN),
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_201_CREATED),
+        ]
+    )
     def test_send_test_needs_resource_level_editor(self, access_level: str, expected_status: int) -> None:
         self._set_resource_level(access_level)
         self._grant_object_level(self.ticket, "editor")
