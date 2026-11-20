@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { withInertLinks } from 'scenes/hog-functions/email-templater/emailPreviewHtml'
+import { renderEmailPreview } from 'scenes/hog-functions/email-templater/preview/emailPreview'
 
-import { renderEmailPreview } from '../../Broadcasts/emailPreview'
 import { withoutLiquidBetweenRows } from '../renderEmailHtml'
 
 const WIDTHS = { desktop: '100%', tablet: '600px', phone: '375px', small: '320px' }
