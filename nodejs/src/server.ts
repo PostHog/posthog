@@ -442,11 +442,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerClassify) {
             serviceLoaders.push(async () => {
-                const limiterValkey = requireClassifyLimiterValkey(this.config)
                 const worker = new CdpCyclotronWorkerClassify(
                     this.config,
-                    { ...cdpDeps!, classifyValkey: limiterValkey },
-                    createClassifyJobQueue(this.config, limiterValkey)
+                    cdpDeps!,
+                    createClassifyJobQueue(this.config, requireClassifyLimiterValkey(this.config))
                 )
                 await worker.start()
                 return worker.service

@@ -277,8 +277,6 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
-    /** The rate limiter's Valkey pool, opened only on the classify worker, which counts each team's daily classifications in it. */
-    classifyValkey?: RedisV2 | null
     sandboxEmail?: SandboxEmailRuntime | null
 }
 
@@ -598,8 +596,9 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
-            classifyDailyCap: deps.classifyValkey
-                ? new ClassifyDailyCap(deps.classifyValkey, config.CDP_CLASSIFY_TEAM_DAILY_CAP)
+            // The workers that route a classification to the classify queue hold this pool, so they count it there.
+            classifyDailyCap: deps.emailValidationValkey
+                ? new ClassifyDailyCap(deps.emailValidationValkey, config.CDP_CLASSIFY_TEAM_DAILY_CAP)
                 : null,
         }
     )

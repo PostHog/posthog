@@ -3827,14 +3827,17 @@ ${classifyTemplate.code}`,
             const classifyToTheEnd = async (): Promise<{
                 result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
                 logs: string[]
+                queues: string[]
             }> => {
                 let result = await capped.execute(await classifyRun())
                 const logs = result.logs.map((log) => log.message)
+                const queues = [result.invocation.queue]
                 while (!result.finished) {
                     result = await capped.execute(result.invocation)
                     logs.push(...result.logs.map((log) => log.message))
+                    queues.push(result.invocation.queue)
                 }
-                return { result, logs }
+                return { result, logs, queues }
             }
             const today = DateTime.fromISO('2026-11-20T23:00:00Z')
             const dateNow = jest.spyOn(Date, 'now').mockReturnValue(today.toMillis())
@@ -3847,6 +3850,8 @@ ${classifyTemplate.code}`,
                 { category: null, confidence: null, skipped: true },
             ])
             expect(runsToday[2].result.error).toBeUndefined()
+            // A skip never spends the classify queue's shared rate.
+            expect(runsToday[2].queues).not.toContain('classify')
             expect(runsToday[2].logs).toEqual(
                 expect.arrayContaining([expect.stringContaining('daily limit of 2 classifications')])
             )
