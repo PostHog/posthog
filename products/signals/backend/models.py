@@ -3,7 +3,7 @@ import uuid
 import logging
 import builtins
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
@@ -1228,48 +1228,55 @@ class SignalReport(UUIDModel):
         )
 
     @staticmethod
-    def pr_target_report_ids_for_task(team_id: int, task_id: Any) -> list[str]:
-        """The reports a task's pull request links to: its source report and its pipeline, legacy
-        and assignment associations.
+    def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
+        """The reports the tasks' pull requests link to: each task's source report and its
+        pipeline, legacy and assignment associations.
 
         A claim alone associates a task with a report, so a triage task that claims many reports
         would link its PR to all of them, and the PR's merge or close would then resolve or
         suppress them all. Claim-only reports are targets only when the task has no other report;
         otherwise the agent attaches the PR to the report it fixes explicitly.
         """
-        from products.tasks.backend.facade.api import get_task_signal_report_source_id  # noqa: PLC0415
+        from products.tasks.backend.facade.api import get_task_signal_report_source_ids  # noqa: PLC0415
 
-        direct: set[str] = set()
-        claim_only: set[str] = set()
+        task_ids = {str(task_id) for task_id in task_ids}
+        if not task_ids:
+            return set()
+        direct: dict[str, set[str]] = defaultdict(set)
+        claim_only: dict[str, set[str]] = defaultdict(set)
 
-        def add(report_id: Any, identifier: tuple[str, str] | None) -> None:
-            (claim_only if identifier == _CLAIM_TASK_RUN_IDENTIFIER else direct).add(str(report_id))
+        def add(task_id: Any, report_id: Any, identifier: tuple[str, str] | None) -> None:
+            associations = claim_only if identifier == _CLAIM_TASK_RUN_IDENTIFIER else direct
+            associations[str(task_id)].add(str(report_id))
 
-        for report_id, content in SignalReportArtefact.objects.filter(
-            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
-        ).values_list("report_id", "content"):
+        for task_id, report_id, content in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "content"):
             try:
                 run = TaskRunArtefact.model_validate_json(content)
             except ValidationError:
-                add(report_id, None)
+                add(task_id, report_id, None)
                 continue
-            add(report_id, (run.product, run.type))
-        for report_id, relationship in SignalReportTask.objects.filter(team_id=team_id, task_id=task_id).values_list(
-            "report_id", "relationship"
-        ):
-            add(report_id, task_run_identifier_for_legacy_relationship(relationship))
-        for report_id in SignalReportAssignment.all_teams.filter(
-            team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id=task_id
-        ).values_list("report_id", flat=True):
-            add(report_id, None)
-        if (source_id := get_task_signal_report_source_id(task_id=task_id, team_id=team_id)) is not None:
-            add(source_id, None)
+            add(task_id, report_id, (run.product, run.type))
+        for task_id, report_id, relationship in SignalReportTask.objects.filter(
+            team_id=team_id, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "relationship"):
+            add(task_id, report_id, task_run_identifier_for_legacy_relationship(relationship))
+        for task_id, report_id in SignalReportAssignment.all_teams.filter(
+            team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
+        ).values_list("actor_task_id", "report_id"):
+            add(task_id, report_id, None)
+        for task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
+            add(task_id, source_id, None)
 
-        targets = direct | claim_only if len(direct | claim_only) == 1 else direct
-        return [
+        targets: set[str] = set()
+        for task_id in task_ids:
+            associated = direct[task_id] | claim_only[task_id]
+            targets |= associated if len(associated) == 1 else direct[task_id]
+        return {
             str(report_id)
             for report_id in SignalReport.objects.filter(team_id=team_id, id__in=targets).values_list("id", flat=True)
-        ]
+        }
 
     @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":

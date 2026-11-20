@@ -25,6 +25,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.report_assignments import (
+    claim_report,
     create_claim,
     release_claim,
     sync_task_pull_request_to_assignments,
@@ -462,14 +463,21 @@ class TestTaskRunArtefacts(BaseTest):
 
     @parameterized.expand(
         [
-            ("claims_several_reports", False, 0, 3, set()),
-            ("claims_one_report", False, 0, 1, {"claimed_0"}),
-            ("source_report_and_claims", True, 0, 2, {"source"}),
-            ("implementation_and_claim", False, 1, 1, {"implementation_0"}),
+            ("claims_several_reports", False, 0, 3, False, set()),
+            ("claims_one_report", False, 0, 1, False, {"claimed_0"}),
+            ("source_report_and_claims", True, 0, 2, False, {"source"}),
+            ("implementation_and_claim", False, 1, 1, False, {"implementation_0"}),
+            ("claims_several_and_attaches_one", False, 0, 3, True, {"claimed_0"}),
         ]
     )
     def test_task_pr_links_only_to_the_reports_it_targets(
-        self, _name: str, has_source: bool, implementations: int, claims: int, expected: set[str]
+        self,
+        _name: str,
+        has_source: bool,
+        implementations: int,
+        claims: int,
+        attach_to_first_claim: bool,
+        expected: set[str],
     ) -> None:
         reports = {f"claimed_{i}": self._report() for i in range(claims)}
         reports.update({f"implementation_{i}": self._report() for i in range(implementations)})
@@ -486,6 +494,19 @@ class TestTaskRunArtefacts(BaseTest):
                 record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         expected_ids = {str(reports[label].id) for label in expected}
         pr_url = "https://github.com/PostHog/posthog/pull/77"
+        if attach_to_first_claim:
+            with (
+                patch("products.signals.backend.tasks.link_report_tracker_issues.delay") as dispatch,
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                claim_report(
+                    report=reports["claimed_0"],
+                    actor=ArtefactAttribution.from_task(str(task.id)),
+                    user=self.user,
+                    was_impersonated=False,
+                    pull_requests=[pr_url],
+                )
+            dispatch.assert_called_once_with(team_id=self.team.id, task_id=str(task.id), pr_url=pr_url)
 
         TaskRun.objects.create(
             team=self.team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": pr_url, "pr_state": "open"}

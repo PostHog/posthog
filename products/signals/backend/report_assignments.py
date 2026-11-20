@@ -371,7 +371,7 @@ def sync_task_pull_request_to_assignments(
     if merged:
         state = SignalReportAssignment.PrState.MERGED
 
-    report_ids = SignalReport.pr_target_report_ids_for_task(team_id, task_id)
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
     if not report_ids:
         return 0
 
@@ -645,6 +645,20 @@ def claim_report(
             )
         if details:
             apply_report_completion(locked_report)
+        if actor.task_id:
+            # Function-local: the tasks module imports this one.
+            from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
+
+            for pr_details in details:
+                # Dispatch after commit so a rolled-back attach never edits a pull request body.
+                transaction.on_commit(
+                    partial(
+                        link_report_tracker_issues.delay,
+                        team_id=report.team_id,
+                        task_id=actor.task_id,
+                        pr_url=pr_details.url,
+                    )
+                )
 
         after = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if before == after:

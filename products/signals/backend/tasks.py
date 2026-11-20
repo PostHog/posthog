@@ -61,6 +61,7 @@ from products.signals.backend.inbox_push_notifications import notify_pull_reques
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
@@ -451,9 +452,21 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
     keep failing each other's changed-body check.
     """
-    report_ids = SignalReport.pr_target_report_ids_for_task(team_id, task_id)
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
+    # A task with several reports attaches its PR to the reports it fixes explicitly.
+    if (parsed := GitHubIntegration.parse_pull_request_url(pr_url)) is not None:
+        report_ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                task_id=task_id,
+                pull_request__repository__iexact=parsed.repository,
+                pull_request__number=parsed.number,
+            ).values_list("report_id", flat=True)
+        )
     retry_needed = False
-    for report_id in report_ids:
+    for report_id in sorted(report_ids):
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)
         retry_needed = retry_needed or origin == BodyEditOutcome.FAILED
         linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)

@@ -194,7 +194,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
                 SignalReport.objects.select_for_update()
                 .filter(
                     team_id=instance.team_id,
-                    id__in=SignalReport.pr_target_report_ids_for_task(instance.team_id, str(instance.task_id)),
+                    id__in=SignalReport.pr_target_report_ids_for_tasks(instance.team_id, [instance.task_id]),
                 )
                 .order_by("id")
             )
