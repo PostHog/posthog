@@ -44,6 +44,7 @@ from products.visual_review.backend.logic import (
     toleration,
 )
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
+from products.visual_review.backend.management.commands import visual_review_baseline_ledger
 from products.visual_review.backend.models import (
     BaselineApproval,
     QuarantinedIdentifier,
@@ -990,7 +991,12 @@ def _serve_heads(
     pull_requests: dict[int, str],
     merge_queue: dict[int, str],
     setup_check_conclusions: list[str] | None | Exception = None,
+    statuses_by_commit: dict[str, dict[str, github_api.PostedStatus]] | None = None,
 ) -> None:
+    carried = statuses_by_commit or {}
+    mocker.patch.object(
+        github_api, "commit_statuses", side_effect=lambda repo, sha, priority: dict(carried.get(sha, {}))
+    )
     if isinstance(setup_check_conclusions, Exception):
         mocker.patch.object(github_api, "check_run_conclusions", side_effect=setup_check_conclusions)
     else:
@@ -1007,9 +1013,13 @@ def _serve_heads(
     )
 
 
-def _recheck_command(repo: Repo, *flags: str, setup_check: str = "Create Visual Review run") -> str:
+def _recheck_command(
+    repo: Repo, *flags: str, setup_check: str = "Create Visual Review run", pause: str | None = "0"
+) -> str:
     if setup_check:
         flags = (*flags, "--setup-check", setup_check)
+    if pause is not None:
+        flags = (*flags, "--pause", pause)
     output = StringIO()
     call_command(
         "visual_review_baseline_ledger",
@@ -1018,8 +1028,6 @@ def _recheck_command(repo: Repo, *flags: str, setup_check: str = "Create Visual 
         repo.repo_full_name,
         "--run-type",
         RunType.STORYBOOK,
-        "--pause",
-        "0",
         *flags,
         stdout=output,
     )
@@ -1027,6 +1035,8 @@ def _recheck_command(repo: Repo, *flags: str, setup_check: str = "Create Visual 
 
 
 RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
+LEGACY = "PostHog Visual Review / storybook"
+NO_RUN_NEEDED = commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION
 
 
 def _push_again(repo: Repo, run: Run) -> None:
@@ -1483,7 +1493,7 @@ class TestLedgerRecheck:
         sender.side_effect = [ci_status.StatusPost.POSTED, ci_status.StatusPost.REFUSED, ci_status.StatusPost.POSTED]
         _serve_heads(mocker, {1: "head-1", 2: "head-2", 3: "head-3"}, {})
 
-        with pytest.raises(CommandError, match="1 of 3 statuses posted, 2 remain"):
+        with pytest.raises(CommandError, match="1 posted, .* 2 remain"):
             _recheck_command(repo, "--apply")
 
         assert sender.call_count == 2
@@ -1523,7 +1533,7 @@ class TestLedgerRecheck:
         )
 
         output = _recheck_command(repo)
-        with pytest.raises(CommandError, match="1 of 3 statuses posted, 2 remain"):
+        with pytest.raises(CommandError, match="1 posted, .* 2 remain"):
             _recheck_command(repo, "--apply")
 
         assert output.splitlines()[2:] == [
@@ -1531,3 +1541,48 @@ class TestLedgerRecheck:
             "storybook unknown (2) read refused: #4, #5",
         ]
         assert _posted(sender) == [(self.GATING, RERUN_ONE.state, RERUN_ONE.description)]
+
+    def test_the_recheck_waits_the_pause_before_every_post_but_the_first(self, repo, sender, mocker) -> None:
+        sleep = mocker.patch.object(visual_review_baseline_ledger.time, "sleep")
+        _serve_heads(mocker, {4: "head-4", 5: "head-5", 6: "head-6"}, {}, ["skipped"])
+
+        _recheck_command(repo, "--apply", pause=None)
+
+        assert sender.call_count == 3
+        assert sleep.call_args_list == [mocker.call(8.0)] * 2
+
+    def test_the_recheck_skips_a_head_that_already_carries_the_verdict(self, repo, sender, mocker) -> None:
+        already = {"head-4": {self.GATING: github_api.PostedStatus(state="success", description=NO_RUN_NEEDED)}}
+        _serve_heads(mocker, {4: "head-4", 6: "head-6"}, {}, ["skipped"], already)
+
+        output = _recheck_command(repo, "--apply")
+
+        assert [call.args[1] for call in sender.call_args_list] == ["head-6"]
+        assert "1 posted, 1 skipped as already posted, 0 skipped as not success" in output
+
+    def test_the_recheck_posts_only_greens_with_the_gate_off(self, repo, sender, mocker) -> None:
+        set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
+        _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
+        red = {"head-4": {LEGACY: github_api.PostedStatus(state="failure", description="Visual changes detected")}}
+        _serve_heads(mocker, {1: "head-1", 4: "head-4"}, {}, ["skipped"], red)
+
+        output = _recheck_command(repo, "--apply", "--only-success")
+
+        assert _posted(sender) == [(self.GATING, "success", NO_RUN_NEEDED)]
+        assert "1 posted, 0 skipped as already posted, 1 skipped as not success, 0 old statuses replaced" in output
+
+    def test_the_recheck_turns_a_red_old_status_green(self, repo, sender, mocker) -> None:
+        carried = {
+            "head-4": {LEGACY: github_api.PostedStatus(state="failure", description="Visual changes detected")},
+            "head-6": {LEGACY: github_api.PostedStatus(state="success", description="No visual changes")},
+        }
+        _serve_heads(mocker, {4: "head-4", 6: "head-6"}, {}, ["skipped"], carried)
+
+        _recheck_command(repo, "--apply")
+
+        posted = [(call.args[1], *_posted_one(call)) for call in sender.call_args_list]
+        assert posted == [
+            ("head-4", self.GATING, "success", NO_RUN_NEEDED),
+            ("head-4", LEGACY, "success", "Replaced by Visual Review gate / storybook"),
+            ("head-6", self.GATING, "success", NO_RUN_NEEDED),
+        ]

@@ -394,6 +394,28 @@ class MergedPullRequest:
     head_sha: str | None
 
 
+@frozen
+class PostedStatus:
+    state: str
+    description: str
+
+
+def commit_statuses(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> dict[str, PostedStatus] | None:
+    """The newest status of each context on the commit, or None when GitHub cannot say."""
+    data = _read_json(
+        "visual_review.commit_statuses_fetch_failed",
+        partial(_github_api_request, "GET", repo, f"commits/{sha}/status", params={"per_page": 100}, priority=priority),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    return {
+        status["context"]: PostedStatus(state=status.get("state") or "", description=status.get("description") or "")
+        for status in data.get("statuses") or []
+    }
+
+
 # Only workflow jobs prove what CI did. Any app with `checks:write` can post a check run of any name.
 _ACTIONS_APP_SLUG = "github-actions"
 

@@ -9,6 +9,9 @@ verdict without a lock around a GitHub request.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from enum import StrEnum
+
 from django.db import transaction
 
 import structlog
@@ -270,14 +273,13 @@ def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
     )
 
 
-def publish_rounds(repo: Repo, commit_sha: str, run_type: str, *, force_ledger_mode: bool = False) -> bool:
+def publish_rounds(repo: Repo, commit_sha: str, run_type: str) -> bool:
     """Post the verdict of the newest run until a read after the post finds it unchanged.
 
     Returns False when the status may not be settled: GitHub refused a post, a read raised, or
     the verdict still changed after the last round. The caller then retries later.
-    `force_ledger_mode` decides as `ledger` mode does in any mode, as the recheck command shows it.
     """
-    ledger_mode = force_ledger_mode or repo.baseline_mode == BaselineMode.LEDGER
+    ledger_mode = repo.baseline_mode == BaselineMode.LEDGER
     try:
         status = _current_status(repo, commit_sha, run_type, ledger_mode)
         for _round in range(MAX_ROUNDS):
@@ -450,6 +452,17 @@ def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str) -> Statu
     return StatusVerdict(state="success", description=NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION)
 
 
+def _recheck_status(repo: Repo, commit_sha: str, run_type: str, setup_check: str) -> _Status:
+    """The status of a commit under `ledger` rules, in any mode. Lets `GITHUB_READ_REFUSED` through."""
+    run = _newest_run(repo, commit_sha, run_type)
+    if run is None:
+        verdict = _verdict_without_run(repo, commit_sha, setup_check)
+        return _Status(
+            context=gate_context(run_type), state=verdict.state, description=verdict.description, target_url=""
+        )
+    return _status_of(run, repo, ledger_mode=True)
+
+
 def ledger_verdict(repo: Repo, commit_sha: str, run_type: str, setup_check: str = "") -> StatusVerdict:
     """The status a commit gets under `ledger` rules, in any mode. Posts nothing.
 
@@ -457,36 +470,78 @@ def ledger_verdict(repo: Repo, commit_sha: str, run_type: str, setup_check: str 
     `setup_check` names the CI job that creates the run of this run type. Lets `GITHUB_READ_REFUSED`
     through, so the caller can tell a refused read from a verdict.
     """
-    run = _newest_run(repo, commit_sha, run_type)
-    if run is None:
-        return _verdict_without_run(repo, commit_sha, setup_check)
-    status = _status_of(run, repo, ledger_mode=True)
+    status = _recheck_status(repo, commit_sha, run_type, setup_check)
     return StatusVerdict(state=status.state, description=status.description)
 
 
-def publish_after_switch(repo: Repo, commit_sha: str, run_type: str, setup_check: str = "") -> bool:
-    """Post the status of a commit that may carry none yet. Returns False when it may not be settled.
+class RecheckPost(StrEnum):
+    POSTED = "posted"
+    UNCHANGED = "unchanged"
+    NOT_SUCCESS = "not_success"
+    # GitHub refused a read or a post, or the verdict kept changing. The caller stops.
+    STOPPED = "stopped"
 
-    A commit without a run passes only on the evidence `ledger_verdict` reads, and the CI jobs stay
-    required and block a commit whose workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
-    It decides as `ledger_verdict` does, so the recheck command posts what its dry run showed.
+
+def _posted_as(status: _Status) -> github_api.PostedStatus:
+    # GitHub keeps the first 140 characters of a description.
+    return github_api.PostedStatus(state=status.state, description=status.description[:140])
+
+
+def publish_recheck(
+    repo: Repo,
+    commit_sha: str,
+    run_type: str,
+    setup_check: str,
+    *,
+    current: dict[str, github_api.PostedStatus],
+    only_success: bool,
+    wait: Callable[[], None],
+) -> RecheckPost:
+    """Post the `ledger_verdict` of a commit unless `current`, what the commit carries now, already has it.
+
+    `wait` runs before every post, so the caller paces writes. With `only_success` a verdict other
+    than success is left out. After a post the verdict is read again, so a run created during the
+    post owns the status, as in `publish_rounds`.
     """
-    if _newest_run(repo, commit_sha, run_type) is None:
-        try:
-            verdict = _verdict_without_run(repo, commit_sha, setup_check)
-        except github_api.GITHUB_READ_REFUSED:
-            # A refused read means GitHub or the egress budget sheds load, so the caller stops.
-            return False
-        posted = ci_status._send_commit_status(
-            repo,
-            commit_sha,
-            context=gate_context(run_type),
-            state=verdict.state,
-            description=verdict.description,
-            target_url=None,
-        )
-        if posted == ci_status.StatusPost.REFUSED:
-            return False
-        if _newest_run(repo, commit_sha, run_type) is None:
-            return True
-    return publish_rounds(repo, commit_sha, run_type, force_ledger_mode=True)
+    posted = False
+    try:
+        status = _recheck_status(repo, commit_sha, run_type, setup_check)
+        for _round in range(MAX_ROUNDS):
+            if current.get(status.context) == _posted_as(status):
+                return RecheckPost.POSTED if posted else RecheckPost.UNCHANGED
+            if only_success and status.state != "success":
+                # After a post, a newer verdict that is not success waits for the run without `only_success`.
+                return RecheckPost.POSTED if posted else RecheckPost.NOT_SUCCESS
+            wait()
+            if _send(repo, commit_sha, status) != ci_status.StatusPost.POSTED:
+                return RecheckPost.STOPPED
+            posted = True
+            current = {status.context: _posted_as(status)}
+            status = _recheck_status(repo, commit_sha, run_type, setup_check)
+    except github_api.GITHUB_READ_REFUSED:
+        return RecheckPost.STOPPED
+    return RecheckPost.STOPPED
+
+
+def replace_legacy_status(
+    repo: Repo, commit_sha: str, run_type: str, *, current: dict[str, github_api.PostedStatus], wait: Callable[[], None]
+) -> RecheckPost:
+    """Turn the context of the publisher for a repo with the gate off green when it is not.
+
+    The gate context replaces it, and nothing posts the old one once the gate is on, so a pull
+    request that was red before the switch would keep that red next to its new verdict.
+    """
+    context = ci_status.gating_context(run_type)
+    legacy = current.get(context)
+    if legacy is None or legacy.state == "success":
+        return RecheckPost.UNCHANGED
+    wait()
+    posted = ci_status._send_commit_status(
+        repo,
+        commit_sha,
+        context=context,
+        state="success",
+        description=f"Replaced by {gate_context(run_type)}",
+        target_url=None,
+    )
+    return RecheckPost.POSTED if posted == ci_status.StatusPost.POSTED else RecheckPost.STOPPED

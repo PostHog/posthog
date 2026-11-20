@@ -2,20 +2,36 @@
 
 import re
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef, Q
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api, contracts
-from products.visual_review.backend.facade.enums import BaselineMode, RunGate, RunPurpose, RunStatus
+from products.visual_review.backend.facade.enums import (
+    BaselineMode,
+    ReviewState,
+    RunGate,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+)
 from products.visual_review.backend.logic import baselines, commit_status, errors, github_api, ledger
 from products.visual_review.backend.management.commands.visual_review_debt_digest import find_repo
-from products.visual_review.backend.models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run
+from products.visual_review.backend.models import (
+    BaselineApproval,
+    BaselineCommit,
+    BaselineEntry,
+    Repo,
+    Run,
+    RunSnapshot,
+)
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -25,6 +41,19 @@ _DEFAULT_PATH_KEY = "default"
 _MAX_LISTED_PULL_REQUESTS = 50
 
 _COUNT_RE = re.compile(r"\d+")
+
+
+class _Pacer:
+    """Waits `pause` seconds before every post but the first, so posts stay below GitHub's write limits."""
+
+    def __init__(self, pause: float) -> None:
+        self.pause = pause
+        self.posts = 0
+
+    def wait(self) -> None:
+        if self.posts > 0:
+            time.sleep(self.pause)
+        self.posts += 1
 
 
 def _add_repo_arguments(parser: CommandParser) -> None:
@@ -88,7 +117,16 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--run-type", action="append", dest="run_types", help="Check only this run type. Repeat for more."
         )
-        recheck.add_argument("--apply", action="store_true", help="Post the statuses. Needs the commit status gate.")
+        recheck.add_argument(
+            "--apply",
+            action="store_true",
+            help="Post the statuses. Needs the commit status gate, unless --only-success is given.",
+        )
+        recheck.add_argument(
+            "--only-success",
+            action="store_true",
+            help="With --apply, post only the verdicts that are success. Works with the gate off, before the switch.",
+        )
         recheck.add_argument(
             "--setup-check",
             default="",
@@ -98,8 +136,8 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--pause",
             type=float,
-            default=1.0,
-            help="Seconds to wait between two posts, to stay below GitHub's limit for writes.",
+            default=8.0,
+            help="Seconds to wait between two posts. The default stays below GitHub's 500 writes per hour.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -291,13 +329,23 @@ class Command(BaseCommand):
 
     def _write_pull_requests_gated_by_status(self, repo: Repo) -> None:
         # These runs passed their CI job on the commit status alone, so removing the required statuses
-        # from the ruleset leaves their pull requests without a gate until a new run replaces them.
+        # from the ruleset leaves their pull requests without a gate until a new run replaces them. A run
+        # without unreviewed changes has nothing for the gate to hold back.
+        unreviewed = (
+            RunSnapshot.objects.using(WRITER_DB)
+            .filter(run_id=OuterRef("id"))
+            .exclude(result=SnapshotResult.UNCHANGED)
+            .exclude(is_quarantined=True)
+            .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))
+        )
         pr_numbers = list(
             Run.objects.using(WRITER_DB)
+            .alias(unreviewed=Exists(unreviewed))
             .filter(
+                Q(status__in=(RunStatus.PENDING, RunStatus.PROCESSING))
+                | Q(status=RunStatus.COMPLETED, unreviewed=True),
                 repo_id=repo.id,
                 gate=RunGate.COMMIT_STATUS,
-                status=RunStatus.COMPLETED,
                 purpose=RunPurpose.REVIEW,
                 approved=False,
                 superseded_by__isnull=True,
@@ -360,29 +408,61 @@ class Command(BaseCommand):
             more = f", and {rest} more" if rest > 0 else ""
             self.stdout.write(f"{run_type} {state} ({len(listed)}) {reason}: {shown}{more}")
 
+    def _counts(self, outcomes: Counter[commit_status.RecheckPost], legacy_replaced: int) -> str:
+        return (
+            f"{outcomes[commit_status.RecheckPost.POSTED]} posted, "
+            f"{outcomes[commit_status.RecheckPost.UNCHANGED]} skipped as already posted, "
+            f"{outcomes[commit_status.RecheckPost.NOT_SUCCESS]} skipped as not success, "
+            f"{legacy_replaced} old statuses replaced"
+        )
+
     def _post_verdicts(
-        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], setup_check: str, pause: float
+        self,
+        repo: Repo,
+        heads: list[github_api.BranchHead],
+        run_types: list[str],
+        setup_check: str,
+        options: dict[str, Any],
     ) -> None:
+        only_success = options["only_success"]
+        pacer = _Pacer(options["pause"])
         commits = sorted({head.commit_sha for head in heads})
         statuses = [(commit_sha, run_type) for commit_sha in commits for run_type in run_types]
+        outcomes: Counter[commit_status.RecheckPost] = Counter()
+        legacy_replaced = 0
         for index, (commit_sha, run_type) in enumerate(statuses):
-            if index > 0:
-                time.sleep(pause)
-            # A refusal is usually GitHub's rate limit, and every further post would be refused too.
-            if not commit_status.publish_after_switch(repo, commit_sha, run_type, setup_check):
-                raise CommandError(
-                    f"The {run_type} status of {commit_sha} did not settle, so the command stopped. "
-                    f"{index} of {len(statuses)} statuses posted, {len(statuses) - index} remain. "
-                    "Run recheck --apply again: posting a status twice is safe."
-                )
-        self.stdout.write(f"Posted {len(statuses)} statuses on {len(commits)} commits for {', '.join(run_types)}.")
+            # A refusal is usually GitHub's rate limit, and every further request would be refused too.
+            stopped = CommandError(
+                f"GitHub refused a read or a post for the {run_type} status of {commit_sha}, so the command "
+                f"stopped. {self._counts(outcomes, legacy_replaced)}, {len(statuses) - index} remain. "
+                "Run recheck --apply again: it skips what a head already carries."
+            )
+            try:
+                current = github_api.commit_statuses(repo, commit_sha, Priority.BATCH)
+            except github_api.GITHUB_READ_REFUSED:
+                current = None
+            if current is None:
+                raise stopped
+            outcome = commit_status.publish_recheck(
+                repo, commit_sha, run_type, setup_check, current=current, only_success=only_success, wait=pacer.wait
+            )
+            if outcome == commit_status.RecheckPost.STOPPED:
+                raise stopped
+            outcomes[outcome] += 1
+            if only_success:
+                continue
+            legacy = commit_status.replace_legacy_status(repo, commit_sha, run_type, current=current, wait=pacer.wait)
+            if legacy == commit_status.RecheckPost.STOPPED:
+                raise stopped
+            legacy_replaced += legacy == commit_status.RecheckPost.POSTED
+        self.stdout.write(f"{self._counts(outcomes, legacy_replaced)} on {len(commits)} commits.")
 
     def _recheck(self, repo: Repo, options: dict[str, Any]) -> None:
         apply = options["apply"]
-        if apply and not repo.commit_status_gate_enabled:
+        if apply and not options["only_success"] and not repo.commit_status_gate_enabled:
             raise CommandError(
                 "--apply posts the gate's status, so it needs the commit status gate. "
-                "Without --apply the command only shows the statuses."
+                "Without --apply the command only shows the statuses, and --only-success posts only the greens."
             )
         setup_check = options["setup_check"]
         # Without it every head without a run would get a pending status.
@@ -397,6 +477,6 @@ class Command(BaseCommand):
             raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")
         heads = self._heads(repo)
         if apply:
-            self._post_verdicts(repo, heads, run_types, setup_check, options["pause"])
+            self._post_verdicts(repo, heads, run_types, setup_check, options)
         else:
             self._show_verdicts(repo, heads, run_types, setup_check)
