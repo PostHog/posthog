@@ -322,6 +322,12 @@ describe('EmailTrackingService', () => {
                     invocation,
                     '<a href="https://example.com/?q=1>0" clicktracking="off" ses:no-track>x</a>',
                 ],
+                [
+                    'data-ph-no-track after a non-breaking space value and a quoted >',
+                    '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track>x</a>',
+                    invocation,
+                    '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track ses:no-track>x</a>',
+                ],
             ])('translates the %s opt-out into ses:no-track', (_name, anchor, inv, translated) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
