@@ -336,7 +336,8 @@ export const MovingAverage: Story = {
                     theme={theme}
                     config={{
                         yAxis: { showGrid: true },
-                        movingAverage: [{ seriesKey: 'visits', window: 3 }],
+                        movingAverage: [{ seriesKey: 'visits', window: 3, alignment: 'trailing' }],
+                        valueLabels: true,
                     }}
                 />
             </Stage>

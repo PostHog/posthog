@@ -179,7 +179,7 @@ export interface advancedActivityLogsLogicValues {
     currentProjectId: number | string // teamLogic
     currentTeamIdStrict: number | string // teamLogic
     timezone: string // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     activeAdvancedFiltersCount: number
     activeFilters: ActiveDetailFilter[]
     activeTab: 'exports' | 'logs'

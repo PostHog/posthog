@@ -47,6 +47,7 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
+    hogFlowsPublishCreate,
     hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
@@ -63,7 +64,12 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import { readySandboxSender } from '../Channels/sandboxSender'
+import {
+    draftUsesSandboxSender,
+    fetchStoredWorkflow,
+    isLiveOnSandboxSender,
+    readySandboxSender,
+} from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -74,6 +80,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import {
     EmailSendingPause,
     emailSendingPause,
@@ -474,6 +481,7 @@ export interface workflowLogicValues {
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     awaitsSenderFix: boolean
+    checkingSandboxSender: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
@@ -559,8 +567,12 @@ export interface workflowLogicActions {
     confirmDiscardDraft: () => {
         value: true
     }
-    confirmPublishDraft: (confirmToken: string) => {
+    confirmPublishDraft: (
+        confirmToken: string,
+        sandboxSenderWarned: boolean
+    ) => {
         confirmToken: string
+        sandboxSenderWarned: boolean
     }
     confirmResumeEmailSending: () => {
         value: true
@@ -618,6 +630,25 @@ export interface workflowLogicActions {
     ) => {
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         payload?: any
+    }
+    loadMissingHogFunctionTemplates: (templateIds: string[]) => string[]
+    loadMissingHogFunctionTemplatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMissingHogFunctionTemplatesSuccess: (
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        },
+        payload?: string[]
+    ) => {
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        }
+        payload?: string[]
     }
     loadWorkflow: () => any
     loadWorkflowFailure: (
@@ -1389,7 +1420,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2342,7 +2373,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2920,7 +2951,13 @@ export interface workflowLogicActions {
         error: string
         errorObject?: any
     }
-    saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
+    saveWorkflowPartial: (
+        workflow: Partial<HogFlow>,
+        sandboxSenderConfirmed?: boolean,
+        sandboxSenderWarned?: boolean
+    ) => {
+        sandboxSenderConfirmed: boolean
+        sandboxSenderWarned: boolean
         workflow: Partial<HogFlow>
     }
     saveWorkflowSuccess: (
@@ -2938,6 +2975,9 @@ export interface workflowLogicActions {
     }
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
+    }
+    setCheckingSandboxSender: (checking: boolean) => {
+        checking: boolean
     }
     setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
         pending: 'discard' | 'publish' | null
@@ -3698,6 +3738,37 @@ function unusableSenderError(action: HogFlowAction, integrations: IntegrationTyp
     return undefined
 }
 
+/** Templates the workflow's steps use that the loaded list lacks. Empty until the list has loaded. */
+function missingStepTemplateIds(
+    workflow: HogFlow | null | undefined,
+    templatesById: Record<string, HogFunctionTemplateType>
+): string[] {
+    if (!workflow || Object.keys(templatesById).length === 0) {
+        return []
+    }
+    const missing = new Set<string>()
+    for (const action of workflow.actions ?? []) {
+        const templateId = (action.config as { template_id?: unknown } | undefined)?.template_id
+        if (typeof templateId === 'string' && !templatesById[templateId]) {
+            missing.add(templateId)
+        }
+    }
+    return [...missing]
+}
+
+// Edits typed while a publish request runs must survive the reload, so they get the conflict banner instead.
+function reloadKeepingEdits(
+    hasUnsavedChanges: boolean,
+    actions: Pick<workflowLogicType['actions'], 'setExternallyEdited' | 'setSyncingExternalEdit' | 'loadWorkflow'>
+): void {
+    if (hasUnsavedChanges) {
+        actions.setExternallyEdited(true)
+    } else {
+        actions.setSyncingExternalEdit(true)
+        actions.loadWorkflow()
+    }
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -3735,7 +3806,15 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
-        saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        saveWorkflowPartial: (
+            workflow: Partial<HogFlow>,
+            sandboxSenderConfirmed: boolean = false,
+            sandboxSenderWarned: boolean = false
+        ) => ({
+            workflow,
+            sandboxSenderConfirmed,
+            sandboxSenderWarned,
+        }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
@@ -3763,13 +3842,17 @@ export const workflowLogic = kea<workflowLogicType>([
         setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
         keepMyWorkflowVersion: true,
         publishDraft: true,
-        confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
+        confirmPublishDraft: (confirmToken: string, sandboxSenderWarned: boolean) => ({
+            confirmToken,
+            sandboxSenderWarned,
+        }),
         discardDraft: true,
         enableBlocked: true,
         workflowCreated: (workflowId: string) => ({ workflowId }),
         leaveConfirmed: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
+        setCheckingSandboxSender: (checking: boolean) => ({ checking }),
         replayDeferredResourceEdited: true,
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
@@ -3874,6 +3957,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    const sandboxSenderWarned: boolean | undefined = cache.nextSaveSandboxSenderWarned
+                    cache.nextSaveSandboxSenderWarned = undefined
                     const createsBroadcast = cache.nextSaveCreatesBroadcast === true
                     cache.nextSaveCreatesBroadcast = false
 
@@ -3966,7 +4051,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         // re-send of the live row and at worst (with a staged draft merged into the form)
                         // a silent deploy of unpublished content. Metadata-only saves on active workflows
                         // strip content the same way, so unchanged content never routes to a draft.
-                        const payload: Partial<HogFlow> =
+                        const payload: Partial<HogFlow> & { sandbox_sender_warned?: boolean } =
                             isStatusTransition || (latest?.status === 'active' && !contentChanged)
                                 ? omitWorkflowContent(updates)
                                 : { ...updates }
@@ -3975,6 +4060,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             // behind a disable carries the pre-change status and puts the workflow
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
+                        }
+                        if (sandboxSenderWarned !== undefined) {
+                            // The server refuses an enable onto the test sender that showed no warning.
+                            payload.sandbox_sender_warned = sandboxSenderWarned
                         }
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
@@ -4034,7 +4123,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    lazyLoaders(() => ({
+    lazyLoaders(({ values }) => ({
         hogFunctionTemplatesById: [
             {} as Record<string, HogFunctionTemplateType>,
             {
@@ -4052,6 +4141,27 @@ export const workflowLogic = kea<workflowLogicType>([
                     )
 
                     return allTemplatesById
+                },
+                // The list stops at one page, so a step whose template sorts past it would read as "Template not found".
+                loadMissingHogFunctionTemplates: async (templateIds: string[]) => {
+                    const fetched = await Promise.all(
+                        templateIds.map((templateId) =>
+                            api.hogFunctions.getTemplate(encodeURIComponent(templateId)).catch((error) => {
+                                // Only a template that really doesn't exist reads as missing. Other failures surface.
+                                if (error?.status === 404) {
+                                    return null
+                                }
+                                throw error
+                            })
+                        )
+                    )
+                    const added = { ...values.hogFunctionTemplatesById }
+                    for (const template of fetched) {
+                        if (template) {
+                            added[template.id] = template
+                        }
+                    }
+                    return added
                 },
             },
         ],
@@ -4287,6 +4397,13 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        // Set while an enable reads the stored workflow: Enable shows as loading, and a second click waits.
+        checkingSandboxSender: [
+            false,
+            {
+                setCheckingSandboxSender: (_, { checking }) => checking,
             },
         ],
         resumeEmailSendingPending: [
@@ -4829,20 +4946,69 @@ export const workflowLogic = kea<workflowLogicType>([
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
-                preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
+                preview = await hogFlowsPublishCreate(String(ApiConfig.getCurrentTeamId()), props.id, {
+                    confirm: false,
+                })
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
+                // An edit from elsewhere waited for the preview, and a failed or canceled preview has no reload.
+                // With unsaved edits it waits for their save instead, so applying it can't drop them.
+                if (!values.hasUnsavedChanges) {
+                    actions.replayDeferredResourceEdited()
+                }
             }
+            // The token covers the server's draft. When that is not the draft this editor shows, the
+            // dialog would describe the wrong changes, so the user reviews the newer draft first.
+            // Compared as text: the server stamps drafts to the microsecond, and a date parse drops that.
+            if ((values.originalWorkflow?.draft_updated_at ?? null) !== (preview.draft_updated_at ?? null)) {
+                lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
+                reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                return
+            }
+            // Publish reloads the workflow, which would drop edits typed while the requests ran.
+            if (values.hasUnsavedChanges) {
+                lemonToast.warning('Save your changes first, then publish again.')
+                return
+            }
+            // The server judges the warning from the same copy the token covers, and refuses the confirm if
+            // a later live change moves steps onto the test sender that this dialog didn't warn about. A worker
+            // from before that field omits it and ignores the confirm's flag, so the editor warns then whenever
+            // the staged draft has a test sender step.
+            const movesToSandboxSender =
+                preview.moves_to_sandbox_sender ??
+                (!!values.originalWorkflow && draftUsesSandboxSender(values.originalWorkflow))
+            if (movesToSandboxSender) {
+                // pinned: analytics event names and property values
+                posthog.capture('workflows sandbox sender enable warning shown', {
+                    workflow_id: props.id,
+                    surface: 'publish',
+                })
+            }
+            // The dialog stays clickable while it animates closed, and a second click would publish twice.
+            let confirmed = false
             openPublishConfirmDialog({
                 impact: preview.impact,
                 inFlightRuns: preview.in_flight_runs,
-                onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
+                movesToSandboxSender,
+                onConfirm: () => {
+                    if (confirmed) {
+                        return
+                    }
+                    confirmed = true
+                    if (movesToSandboxSender) {
+                        posthog.capture('workflows sandbox sender enabled anyway', {
+                            workflow_id: props.id,
+                            surface: 'publish',
+                        })
+                    }
+                    actions.confirmPublishDraft(preview.confirm_token ?? '', movesToSandboxSender)
+                },
             })
         },
-        confirmPublishDraft: async ({ confirmToken }) => {
+        confirmPublishDraft: async ({ confirmToken, sandboxSenderWarned }) => {
             // draftActionPending also guards the dialog's close-animation window, where a fast
             // double-click on the confirm button dispatches twice.
             if (!props.id || props.id === 'new' || values.draftActionPending) {
@@ -4850,17 +5016,30 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
+                await hogFlowsPublishCreate(String(ApiConfig.getCurrentTeamId()), props.id, {
+                    confirm: true,
+                    confirm_token: confirmToken,
+                    sandbox_sender_warned: sandboxSenderWarned,
+                })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
             } catch (error) {
                 const genericMessage = 'Publishing failed. Review the staged changes and try again.'
-                const validationDetail = error instanceof ApiError && error.status === 400 ? error.detail : null
+                const invalid = error instanceof ApiError && error.status === 400
                 // The detail can repeat step names and template text, so analytics gets the generic message.
-                lemonToast.error(validationDetail || genericMessage, { capturedMessage: genericMessage })
-                actions.loadWorkflow()
+                lemonToast.error((invalid && error.detail) || genericMessage, { capturedMessage: genericMessage })
+                // A validation error changed nothing on the server, so edits typed meanwhile stay without the
+                // banner that says someone else edited the workflow.
+                if (!invalid || !values.hasUnsavedChanges) {
+                    reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                }
             } finally {
                 actions.setDraftActionPending(null)
+                // An edit from elsewhere that arrived during the request waited for it. With unsaved edits it
+                // waits for their save instead, so applying it can't drop them.
+                if (!values.hasUnsavedChanges) {
+                    actions.replayDeferredResourceEdited()
+                }
             }
         },
         resumeEmailSending: () => {
@@ -4935,7 +5114,7 @@ export const workflowLogic = kea<workflowLogicType>([
         submitWorkflow: () => {
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
         },
-        saveWorkflowPartial: async ({ workflow }) => {
+        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed, sandboxSenderWarned }) => {
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
@@ -4952,14 +5131,79 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.enableBlocked()
                 return
             }
+            const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            if (enabling && !sandboxSenderConfirmed) {
+                // A second click while the check below runs would open a second dialog.
+                if (values.checkingSandboxSender || cache.enablingWorkflow) {
+                    return
+                }
+                actions.setCheckingSandboxSender(true)
+                // Another tab can enable or archive the workflow while the check runs or the dialog is open,
+                // and the editor may reload that copy first. Enabling then would undo an archive.
+                const statusAtClick = values.originalWorkflow?.status
+                const statusMoved = (): boolean => {
+                    if (values.originalWorkflow?.status === statusAtClick) {
+                        return false
+                    }
+                    lemonToast.warning('This workflow was edited somewhere else. Review it, then enable it again.')
+                    return true
+                }
+                let live
+                try {
+                    // Enabling resumes the stored live config, not the staged draft the form shows, so the
+                    // sender check reads the steps that will actually run.
+                    live = await fetchStoredWorkflow(merged.id)
+                } finally {
+                    actions.setCheckingSandboxSender(false)
+                }
+                // A dialog opened after the user left would ask about a workflow they no longer see.
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+                if (!live) {
+                    lemonToast.error("Couldn't check this workflow's email steps. Refresh the page and try again.")
+                    return
+                }
+                if (statusMoved()) {
+                    return
+                }
+                if (live.status !== statusAtClick) {
+                    lemonToast.warning('This workflow was edited somewhere else. Review it, then enable it again.')
+                    reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                    return
+                }
+                if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
+                    confirmEnableOnSandboxSender(merged.id, 'editor', () => {
+                        if (!statusMoved()) {
+                            actions.saveWorkflowPartial(workflow, true, true)
+                        }
+                    })
+                } else {
+                    // The form may have changed while the check ran, so the save starts again from it. The
+                    // server refuses it if the steps moved onto the test sender since this check.
+                    actions.saveWorkflowPartial(workflow, true, false)
+                }
+                return
+            }
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
-            cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            cache.enablingWorkflow = enabling
+            cache.nextSaveSandboxSenderWarned = enabling ? sandboxSenderWarned : undefined
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
+        loadHogFunctionTemplatesByIdSuccess: () => {
+            const missing = missingStepTemplateIds(values.originalWorkflow, values.hogFunctionTemplatesById)
+            if (missing.length) {
+                actions.loadMissingHogFunctionTemplates(missing)
+            }
+        },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
+            if (missingTemplates.length) {
+                actions.loadMissingHogFunctionTemplates(missingTemplates)
+            }
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -5271,10 +5515,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 description: 'Are you sure?',
                 primaryButton: {
                     children: 'Discard',
-                    onClick: () =>
+                    onClick: () => {
                         actions.resetWorkflow(
                             values.originalWorkflow ? withStagedDraft(values.originalWorkflow) : NEW_WORKFLOW
-                        ),
+                        )
+                        // An edit from elsewhere can wait for typed edits to save, and a discard saves nothing.
+                        actions.replayDeferredResourceEdited()
+                    },
                 },
                 secondaryButton: {
                     children: 'Cancel',

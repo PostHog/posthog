@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -209,6 +209,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_card_links_enabled,
     organization_inbox_sort_cache_enabled,
     organization_report_monitoring_enabled,
 )
@@ -226,6 +227,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_link_summary import ReportLinkSummary, link_summaries
 from products.signals.backend.report_merge import (
     MAX_MERGE_REASON_LENGTH,
     MAX_MERGE_SOURCE_REPORTS,
@@ -431,6 +433,7 @@ from products.signals.backend.throttles import (
     SourceFilterPreviewBurstThrottle,
     SourceFilterPreviewSustainedThrottle,
     UserReportCreateBurstThrottle,
+    report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.signals.backend.trial.policy import TrialPolicy
@@ -2562,6 +2565,10 @@ class SignalReportViewSet(
         return organization_report_monitoring_enabled(self.organization.id)
 
     @cached_property
+    def _inbox_card_links_enabled(self) -> bool:
+        return organization_inbox_card_links_enabled(self.organization.id)
+
+    @cached_property
     def _inbox_cached_filters(self) -> bool:
         # Reads the cached report columns instead of the per-report authorship and PR-link
         # subqueries. Behind a flag until the daily reconcile shows no drift.
@@ -3457,6 +3464,11 @@ class SignalReportViewSet(
             return [UserReportCreateBurstThrottle()]
         return super().get_throttles()
 
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        if (error := report_task_run_throttled(request, wait)) is not None:
+            raise error
+        super().throttled(request, wait)
+
     def _user_report_create_enabled(self, user: User) -> bool:
         # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
         try:
@@ -3990,6 +4002,18 @@ class SignalReportViewSet(
                     ),
                 )
                 monitoring_outcomes_map = monitoring_outcomes(reports, team_id=self.team_id)
+        link_summaries_map: dict[str, ReportLinkSummary] = {}
+        if self._inbox_card_links_enabled:
+            # The strips are decorative, so a failed read renders the rows without them.
+            with tracer.start_as_current_span("signals.reports.list.fetch_link_summaries"):
+                try:
+                    link_summaries_map = link_summaries(
+                        team_id=self.team_id,
+                        report_ids=report_ids,
+                        monitoring_enabled=self._report_monitoring_enabled,
+                    )
+                except Exception:
+                    logger.exception("signals.reports.list.link_summaries_failed", report_count=len(report_ids))
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -4001,6 +4025,7 @@ class SignalReportViewSet(
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "monitoring_summaries_map": monitoring_summaries_map,
             "monitoring_outcomes_map": monitoring_outcomes_map,
+            "link_summaries_map": link_summaries_map,
             "ranked_inbox_sort": self._ranked_inbox_sort,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),

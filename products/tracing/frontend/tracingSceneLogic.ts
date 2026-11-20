@@ -25,8 +25,10 @@ import { tracingSqlEditorTrackingLogic } from './components/TracingSqlEditor/tra
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
 import type { ErrorScope } from './errorCorrelation'
+import type { HeatmapBrushSelection } from './heatmapBrush'
 import { spanErrorsLogic } from './spanErrorsLogic'
 import type { SpanErrorBadge } from './spanErrorsLogic'
+import type { TracingDateRangeSource } from './sparklineSelection'
 import type { TraceIdentity } from './traceIdentity'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
@@ -52,6 +54,7 @@ import type {
     TracingOrderDirection,
     TracingViewMode,
 } from './tracingFiltersLogic'
+import type { TracingChartType } from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
@@ -169,8 +172,8 @@ export interface tracingSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    applyHeatmapBrush: (selection: import('./heatmapBrush').HeatmapBrushSelection) => {
-        selection: import('./heatmapBrush').HeatmapBrushSelection
+    applyHeatmapBrush: (selection: HeatmapBrushSelection) => {
+        selection: HeatmapBrushSelection
     } // tracingDataLogic
     fetchAggregation: (
         options?:
@@ -220,18 +223,18 @@ export interface tracingSceneLogicActions {
         startIndex: number
         stopIndex: number
     } // tracingDataLogic
-    setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
-        chartType: import('./tracingFiltersLogic').TracingChartType
+    setChartType: (chartType: TracingChartType) => {
+        chartType: TracingChartType
     } // tracingFiltersLogic
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
     setDateRange: (
         dateRange: DateRange,
-        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source?: TracingDateRangeSource | undefined
     ) => {
         dateRange: DateRange
-        source: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source: TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
