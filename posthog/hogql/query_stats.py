@@ -68,6 +68,10 @@ class QueryStats:
     direct_source_ids: set[str] = field(default_factory=set, repr=False, compare=False)
     query_start_listeners: list[Callable[[], None]] = field(default_factory=list, repr=False, compare=False)
 
+    def notify_query_started(self) -> None:
+        for listener in list(self.query_start_listeners):
+            listener()
+
     def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
         with self.lock:
             self.rows_read += rows_read
@@ -149,12 +153,10 @@ def get_active() -> QueryStats | None:
 
 
 def notify_query_started() -> None:
-    """Tell the open scope's listeners that a ClickHouse query is about to start. Does nothing without one."""
+    """Tell the open scope's listeners that a query is about to start. Does nothing without one."""
     stats = _accumulator.get()
-    if stats is None:
-        return
-    for listener in list(stats.query_start_listeners):
-        listener()
+    if stats is not None:
+        stats.notify_query_started()
 
 
 def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
