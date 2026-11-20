@@ -101,6 +101,7 @@ async def create_table_from_saved_query(
     saved_query_id: str,
     team_id: int,
     queryable_folder: str,
+    row_count: int | None = None,
 ) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
@@ -146,10 +147,12 @@ async def create_table_from_saved_query(
                 _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns)
             )()
         table_created.set_columns(columns)
-        with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
-            table_created.row_count = await database_sync_to_async(
-                _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
-            )()
+        if row_count is None:
+            with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
+                row_count = await database_sync_to_async(
+                    _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
+                )()
+        table_created.row_count = row_count
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 

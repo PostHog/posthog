@@ -137,3 +137,33 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
     assert table.size_in_s3_mib == 20.0
     assert table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
     refresh_delay.assert_called_once_with(team.pk, str(saved_query.id), None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_a_given_row_count_is_recorded_without_counting_the_files(team: Team) -> None:
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=team,
+        name="counted_model",
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+    )
+    job = await DataModelingJob.objects.acreate(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="counted-workflow",
+    )
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch.object(DataWarehouseTable, "get_count", side_effect=RuntimeError("the files must not be counted")),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.calculate_table_size",
+            new_callable=AsyncMock,
+            return_value=0.0,
+        ),
+    ):
+        result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, "folder", row_count=42)
+
+    await result.table.arefresh_from_db()
+    assert result.table.row_count == 42

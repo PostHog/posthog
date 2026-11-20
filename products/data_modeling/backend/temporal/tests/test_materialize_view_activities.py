@@ -1553,7 +1553,10 @@ class TestSucceedMaterializationActivity:
 
 
 class TestPrepareQueryableTableActivity:
-    async def test_creates_warehouse_table_from_saved_query(self, activity_environment, ateam, asaved_query, ajob):
+    @pytest.mark.parametrize("incremental,expected_row_count", [(False, 100), (True, None)])
+    async def test_creates_warehouse_table_from_saved_query(
+        self, activity_environment, ateam, asaved_query, ajob, incremental, expected_row_count
+    ):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
             job_id=str(ajob.id),
@@ -1561,6 +1564,7 @@ class TestPrepareQueryableTableActivity:
             table_uri="s3://test-bucket/test_table",
             file_uris=["s3://test-bucket/test_file.parquet"],
             row_count=100,
+            incremental=incremental,
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
@@ -1582,7 +1586,11 @@ class TestPrepareQueryableTableActivity:
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             mock_prepare.assert_called_once()
             mock_create_table.assert_called_once_with(
-                str(ajob.id), str(asaved_query.id), ateam.pk, "test-bucket/queryable_folder"
+                str(ajob.id),
+                str(asaved_query.id),
+                ateam.pk,
+                "test-bucket/queryable_folder",
+                row_count=expected_row_count,
             )
         await database_sync_to_async(warehouse_table.delete)()
 
@@ -1666,8 +1674,6 @@ class TestPrepareQueryableTableActivity:
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             await database_sync_to_async(asaved_query.refresh_from_db)()
             assert asaved_query.table_id == warehouse_table.id
-            await database_sync_to_async(warehouse_table.refresh_from_db)()
-            assert warehouse_table.row_count == 250
         await database_sync_to_async(warehouse_table.delete)()
 
     @pytest.mark.parametrize(
