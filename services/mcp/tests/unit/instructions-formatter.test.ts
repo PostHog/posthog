@@ -389,18 +389,28 @@ describe('InstructionsFormatter', () => {
 
     describe('inbox-first guidance', () => {
         it.each([
-            { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },
-            { name: 'exec mode', exec: true, claim: true, list: '`call inbox-reports-list <json_input>`' },
+            { name: 'tools mode', mode: 'tools', claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', mode: 'exec', claim: true, list: '`call inbox-reports-list <json_input>`' },
             {
                 name: 'exec mode without claim',
-                exec: true,
+                mode: 'exec',
                 claim: false,
                 list: '`call inbox-reports-list <json_input>`',
             },
-        ])('renders the section in $name', ({ exec, claim, list }) => {
+            {
+                name: 'the compact exec reference',
+                mode: 'compact',
+                claim: true,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ] as const)('renders the section in $name', ({ mode, claim, list }) => {
             const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
             const formatter = new InstructionsFormatter()
-            const rendered = exec ? formatter.buildExecCommandReference(ctx) : formatter.buildToolsInstructions(ctx)
+            const rendered = {
+                tools: () => formatter.buildToolsInstructions(ctx),
+                exec: () => formatter.buildExecCommandReference(ctx),
+                compact: () => formatter.buildCompactExecCommandReference(ctx),
+            }[mode]()
 
             expect(rendered).toContain('### Existing Inbox reports')
             expect(rendered).toContain(`Look for a report with ${list}`)
@@ -421,6 +431,7 @@ describe('InstructionsFormatter', () => {
             for (const rendered of [
                 formatter.buildToolsInstructions(fullCtx),
                 formatter.buildExecCommandReference(fullCtx),
+                formatter.buildCompactExecCommandReference(fullCtx),
                 formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
             ]) {
                 expect(rendered).not.toContain('Existing Inbox reports')
@@ -651,6 +662,7 @@ describe('InstructionsFormatter', () => {
                 'artifacts',
                 'examples',
                 'hogql',
+                'hogql-tables',
                 'visualizations',
                 'urls',
                 'feedback',
@@ -682,6 +694,7 @@ describe('InstructionsFormatter', () => {
                 'artifacts',
                 'examples',
                 'hogql',
+                'hogql-tables',
                 'urls',
                 'feedback',
             ])

@@ -4,7 +4,6 @@ import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getNextPageHint } from '@/lib/next-page-hint'
 import { formatResponse } from '@/lib/response'
-import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 import {
     boundText,
     byteLength,
@@ -14,6 +13,7 @@ import {
     type ResponseBodySource,
     toonResponseBody,
 } from '@/lib/response-budget'
+import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
@@ -308,13 +308,13 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const body = formattedBody ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     const footers: string[] = []
+    let nextPageHint: string | null = null
 
     const chartData = appendTimeSeriesChartData && !useJson ? buildTimeSeriesChartData(handlerResult) : undefined
     if (chartData) {
         footers.push(chartData)
     }
 
-    let nextPageHint: string | null = null
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
         nextPageHint = getNextPageHint(toolName, rawResult)
         if (nextPageHint) {

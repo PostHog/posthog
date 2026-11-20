@@ -230,7 +230,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state, { inlineReference: true }),
                 }
             }
             return entry
@@ -472,7 +472,9 @@ export class ToolExecutor {
     // for this tool or $mcp_tool_description records words the agent never saw.
     private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription(state)
+            return this.instructionsBuilder.formatExecuteSqlDescription(state, {
+                inlineReference: !state.useSingleExec,
+            })
         }
         return undefined
     }
@@ -885,9 +887,6 @@ export class ToolExecutor {
                 resultEmpty: execMetrics.resultEmpty,
             })
             const duration = Date.now() - startMs
-            const guided = attachGuidanceNotice(response, guidance, {
-                jsonOutput: execMetrics.innerOutputFormat === 'json',
-            })
             const response = this.capResponse(
                 built,
                 execToolName(),
@@ -895,6 +894,9 @@ export class ToolExecutor {
                 execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined,
                 guidance
             )
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
 
             void trackToolCall(
                 analyticsToolName(),

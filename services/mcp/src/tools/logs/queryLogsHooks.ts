@@ -1,6 +1,7 @@
-import { redactCredentials } from '@/lib/credential-redaction'
 import { assignKey, isRecord } from '@/lib/plain-object'
+import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
 import type { ToolHooks } from '@/tools/tool-hooks'
+import { omitResponseFields } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
 /** Every row from one pod repeats its resource attributes, which are most of a page's size. */
@@ -23,8 +24,16 @@ function groupResourceAttributes(result: unknown): unknown {
 }
 
 // Log bodies and attribute values are application text, so they can carry credentials the field filters cannot reach.
-function afterResponse(_context: Context, _params: unknown, result: unknown): unknown {
-    return groupResourceAttributes(redactCredentials(result))
+function afterResponse(context: Context, params: unknown, result: unknown): unknown {
+    const redacted = redactCredentialsHooks.afterResponse(context, params, result)
+    return groupResourceAttributes(
+        omitResponseFields(redacted, [
+            'results.*.observed_timestamp',
+            'results.*.severity_number',
+            'results.*.level',
+            'results.*.live_logs_checkpoint',
+        ])
+    )
 }
 
 export default { afterResponse } satisfies ToolHooks<unknown>

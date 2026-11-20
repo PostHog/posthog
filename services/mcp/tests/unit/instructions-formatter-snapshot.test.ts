@@ -105,7 +105,10 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
     it('matches the exec command reference with skills enabled', async () => {
         const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildCompactExecCommandReference(STATIC_CTX, { skillsEnabled: true })
+        const rendered = formatter.buildCompactExecCommandReference(
+            { ...STATIC_CTX, cliLearnLayout: true },
+            { skillsEnabled: true }
+        )
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full-skills.txt'))
     })
 

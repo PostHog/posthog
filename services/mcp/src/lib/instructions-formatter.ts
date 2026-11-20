@@ -54,6 +54,7 @@ import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 import type { BusinessKnowledgeContent, MetricCatalogContent } from '@/tools/types'
 
 export const HOGQL_GUIDE_ID = 'hogql'
+export const HOGQL_TABLES_GUIDE_ID = 'hogql-tables'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -92,10 +93,10 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
-    /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
-    endpointsEnabled?: boolean | undefined
     /** Moves SQL catalog guidance from `analytics` to a `sql` guide, so the guide loaded on most tasks does not steer typed-runner questions toward SQL. */
     cliLearnLayout?: boolean | undefined
+    /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
+    endpointsEnabled?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
@@ -498,12 +499,20 @@ export class InstructionsFormatter {
 
         // The compact `execute-sql` description points here, so this guide must keep the
         // complete guidelines and every section that description leaves out.
-        entries.push({
-            id: HOGQL_GUIDE_ID,
-            title: 'HogQL reference',
-            description: 'Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.',
-            content: `${ctx.guidelines.trim()}\n\n${EXECUTE_SQL_REFERENCE.trim()}`,
-        })
+        entries.push(
+            {
+                id: HOGQL_GUIDE_ID,
+                title: 'HogQL guidelines',
+                description: 'Syntax and query guidelines for `execute-sql`.',
+                content: `${ctx.guidelines.trim()}\n\nRun \`learn ${HOGQL_TABLES_GUIDE_ID}\` for examples and the observability and LLM tables.`,
+            },
+            {
+                id: HOGQL_TABLES_GUIDE_ID,
+                title: 'HogQL tables and examples',
+                description: 'Examples and table details for observability and LLM queries.',
+                content: EXECUTE_SQL_REFERENCE.trim(),
+            }
+        )
 
         if (ctx.renderUiEnabled) {
             entries.push({
@@ -559,13 +568,12 @@ export class InstructionsFormatter {
                   help_topics: learnGuideList,
               })
             : undefined
-        const renderCtx: InstructionsContext = claudeChat
-            ? { guidelines: ctx.guidelines, tools: ctx.tools, metricCatalog: ctx.metricCatalog }
-            : {
-                  guidelines: ctx.guidelines,
-                  docsSearchEnabled: docsSearchAvailable(ctx),
-                  metricCatalog: ctx.metricCatalog,
-        cliLearnLayout: ctx.cliLearnLayout,
+        const renderCtx: InstructionsContext = {
+            guidelines: ctx.guidelines,
+            tools: claudeChat ? ctx.tools : undefined,
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            cliLearnLayout: !claudeChat && ctx.cliLearnLayout,
+            metricCatalog: ctx.metricCatalog,
         }
 
         return this.compose(
@@ -574,7 +582,8 @@ export class InstructionsFormatter {
                 ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
-                ...(claudeChat ? [] : this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection })),
+                ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
@@ -653,6 +662,7 @@ export class InstructionsFormatter {
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
+        const metricVars = metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog))
         const vars = {
             guidelines: ctx.guidelines.trim(),
             available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled, ctx.splitWrites),
@@ -660,14 +670,14 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ctx.cliLearnLayout ? '' : ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
-            endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
-            query_tool_routing: ctx.cliLearnLayout ? '' : QUERY_TOOL_ROUTING.trim(),
+            query_tool_routing: ctx.cliLearnLayout ? '' : formatPrompt(QUERY_TOOL_ROUTING, metricVars),
             sql_trust_pointer: ctx.cliLearnLayout
                 ? '`info execute-sql` and `learn sql` cover certified tables/views and verified joins'
                 : 'Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins',
+            endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
-            ...metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog)),
+            ...metricVars,
         }
         const body = sections
             .map((s) => s.trim())
