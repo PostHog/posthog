@@ -2592,6 +2592,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -9776,6 +9778,7 @@ export interface ChartSettingsApi {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
+    movingAverageIntervals?: number | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -9784,6 +9787,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showAnnotations?: boolean | null
     showLegend?: boolean | null
+    showMovingAverage?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null
@@ -10340,6 +10344,8 @@ export interface CachedTileInsightResultApi {
     readonly action_names: CachedTileInsightResultApiActionNames
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings: _InsightResultWarningsApi | null
+    /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+    readonly query_scan: unknown
     query?: _InsightQuerySchemaApi | null
 }
 
@@ -11738,6 +11744,10 @@ export type DashboardsRetrieveParams = {
      * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
      */
     include_dashboards?: boolean
+    /**
+     * When true, return the layout and tile metadata without each insight tile's result, to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 is on. Elsewhere, and by default, tiles carry their cached results.
+     */
+    omit_tile_results?: boolean
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */

@@ -123,6 +123,7 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
+import type { TeamPublicType, TeamType, UserType } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -233,6 +234,8 @@ import {
     deferOffscreenTiles,
     isTelemetryInsight,
     dashboardV2Logic,
+    loadScrolledInTiles,
+    omitsTileResultsOnLoad,
     refreshThroughBoardStream,
     telemetryTileLoadQueue,
 } from './dashboardV2Logic'
@@ -856,10 +859,11 @@ export interface dashboardLogicValues {
     addWidgetTileLoading: boolean
     anyInsightReachesDeletion: boolean
     apiUrl: (
-        refresh?: RefreshType | undefined,
-        filtersOverride?: DashboardFilter | undefined,
-        variablesOverride?: Record<string, HogQLVariable> | undefined,
-        layoutSize?: 'sm' | 'xs' | undefined
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter,
+        variablesOverride?: Record<string, HogQLVariable>,
+        layoutSize?: 'sm' | 'xs',
+        omitTileResults?: boolean
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
     autoBreakdownColorsEnabled: boolean
@@ -1053,7 +1057,7 @@ export interface dashboardLogicActions {
         value: true
     }
     abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
-        deferred?: boolean | undefined
+        deferred?: boolean
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
@@ -1235,8 +1239,8 @@ export interface dashboardLogicActions {
         retry?: boolean
     }) => {
         action: DashboardLoadAction
-        manualDashboardRefresh?: boolean | undefined
-        retry?: boolean | undefined
+        manualDashboardRefresh?: boolean
+        retry?: boolean
     }
     loadDashboardStreamingFailure: (
         error: string,
@@ -1249,15 +1253,15 @@ export interface dashboardLogicActions {
         dashboard: DashboardType | null,
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     ) => {
         dashboard: DashboardType | null
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     }
     loadDashboardSuccess: (
@@ -1372,7 +1376,7 @@ export interface dashboardLogicActions {
         batchId: string
         result: {
             cached: boolean
-            debug?: DashboardSharingDebugApi | undefined
+            debug?: DashboardSharingDebugApi
             failed: boolean
         }
         tileId: number
@@ -1397,12 +1401,12 @@ export interface dashboardLogicActions {
         previewUnsavedFilters?: boolean
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean | undefined
-        isAutomatic?: boolean | undefined
-        previewUnsavedFilters?: boolean | undefined
+        forceRefresh?: boolean
+        isAutomatic?: boolean
+        previewUnsavedFilters?: boolean
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
-        forceRefresh?: boolean | undefined
+        forceRefresh?: boolean
         tileIds: number[]
     }
     refreshOpenTileGroupsWaiting: () => {
@@ -2042,10 +2046,11 @@ export interface dashboardLogicMeta {
         apiUrl: (
             id: number
         ) => (
-            refresh?: RefreshType | undefined,
-            filtersOverride?: DashboardFilter | undefined,
-            variablesOverride?: Record<string, HogQLVariable> | undefined,
-            layoutSize?: 'sm' | 'xs' | undefined
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>,
+            layoutSize?: 'sm' | 'xs',
+            omitTileResults?: boolean
         ) => string
         currentLayoutSize: (containerWidth: number | null) => 'sm' | 'xs'
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
@@ -2124,8 +2129,8 @@ export interface dashboardLogicMeta {
         ) => boolean
         canRestrictDashboard: (
             dashboard: DashboardType | null,
-            user: null | import('~/types').UserType,
-            currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            user: UserType | null,
+            currentTeam: TeamPublicType | TeamType | null
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
         layouts: (
@@ -2187,7 +2192,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (
@@ -2696,7 +2701,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const apiUrl = values.apiUrl(
                             'force_cache',
                             values.filtersOverrideForRequests,
-                            values.currentDashboardVariables
+                            values.currentDashboardVariables,
+                            undefined,
+                            omitsTileResultsOnLoad(
+                                values.dashboardV2Enabled,
+                                action === DashboardLoadAction.InitialLoad ||
+                                    action === DashboardLoadAction.InitialLoadWithVariables,
+                                values.placement
+                            )
                         )
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
@@ -4346,13 +4358,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    layoutSize?: 'sm' | 'xs'
+                    layoutSize?: 'sm' | 'xs',
+                    omitTileResults?: boolean
                 ) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
                         layout_size: layoutSize,
+                        omit_tile_results: omitTileResults || undefined,
                     })}`
             },
         ],
@@ -6633,7 +6647,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
         },
-        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }) => {
+        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }, breakpoint) => {
             const settings = deferredSettings ?? values.settingsForRefresh
             const tiles = (values.insightTiles || []).filter(
                 (tile): tile is DashboardTile & { insight: InsightModel } => !!tile.insight && tileIds.includes(tile.id)
@@ -6670,7 +6684,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardV2Ui: values.dashboardV2Enabled,
                 tileLoads: tileLoads(cache),
             }
-            await Promise.all(tiles.map((tile) => refreshInsightTile(tile, tileRefresh)))
+            const scrolledIn = values.dashboardV2Enabled
+                ? await loadScrolledInTiles(cache, tiles, tileRefresh, {
+                      placement: values.placement,
+                      report: reportDashboardTileRefreshed,
+                      breakpoint,
+                  })
+                : null
+            const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
+            await Promise.all((scrolledIn?.leftTiles ?? tiles).map((tile) => refreshInsightTile(tile, perTileRefresh)))
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values

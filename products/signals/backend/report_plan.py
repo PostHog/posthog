@@ -39,15 +39,20 @@ def report_plan(*, team_id: int, report_id: str) -> ReportPlan | None:
     """The plan this report leads or belongs to, or None when the report is in no plan.
 
     A report with steps of its own is a plan, so it gets its own steps even when it is also a step
-    of a larger plan. Otherwise the plan is the report that its oldest `part_of` link names.
+    of a larger plan. Otherwise the plan is the live report that its oldest `part_of` link names.
     """
     step_edges = incoming_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
     plan_id = report_id
     if not step_edges:
-        parent_edges = outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
-        if not parent_edges:
+        parent_ids = [
+            edge.target_id
+            for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
+        ]
+        live_parents = linked_reports(team_id=team_id, report_ids=parent_ids)
+        live_parent_id = next((parent_id for parent_id in parent_ids if parent_id in live_parents), None)
+        if live_parent_id is None:
             return None
-        plan_id = parent_edges[0].target_id
+        plan_id = live_parent_id
         step_edges = incoming_links(team_id=team_id, report_id=plan_id, kinds=(ReportLinkKind.PART_OF,))
 
     # Incoming links are oldest first, and research writes its layers in landing order.

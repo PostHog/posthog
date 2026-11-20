@@ -1,0 +1,127 @@
+[
+  {
+    "name": "replacement",
+    "source": "<p>Hello {{ firstName }}</p>",
+    "data": {
+      "firstName": "Ben"
+    },
+    "liquid": "<p>Hello {{ variables.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "expected": "<p>Hello Ben</p>"
+  },
+  {
+    "name": "deep object",
+    "source": "<p>{{user.profile.firstName}}</p>",
+    "data": {
+      "user": {
+        "profile": {
+          "firstName": "Ben"
+        }
+      }
+    },
+    "liquid": "<p>{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "expected": "<p>Ben</p>"
+  },
+  {
+    "name": "missing path renders empty",
+    "source": "[{{user.profile.firstName}}]",
+    "data": {
+      "user": {}
+    },
+    "liquid": "[{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "expected": "[]"
+  },
+  {
+    "name": "double braces escape",
+    "source": "{{markup}}",
+    "data": {
+      "markup": "<b>Tom & Ann</b>"
+    },
+    "liquid": "{{ variables.markup | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
+  },
+  {
+    "name": "unicode and emoji",
+    "source": "<p>Grüße {{name}} 🦔</p>",
+    "data": {
+      "name": "Björk 日本語 🎉"
+    },
+    "liquid": "<p>Grüße {{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🦔</p>",
+    "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
+  },
+  {
+    "name": "number zero prints",
+    "source": "{{count}}",
+    "data": {
+      "count": 0
+    },
+    "liquid": "{{ variables.count | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "expected": "0"
+  },
+  {
+    "name": "null prints empty",
+    "source": "[{{a}}]",
+    "data": {
+      "a": null
+    },
+    "liquid": "[{{ variables.a | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "expected": "[]"
+  },
+  {
+    "name": "liquid looking text stays literal",
+    "source": "{% if x %} 100% {{n}}",
+    "data": {
+      "n": "y"
+    },
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "expected": "{% if x %} 100% y"
+  },
+  {
+    "name": "escaped mustache",
+    "source": "\\{{n}} {{n}}",
+    "data": {
+      "n": "y"
+    },
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "expected": "{{n}} y"
+  },
+  {
+    "name": "preheader block",
+    "source": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{pre}}</p></td></tr></table><p>Body</p>",
+    "data": {
+      "pre": "Your order 🎉"
+    },
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p></td></tr></table><p>Body</p>",
+    "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
+  },
+  {
+    "name": "array_prints_with_commas",
+    "source": "<p>{{alternate_emails}}</p>",
+    "data": {
+      "alternate_emails": [
+        "a@example.com",
+        "b@example.com"
+      ]
+    },
+    "liquid": "<p>{{ variables.alternate_emails | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "expected": "<p>a@example.com,b@example.com</p>"
+  },
+  {
+    "name": "escaped_backslash_before_a_tag",
+    "source": "<p>\\\\{{n}} and \\{{n}}</p>",
+    "data": {
+      "n": "N"
+    },
+    "liquid": "<p>\\{{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} and {% raw %}{{n}}{% endraw %}</p>",
+    "expected": "<p>\\N and {{n}}</p>"
+  },
+  {
+    "name": "subject escapes like html",
+    "source": "Hi {{n}}",
+    "data": {
+      "n": "Tom & <Ann> \"q\" =`"
+    },
+    "liquid": "Hi {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" }}",
+    "expected": "Hi Tom &amp; &lt;Ann&gt; &quot;q&quot; &#x3D;&#x60;",
+    "text": true
+  }
+]

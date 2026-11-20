@@ -37,7 +37,7 @@ from products.tasks.backend.facade import api as tasks_facade
 
 # Only actions whose request text is fixed. Merging stays a human decision, so `get_it_merged` is
 # not here, and `ask` and `suggested_prompt` carry text a scout can write.
-SCOUT_GRANTABLE_REPORT_ACTIONS = frozenset({ReportTaskActionKind.MAKE_IT_GREEN})
+SCOUT_GRANTABLE_REPORT_ACTIONS = frozenset({ReportTaskActionKind.MAKE_IT_GREEN, ReportTaskActionKind.RESOLVE_CONFLICTS})
 MAX_SCOUT_REPORT_ACTIONS_PER_DAY = 20
 
 REPORT_ACTION_SANDBOX_REFUSED = "report_action_sandbox_refused"

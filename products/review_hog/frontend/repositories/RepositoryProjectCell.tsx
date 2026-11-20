@@ -10,7 +10,8 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { FLASH_FOR_OPTIONS, canTakeFromOtherProject, projectName } from './repositoryChoices'
-import { RepositoryDraftsSwitch } from './RepositoryDraftsSwitch'
+import { RepositoryDeepReviewSwitch } from './RepositoryDeepReviewSwitch'
+import { RepositoryReviewsSelect } from './RepositoryReviewsSelect'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { RuleControls } from './RuleControls'
@@ -70,8 +71,8 @@ export function RepositoryProjectCell({
     const takeable = canTakeFromOtherProject(entry, installation)
     const canInclude = canIncludeRepository(entry, installation, canEdit, takeable)
     const canRemove = canEdit && entry.in_project && entry.selected && installation?.scope !== 'all'
-    // An exception row puts the switch on the line of its select, so each row keeps one draft control.
-    const draftsOnStatusLine = entry.in_project && entry.exception === null
+    // An exception row puts the controls on the line of its select, so each row keeps one of each.
+    const controlsOnStatusLine = entry.in_project && entry.exception === null
 
     const include = (): void => {
         if (!takeable) {
@@ -133,9 +134,14 @@ export function RepositoryProjectCell({
             {(status || canInclude || canRemove) && (
                 <div className="flex min-h-7 flex-wrap items-center gap-2">
                     {status}
-                    {(canInclude || canRemove || draftsOnStatusLine) && (
-                        <span className="ml-auto flex items-center gap-2">
-                            {draftsOnStatusLine && <RepositoryDraftsSwitch entry={entry} />}
+                    {(canInclude || canRemove || controlsOnStatusLine) && (
+                        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                            {controlsOnStatusLine && (
+                                <>
+                                    <RepositoryReviewsSelect entry={entry} />
+                                    <RepositoryDeepReviewSwitch entry={entry} />
+                                </>
+                            )}
                             {canInclude ? (
                                 <LemonButton
                                     size="xsmall"
@@ -174,11 +180,12 @@ export function RepositoryProjectCell({
                     onAddPerson={(userId, kind) => addExceptionPerson(entry, userId, kind)}
                     onRemovePerson={(person) => removeExceptionPerson(entry, person)}
                     tag={
-                        <span className="flex items-center gap-2">
+                        <span className="flex flex-wrap items-center gap-2">
                             <LemonTag type="warning" size="small">
                                 Exception
                             </LemonTag>
-                            <RepositoryDraftsSwitch entry={entry} />
+                            <RepositoryReviewsSelect entry={entry} />
+                            <RepositoryDeepReviewSwitch entry={entry} />
                         </span>
                     }
                     removeException={canEdit ? { projectFlashFor, onRemove: () => clearException(entry) } : undefined}

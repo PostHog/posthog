@@ -1,9 +1,9 @@
 import { IconBuilding, IconCursorClick, IconPeople, IconPerson, IconPiggyBank } from '@posthog/icons'
 import { Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PropertyFilterType } from '~/types'
 

@@ -465,6 +465,7 @@ export const FEATURE_FLAGS = {
     NEW_EVENTS_TABLE_SELF_SERVE: 'new-events-table-self-serve', // owner: @aspicer #team-query-performance, the backend evaluates the same key per project in `new_events_schema.py`
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
+    NOTEBOOK_APP_BUILDER: 'notebook-app-builder', // owner: #team-data-tools
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
     OPEN_INBOX_BUTTON: 'open-inbox-button', // owner: #team-growth multivariate=control,test, shows a "Check your Gmail inbox"-style link on the verify email page and the login code step; gate on === 'test'
@@ -509,7 +510,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_INTERCOM_IMPORT: 'product-support-intercom-import', // owner: @veryayskiy #team-conversations, Intercom import in Support settings
     PRODUCT_SUPPORT_PYLON_IMPORT: 'product-support-pylon-import', // owner: @veryayskiy #team-conversations, Pylon import in Support settings
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
@@ -604,7 +604,6 @@ export const FEATURE_FLAGS = {
     WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
     WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
-    WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_OBJECT_STORAGE_ADD_TABLE: 'warehouse-object-storage-add-table', // owner: #team-warehouse-sources, adds tables to an object storage source by path
@@ -658,6 +657,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key
     WORKFLOWS_EMAIL_HEADER: 'workflows-email-header', // owner: @mayteio #team-workflows, one-line sender summary in workflow and broadcast email steps
     WORKFLOWS_EMAIL_IMPACT: 'workflows-email-impact', // owner: @silthus #team-workflows, the Impact tab on transactional email pages: how far each email's sends got and what they led to
+    WORKFLOWS_EMAIL_PERSON_PREVIEW: 'workflows-email-person-preview', // owner: @mayteio #team-workflows, renders email previews as a real or custom person instead of raw Liquid
     WORKFLOWS_EMAIL_SEND_LINKS: 'workflows-email-send-links', // owner: @silthus #team-workflows, links transactional emails and their sends: Open email for sends from code, Sends lists and metric clicks on email pages
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors

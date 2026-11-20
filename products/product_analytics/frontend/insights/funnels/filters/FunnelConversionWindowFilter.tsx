@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
 import { EditorFilterProps, FunnelConversionWindowTimeUnit } from '~/types'

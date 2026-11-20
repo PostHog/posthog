@@ -15,6 +15,31 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
+import {
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    Empty,
+    EmptyHeader,
+    EmptyTitle,
+    Heading,
+    Separator,
+    Skeleton,
+    Table,
+    TableBody,
+    TableCell,
+    TableEmpty,
+    TableHead,
+    TableHeader,
+    TableRow,
+    Text,
+    ToggleGroup,
+    ToggleGroupItem,
+    Tooltip as QuillTooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import type { DataColorToken } from 'lib/colors'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,8 +47,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyDiff } from 'lib/utils/durations'
+import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
 import type { AccountsTableCustomPropertyDefinition } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, type AnyPropertyFilter } from '~/types'
@@ -37,6 +65,7 @@ import {
     type AccountFilter,
     isAccountPropertyFilter,
 } from 'products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters'
+import { QuillOptionColorSwatch } from 'products/customer_analytics/frontend/components/QuillOptionColorSwatch'
 import type {
     AccountTrackRuleConditionApi,
     AccountTrackRuleGroupApi,
@@ -52,6 +81,10 @@ const TRACK_RULE_ACCOUNT_FIELDS = ACCOUNT_FIELD_TAXONOMIC_OPTIONS.filter(
 )
 const ACCOUNT_FIELD_LABELS = Object.fromEntries(ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map(({ id, name }) => [id, name]))
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'stale'])
+const PREVIEW_SAMPLE_OPTIONS: { value: PreviewSampleKind; label: string }[] = [
+    { value: 'included', label: 'Included' },
+    { value: 'excluded', label: 'Excluded' },
+]
 
 export function getTrackRuleRunTriggerLabel(trigger: string): string {
     if (trigger === 'manual') {
@@ -141,6 +174,7 @@ export function AccountTrackRules(): JSX.Element {
     const trackRulePropertyDefinitions = [...TRACK_RULE_ACCOUNT_FIELDS, ...customPropertyTaxonomicOptions].map(
         ({ id, property_type }) => ({ id, name: id, property_type })
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmRun = (): void => {
         if (!config?.enabled || hasUnsavedChanges || !canRun) {
@@ -158,7 +192,174 @@ export function AccountTrackRules(): JSX.Element {
     }
 
     if ((configLoading && !config) || customPropertyDefinitionsLoading) {
-        return <div className="text-secondary">Loading track rules…</div>
+        return todayRailNav ? (
+            <div className="flex max-w-240 flex-col gap-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-24 w-full" />
+            </div>
+        ) : (
+            <div className="text-secondary">Loading track rules…</div>
+        )
+    }
+
+    const enabledDisabledReason =
+        restrictionReason ||
+        (saveResponseLoading
+            ? 'Saving track rules'
+            : hasUnsavedChanges
+              ? 'Save changes before enabling or disabling track rules'
+              : !canPreview
+                ? 'Add and save at least one group before enabling track rules'
+                : undefined)
+    const addGroupDisabledReason =
+        restrictionReason || (draft.groups.length >= 20 ? 'A rule can have up to 20 groups' : undefined)
+    const saveDisabledReason =
+        restrictionReason ||
+        (!hasUnsavedChanges ? 'No changes to save' : !canSave ? 'Add at least one condition to every group' : undefined)
+    const previewDisabledReason =
+        restrictionReason || (!canPreview ? 'Add at least one condition to every group' : undefined)
+    const runDisabledReason =
+        restrictionReason ||
+        (hasUnsavedChanges
+            ? 'Save changes before running track rules'
+            : !config?.enabled
+              ? 'Enable track rules before running them'
+              : !canRun
+                ? 'Another run is in progress'
+                : undefined)
+
+    const renderGroupFilters = (group: AccountTrackRuleGroupApi, index: number): JSX.Element => (
+        <PropertyFilters
+            propertyFilters={
+                ruleGroupToAccountFilters(group, customPropertyDefinitionsById) as unknown as AnyPropertyFilter[]
+            }
+            onChange={(filters) => updateGroup(index, accountFiltersToRuleGroup(filters as unknown as AccountFilter[]))}
+            pageKey={`customer-analytics-account-track-rules-${index}`}
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.AccountFields,
+                TaxonomicFilterGroupType.AccountCustomProperties,
+            ]}
+            taxonomicFilterOptionsFromProp={{
+                [TaxonomicFilterGroupType.AccountFields]: TRACK_RULE_ACCOUNT_FIELDS,
+                [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
+            }}
+            operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+            propertyDefinitionsOverride={trackRulePropertyDefinitions}
+            allowRelativeDateOptions
+            staticValueOptions={accountFilterStaticValueOptions}
+            editable={!restrictionReason}
+            disabledReason={restrictionReason ?? undefined}
+            hasRowOperator={false}
+        />
+    )
+
+    const previewResult = previewResponse && (
+        <PreviewResult
+            preview={previewResponse}
+            current={previewMatchesDraft}
+            ruleGroups={previewedDraft?.groups ?? []}
+            definitionsById={customPropertyDefinitionsById}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <div className="flex max-w-240 flex-col gap-4" data-attr="account-track-rules">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <Text size="xs" variant="muted" render={<p className="m-0 max-w-160" />}>
+                        Accounts matching any group stay tracked. Conditions inside a group must all match. Previewing
+                        does not save changes. Turning rules on saves and applies them immediately. Turning rules off
+                        stops future runs and does not restore accounts.
+                    </Text>
+                    <QuillSettingSwitch
+                        label="Enabled"
+                        checked={draft.enabled}
+                        onCheckedChange={toggleEnabled}
+                        disabledReason={enabledDisabledReason}
+                    />
+                </div>
+
+                {draft.groups.map((group, index) => (
+                    <Card key={index} size="sm">
+                        <CardContent className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="flex items-center gap-2">
+                                    <Text size="sm" render={<span className="m-0 font-semibold" />}>
+                                        Group {index + 1}
+                                    </Text>
+                                    {index > 0 && (
+                                        <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                                            OR
+                                        </Text>
+                                    )}
+                                </span>
+                                <Button
+                                    variant="destructive-outline"
+                                    size="icon"
+                                    aria-label="Remove group"
+                                    tooltip="Remove group"
+                                    onClick={() => removeGroup(index)}
+                                    disabledReason={restrictionReason}
+                                >
+                                    <IconTrash />
+                                </Button>
+                            </div>
+                            {renderGroupFilters(group, index)}
+                            <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                                All conditions in this group use AND.
+                            </Text>
+                        </CardContent>
+                    </Card>
+                ))}
+
+                <div>
+                    <Button variant="outline" onClick={addGroup} disabledReason={addGroupDisabledReason}>
+                        <IconPlus />
+                        Add OR group
+                    </Button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                        variant="primary"
+                        onClick={saveConfig}
+                        loading={saveResponseLoading}
+                        disabledReason={saveDisabledReason}
+                    >
+                        Save
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={previewDraft}
+                        loading={previewResponseLoading}
+                        disabledReason={previewDisabledReason}
+                    >
+                        Preview
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={confirmRun}
+                        loading={currentRunLoading}
+                        disabledReason={runDisabledReason}
+                    >
+                        Run now
+                    </Button>
+                </div>
+
+                {previewResult}
+
+                <Separator />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Heading size="sm" render={<h3 className="m-0" />}>
+                        Recent runs
+                    </Heading>
+                    <Button variant="outline" onClick={loadRuns} loading={runsLoading}>
+                        Refresh
+                    </Button>
+                </div>
+                <RunHistory runs={runs} loading={runsLoading} />
+            </div>
+        )
     }
 
     return (
@@ -176,16 +377,7 @@ export function AccountTrackRules(): JSX.Element {
                     checked={draft.enabled}
                     onChange={toggleEnabled}
                     label="Enabled"
-                    disabledReason={
-                        restrictionReason ||
-                        (saveResponseLoading
-                            ? 'Saving track rules'
-                            : hasUnsavedChanges
-                              ? 'Save changes before enabling or disabling track rules'
-                              : !canPreview
-                                ? 'Add and save at least one group before enabling track rules'
-                                : undefined)
-                    }
+                    disabledReason={enabledDisabledReason}
                 />
             </div>
 
@@ -205,33 +397,7 @@ export function AccountTrackRules(): JSX.Element {
                             tooltip="Remove group"
                         />
                     </div>
-                    <PropertyFilters
-                        propertyFilters={
-                            ruleGroupToAccountFilters(
-                                group,
-                                customPropertyDefinitionsById
-                            ) as unknown as AnyPropertyFilter[]
-                        }
-                        onChange={(filters) =>
-                            updateGroup(index, accountFiltersToRuleGroup(filters as unknown as AccountFilter[]))
-                        }
-                        pageKey={`customer-analytics-account-track-rules-${index}`}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.AccountFields,
-                            TaxonomicFilterGroupType.AccountCustomProperties,
-                        ]}
-                        taxonomicFilterOptionsFromProp={{
-                            [TaxonomicFilterGroupType.AccountFields]: TRACK_RULE_ACCOUNT_FIELDS,
-                            [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
-                        }}
-                        operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
-                        propertyDefinitionsOverride={trackRulePropertyDefinitions}
-                        allowRelativeDateOptions
-                        staticValueOptions={accountFilterStaticValueOptions}
-                        editable={!restrictionReason}
-                        disabledReason={restrictionReason ?? undefined}
-                        hasRowOperator={false}
-                    />
+                    {renderGroupFilters(group, index)}
                     <span className="text-xs text-secondary">All conditions in this group use AND.</span>
                 </LemonCard>
             ))}
@@ -241,9 +407,7 @@ export function AccountTrackRules(): JSX.Element {
                     type="secondary"
                     icon={<IconPlus />}
                     onClick={addGroup}
-                    disabledReason={
-                        restrictionReason || (draft.groups.length >= 20 ? 'A rule can have up to 20 groups' : undefined)
-                    }
+                    disabledReason={addGroupDisabledReason}
                 >
                     Add OR group
                 </LemonButton>
@@ -254,14 +418,7 @@ export function AccountTrackRules(): JSX.Element {
                     type="primary"
                     onClick={saveConfig}
                     loading={saveResponseLoading}
-                    disabledReason={
-                        restrictionReason ||
-                        (!hasUnsavedChanges
-                            ? 'No changes to save'
-                            : !canSave
-                              ? 'Add at least one condition to every group'
-                              : undefined)
-                    }
+                    disabledReason={saveDisabledReason}
                 >
                     Save
                 </LemonButton>
@@ -269,9 +426,7 @@ export function AccountTrackRules(): JSX.Element {
                     type="secondary"
                     onClick={previewDraft}
                     loading={previewResponseLoading}
-                    disabledReason={
-                        restrictionReason || (!canPreview ? 'Add at least one condition to every group' : undefined)
-                    }
+                    disabledReason={previewDisabledReason}
                 >
                     Preview
                 </LemonButton>
@@ -279,29 +434,13 @@ export function AccountTrackRules(): JSX.Element {
                     type="secondary"
                     onClick={confirmRun}
                     loading={currentRunLoading}
-                    disabledReason={
-                        restrictionReason ||
-                        (hasUnsavedChanges
-                            ? 'Save changes before running track rules'
-                            : !config?.enabled
-                              ? 'Enable track rules before running them'
-                              : !canRun
-                                ? 'Another run is in progress'
-                                : undefined)
-                    }
+                    disabledReason={runDisabledReason}
                 >
                     Run now
                 </LemonButton>
             </div>
 
-            {previewResponse && (
-                <PreviewResult
-                    preview={previewResponse}
-                    current={previewMatchesDraft}
-                    ruleGroups={previewedDraft?.groups ?? []}
-                    definitionsById={customPropertyDefinitionsById}
-                />
-            )}
+            {previewResult}
 
             <LemonDivider />
             <div className="flex items-center justify-between">
@@ -399,6 +538,8 @@ function PreviewRuleValue({
     value: unknown
     definition?: AccountsTableCustomPropertyDefinition
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     if (value === null || value === undefined || value === '') {
         return <span className="text-muted">—</span>
     }
@@ -410,7 +551,16 @@ function PreviewRuleValue({
         return stringValue === 'true' || stringValue === '1' ? <IconCheck /> : <IconX className="text-muted" />
     }
     if (definition?.display_type === 'link') {
-        return (
+        return todayRailNav ? (
+            <Button
+                variant="link-foreground"
+                size="sm"
+                nativeButton={false}
+                render={<LinkPrimitive to={stringValue} target="_blank" />}
+            >
+                {stringValue}
+            </Button>
+        ) : (
             <Link to={stringValue} target="_blank" targetBlankIcon={false}>
                 {stringValue}
             </Link>
@@ -420,7 +570,12 @@ function PreviewRuleValue({
         const option = definition.options?.find((candidate) => candidate.label === stringValue)
         return (
             <span className="inline-flex items-center gap-1.5">
-                {option && <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />}
+                {option &&
+                    (todayRailNav ? (
+                        <QuillOptionColorSwatch colorToken={option.color as DataColorToken} />
+                    ) : (
+                        <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />
+                    ))}
                 <span>{stringValue}</span>
             </span>
         )
@@ -440,6 +595,7 @@ function PreviewResult({
     definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 }): JSX.Element {
     const [sampleKind, setSampleKind] = useState<PreviewSampleKind>('included')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const samples = sampleKind === 'included' ? preview.tracked_samples : preview.ignored_samples
     const ruleColumns = getPreviewRuleColumns(ruleGroups, definitionsById)
     const columns: LemonTableColumns<AccountTrackRuleSampleApi> = [
@@ -461,6 +617,118 @@ function PreviewResult({
             ),
         })),
     ]
+
+    if (todayRailNav) {
+        return (
+            <Card size="sm">
+                <CardContent className="flex flex-col gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Text size="sm" render={<span className="m-0 font-semibold" />}>
+                            Preview for version {preview.config_version}
+                        </Text>
+                        <Badge variant={current ? 'success' : 'warning'}>{current ? 'Current' : 'Stale'}</Badge>
+                    </div>
+                    <div className="@container">
+                        <div className="grid grid-cols-2 gap-3 @min-[40rem]:grid-cols-4">
+                            {PREVIEW_METRICS.map(({ key, deltaKey, label, tooltip }) => {
+                                const delta = deltaKey ? preview[deltaKey] : 0
+                                return (
+                                    <div key={key} className="flex flex-col gap-1">
+                                        <QuillTooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <Text
+                                                        size="xs"
+                                                        variant="muted"
+                                                        className="cursor-help border-b border-dotted w-fit"
+                                                    />
+                                                }
+                                            >
+                                                {label}
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-80">{tooltip}</TooltipContent>
+                                        </QuillTooltip>
+                                        <Text size="lg" render={<span className="m-0 font-semibold" />}>
+                                            <span translate="no">{preview[key].toLocaleString()}</span>
+                                            {delta > 0 && (
+                                                <Text variant="muted" render={<span className="m-0" />}>
+                                                    {' '}
+                                                    (+{delta.toLocaleString()})
+                                                </Text>
+                                            )}
+                                        </Text>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <Text size="sm" render={<span className="m-0 font-semibold" />}>
+                            Preview results
+                        </Text>
+                        <ToggleGroup
+                            className="flex-wrap"
+                            aria-label="Preview results"
+                            value={[sampleKind]}
+                            onValueChange={(next: string[]) => {
+                                if (next[0]) {
+                                    setSampleKind(next[0] as PreviewSampleKind)
+                                }
+                            }}
+                        >
+                            {PREVIEW_SAMPLE_OPTIONS.map((option) => (
+                                <ToggleGroupItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </ToggleGroupItem>
+                            ))}
+                        </ToggleGroup>
+                    </div>
+                    <Table fullWidth className="rounded-md border border-border">
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Account</TableHead>
+                                {ruleColumns.map(({ key, label }) => (
+                                    <TableHead key={key}>{label}</TableHead>
+                                ))}
+                            </TableRow>
+                        </TableHeader>
+                        {samples.length === 0 ? (
+                            <TableEmpty>
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyTitle>{`No ${sampleKind} accounts`}</EmptyTitle>
+                                    </EmptyHeader>
+                                </Empty>
+                            </TableEmpty>
+                        ) : (
+                            <TableBody>
+                                {samples.map((account) => (
+                                    <TableRow key={account.id}>
+                                        <TableCell>
+                                            <AccountNameCell
+                                                accountId={account.id}
+                                                name={account.name}
+                                                externalId={account.external_id}
+                                                target="_blank"
+                                            />
+                                        </TableCell>
+                                        {ruleColumns.map(({ key, definition }) => (
+                                            <TableCell key={key}>
+                                                <PreviewRuleValue
+                                                    value={account.rule_values[key]}
+                                                    definition={definition}
+                                                />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        )}
+                    </Table>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
@@ -494,10 +762,7 @@ function PreviewResult({
                 <LemonSegmentedButton<PreviewSampleKind>
                     value={sampleKind}
                     onChange={setSampleKind}
-                    options={[
-                        { value: 'included', label: 'Included' },
-                        { value: 'excluded', label: 'Excluded' },
-                    ]}
+                    options={PREVIEW_SAMPLE_OPTIONS}
                     size="small"
                 />
             </div>
@@ -512,7 +777,79 @@ function PreviewResult({
     )
 }
 
+function runStatusTone(status: string): 'success' | 'danger' | 'primary' {
+    return status === 'completed' ? 'success' : TERMINAL_RUN_STATUSES.has(status) ? 'danger' : 'primary'
+}
+
+function runChangedLabel(run: AccountTrackRuleRunViewApi): string {
+    return `${run.newly_ignored.toLocaleString()} ignored · ${run.restored.toLocaleString()} restored`
+}
+
+const RUN_STATUS_BADGE_VARIANT = { success: 'success', danger: 'destructive', primary: 'info' } as const
+
 function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loading: boolean }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        if (loading && runs.length === 0) {
+            return (
+                <div className="flex flex-col gap-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                </div>
+            )
+        }
+
+        return (
+            <Table fullWidth className="rounded-md border border-border">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Started</TableHead>
+                        <TableHead>Trigger</TableHead>
+                        <TableHead>Version</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Tracked</TableHead>
+                        <TableHead>Ignored</TableHead>
+                        <TableHead>Changed</TableHead>
+                        <TableHead>Duration</TableHead>
+                        <TableHead>Error</TableHead>
+                    </TableRow>
+                </TableHeader>
+                {runs.length === 0 ? (
+                    <TableEmpty>
+                        <Empty>
+                            <EmptyHeader>
+                                <EmptyTitle>No track rules runs yet</EmptyTitle>
+                            </EmptyHeader>
+                        </Empty>
+                    </TableEmpty>
+                ) : (
+                    <TableBody>
+                        {runs.map((run) => (
+                            <TableRow key={run.id}>
+                                <TableCell>
+                                    <TZLabel time={run.started_at ?? run.created_at} />
+                                </TableCell>
+                                <TableCell>{getTrackRuleRunTriggerLabel(run.trigger)}</TableCell>
+                                <TableCell>{run.config_version}</TableCell>
+                                <TableCell>
+                                    <Badge variant={RUN_STATUS_BADGE_VARIANT[runStatusTone(run.status)]}>
+                                        {run.status}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell>{run.tracked}</TableCell>
+                                <TableCell>{run.ignored}</TableCell>
+                                <TableCell>{runChangedLabel(run)}</TableCell>
+                                <TableCell>{getTrackRuleRunDuration(run)}</TableCell>
+                                <TableCell>{run.error ?? '—'}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                )}
+            </Table>
+        )
+    }
+
     const columns: LemonTableColumns<AccountTrackRuleRunViewApi> = [
         {
             title: 'Started',
@@ -528,19 +865,7 @@ function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loa
         },
         {
             title: 'Status',
-            render: (_, run) => (
-                <LemonTag
-                    type={
-                        run.status === 'completed'
-                            ? 'success'
-                            : TERMINAL_RUN_STATUSES.has(run.status)
-                              ? 'danger'
-                              : 'primary'
-                    }
-                >
-                    {run.status}
-                </LemonTag>
-            ),
+            render: (_, run) => <LemonTag type={runStatusTone(run.status)}>{run.status}</LemonTag>,
         },
         {
             title: 'Tracked',
@@ -552,8 +877,7 @@ function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loa
         },
         {
             title: 'Changed',
-            render: (_, run) =>
-                `${run.newly_ignored.toLocaleString()} ignored · ${run.restored.toLocaleString()} restored`,
+            render: (_, run) => runChangedLabel(run),
         },
         {
             title: 'Duration',

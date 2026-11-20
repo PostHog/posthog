@@ -6,7 +6,6 @@ import { IconCheckCircle, IconDownload, IconSort, IconTrash, IconWarning } from 
 import {
     LemonButton,
     LemonCheckbox,
-    LemonDialog,
     LemonInput,
     LemonSegmentedButton,
     LemonTable,
@@ -16,13 +15,15 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { pluralize } from 'lib/utils/strings'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/frontend/utils'
 
+import { QuillSymbolSets } from './QuillSymbolSets'
+import { confirmBulkDeleteSymbolSets, confirmDeleteSymbolSet } from './symbolSetDialogs'
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
@@ -45,10 +46,15 @@ export function SymbolSets(): JSX.Element {
         useValues(symbolSetLogic)
     const { loadSymbolSets, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
         useActions(symbolSetLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         loadSymbolSets()
     }, [loadSymbolSets])
+
+    if (todayRailNav) {
+        return <QuillSymbolSets />
+    }
 
     return (
         <div className="deprecated-space-y-4">
@@ -82,20 +88,9 @@ export function SymbolSets(): JSX.Element {
                                     loading={deleteSymbolSetResponseLoading}
                                     disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
                                     onClick={() =>
-                                        LemonDialog.open({
-                                            title: 'Delete symbol sets',
-                                            description: `Are you sure you want to delete ${pluralize(selectedSymbolSetIds.length, 'symbol set', 'symbol sets')}?`,
-                                            secondaryButton: {
-                                                type: 'secondary',
-                                                children: 'Cancel',
-                                            },
-                                            primaryButton: {
-                                                type: 'primary',
-                                                status: 'danger',
-                                                onClick: () => bulkDeleteSymbolSets(),
-                                                children: 'Delete',
-                                            },
-                                        })
+                                        confirmBulkDeleteSymbolSets(selectedSymbolSetIds.length, () =>
+                                            bulkDeleteSymbolSets()
+                                        )
                                     }
                                 >
                                     Delete
@@ -273,21 +268,7 @@ const SymbolSetTable = (): JSX.Element => {
                             tooltip="Delete symbol set"
                             icon={<IconTrash />}
                             disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: 'Delete symbol set',
-                                    description: 'Are you sure you want to delete this symbol set?',
-                                    secondaryButton: {
-                                        type: 'secondary',
-                                        children: 'Cancel',
-                                    },
-                                    primaryButton: {
-                                        type: 'primary',
-                                        onClick: () => deleteSymbolSet(id),
-                                        children: 'Delete',
-                                    },
-                                })
-                            }
+                            onClick={() => confirmDeleteSymbolSet(() => deleteSymbolSet(id))}
                         />
                     </div>
                 )

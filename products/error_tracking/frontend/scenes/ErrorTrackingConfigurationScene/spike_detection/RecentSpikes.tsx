@@ -4,9 +4,11 @@ import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { urls } from 'scenes/urls'
 
+import { QuillRecentSpikes } from './QuillRecentSpikes'
 import { SpikeEventOrder, recentSpikesLogic } from './recentSpikesLogic'
 
 function orderToSorting(order: SpikeEventOrder): Sorting {
@@ -24,6 +26,11 @@ function sortingToOrder(sorting: Sorting): SpikeEventOrder {
 export function RecentSpikes(): JSX.Element {
     const { recentSpikes, spikesResponseLoading, pagination, order } = useValues(recentSpikesLogic)
     const { setOrder } = recentSpikesLogic.actions
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillRecentSpikes />
+    }
 
     const columns: LemonTableColumns<ErrorTrackingSpikeEvent> = [
         {

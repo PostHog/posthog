@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import { QuillAuthorizedDomains } from '../../components/QuillAuthorizedDomains/QuillAuthorizedDomains'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function AuthorizedDomains(): JSX.Element {
@@ -12,6 +14,50 @@ export function AuthorizedDomains(): JSX.Element {
         useValues(supportSettingsLogic)
     const { setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
         useActions(supportSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleDomainInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (e.key === 'Enter') {
+            saveDomain(domainInputValue, editingDomainIndex)
+        } else if (e.key === 'Escape') {
+            cancelDomainEdit()
+        }
+    }
+
+    const confirmRemoveDomain = (domain: string, index: number): void => {
+        LemonDialog.open({
+            title: <>Remove {domain}?</>,
+            description: 'Are you sure you want to remove this domain?',
+            primaryButton: {
+                status: 'danger',
+                children: 'Remove',
+                onClick: () => removeDomain(index),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    const saveDisabledReason = !domainInputValue.trim() ? 'Enter a domain' : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillAuthorizedDomains
+                domains={conversationsDomains}
+                isAddingDomain={isAddingDomain}
+                editingDomainIndex={editingDomainIndex}
+                domainInputValue={domainInputValue}
+                saveDisabledReason={saveDisabledReason}
+                onDomainInputChange={setDomainInputValue}
+                onDomainInputKeyDown={handleDomainInputKeyDown}
+                onSave={() => saveDomain(domainInputValue, editingDomainIndex)}
+                onCancel={cancelDomainEdit}
+                onEdit={startEditDomain}
+                onRemove={confirmRemoveDomain}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -39,20 +85,14 @@ export function AuthorizedDomains(): JSX.Element {
                             onChange={setDomainInputValue}
                             placeholder="https://example.com or https://*.example.com"
                             fullWidth
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    saveDomain(domainInputValue, editingDomainIndex)
-                                } else if (e.key === 'Escape') {
-                                    cancelDomainEdit()
-                                }
-                            }}
+                            onKeyDown={handleDomainInputKeyDown}
                         />
                         <div className="flex gap-2 mt-2">
                             <LemonButton
                                 type="primary"
                                 size="small"
                                 onClick={() => saveDomain(domainInputValue, editingDomainIndex)}
-                                disabledReason={!domainInputValue.trim() ? 'Enter a domain' : undefined}
+                                disabledReason={saveDisabledReason}
                             >
                                 Save
                             </LemonButton>
@@ -81,20 +121,7 @@ export function AuthorizedDomains(): JSX.Element {
                                 icon={<IconTrash />}
                                 tooltip="Remove domain"
                                 size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: <>Remove {domain}?</>,
-                                        description: 'Are you sure you want to remove this domain?',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove',
-                                            onClick: () => removeDomain(index),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
+                                onClick={() => confirmRemoveDomain(domain, index)}
                             />
                         </div>
                     </div>
