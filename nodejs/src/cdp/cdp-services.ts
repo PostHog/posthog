@@ -627,7 +627,7 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
-            // The workers that route a classification to the classify queue hold this pool, so they count it there.
+            // Every worker that routes a classification to the classify queue holds this pool.
             classifyDailyCap: deps.emailValidationValkey
                 ? new ClassifyDailyCap(deps.emailValidationValkey, config.CDP_CLASSIFY_TEAM_DAILY_CAP)
                 : null,

@@ -132,6 +132,12 @@ const classifyDailyCapSkippedTotal = new Counter({
     help: 'Classify with AI steps skipped because their team reached its daily cap.',
 })
 
+const classifyDailyCapUncountedTotal = new Counter({
+    name: 'cdp_classify_daily_cap_uncounted_total',
+    help: 'Classify with AI steps let through without a daily cap count, because Valkey failed or was too slow.',
+})
+
+// Longer than the UTC day a key counts, so a key never expires while its day still runs.
 const DAILY_COUNT_TTL_SECONDS = 2 * 24 * 60 * 60
 const DAILY_COUNT_DEADLINE_MS = 500
 
@@ -158,17 +164,19 @@ export class ClassifyDailyCap {
                     return Number(counted)
                 }
             )
-            return count === null || count <= this.dailyCap
+            if (count === null) {
+                classifyDailyCapUncountedTotal.inc()
+                return true
+            }
+            return count <= this.dailyCap
         } catch {
+            classifyDailyCapUncountedTotal.inc()
             return true
         }
     }
 }
 
-/**
- * Counts a classification against its team's daily cap before it joins the classify queue, so a skip never spends
- * the queue's shared rate. Returns the skipped step, or null when the classification fits.
- */
+/** Counts before the classify queue, so a skip never spends its shared rate. Null when the classification fits. */
 export async function skipPastDailyCap(
     invocation: CyclotronJobInvocationHogFunction,
     dailyCap: ClassifyDailyCap | null
