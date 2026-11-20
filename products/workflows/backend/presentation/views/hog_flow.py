@@ -66,6 +66,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import email_domain
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.paging import Page, PageRequest
@@ -284,7 +285,7 @@ from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
     can_default_to_sandbox,
     check_sandbox_sender_available,
-    deliverable_own_sender_ids,
+    deliverable_own_sender_domains,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -1110,9 +1111,13 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     team = get_team()
     if not sandbox_adoption_enabled(team, user):
         return data
-    deliverable = deliverable_own_sender_ids(team.id)
+    deliverable = deliverable_own_sender_domains(team.id)
     if deliverable:
-        return _with_own_sender(data, actions, new_steps, pick_default_email_sender(team.id, deliverable))
+        sender_id = pick_default_email_sender(team.id, frozenset(deliverable))
+        if sender_id is None:
+            return data
+        on_its_domain = [index for index in new_steps if _custom_address_fits(actions[index], deliverable[sender_id])]
+        return _with_own_sender(data, actions, on_its_domain, sender_id)
     new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
     if not new_steps or not _can_set_up_sandbox_sender(team, user):
         return data
@@ -1153,8 +1158,16 @@ def _email_value(config: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: Optional[int]) -> Any:
-    if sender_id is None:
+def _custom_address_fits(action: dict, sender_domain: str) -> bool:
+    sender = _email_value(action["config"]).get("from")
+    address = (sender.get("email") or "").strip() if isinstance(sender, dict) else ""
+    if not address or "{" in address:
+        return True
+    return (email_domain(address.lower()) or "") == sender_domain
+
+
+def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
+    if not new_steps:
         return data
     converted = list(actions)
     for index in new_steps:
@@ -6236,7 +6249,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             user_id=self._actor_id(),
             validated_data=serializer.validated_data,
-            before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+            before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
         )
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
@@ -6308,7 +6321,7 @@ class HogFlowViewSet(
                 validated_status=serializer.instance.status,
                 validated_disabled_from_active=serializer.instance.disabled_from_active,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
-                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+                before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
@@ -6417,7 +6430,7 @@ class HogFlowViewSet(
             serializer.context["enforce_graph_structure"] = True
         serializer.context["stages_draft"] = stages_draft
         serializer.is_valid(raise_exception=True)
-        self._set_up_defaulted_sandbox_sender(serializer)
+        self._set_up_sandbox_sender_for_save(serializer)
         return serializer.validated_data
 
     def _stages_surgical_edit(self, state: WorkflowEditState) -> bool:
@@ -6435,7 +6448,7 @@ class HogFlowViewSet(
             return value.lower() == "true"
         raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
-    def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
+    def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
         else:

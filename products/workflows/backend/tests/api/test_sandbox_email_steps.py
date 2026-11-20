@@ -655,6 +655,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("a_stopped_default_and_one_that_delivers", [True, False], 0, "function_email", 1),
             ("only_stopped_senders", [True], None, "email_sandbox", None),
             ("without_the_adoption_flag", [False], None, "function_email", None, False),
+            ("a_custom_address_on_the_sender_domain", [False], None, "function_email", 0, True, "hi@mail0.example.com"),
+            ("a_custom_address_on_another_domain", [False], None, "function_email", None, True, "hi@other.example.com"),
         ]
     )
     def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
@@ -665,15 +667,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         expected_type: str,
         expected_index: int | None,
         enabled: bool = True,
+        custom_address: str | None = None,
     ) -> None:
         senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
         if default_index is not None:
             set_default_email_sender_if_unset(self.team.id, senders[default_index].id)
+        sender = {"integrationId": None, "email": custom_address} if custom_address else {"integrationId": None}
 
         with _flag(enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
-                _flow(_own_email_step(None)),
+                _flow(_own_email_step(None, **{"from": sender})),
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
@@ -688,10 +692,18 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand([("web_save", True), ("real_test", True), ("mocked_test", False)])
     def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(self, path: str, expected: bool) -> None:
+        set_up_at_forward: list[bool] = []
+
+        def forward(_request: Any) -> tuple[int, dict, str]:
+            set_up_at_forward.append(self._sandbox_sender_is_set_up())
+            return 200, {}, json.dumps({"status": "success"})
+
         with _flag(True), _runtime(True), responses.RequestsMock(assert_all_requests_are_fired=False) as executor:
-            executor.post(
+            executor.add_callback(
+                responses.POST,
                 f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/new/invocations",
-                json={"status": "success"},
+                callback=forward,
+                content_type="application/json",
             )
             if path == "web_save":
                 response = self.client.post(
@@ -710,6 +722,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code in (200, 201), response.json()
         assert self._sandbox_sender_is_set_up() == expected
+        assert set_up_at_forward == ([] if path == "web_save" else [expected])
 
     @parameterized.expand(
         [

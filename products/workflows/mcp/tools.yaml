@@ -117,16 +117,17 @@ tools:
             each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
             with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
             not put one shared current_value condition in top-level properties. A new function_email step without a
-            sender gets the project's default sender, or its only verified sender; with several verified senders and no
-            default, set from.integrationId yourself. In a project with no verified email sender that can use the
-            PostHog test sender, the step starts on it instead (type email_sandbox), which sends only to verified
-            members of the organization; tell the user, and point them to domain verification so they can reach everyone
-            else. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions
-            and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with
-            workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule' trigger has no
-            audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create and skip the
-            audience preview. Behavioral targeting ('did event X at least N times over the last M days') is unsupported;
-            reject it and explain why.
+            sender gets the project's default sender if it can still send, or else the only verified sender that can; a
+            stopped sender doesn't count, and a from.email on another domain keeps the step without one. With several
+            such senders and no default, set from.integrationId yourself, and check the sender on the returned step. In
+            a project with no verified email sender that can send but with access to the PostHog test sender, the step
+            starts on it instead (type email_sandbox), which sends only to verified members of the organization; tell
+            the user, and point them to domain verification so they can reach everyone else. A 'batch' trigger
+            broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references),
+            one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a
+            schedule with workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence,
+            so attach its cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting
+            ('did event X at least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
         response:
@@ -777,10 +778,11 @@ tools:
             types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set
             mock_async_functions=false to fire real side effects. A real test of an email_sandbox step sets up the
             PostHog test sender for the project first. If the step is skipped with reason sandbox_not_provisioned, the
-            caller can't set it up: ask someone with edit access to all workflows to save the workflow, then test again.
-            Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live
-            config — always do this before workflows-publish. use_draft requires a staged draft to exist (workflows-get
-            shows it in 'draft'); on a workflow with nothing staged, omit it.
+            test sender couldn't be set up for this caller or project: ask someone with edit access to all workflows to
+            save the workflow and test again, and if it is still skipped, the organization can't use the test sender, so
+            verify a domain instead. Returns the step's execution trace. Set use_draft=true to test a workflow's staged
+            draft instead of its live config — always do this before workflows-publish. use_draft requires a staged
+            draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
         exclude_params:
             - configuration
     workflows-update:

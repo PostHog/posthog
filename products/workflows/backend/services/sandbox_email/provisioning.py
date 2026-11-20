@@ -1,5 +1,8 @@
 from django.conf import settings
 
+import structlog
+
+from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
@@ -10,6 +13,8 @@ from posthog.ph_client import feature_enabled_or_false
 from products.workflows.backend.facade.contracts import SandboxSenderStatus, SandboxSenderUnavailable
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.services.sandbox_email.validation import ADOPTION_UNAVAILABLE
+
+logger = structlog.get_logger(__name__)
 
 SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_INTEGRATION_ID = "posthog-managed-sandbox"
@@ -75,8 +80,8 @@ def provision_sandbox_sender_if_available(team: Team, user: User) -> None:
         return
     try:
         set_up_sandbox_sender(team, user)
-    except SandboxSenderUnavailable:
-        pass
+    except SandboxSenderUnavailable as error:
+        logger.info("sandbox_sender_setup_skipped", team_id=team.id, reason=str(error))
 
 
 def check_sandbox_sender_available(team: Team, user: User) -> None:
@@ -97,12 +102,12 @@ def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     )
 
 
-def deliverable_own_sender_ids(team_id: int) -> frozenset[int]:
-    return frozenset(
-        sender.id
+def deliverable_own_sender_domains(team_id: int) -> dict[int, str]:
+    return {
+        sender.id: (sender.config.get("domain") or email_domain(sender.config.get("email") or "") or "").lower()
         for sender in IntegrationManager.email.credentials.list(team_id)
         if sender.config.get("verified") and sender.config.get(SES_SENDING_STATUS_KEY) != SES_SENDING_FAILED
-    )
+    }
 
 
 def own_sender_verification(team_id: int) -> dict[str, bool]:
