@@ -43,7 +43,7 @@ from products.autoresearch.backend.presentation.views.serializers import (
     ValidationWarningSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 MOCK_VALIDATION_OK = ValidationResult(
     can_proceed=True,
