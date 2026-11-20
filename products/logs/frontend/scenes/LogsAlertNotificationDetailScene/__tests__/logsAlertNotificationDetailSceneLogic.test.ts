@@ -73,6 +73,31 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
         expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual(expected)
     })
 
+    it('asks for the sends of a secret-URL group only once the alert lists its functions', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION]: true })
+        mockList.mockResolvedValue({
+            results: ['fn-firing', 'fn-resolved'].map((id) => ({
+                ...webhookFunction(id, '$logs_alert_firing'),
+                inputs: { url: { secret: true } },
+            })),
+        })
+        let releaseAlert: (alert: unknown) => void = () => {}
+        ;(logsAlertsRetrieve as jest.Mock).mockReturnValue(new Promise((resolve) => (releaseAlert = resolve)))
+        const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadHogFunctions()).toDispatchActions(['loadHogFunctionsSuccess'])
+        expect(mockSends).not.toHaveBeenCalled()
+
+        releaseAlert({ destinations: [{ id: null, hog_function_ids: ['fn-firing', 'fn-resolved'] }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual([
+            ['fn-firing', 'fn-resolved'],
+        ])
+    })
+
     it.each([
         ['splits a URL group the alert lists apart', false, [['fn-firing'], ['fn-resolved']], ['fn-resolved']],
         ['joins functions whose URL is secret', true, [['fn-firing', 'fn-resolved']], ['fn-firing', 'fn-resolved']],

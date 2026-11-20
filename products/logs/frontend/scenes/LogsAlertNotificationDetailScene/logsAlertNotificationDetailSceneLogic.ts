@@ -44,6 +44,7 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     alert: LogsAlertConfigurationDetailApi | null
     alertId: string
     alertLoading: boolean
+    alertSettled: boolean
     breadcrumbs: Breadcrumb[]
     destinationGroup: LogsAlertDestinationGroup | null
     eventLabelByHogFunctionId: Record<string, string>
@@ -194,6 +195,13 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     }),
 
     reducers({
+        alertSettled: [
+            false,
+            {
+                loadAlertSuccess: () => true,
+                loadAlertFailure: () => true,
+            },
+        ],
         hasLoaded: [
             false,
             {
@@ -308,16 +316,27 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         // Due once per page: a pause or enable reloads the functions but changes no past send, and a
         // failed load waits for Retry. Watched rather than checked after the functions load, so a flag
         // that turns on later still loads the sends.
+        // Waits for the alert, because its destination list decides the group's functions. Sends loaded from
+        // the functions alone would cover one function of a group whose URL is secret.
         recentSendsDue: [
-            (s) => [s.featureFlags, s.destinationGroup, s.recentSends, s.recentSendsLoading, s.recentSendsError],
+            (s) => [
+                s.featureFlags,
+                s.destinationGroup,
+                s.recentSends,
+                s.recentSendsLoading,
+                s.recentSendsError,
+                s.alertSettled,
+            ],
             (
                 featureFlags: FeatureFlagsSet,
                 group: LogsAlertDestinationGroup | null,
                 recentSends: LogsAlertDestinationSendApi[] | null,
                 loading: boolean,
-                error: boolean
+                error: boolean,
+                alertSettled: boolean
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] &&
+                alertSettled &&
                 group !== null &&
                 recentSends === null &&
                 !loading &&
