@@ -24,7 +24,7 @@ const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
-const GIVEN_RUN_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'
+const GIVEN_RUN_ID = '0a1b2c3d-4e5f-8a6b-8c7d-9e0f1a2b3c4d'
 const RUNNER_PROFILE = readFileSync(path.join(__dirname, '..', 'profiles', 'synthetic.yaml'), 'utf8')
 
 type Setup = {

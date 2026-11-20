@@ -67,7 +67,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Run host disk:** the host launches from the baseline's launch template, which sets its root disk and requires IMDSv2. The profile's `baseline` names that template by `hostLaunchTemplateId` and a version number in `hostLaunchTemplateVersion`, and `hostRootVolumeGb` repeats the template's root disk size, which prices the disk.
 - **Which card:** a card id under `tests/scenarios/cards`, committed at the run's commit, because the host runs the cards of that commit. The controller reads the card at that commit and loads it with the runner profile before it leases anything, so a card that is missing there or does not load costs nothing. The run manifest names the card, and the host reads it from there.
 - **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
-- **Run id:** a fresh UUID, or the value of `SCENARIO_RUN_ID` in the controller's environment, so a caller can know the id before the run starts. A value that is not a lowercase UUID refuses the run, and so does an id whose prefix in the evidence bucket already holds an object. Either refusal comes before the lease writes anything.
+- **Run id:** a fresh UUID, or the value of `SCENARIO_RUN_ID` in the controller's environment, so a caller can know the id before the run starts. The caller gives a lowercase RFC UUID, one per run, and one controller per id. Any other value refuses the run, and so does an id whose prefix in the evidence bucket already holds an object. Either refusal comes before the lease writes anything.
 - **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
@@ -768,12 +768,12 @@ When Cyclotron gains its own read of the same counts, that read replaces this mo
 
 Each run, `invalid` runs included, writes one event:
 
-| Field         | Value                                                        |
-| ------------- | ------------------------------------------------------------ |
-| `event`       | `scorecard`                                                  |
-| `distinct_id` | `scenario-runner`                                            |
-| `uuid`        | The run id, a UUID v4, so a retried capture never duplicates |
-| `timestamp`   | `ended_at`                                                   |
+| Field         | Value                                                     |
+| ------------- | --------------------------------------------------------- |
+| `event`       | `scorecard`                                               |
+| `distinct_id` | `scenario-runner`                                         |
+| `uuid`        | The run id, a UUID, so a retried capture never duplicates |
+| `timestamp`   | `ended_at`                                                |
 
 The runner posts the event to `$SCENARIO_RUNS_HOST/i/v0/e/` with the project token.
 It then queries the project with the read key for an event with that `run_id`, every 5 seconds for up to 120 seconds, and reports `recorded` only when the query returns it.
