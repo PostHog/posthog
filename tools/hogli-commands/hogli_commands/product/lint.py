@@ -7,8 +7,9 @@ from pathlib import Path
 
 import click
 
+from .baseline import check_baseline
 from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module
-from .paths import PRODUCTS_DIR, backend_product_dirs, load_structure
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -84,7 +85,7 @@ def lint_all_products() -> None:
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: product.yaml, required root files, backend package marker, package.json scripts, "
-        "misplaced files (strict), file/folder conflicts, test file coverage, system checks\n"
+        "misplaced files (strict), file/folder conflicts, test file coverage, system checks, isolation baseline\n"
     )
 
     structure = load_structure()
@@ -97,8 +98,24 @@ def lint_all_products() -> None:
             failed.append(product_dir.name)
         click.echo("")
 
-    if failed:
-        click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
+    click.echo("─ isolation baseline")
+    baseline_issues = check_baseline()
+    if baseline_issues:
+        click.echo(f"  ✗ {len(baseline_issues)} issue(s)")
+        for issue in baseline_issues:
+            click.echo(f"    → {issue}")
+            _gh_annotation(
+                "error", "products", "isolation baseline", issue, file=str(ISOLATION_BASELINE.relative_to(REPO_ROOT))
+            )
+    else:
+        click.echo("  ✓ ok")
+    click.echo("")
+
+    if failed or baseline_issues:
+        if failed:
+            click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
+        if baseline_issues:
+            click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")

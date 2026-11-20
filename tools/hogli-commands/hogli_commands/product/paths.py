@@ -14,6 +14,7 @@ PRODUCTS_DIR = REPO_ROOT / "products"
 FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
 DJANGO_SETTINGS = REPO_ROOT / "posthog" / "settings" / "web.py"
 DB_ROUTING_YAML = PRODUCTS_DIR / "db_routing.yaml"
+ISOLATION_BASELINE = PRODUCTS_DIR / "isolation_baseline.txt"
 
 
 def is_backend_product_dir(d: Path) -> bool:

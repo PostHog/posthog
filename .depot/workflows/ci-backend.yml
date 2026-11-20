@@ -418,8 +418,11 @@ jobs:
                         # resolver at tools/owners.
                         - 'tools/owners/**'
                         # hoglint's Isolated level reads each product's contract-check
-                        # inputs, so an inputs-only edit must run `hoglint compare`.
+                        # inputs, so an inputs-only edit must run `hoglint compare`. product:lint
+                        # --all checks the isolation baseline against those claims, so a
+                        # baseline-only edit must run it too.
                         - 'products/*/turbo.json'
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt

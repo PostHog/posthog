@@ -180,6 +180,16 @@ turbo-discover then skips the full Django test suite for a change in that produc
 
 ### New products must be isolated
 
+hoglint judges only the products that claim its Isolated level, so a product that never narrows its inputs would pass it.
+`products/isolation_baseline.txt` closes that gap: it lists every backend product that does not claim the level, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
+A new product not on the list must claim the level; a product that starts to claim it drops off the list.
+Adding a line exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why DevEx owns the file in `.github/CODEOWNERS`.
+Regenerate it after a product claims the level:
+
+```bash
+bin/hogli product:lint --regenerate-baseline
+```
+
 `hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, `backend:contract-check` and narrowed `turbo.json` inputs.
 The scaffold passes hoglint's Isolated level from its first commit.
 The narrowed inputs claim that level, and `hoglint.ledger` records each product that passes it, so bootstrap ends with `hoglint check --write-ledger`, which adds the product's `level:isolated` line.
