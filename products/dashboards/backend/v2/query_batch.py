@@ -392,7 +392,7 @@ class QueryBatch:
             self._open.release()
             raise
         # A client that stops reading parks the stream inside a send, where no deadline check runs, so a timer
-        # enforces it: it drops the held results, frees the slots and cancels running queries.
+        # enforces it: it drops the held results, frees the run slot and cancels running queries.
         self._watchdog = Timer(max(0.0, self._deadline - monotonic()), self._expire)
         self._watchdog.daemon = True
         self._watchdog.start()
@@ -544,9 +544,29 @@ class QueryBatch:
         self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
 
     def _expire(self) -> None:
+        # The open slot stays held until the response closes. Dropping every buffered result is what keeps a stalled
+        # stream cheap, so a fresh batch admitted later is never added on top of results nobody will read.
         self._drop_ready()
-        self._open.release()
         self._close(False)
+        self._drain_queues()
+
+    def _drain_queues(self) -> None:
+        while True:
+            try:
+                self._queue.get_nowait()
+            except Empty:
+                break
+        if self._loop is not None and self._async_queue is not None:
+            queue = self._async_queue
+
+            def clear() -> None:
+                while not queue.empty():
+                    queue.get_nowait()
+
+            try:
+                self._loop.call_soon_threadsafe(clear)
+            except RuntimeError:
+                pass
 
     def _dispatch_refreshes(self) -> None:
         # After the cached lines are written, so a stale board is not held back by its own refreshes.
@@ -590,6 +610,8 @@ class QueryBatch:
         return _result_line(index, response, hit=False, stale=False)
 
     def _emit(self, line: dict[str, Any]) -> None:
+        if self._is_cancelled():
+            return
         if self._loop is None or self._async_queue is None:
             self._queue.put(line)
             return
