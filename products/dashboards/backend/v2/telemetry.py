@@ -13,8 +13,10 @@ import re
 import json
 import math
 from datetime import UTC, datetime, timedelta, tzinfo
+from time import monotonic
 from typing import Any, Optional
 
+from django.conf import settings
 from django.utils.timezone import now
 
 import requests
@@ -52,8 +54,6 @@ _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _DURATION = re.compile(r"(\d+)([smhdw])")
 _RELATIVE = re.compile(r"now-(\d{1,9})([smhdwMy])")
 _METRIC_LOGQL = re.compile(r"\b(\w+_over_time|rate|bytes_rate|rate_counter)\s*\(")
-# Double-quoted strings with escapes, and raw backtick strings, as LogQL writes them.
-_LOGQL_STRING = re.compile(r'"(?:[^"\\]|\\.)*"|`[^`]*`')
 
 
 class TelemetryTargetError(ValueError):
@@ -61,22 +61,24 @@ class TelemetryTargetError(ValueError):
 
 
 def _parse_time(expression: str, at: datetime, tz: tzinfo) -> datetime:
-    """Months and years are calendar months and years, and an ISO date without an offset is in the project's
-    timezone, as `MetricsQuery` reads them, so a PromQL and a LogQL panel with one range read the same window."""
+    """A time expression as a UTC moment. Months and years are calendar months and years in the project's
+    timezone, and an ISO date without an offset is in that timezone, as `MetricsQuery` reads them, so a PromQL
+    and a LogQL panel with one range read the same window. Fixed durations count elapsed time, so they are
+    subtracted in UTC: across a DST change, wall-clock arithmetic would put `now-30m` after `now`."""
+    at = at.astimezone(UTC)
     if expression == "now":
         return at
     try:
         if match := _RELATIVE.fullmatch(expression):
             amount, unit = int(match.group(1)), match.group(2)
-            if unit == "M":
-                return at - relativedelta(months=amount)
-            if unit == "y":
-                return at - relativedelta(years=amount)
+            if unit in ("M", "y"):
+                delta = relativedelta(months=amount) if unit == "M" else relativedelta(years=amount)
+                return (at.astimezone(tz) - delta).astimezone(UTC)
             return at - timedelta(seconds=amount * _UNIT_SECONDS[unit])
         parsed = datetime.fromisoformat(expression)
     except (ValueError, OverflowError):
         raise TelemetryTargetError(f"Unsupported time expression: {expression!r}.")
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=tz)
+    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=tz)).astimezone(UTC)
 
 
 @frozen
@@ -93,7 +95,7 @@ class Step:
 
 
 def time_range(date_from: str, date_to: str, *, tz: tzinfo = UTC, at: Optional[datetime] = None) -> TimeRange:
-    at = (at or now()).astimezone(tz)
+    at = at or now()
     start, end = _parse_time(date_from, at, tz), _parse_time(date_to, at, tz)
     if end <= start:
         raise TelemetryTargetError("The time range ends before it starts.")
@@ -132,8 +134,28 @@ def promql_interval(
     return pick_step(span, max_data_points=max_data_points, min_interval=min_interval, is_promql=True).interval
 
 
+def _without_strings(logql: str) -> str:
+    """The query with the contents of its double-quoted and backtick strings removed, in one linear pass."""
+    kept: list[str] = []
+    quote: Optional[str] = None
+    escaped = False
+    for char in logql:
+        if quote is None:
+            kept.append(char)
+            if char in ('"', "`"):
+                quote = char
+        elif escaped:
+            escaped = False
+        elif char == "\\" and quote == '"':
+            escaped = True
+        elif char == quote:
+            kept.append(char)
+            quote = None
+    return "".join(kept)
+
+
 def returns_log_lines(logql: str) -> bool:
-    return bool(logql.strip()) and _METRIC_LOGQL.search(_LOGQL_STRING.sub('""', logql)) is None
+    return bool(logql.strip()) and _METRIC_LOGQL.search(_without_strings(logql)) is None
 
 
 def _align(moment: datetime, step: int) -> datetime:
@@ -150,10 +172,13 @@ def assert_can_read_logs(team: Team, user: User, user_access_control: UserAccess
         raise UserAccessControlError("logs", "viewer")
 
 
-def _read_capped(response: requests.Response) -> bytes:
+def _read_capped(response: requests.Response, deadline: float) -> bytes:
     body = bytearray()
     try:
         for chunk in response.iter_content(chunk_size=64 * 1024):
+            # The socket timeout only bounds the gap between chunks, so a trickling body is cut off here.
+            if monotonic() > deadline:
+                raise TelemetryTargetError("The LogQL query timed out. Try a shorter date range.")
             body.extend(chunk)
             if len(body) > MAX_LOGQL_RESPONSE_BYTES:
                 raise TelemetryTargetError(
@@ -178,10 +203,12 @@ def _decode(raw: bytes) -> Any:
         return None
 
 
-def _query_range(team: Team, data: dict[str, str]) -> requests.Response:
+def _query_range(team: Team, data: dict[str, str]) -> Any:
+    """The body is read inside the telemetry slot, so a slow or large response keeps holding it."""
     with get_app_telemetry_queries_rate_limiter().run(org_id=team.organization_id, team_id=team.pk, is_api=False):
+        deadline = monotonic() + settings.SNUFFLE_APM_TIMEOUT_SECONDS
         try:
-            return snuffle_request(
+            response = snuffle_request(
                 team.pk, "POST", "/loki/api/v1/query_range", data=data, workload=Workload.LOGS, stream=True
             )
         except SnuffleNotConfiguredError as exc:
@@ -190,13 +217,14 @@ def _query_range(team: Team, data: dict[str, str]) -> requests.Response:
             raise TelemetryTargetError("The LogQL query timed out. Try a shorter date range.") from exc
         except requests.RequestException as exc:
             raise TelemetryTargetError("The LogQL query backend cannot be reached. Try again later.") from exc
+        return _loki_data(response, deadline)
 
 
-def _loki_data(response: requests.Response) -> Any:
+def _loki_data(response: requests.Response, deadline: float) -> Any:
     if response.status_code in (401, 403) or response.status_code >= 500:
         response.close()
         raise TelemetryTargetError("The LogQL query backend failed. Try again later.")
-    payload = _decode(_read_capped(response))
+    payload = _decode(_read_capped(response, deadline))
     if response.status_code >= 400:
         raise TelemetryTargetError(_upstream_error(payload))
     if payload is None:
@@ -232,7 +260,7 @@ def run_logql(
         "step": str(step),
         "limit": str(LOG_LINE_LIMIT),
     }
-    results = _loki_data(_query_range(team, data))
+    results = _query_range(team, data)
     return {
         "results": results,
         "start": start.isoformat(),
