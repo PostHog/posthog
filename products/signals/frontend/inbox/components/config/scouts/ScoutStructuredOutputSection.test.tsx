@@ -63,7 +63,7 @@ describe('ScoutStructuredOutputSection', () => {
         // The whole reason this section has a save button: the scout reads the schema verbatim in
         // its prompt, so a half-typed schema must not reach the next run.
         const onUpdate = openSection(CONFIG)
-        const editor = screen.getByLabelText('signals-scout-hygiene record schema')
+        const editor = screen.getByLabelText('Hygiene record schema')
 
         fireEvent.change(editor, { target: { value: JSON.stringify(SCHEMA) } })
         expect(onUpdate).not.toHaveBeenCalled()
@@ -84,7 +84,7 @@ describe('ScoutStructuredOutputSection', () => {
             rerender(<ScoutStructuredOutputSection config={{ ...CONFIG, ...updates }} onUpdate={jest.fn()} updating />)
         ;({ rerender } = render(<ScoutStructuredOutputSection config={CONFIG} onUpdate={onUpdate} />))
         fireEvent.click(screen.getByText('Structured output'))
-        const editor = screen.getByLabelText('signals-scout-hygiene record schema')
+        const editor = screen.getByLabelText('Hygiene record schema')
 
         fireEvent.change(editor, { target: { value: JSON.stringify(SCHEMA) } })
         fireEvent.click(screen.getByText('Save schema'))
@@ -112,7 +112,7 @@ describe('ScoutStructuredOutputSection', () => {
             )
         ;({ rerender } = render(<ScoutStructuredOutputSection config={withSchema} onUpdate={onUpdate} />))
         fireEvent.click(screen.getByText('Structured output'))
-        const editor = screen.getByLabelText('signals-scout-hygiene record schema')
+        const editor = screen.getByLabelText('Hygiene record schema')
 
         fireEvent.change(editor, { target: { value: edit } })
         fireEvent.click(screen.getByText('Turn off'))
@@ -137,7 +137,7 @@ describe('ScoutStructuredOutputSection', () => {
         render(<ScoutStructuredOutputSection config={CONFIG} onUpdate={jest.fn()} onUnsavedChange={onUnsavedChange} />)
         fireEvent.click(screen.getByText('Structured output'))
 
-        fireEvent.change(screen.getByLabelText('signals-scout-hygiene record schema'), { target: { value: text } })
+        fireEvent.change(screen.getByLabelText('Hygiene record schema'), { target: { value: text } })
 
         expect(onUnsavedChange).toHaveBeenLastCalledWith(true)
     })
@@ -145,12 +145,12 @@ describe('ScoutStructuredOutputSection', () => {
     it('refuses to save a schema the API would reject', () => {
         const onUpdate = openSection(CONFIG)
 
-        fireEvent.change(screen.getByLabelText('signals-scout-hygiene record schema'), {
+        fireEvent.change(screen.getByLabelText('Hygiene record schema'), {
             target: { value: '{"type": "string"}' },
         })
 
         expect(screen.getByText('The schema must set "type": "object" at its root.')).toBeInTheDocument()
-        expect(screen.getByLabelText('signals-scout-hygiene record schema')).toHaveAttribute('aria-invalid', 'true')
+        expect(screen.getByLabelText('Hygiene record schema')).toHaveAttribute('aria-invalid', 'true')
         fireEvent.click(screen.getByText('Save schema'))
         expect(onUpdate).not.toHaveBeenCalled()
     })
