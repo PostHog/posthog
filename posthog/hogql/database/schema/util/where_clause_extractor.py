@@ -647,6 +647,7 @@ def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableTy
     elif (
         isinstance(node, ast.JsonSubcolumnAccess)
         and node.keys == ["$session_id"]
+        and node.map_subcolumn is None
         and isinstance(_unwrap_field_alias_type(node.expr.type), ast.FieldType)
     ):
         field_type = cast(ast.FieldType, _unwrap_field_alias_type(node.expr.type))

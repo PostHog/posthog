@@ -125,42 +125,23 @@ def test_compose_filters_clause_prints_for_the_new_schema(ateam):
         use_new_events_schema=True,
     )
 
-    # `$browser` is read from its typed path. `$feature/checkout` is not a stored key, so it is read from the
-    # `$feature_flags` map: a missing flag is NULL (unset), and the `$true` / `$false` sentinels that boolean flags store
-    # map back to 'true' / 'false', so the filter value matches as it does on the legacy schema.
+    # `$browser` is read from its typed path. `$feature/checkout` is not a stored key, so the filter compares the
+    # flag's own subcolumn of the `$feature_flags` map. A missing flag stores '', which matches no filter value, and
+    # 'true' also matches the `$true` sentinel that a variant named "true" is stored as, so the filter value matches
+    # as it does on the legacy schema.
     expected_clause = """
         and(
             equals(events.properties.`$browser`, %(hogql_val_0)s),
-            ifNull(
-                equals(
-                    if(
-                        has(events.properties.`$feature_flags`, %(hogql_val_1)s),
-                        multiIf(
-                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_2)s], %(hogql_val_3)s), 0), 'false',
-                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_4)s], %(hogql_val_5)s), 0), 'true',
-                            events.properties.`$feature_flags`[%(hogql_val_6)s]
-                        ),
-                        NULL
-                    ),
-                    %(hogql_val_7)s
-                ),
-                0
+            in(
+                accurateCast(events.properties.`$feature_flags`.key_checkout, 'String'),
+                tuple(%(hogql_val_1)s, %(hogql_val_2)s)
             )
         )
     """
     # The expected clause is indented for reading, so both sides are compared without whitespace. This is safe because
     # no literal in the clause contains whitespace: the filter values are query parameters.
     assert "".join(result_clause.split()) == "".join(expected_clause.split())
-    assert result_values == {
-        "hogql_val_0": "Chrome",
-        "hogql_val_1": "checkout",
-        "hogql_val_2": "checkout",
-        "hogql_val_3": "$false",
-        "hogql_val_4": "checkout",
-        "hogql_val_5": "$true",
-        "hogql_val_6": "checkout",
-        "hogql_val_7": "true",
-    }
+    assert result_values == {"hogql_val_0": "Chrome", "hogql_val_1": "true", "hogql_val_2": "$true"}
 
 
 async def _evaluate_filters_clause(clause: str, values: dict, document: str, *, use_new_events_schema: bool) -> bool:

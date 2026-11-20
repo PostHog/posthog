@@ -62,6 +62,8 @@ class HogQLPrinter(BasePrinter):
         # Only the ClickHouse printer prints this node as HogQL, to name a result column, and it removes `%` from that
         # name. So a native JSON key may keep a `%`, which `_print_identifier` refuses.
         keys = [quote_hogql_identifier(key) for key in node.keys]
+        if node.map_subcolumn is not None:
+            keys.append(quote_hogql_identifier(node.map_subcolumn))
         parts = [self.visit(node.expr)]
         parts.extend(keys)
         return ".".join(parts)

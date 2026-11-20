@@ -130,6 +130,7 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "{}",
         "Float64",
         "Int64",
+        "String",
         "Array(String)",
         "[]",
     }
@@ -1487,14 +1488,17 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator.
-        keys = [key.replace(".", "%2E") for key in node.keys]
+        # dot inside one key must not read as a path separator. A Map stores its keys as sent, so the subcolumn
+        # of one map key keeps its dots.
+        segments = [key.replace(".", "%2E") for key in node.keys]
+        if node.map_subcolumn is not None:
+            segments.append(node.map_subcolumn)
 
         # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
         # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
-        if any(not key for key in keys):
-            return f"getSubcolumn({expr}, {self.context.add_value('.'.join(keys))})"
+        if any(not segment for segment in segments):
+            return f"getSubcolumn({expr}, {self.context.add_value('.'.join(segments))})"
 
-        for key in keys:
-            expr = f"{expr}.{escape_clickhouse_json_path(key)}"
+        for segment in segments:
+            expr = f"{expr}.{escape_clickhouse_json_path(segment)}"
         return expr

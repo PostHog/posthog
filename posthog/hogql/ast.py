@@ -1045,10 +1045,14 @@ class JsonSubcolumnAccess(Expr):
     This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
     `PropertyAccess` node stays dialect-neutral; this node exists so the ClickHouse printer can emit
     `events.properties.`foo`` rather than pretending `properties.foo` is one escaped column name.
+
+    `map_subcolumn` names a subcolumn of a Map path, such as `keys` or `key_<map key>`. It is one identifier segment
+    with the map key as stored, so a dot in the key does not separate path segments there.
     """
 
     expr: Expr
     keys: list[str]
+    map_subcolumn: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
