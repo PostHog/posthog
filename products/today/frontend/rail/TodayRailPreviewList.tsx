@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { Button, Heading, ScrollArea, Skeleton, Text } from '@posthog/quill'
 
@@ -8,6 +9,8 @@ import { sidebarRowClassName } from '~/layout/today/sidebar/SidebarOption'
 import { SidebarRowIcon } from '~/layout/today/sidebar/SidebarRow'
 import { TodayPaneGroupLabel } from '~/layout/today/TodayPaneGroupLabel'
 import { TodayRailPane, todayShellLogic } from '~/layout/today/todayShellLogic'
+
+import { todayRailCardLogic } from './todayRailCardLogic'
 
 export interface TodayRailPreviewItem {
     name: string
@@ -33,11 +36,21 @@ export function TodayRailPreviewList({
     onAction: () => void
 }): JSX.Element | null {
     const { setPickedPane } = useActions(todayShellLogic)
+    const { cardShown, itemOpened } = useActions(todayRailCardLogic)
     const pinnedHrefs = new Set(pins.map((item) => item.href))
+    const unpinnedRecents = recents.filter((item) => !pinnedHrefs.has(item.href))
     const sections = [
-        { label: 'Recents', items: recents.filter((item) => !pinnedHrefs.has(item.href)) },
-        { label: 'Pinned', items: pins },
+        { key: 'recents' as const, label: 'Recents', items: unpinnedRecents },
+        { key: 'pinned' as const, label: 'Pinned', items: pins },
     ].filter((section) => section.items.length > 0)
+    const shownFor = useRef<TodayRailPane | null>(null)
+
+    useEffect(() => {
+        if (!loading && unpinnedRecents.length + pins.length > 0 && shownFor.current !== pane) {
+            shownFor.current = pane
+            cardShown(pane, unpinnedRecents.length, pins.length)
+        }
+    }, [pane, loading, unpinnedRecents.length, pins.length, cardShown])
 
     if (sections.length === 0 && !loading && !failed) {
         return null
@@ -58,10 +71,10 @@ export function TodayRailPreviewList({
                 >
                     <div className="px-1 pb-1">
                         {sections.map((section, index) => (
-                            <div key={section.label} role="group" aria-label={section.label}>
+                            <div key={section.key} role="group" aria-label={section.label}>
                                 <TodayPaneGroupLabel first={index === 0}>{section.label}</TodayPaneGroupLabel>
                                 <div className="flex flex-col gap-px">
-                                    {section.items.map((item) => (
+                                    {section.items.map((item, position) => (
                                         <Button
                                             key={item.href}
                                             size="row"
@@ -69,9 +82,22 @@ export function TodayRailPreviewList({
                                             nativeButton={false}
                                             render={<LinkPrimitive to={item.href} />}
                                             className={sidebarRowClassName('default')}
-                                            onClickCapture={onAction}
+                                            onClickCapture={(event) => {
+                                                itemOpened(
+                                                    pane,
+                                                    section.key,
+                                                    position,
+                                                    event.metaKey || event.ctrlKey || event.shiftKey
+                                                )
+                                                onAction()
+                                            }}
                                             onClick={() => setPickedPane(pane)}
-                                            onAuxClick={(event) => event.button === 1 && onAction()}
+                                            onAuxClick={(event) => {
+                                                if (event.button === 1) {
+                                                    itemOpened(pane, section.key, position, true)
+                                                    onAction()
+                                                }
+                                            }}
                                             title={item.name}
                                             data-attr="today-rail-preview-item"
                                         >
