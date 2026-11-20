@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { pluralize } from 'lib/utils/strings'
 
 import type { AnomalySearchResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -47,6 +48,18 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
     }
 
     const longerRange = longerAnomaliesDateRange(filters.dateFrom)
+    if (anomalies.insights_scored_in_range === 0) {
+        return (
+            <EmptyMessage
+                title="No insights were checked in this range"
+                description={`Scoring checks ${pluralize(anomalies.watched_insights, 'watched insight')} a few at a time, and none of them was scored in this range. There is no result yet on whether any of them was anomalous.`}
+                buttonText={longerRange ? 'Try a longer range' : undefined}
+                buttonOnClick={longerRange ? () => setFilters({ dateFrom: longerRange.dateFrom }) : undefined}
+                buttonDataAttr="anomalies-tab-longer-range"
+            />
+        )
+    }
+
     return (
         <EmptyMessage
             title={`Nothing unusual in the ${anomaliesDateRangeLabel(filters.dateFrom).toLowerCase()}`}

@@ -53,6 +53,7 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
         scored_history_ready: true,
         date_from: '2026-11-03T00:00:00+00:00',
         date_to: '2026-11-17T00:00:00+00:00',
+        interval_ranges: [],
         group_by: 'series',
         order: 'recent',
         series: rows.slice(offset, offset + limit),

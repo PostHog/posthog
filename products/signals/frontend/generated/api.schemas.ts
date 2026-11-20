@@ -670,6 +670,20 @@ export interface AnomalyPointsResponseApi {
     series: AnomalySeriesPointsApi[]
 }
 
+export interface AnomalyIntervalRangeApi {
+    /** The bucket interval.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+    /** The applied start of the range for series of this interval, in the project timezone. For `week` it is never later than the start of the last 2 completed weeks, and for `month` the start of the last completed month, so a short range still checks them. For `hour` and `day` it is the requested start. */
+    date_from: string
+    /** The applied end of the range, in the project timezone. */
+    date_to: string
+}
+
 /**
  * * `series` - Series
  * * `insight` - Insight
@@ -854,10 +868,12 @@ export interface AnomalySearchResponseApi {
     scored_days: number
     /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
     scored_history_ready: boolean
-    /** The applied start of the range, in the project timezone. */
+    /** The requested start of the range, in the project timezone. Weekly and monthly series can use an earlier start: see `interval_ranges`. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
     date_to: string
+    /** The range applied to the series of each interval the search covers, from `hour` to `month`. Only the requested `interval` when one was passed. Every count of a series row covers the range of its interval. */
+    interval_ranges: AnomalyIntervalRangeApi[]
     /** The applied grouping.
      *
      * * `series` - Series

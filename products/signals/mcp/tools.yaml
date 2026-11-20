@@ -96,7 +96,10 @@ tools:
             scored buckets in the range). Read it together with `coverage` (the share of the range that was scored) and
             `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only
             within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and
-            results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To
+            results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. A
+            short range still checks weekly and monthly series, because their range starts early enough to hold the
+            last 2 completed weeks or the last completed month. `interval_ranges` gives the range applied to each
+            interval, and the counts of a row cover the range of its interval. To
             check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's
             `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for
             example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among

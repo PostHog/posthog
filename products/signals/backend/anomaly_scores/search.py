@@ -6,7 +6,7 @@ scored in the range does not appear, so each answer also says how many insights 
 
 import json
 import datetime
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from urllib.parse import urlencode
 
 from django.db import models
@@ -69,6 +69,9 @@ URL_BUCKETS_AFTER = 3
 MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 # A larger set of requested insights is filtered after the read, so the ClickHouse query stays small.
 MAX_SCOPED_INSIGHTS = 1_000
+# The fewest completed buckets of an interval that the range of its series holds. A short range such as the last
+# 3 days rarely holds a completed weekly or monthly bucket, so without this those series are never checked in it.
+MIN_RANGE_BUCKETS: Mapping[IntervalType, int] = {IntervalType.WEEK: 2, IntervalType.MONTH: 1}
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
 SCORING_SOURCE_OFF_MESSAGE = (
     "The Product analytics source is turned off in this project's self-driving settings, so no insight is scored. "
@@ -121,6 +124,15 @@ class AnomalySearchFilters:
 
 
 @frozen
+class AnomalyIntervalRange:
+    """The range a search applied to the series of one interval."""
+
+    interval: IntervalType
+    date_from: datetime.datetime
+    date_to: datetime.datetime
+
+
+@frozen
 class SeriesRow:
     summary: SeriesSummary
     insight: ViewableInsight
@@ -153,6 +165,8 @@ class AnomalySearchResult:
     insights_scored_in_range: int
     # Over a fixed window before now, not the requested range, so it says whether scores are ready to rely on.
     scored_days: int
+    # One entry per interval the search covers. A weekly or monthly range can start before the requested one.
+    interval_ranges: list[AnomalyIntervalRange]
     series: list[SeriesRow]
     insights: list[InsightRow]
     has_more: bool
@@ -246,6 +260,31 @@ def _expected_buckets(
     return len(bucket_starts(summary.newest_bucket, summary.interval, date_from=date_from, date_to=date_to, now=now))
 
 
+def interval_ranges(
+    team: Team,
+    intervals: Sequence[IntervalType],
+    *,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
+    now: datetime.datetime,
+) -> list[AnomalyIntervalRange]:
+    """The range of each interval: the requested range, started earlier when needed to hold ``MIN_RANGE_BUCKETS``.
+
+    The buckets counted are the newest that completed by the end of the range, or by ``now`` when that is earlier.
+    They line up with the project's week start day, as the scored insight buckets do.
+    """
+    end = min(date_to, now).astimezone(team.timezone_info)
+    ranges: list[AnomalyIntervalRange] = []
+    for interval in intervals:
+        start = date_from
+        buckets = MIN_RANGE_BUCKETS.get(interval)
+        if buckets:
+            spec = interval_spec(interval)
+            start = min(date_from, spec.align(end, team.week_start_day) - spec.period * buckets)
+        ranges.append(AnomalyIntervalRange(interval=interval, date_from=start, date_to=date_to))
+    return ranges
+
+
 def _importance(team: Team, insight_ids: Collection[int], now: datetime.datetime) -> dict[int, SeriesImportance]:
     if not insight_ids:
         return {}
@@ -316,8 +355,25 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     if requested is not None:
         watched &= requested
 
+    ranges = interval_ranges(
+        team,
+        (filters.interval,)
+        if filters.interval is not None
+        else [IntervalType(value) for value in AnomalyInterval.values],
+        date_from=filters.date_from,
+        date_to=filters.date_to,
+        now=now,
+    )
+    range_from = {interval_range.interval: interval_range.date_from for interval_range in ranges}
+
     scope = requested if requested is None or len(requested) <= MAX_SCOPED_INSIGHTS else None
-    summaries = series_summaries(team, date_from=filters.date_from, date_to=filters.date_to, insight_ids=scope)
+    summaries = series_summaries(
+        team,
+        date_from=filters.date_from,
+        date_to=filters.date_to,
+        insight_ids=scope,
+        interval_from={interval: start for interval, start in range_from.items() if start != filters.date_from},
+    )
     requested_series = [summary for summary in summaries.series if requested is None or summary.insight_id in requested]
     insights = {
         insight.id: insight
@@ -372,7 +428,9 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                 insight_url=insight_url(
                     team, insights[summary.insight_id], _flagged_starts([summary]), summary.interval
                 ),
-                expected_buckets=_expected_buckets(summary, filters.date_from, filters.date_to, now),
+                expected_buckets=_expected_buckets(
+                    summary, range_from.get(summary.interval, filters.date_from), filters.date_to, now
+                ),
                 flagged_points=summary.flagged_points[:FLAGGED_POINTS],
                 points=None if points is None else tuple(points[(summary.insight_id, summary.series_key)]),
                 dashboards=dashboards.get(summary.insight_id, ()),
@@ -412,6 +470,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         watched_insights=watched_count,
         insights_scored_in_range=scored_in_range,
         scored_days=scored_days(team, now=now),
+        interval_ranges=ranges,
         series=series_rows,
         insights=insight_rows,
         has_more=has_more,

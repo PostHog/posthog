@@ -330,6 +330,18 @@ class AnomalyInsightRowSerializer(serializers.Serializer):
     top_series = AnomalyTopSeriesSerializer(many=True, help_text="Up to 3 flagged series, in the requested `order`.")
 
 
+class AnomalyIntervalRangeSerializer(serializers.Serializer):
+    interval = serializers.ChoiceField(choices=AnomalyInterval.choices, help_text="The bucket interval.")
+    date_from = ProjectDateTimeField(
+        help_text=(
+            "The applied start of the range for series of this interval, in the project timezone. For `week` it is "
+            "never later than the start of the last 2 completed weeks, and for `month` the start of the last "
+            "completed month, so a short range still checks them. For `hour` and `day` it is the requested start."
+        )
+    )
+    date_to = ProjectDateTimeField(help_text="The applied end of the range, in the project timezone.")
+
+
 class AnomalySearchResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(
         help_text=(
@@ -360,8 +372,20 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
             "on its scores, even when `scoring_enabled` is true."
         )
     )
-    date_from = ProjectDateTimeField(help_text="The applied start of the range, in the project timezone.")
+    date_from = ProjectDateTimeField(
+        help_text=(
+            "The requested start of the range, in the project timezone. Weekly and monthly series can use an "
+            "earlier start: see `interval_ranges`."
+        )
+    )
     date_to = ProjectDateTimeField(help_text="The applied end of the range, in the project timezone.")
+    interval_ranges = AnomalyIntervalRangeSerializer(
+        many=True,
+        help_text=(
+            "The range applied to the series of each interval the search covers, from `hour` to `month`. Only the "
+            "requested `interval` when one was passed. Every count of a series row covers the range of its interval."
+        ),
+    )
     group_by = serializers.ChoiceField(choices=AnomalyGroupBy.choices, help_text="The applied grouping.")
     order = serializers.ChoiceField(choices=AnomalyOrder.choices, help_text="The applied order.")
     series = AnomalySeriesSerializer(
@@ -576,6 +600,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "scored_history_ready": result.scored_history_ready,
                     "date_from": date_range.date_from,
                     "date_to": date_range.date_to,
+                    "interval_ranges": result.interval_ranges,
                     "group_by": filters.group_by,
                     "order": filters.order,
                     "series": result.series,

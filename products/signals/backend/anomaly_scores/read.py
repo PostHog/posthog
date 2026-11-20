@@ -104,6 +104,7 @@ SELECT
     maxIf(bucket_start, score IS NOT NULL),
     groupArrayIf(tuple(bucket_start, value, score), score IS NOT NULL AND flag = 1)
 FROM ({_LATEST_BUCKETS})
+WHERE bucket_start >= {{range_from}}
 GROUP BY insight_id, series_key
 ORDER BY countIf(score IS NOT NULL AND flag = 1) > 0 DESC
 LIMIT {{limit}}
@@ -350,17 +351,38 @@ def series_summaries(
     date_to: datetime.datetime,
     insight_ids: Collection[int] | None = None,
     series_key: str | None = None,
+    interval_from: Mapping[IntervalType, datetime.datetime] | None = None,
 ) -> SeriesSummaries:
-    """Each series with a score row from ``date_from`` to ``date_to``, in one scan."""
+    """Each series with a score row from ``date_from`` to ``date_to``, in one scan.
+
+    ``interval_from`` replaces ``date_from`` for the rows of an interval, so one scan reads a longer range for some.
+    """
     if insight_ids is not None and not insight_ids:
         return SeriesSummaries(series=[], truncated=False)
+    interval_from = interval_from or {}
+    range_from: ast.Expr = ast.Constant(value=date_from)
+    for interval, start in interval_from.items():
+        range_from = parse_expr(
+            "if(bucket_interval = {interval}, {start}, {otherwise})",
+            placeholders={
+                "interval": ast.Constant(value=interval.value),
+                "start": ast.Constant(value=start),
+                "otherwise": range_from,
+            },
+        )
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _SERIES_QUERY,
         team,
         query_type="AnomalyScoresSeriesSummaries",
         placeholders={
-            **_placeholders(since=date_from, until=date_to, insight_ids=insight_ids, series_key=series_key),
+            **_placeholders(
+                since=min([date_from, *interval_from.values()]),
+                until=date_to,
+                insight_ids=insight_ids,
+                series_key=series_key,
+            ),
+            "range_from": range_from,
             "limit": ast.Constant(value=MAX_SERIES + 1),
         },
         ch_user=ClickHouseUser.DEFAULT,

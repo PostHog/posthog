@@ -27,6 +27,7 @@ from products.signals.backend.anomaly_scores.search import (
     SCORING_DISABLED_MESSAGE,
     SCORING_SOURCE_OFF_MESSAGE,
     SCORING_TURNED_OFF_MESSAGE,
+    interval_ranges,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
@@ -217,6 +218,58 @@ class TestAnomalyRanking(SimpleTestCase):
             2,
         )
         assert insight.anomaly_rate == 2 / 15
+
+
+class TestAnomalyIntervalRanges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("last_two_weeks_from_sunday", IntervalType.WEEK, "UTC", 0, _day(20), NOW, "2026-10-04T00:00:00+00:00"),
+            (
+                "last_two_weeks_from_monday_in_the_project_timezone",
+                IntervalType.WEEK,
+                "America/New_York",
+                1,
+                _day(20),
+                NOW,
+                "2026-10-05T00:00:00-04:00",
+            ),
+            ("last_month", IntervalType.MONTH, "UTC", 0, _day(20), NOW, "2026-09-01T00:00:00+00:00"),
+            ("day_keeps_the_requested_start", IntervalType.DAY, "UTC", 0, _day(20), NOW, "2026-10-20T00:00:00+00:00"),
+            (
+                "a_longer_range_applies_as_chosen",
+                IntervalType.WEEK,
+                "UTC",
+                0,
+                _day(1),
+                NOW,
+                "2026-10-01T00:00:00+00:00",
+            ),
+            (
+                "weeks_completed_by_a_past_end",
+                IntervalType.WEEK,
+                "UTC",
+                0,
+                _day(7),
+                _day(10),
+                "2026-09-20T00:00:00+00:00",
+            ),
+        ]
+    )
+    def test_starts_weekly_and_monthly_ranges_early_enough_to_hold_completed_buckets(
+        self,
+        _name: str,
+        interval: IntervalType,
+        timezone: str,
+        week_start_day: int,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        expected_from: str,
+    ) -> None:
+        team = Team(timezone=timezone, week_start_day=week_start_day)
+
+        [applied] = interval_ranges(team, [interval], date_from=date_from, date_to=date_to, now=NOW)
+
+        assert (applied.interval, applied.date_from.isoformat(), applied.date_to) == (interval, expected_from, date_to)
 
 
 @time_machine.travel(NOW, tick=False)
@@ -482,6 +535,32 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert [[(row["series_key"], row["interval"]) for row in page["series"]] for page in pages] == [
             [("hourly", "hour"), ("daily", "day")],
             [("weekly", "week"), ("older", "day")],
+        ]
+
+    def test_search_checks_weekly_and_monthly_series_in_a_short_range(self) -> None:
+        self.team.week_start_day = 1
+        self.team.save()
+        # The last 2 completed weeks start on Mondays Oct 5 and Oct 12, and the last completed month on Sep 1.
+        for week in (datetime.datetime(2026, 9, 28, tzinfo=datetime.UTC), _day(5), _day(12)):
+            self._score(week, score=0.99, flag=1, series_key="weekly", interval="week")
+        for month in (
+            datetime.datetime(2026, 8, 1, tzinfo=datetime.UTC),
+            datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
+        ):
+            self._score(month, score=0.99, flag=1, series_key="monthly", interval="month")
+        self._score(_day(19), score=0.99, flag=1, series_key="daily")
+
+        body = self._get("search", date_from="-3d").json()
+
+        assert {
+            row["series_key"]: (row["scored_buckets"], row["flagged_buckets"], row["expected_buckets"])
+            for row in body["series"]
+        } == {"weekly": (2, 2, 2), "monthly": (1, 1, 1)}
+        assert [(row["interval"], row["date_from"]) for row in body["interval_ranges"]] == [
+            ("hour", "2026-10-20T12:00:00+00:00"),
+            ("day", "2026-10-20T12:00:00+00:00"),
+            ("week", "2026-10-05T00:00:00+00:00"),
+            ("month", "2026-09-01T00:00:00+00:00"),
         ]
 
     @parameterized.expand(
