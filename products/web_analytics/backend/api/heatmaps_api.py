@@ -46,7 +46,7 @@ from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.uploaded_media import validate_image_file
 from posthog.api.utils import action
-from posthog.auth import ExportRendererAuthentication
+from posthog.auth import ExportRendererAuthentication, IDJagAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
@@ -800,7 +800,7 @@ class ExportRendererHeatmapPermission(BasePermission):
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    authentication_classes = [ExportRendererAuthentication]
+    authentication_classes = [IDJagAccessTokenAuthentication, ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
     permission_classes = [HeatmapAggregateQueryScopingPermission, ExportRendererHeatmapPermission]
@@ -1434,7 +1434,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # the exporter's `fetch(heatmap_url, Authorization: Bearer ...)` call in
     # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
     # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
-    authentication_classes = [ExportRendererAuthentication]
+    authentication_classes = [IDJagAccessTokenAuthentication, ExportRendererAuthentication]
     permission_classes = [ExportRendererHeatmapPermission]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "content"]

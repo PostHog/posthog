@@ -15,7 +15,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
@@ -317,7 +317,7 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = ProjectSecretAPIKeySerializer
     permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
-    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
+    authentication_classes = [IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
 
     queryset = ProjectSecretAPIKey.objects.all()
 

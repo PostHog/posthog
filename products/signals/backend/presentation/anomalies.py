@@ -16,6 +16,7 @@ from posthog.schema import IntervalType
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -479,7 +480,12 @@ class AnomalyInsightResponseSerializer(serializers.Serializer):
 class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Read-only anomaly rates of the saved trends insights that anomaly scoring checks."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "insight"
     pagination_class = None

@@ -46,7 +46,12 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
@@ -546,6 +551,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -2130,6 +2136,9 @@ def _writer_has_open_network(request: Request, team_id: int) -> bool:
         return token_id is not None and tasks_facade.sandbox_token_has_open_network(
             team_id, token_id, task_id=getattr(token, "sandbox_task_id", None)
         )
+    # An ID-JAG token comes from an MCP client, the same as a third-party OAuth token, so it gets the same closed network.
+    if isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+        return False
     return get_oauth_access_token(request) is None or is_interactive_desktop_grant(request)
 
 
@@ -2184,6 +2193,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -4871,6 +4881,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     """
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -5376,6 +5387,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     """API for managing sandbox environments that control network access for task runs."""
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -5440,6 +5452,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     """
 
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,

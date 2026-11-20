@@ -10,7 +10,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.models import OrganizationMembership, User
 from posthog.permissions import APIScopePermission, TeamMemberLightManagementPermission, get_authenticator_scopes
 
@@ -76,7 +81,12 @@ class SelfDrivingTrialActivationSerializer(serializers.Serializer):
 
 
 class SelfDrivingTrialViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,

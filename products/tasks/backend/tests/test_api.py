@@ -53,6 +53,7 @@ from posthog.temporal.oauth import (
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.id_jag import id_jag_access_token
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
 
@@ -10464,9 +10465,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand([("open_base_version", True), ("restricted_base_version", False)])
+    @parameterized.expand(
+        [
+            ("open_base_version", False, True),
+            ("restricted_base_version", False, False),
+            ("id_jag_writer", True, False),
+        ]
+    )
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(self, _name, base_open, mock_integration_for_mapping):
+    def test_living_artifact_create_open_and_edit(self, name, id_jag_writer, base_open, mock_integration_for_mapping):
+        client = self.client
+        if id_jag_writer:
+            client = APIClient()
+            token = id_jag_access_token(self.user, self.organization, "task:read task:write")
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -10493,7 +10505,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         slack_integration.missing_scopes.return_value = set()
         mock_integration_for_mapping.return_value = slack_integration
 
-        create_response = self.client.post(
+        create_response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
             {
                 "name": "user_activity_report.md",
@@ -10512,17 +10524,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["current_version"], 1)
         self.assertEqual(artifact["versions"][0]["adapter"], TaskArtifact.Adapter.SLACK_CANVAS)
 
-        open_response = self.client.get(
+        open_response = client.get(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/"
         )
         self.assertEqual(open_response.status_code, status.HTTP_200_OK)
         self.assertEqual(open_response.json()["content"], "# Living report")
-        if not base_open:
+        if name == "restricted_base_version":
             created = TaskArtifact.objects.for_team(self.team.id).get(id=artifact["id"])
             created.versions = [{**created.versions[0], "written_with_open_network": False}]
             created.save(update_fields=["versions"])
 
-        edit_response = self.client.post(
+        edit_response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/edit/",
             {"content": "# Updated report"},
             format="json",

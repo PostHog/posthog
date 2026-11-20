@@ -14,7 +14,12 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
@@ -35,6 +40,7 @@ from products.tasks.backend.presentation.serializers import (
 )
 
 _AUTH_CLASSES: list[type[BaseAuthentication]] = [
+    IDJagAccessTokenAuthentication,
     SessionAuthentication,
     PersonalAPIKeyAuthentication,
     OAuthAccessTokenAuthentication,

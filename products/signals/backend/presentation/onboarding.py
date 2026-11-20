@@ -14,7 +14,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.exceptions import InsufficientScope
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
@@ -199,7 +204,12 @@ class InboxOnboardingPermission(BasePermission):
 
 
 class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, InboxOnboardingPermission]
     scope_object = "inbox"
     requires_resource_level_access = True

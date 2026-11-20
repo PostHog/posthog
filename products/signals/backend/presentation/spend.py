@@ -17,7 +17,12 @@ from posthog.hogql.errors import QueryError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.clickhouse.workload import Workload
 from posthog.permissions import APIScopePermission
 
@@ -75,7 +80,12 @@ class ReportSpendSerializer(serializers.Serializer):
 
 class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SpendOverviewSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_usage"
     pagination_class = None
@@ -87,7 +97,12 @@ class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class SignalSourceSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SourceSpendSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_usage"
     pagination_class = None
@@ -206,7 +221,12 @@ class MonthlyUsageSerializer(UsageCreditsSerializer):
 
 class SignalMonthlyUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MonthlyUsageSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_usage"
     pagination_class = None

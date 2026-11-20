@@ -21,7 +21,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -158,7 +163,12 @@ _EXCLUSION_ID = OpenApiParameter(
 
 class SignalReviewerExclusionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ReviewerExclusionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "inbox"
     pagination_class = None

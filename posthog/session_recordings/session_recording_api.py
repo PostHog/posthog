@@ -64,6 +64,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
+    IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -1071,7 +1072,7 @@ class ExportRendererRecordingPermission(BasePermission):
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
-    authentication_classes = [ExportRendererAuthentication]
+    authentication_classes = [IDJagAccessTokenAuthentication, ExportRendererAuthentication]
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots", "console_logs"]
