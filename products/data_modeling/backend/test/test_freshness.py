@@ -249,21 +249,37 @@ class TestValidateFrequencyTarget(TestCase):
         if message is not None:
             self.assertEqual(str(raised.exception), message)
 
-    def test_refusal_under_pinned_parents_names_the_pinned_view(self):
+    @parameterized.expand(
+        [
+            (
+                "a_pinned_parent_is_named",
+                {"crm": STREAMING},
+                {"contacts": H1},
+                {"contacts"},
+                "Can't refresh every 15 minutes: org_universe is pinned to refresh every 1 hour. Pick 1 hour instead.",
+            ),
+            (
+                "slow_sources_are_not_blamed_on_one_of_them",
+                {"crm": H6},
+                {},
+                set(),
+                "Can't refresh every 15 minutes: no upstream source syncs more often than every 6 hours. "
+                "Pick 6 hours instead.",
+            ),
+        ]
+    )
+    def test_floor_refusal_message(self, _name, source_intervals, declared_targets, pinned, message):
         with self.assertRaises(UnsatisfiableFrequencyError) as raised:
             validate_declared_target(
                 node_id="signups",
                 target=M15,
                 edges=[("crm", "contacts"), ("contacts", "signups")],
-                declared_targets={"contacts": H1},
-                source_intervals={"crm": STREAMING},
-                names={"contacts": "org_universe"},
-                pinned={"contacts"},
+                declared_targets=declared_targets,
+                source_intervals=source_intervals,
+                names={"contacts": "org_universe", "crm": "aws_customers"},
+                pinned=pinned,
             )
-        self.assertEqual(
-            str(raised.exception),
-            "Can't refresh every 15 minutes: org_universe is pinned to refresh every 1 hour. Pick 1 hour instead.",
-        )
+        self.assertEqual(str(raised.exception), message)
 
     @parameterized.expand(
         [
