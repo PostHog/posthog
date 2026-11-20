@@ -2398,6 +2398,13 @@ class TestWriteScopesValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("make_it_green", ["make_it_green"], True, ["make_it_green"]),
+            ("resolve_conflicts", ["resolve_conflicts"], True, ["resolve_conflicts"]),
+            (
+                "both_fixed_prompt_actions",
+                ["resolve_conflicts", "make_it_green"],
+                True,
+                ["make_it_green", "resolve_conflicts"],
+            ),
             # Both carry text a scout can write, and the run they start holds its acting user's full access.
             ("ask", ["ask"], False, None),
             ("suggested_prompt", ["suggested_prompt"], False, None),
