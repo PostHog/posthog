@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from io import StringIO
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -55,11 +56,13 @@ class TestInboxSummary(APIBaseTest):
         verified: bool = True,
         relationship: str = "implementation",
         state: str = "merged",
+        pk: UUID | None = None,
     ) -> SignalReportPullRequest:
         team = team or self.team
         if participant_ids is not None and participant_logins is None:
             participant_logins = [f"user-{participant_id}" for participant_id in participant_ids]
         pr = SignalReportPullRequest.objects.for_team(team.id).create(
+            pk=pk,
             team=team,
             repository="example/app",
             number=number,
@@ -549,23 +552,36 @@ class TestInboxSummary(APIBaseTest):
             enqueue.assert_called_once_with(team_id=self.team.id, repository="example/app", pr_number=1)
 
     def test_backfill_is_bounded_resumable_and_includes_missing_merge_times(self) -> None:
-        self.make_pr(1, merged_at=None)
-        self.make_pr(2)
-        self.make_pr(3, merged_at=NOW - timedelta(days=30))
-        existing = self.make_pr(4, participant_ids=[10])
+        # The frozen clock gives UUIDT IDs no reliable order, so the IDs are explicit.
+        # The unverified PR sorts first to check that a page with no verified PRs still advances the cursor.
+        unverified = self.make_pr(5, verified=False, pk=UUID(int=1))
+        self.make_pr(1, merged_at=None, pk=UUID(int=2))
+        self.make_pr(2, pk=UUID(int=3))
+        self.make_pr(3, merged_at=NOW - timedelta(days=30), pk=UUID(int=4))
+        existing = self.make_pr(4, participant_ids=[10], pk=UUID(int=5))
         SignalReportPullRequest.objects.for_team(self.team.id).filter(id=existing.id).update(participant_logins=None)
-        self.make_pr(5, verified=False)
-        output = StringIO()
         with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
-            call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, dry_run=True, stdout=output)
+            output = StringIO()
+            call_command(
+                "backfill_inbox_summary",
+                team_id=self.team.id,
+                after=unverified.id,
+                limit=1,
+                dry_run=True,
+                stdout=output,
+            )
             enqueue.assert_not_called()
+            assert "Would queue 1 pull requests" in output.getvalue()
             output = StringIO()
             call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, stdout=output)
+            enqueue.assert_not_called()
+            assert f"Resume with --after {unverified.id}" in output.getvalue()
+            output = StringIO()
+            call_command("backfill_inbox_summary", team_id=self.team.id, after=unverified.id, limit=1, stdout=output)
             assert enqueue.call_count == 1
             cursor = output.getvalue().split("--after ")[1].strip()
             call_command("backfill_inbox_summary", team_id=self.team.id, after=cursor, stdout=StringIO())
-            assert enqueue.call_count == 3
-            assert {call.kwargs["pr_number"] for call in enqueue.call_args_list} == {1, 2, 4}
+            assert sorted(call.kwargs["pr_number"] for call in enqueue.call_args_list) == [1, 2, 4]
 
 
 class TestPullRequestReviewPagination(SimpleTestCase):
