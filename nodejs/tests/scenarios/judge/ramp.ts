@@ -122,7 +122,9 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
     if (admitted) {
         return { stop: admitted }
     }
-    const writerCpu = live.bars.some(({ name }) => name === WRITER_CPU_UNDER) ? await live.writerCpu(span) : []
+    const writerCpu = live.bars.some(({ name }) => name === WRITER_CPU_UNDER)
+        ? await live.writerCpu(span).catch((error: unknown) => ({ unread: messageOf(error) }))
+        : []
     const results = judgeStep(
         live.bars,
         {
@@ -193,7 +195,10 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
                 return
             }
             refused.push(entry)
-            if (refused.length <= gate) {
+            if (
+                refused.length <= gate ||
+                (stop !== undefined && entry.step !== undefined && entry.step >= stop.index)
+            ) {
                 return
             }
             const crossedBy = crossedByOf(refused, refused, gate)
