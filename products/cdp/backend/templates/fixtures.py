@@ -186,3 +186,46 @@ if (res.status >= 400) {
         {"key": "links", "type": "json", "label": "Links", "secret": False, "required": False},
     ],
 )
+
+# Same arrangement for the HTTP webhook destination (nodejs/src/cdp/templates/_destinations/webhook).
+# Its inputs schema keeps the nodejs template's secret split, which decides what a saved destination
+# keeps in `encrypted_inputs`.
+template_webhook = HogFunctionTemplateDC(
+    status="stable",
+    free=False,
+    type="destination",
+    id="template-webhook",
+    name="HTTP Webhook",
+    description="Sends a webhook templated by the incoming event data",
+    icon_url="/static/services/webhook.svg",
+    category=["Custom"],
+    code_language="hog",
+    code="""
+let res := fetch(inputs.url, {'headers': inputs.headers, 'body': inputs.body, 'method': inputs.method});
+if (res.status >= 400) {
+    throw Error(f'Webhook failed with status {res.status}: {res.body}');
+}
+""".strip(),
+    inputs_schema=[
+        {"key": "url", "type": "string", "label": "Webhook URL", "secret": False, "required": True},
+        {
+            "key": "method",
+            "type": "choice",
+            "label": "Method",
+            "choices": [{"label": "POST", "value": "POST"}, {"label": "PUT", "value": "PUT"}],
+            "default": "POST",
+            "secret": False,
+            "required": False,
+        },
+        {"key": "body", "type": "json", "label": "JSON body", "secret": False, "required": False},
+        {
+            "key": "headers",
+            "type": "dictionary",
+            "label": "Headers",
+            "default": {"Content-Type": "application/json"},
+            "secret": False,
+            "required": False,
+        },
+        {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True, "required": False},
+    ],
+)

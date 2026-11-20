@@ -42,6 +42,7 @@ from products.signals.backend.default_owner import resolve_signals_enabler
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.implementation_repositories import (
     access_repositories_instruction,
     implementation_access_repositories,
@@ -1456,6 +1457,13 @@ async def maybe_autostart_implementation_task(
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
+    if assignment.state.reviewers_id is not None:
+        reviewers_content, authorization = await _latest_reviewers_content(
+            report_id, reviewer_id=assignment.state.reviewers_id
+        )
+        if authorization is None:
+            return AutostartOutcome(status="blocked", reason="Implementation requires start authorization")
+        triggering_user_id = authorization.user_id
     if (
         assignment.state.corrections_id is None
         and assignment.corrections.needs_review
@@ -1465,7 +1473,6 @@ async def maybe_autostart_implementation_task(
             status="blocked", reason="Older reviewer edits need recovery before automatic execution"
         )
     if assignment.state.corrections_id is not None:
-        reviewers_content, triggering_user_id = await _latest_reviewers_content(report_id)
         if triggering_user_id is None and (
             assignment.corrections.pinned or assignment.corrections.excluded or assignment.corrections.needs_review
         ):
@@ -1754,29 +1761,29 @@ async def maybe_autostart_implementation_task(
     return AutostartOutcome(status="started")
 
 
-async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerContent], int | None]:
-    """Latest suggested-reviewers list, plus the id of the user who last edited it (if any).
+async def _latest_reviewers_content(
+    report_id: str, *, reviewer_id: UUID | None = None
+) -> tuple[list[ReviewerContent], ImplementationAuthorization | None]:
+    """Reviewer content and its authorization to start implementation.
 
-    The second value is the artefact's user attribution (``created_by_id``): set when a human
-    edited it via the artefact API, ``None`` when the pipeline/system wrote it. A user-edited list
-    must auto-start as that user, never as a named colleague (reviewer impersonation).
+    Execution authorization is server-owned and independent of the artefact's writer attribution.
+    A user-authorized list can run only as that user, including after a deferred retry.
     """
-    artefact = (
-        await SignalReportArtefact.objects.filter(
-            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
-        )
-        .order_by("-created_at", "-id")
-        .afirst()
+    reviewers_query = SignalReportArtefact.objects.filter(
+        report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
     )
+    if reviewer_id is not None:
+        reviewers_query = reviewers_query.filter(id=reviewer_id)
+    artefact = await reviewers_query.order_by("-created_at", "-id").afirst()
     if artefact is None:
         return [], None
-    editor_user_id = artefact.created_by_id
+    authorization = ImplementationAuthorization.from_stored(artefact.implementation_authorization)
     try:
         data = json.loads(artefact.content)
     except (json.JSONDecodeError, ValueError):
-        return [], editor_user_id
+        return [], authorization
     if not isinstance(data, list):
-        return [], editor_user_id
+        return [], authorization
     reviewers: list[ReviewerContent] = []
     for entry in data:
         # Either identity is enough to keep the entry. A reviewer with no login still routes the
@@ -1796,7 +1803,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     source_skill=str(source_skill) if source_skill else None,
                 )
             )
-    return reviewers, editor_user_id
+    return reviewers, authorization
 
 
 async def maybe_autostart_from_report_artefacts(
@@ -1912,12 +1919,6 @@ async def maybe_autostart_from_report_artefacts(
     implementation_decision = await SignalReportArtefact.alatest_content(
         team_id=team_id, report_id=report_id, model=ImplementationDecision, created_after=report.last_run_at
     )
-    # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
-    # falls back to the member who enabled signals for the team (for the system/scout path, gated by
-    # the team autostart priority), while a user-edited list still runs strictly as the editing user
-    # via `triggering_user_id` below.
-    reviewers_content, editor_user_id = await _latest_reviewers_content(report_id)
-
     return await maybe_autostart_implementation_task(
         team_id=team_id,
         report_id=report_id,
@@ -1926,11 +1927,8 @@ async def maybe_autostart_from_report_artefacts(
         title=report.title,
         summary=report.summary,
         actionability=actionability,
-        reviewers_content=reviewers_content,
+        reviewers_content=[],
         priority=priority,
-        # If a user edited the reviewers, run the task as that user — never as a named colleague,
-        # which would let one user act under another's PostHog identity (reviewer impersonation).
-        triggering_user_id=editor_user_id,
         repository_autostart_eligible=repo_selection.autostart_eligible,
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,

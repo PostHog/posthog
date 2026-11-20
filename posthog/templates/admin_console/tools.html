@@ -21,12 +21,14 @@
                             <a class="w-56 shrink-0 font-semibold text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
                                href="{% url 'admin_console_tool' tool_key=listed_tool.key %}">{{ listed_tool.title }}</a>
                             <span class="flex-1 min-w-[16rem] text-muted-foreground">{{ listed_tool.description }}</span>
-                            <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
-                                {{ listed_tool.owner.name }}
-                                <img class="size-[18px]"
-                                     src="/static/admin-console/crests/{{ listed_tool.owner.crest }}.svg"
-                                     alt="" />
-                            </span>
+                            {% if listed_tool.owner %}
+                                <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
+                                    {{ listed_tool.owner.name }}
+                                    <img class="size-[18px]"
+                                         src="/static/admin-console/crests/{{ listed_tool.owner.crest }}.svg"
+                                         alt="" />
+                                </span>
+                            {% endif %}
                         </li>
                     {% endfor %}
                 </ul>

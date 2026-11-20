@@ -74,6 +74,8 @@ QUESTIONS: dict[str, DecisionQuestion] = {
 }
 CONTROL_QUESTION = "normal_integration"
 MALICIOUS_QUESTIONS = tuple(question for question in QUESTIONS if question != CONTROL_QUESTION)
+# Code that sends no request cannot reach an internal address, however its wording reads to the model.
+OUTBOUND_QUESTIONS = frozenset({"internal_network"})
 
 
 class FailureReason(StrEnum):
@@ -266,6 +268,7 @@ def classify(
     *,
     team_id: int,
     thresholds: Thresholds,
+    outbound_call: bool,
 ) -> AbuseVerdict:
     # The facade pulls the LLM SDKs through the gateway client, which must stay out of Django startup.
     from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
@@ -300,11 +303,14 @@ def classify(
 
     scores = _scores(result.answers)
     risk_score = max(scores[question] for question in MALICIOUS_QUESTIONS)
+    acted_on_risk = max(
+        scores[question] for question in MALICIOUS_QUESTIONS if outbound_call or question not in OUTBOUND_QUESTIONS
+    )
     return AbuseVerdict(
         scores=scores,
         risk_score=risk_score,
-        would_alert=_would_alert(scores, risk_score, thresholds),
-        would_block=risk_score >= thresholds.block,
+        would_alert=_would_alert(scores, acted_on_risk, thresholds),
+        would_block=acted_on_risk >= thresholds.block,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,
