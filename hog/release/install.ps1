@@ -161,6 +161,7 @@ function Install-Hog {
                     Exe = Join-Path $InstallDir $file.Name
                     Old = Join-Path $InstallDir "$($file.BaseName).old$($file.Extension)"
                     HadOld = $false
+                    Placed = $false
                 }
                 if (Test-Path $swap.Old) { Remove-Item -Force $swap.Old -ErrorAction SilentlyContinue }
                 $swapped += $swap
@@ -169,10 +170,12 @@ function Install-Hog {
                     $swap.HadOld = $true
                 }
                 Move-Item -Force $swap.New $swap.Exe
+                $swap.Placed = $true
             }
         } catch {
+            # Only a file the install put in place goes, so an old one it couldn't move aside stays.
             foreach ($swap in $swapped) {
-                Remove-Item -Force $swap.Exe -ErrorAction SilentlyContinue
+                if ($swap.Placed) { Remove-Item -Force $swap.Exe -ErrorAction SilentlyContinue }
                 if ($swap.HadOld) { Move-Item -Force $swap.Old $swap.Exe }
             }
             throw

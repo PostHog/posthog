@@ -289,24 +289,33 @@ main() {
     fi
 
     # The files of a release work only together, so each old one stays aside until every new one is
-    # in place, and all of them go back when one can't be replaced.
+    # in place, and all of them go back when one can't be replaced or the install is interrupted. A
+    # name is recorded once its old file is safe aside, before the move that replaces it.
     replaced=''
+    roll_back() {
+        for old in $replaced; do
+            if [ -f "$kept/$old" ]; then
+                mv -f "$kept/$old" "$install_dir/$old"
+            else
+                rm -f "$install_dir/$old"
+            fi
+        done
+        rm -rf "$staged" "$kept"
+    }
+    trap 'roll_back; exit 1' INT TERM
     for file in "$staged"/*; do
         name=$(basename "$file")
-        if { [ -f "$install_dir/$name" ] && ! cp -p "$install_dir/$name" "$kept/$name"; } ||
-            ! mv -f "$file" "$install_dir/$name"; then
-            for old in $replaced; do
-                if [ -f "$kept/$old" ]; then
-                    mv -f "$kept/$old" "$install_dir/$old"
-                else
-                    rm -f "$install_dir/$old"
-                fi
-            done
-            rm -rf "$staged" "$kept"
+        if [ -f "$install_dir/$name" ] && ! cp -p "$install_dir/$name" "$kept/$name"; then
+            roll_back
             err "couldn't replace $install_dir/$name, so the install left $install_dir as it was."
         fi
         replaced="$replaced $name"
+        if ! mv -f "$file" "$install_dir/$name"; then
+            roll_back
+            err "couldn't replace $install_dir/$name, so the install left $install_dir as it was."
+        fi
     done
+    trap 'exit 1' INT TERM
     rm -rf "$staged" "$kept"
     write_receipt
 

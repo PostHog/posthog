@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { deflateRawSync } from 'node:zlib'
 
 import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { replaceExecutables } from '@/core/runtime'
@@ -27,6 +28,46 @@ function archiveOf(files: Record<string, Uint8Array>): Uint8Array {
     const tar = Bun.spawnSync(['tar', '-czf', 'hog.tar.gz', ...Object.keys(files)], { cwd: folder })
     expect(tar.exitCode).toBe(0)
     return new Uint8Array(readFileSync(join(folder, 'hog.tar.gz')))
+}
+
+// A zip of deflated entries, the way release/package.ts packs the Windows archives.
+function zipOf(files: Record<string, Uint8Array>): Uint8Array {
+    const locals: Uint8Array[] = []
+    const centrals: Uint8Array[] = []
+    let offset = 0
+    for (const [name, contents] of Object.entries(files)) {
+        const nameBytes = new TextEncoder().encode(name)
+        const data = deflateRawSync(contents)
+        const crc = Bun.hash.crc32(contents)
+        const local = Buffer.alloc(30 + nameBytes.length)
+        local.writeUInt32LE(0x04034b50, 0)
+        local.writeUInt16LE(8, 8)
+        local.writeUInt32LE(crc, 14)
+        local.writeUInt32LE(data.length, 18)
+        local.writeUInt32LE(contents.length, 22)
+        local.writeUInt16LE(nameBytes.length, 26)
+        local.set(nameBytes, 30)
+        const central = Buffer.alloc(46 + nameBytes.length)
+        central.writeUInt32LE(0x02014b50, 0)
+        central.writeUInt16LE(8, 10)
+        central.writeUInt32LE(crc, 16)
+        central.writeUInt32LE(data.length, 20)
+        central.writeUInt32LE(contents.length, 24)
+        central.writeUInt16LE(nameBytes.length, 28)
+        central.writeUInt32LE(offset, 42)
+        central.set(nameBytes, 46)
+        locals.push(local, data)
+        centrals.push(central)
+        offset += local.length + data.length
+    }
+    const directory = Buffer.concat(centrals)
+    const end = Buffer.alloc(22)
+    end.writeUInt32LE(0x06054b50, 0)
+    end.writeUInt16LE(centrals.length, 8)
+    end.writeUInt16LE(centrals.length, 10)
+    end.writeUInt32LE(directory.length, 12)
+    end.writeUInt32LE(offset, 16)
+    return new Uint8Array(Buffer.concat([...locals, directory, end]))
 }
 
 const ARCHIVE = archiveOf({ hog: BINARY, 'hog-worker': WORKER })
@@ -503,8 +544,16 @@ describe('hog upgrade', () => {
         expect(HOG in result.executables).toBe(replaced)
     })
 
-    test('refuses an archive that unpacks to more than the limit', () => {
-        expect(() => extractAll(ARCHIVE, 'hog-linux-x64.tar.gz', 512)).toThrow('it unpacks to more than 512 bytes')
+    const HALF_OF_LIMIT = new Uint8Array(300).fill(65)
+    test.each([
+        ['a tar.gz that unpacks to more than the limit', ARCHIVE, 'hog-linux-x64.tar.gz'],
+        [
+            'a zip whose entries add up to more than the limit',
+            zipOf({ 'hog.exe': HALF_OF_LIMIT, 'hog-worker.exe': HALF_OF_LIMIT }),
+            'hog-windows-x64.zip',
+        ],
+    ])('refuses %s', (_name, archive, name) => {
+        expect(() => extractAll(archive, name, 512)).toThrow('it unpacks to more than 512 bytes')
     })
 
     test('installs the version --version names', async () => {

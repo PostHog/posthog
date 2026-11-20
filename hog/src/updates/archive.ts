@@ -16,6 +16,8 @@ export function brokenArchive(reason: string): HogError {
     )
 }
 
+const tooLarge = (maxBytes: number): HogError => brokenArchive(`it unpacks to more than ${maxBytes} bytes`)
+
 function text(bytes: Uint8Array): string {
     const end = bytes.indexOf(0)
     return new TextDecoder().decode(end === -1 ? bytes : bytes.subarray(0, end))
@@ -58,6 +60,7 @@ function fromZip(archive: Uint8Array, maxBytes: number): Map<string, Uint8Array>
 
     let entry = view.getUint32(end + 16, true)
     const count = view.getUint16(end + 10, true)
+    let extracted = 0
     for (let index = 0; index < count; index++) {
         if (view.getUint32(entry, true) !== 0x02014b50) {
             throw brokenArchive('its file list is damaged')
@@ -77,7 +80,17 @@ function fromZip(archive: Uint8Array, maxBytes: number): Map<string, Uint8Array>
             if (method !== 0 && method !== 8) {
                 throw brokenArchive(`it uses compression method ${method}`)
             }
-            files.set(basename(entryName), method === 0 ? data : inflateRawSync(data, { maxOutputLength: maxBytes }))
+            // The limit covers every entry together, so many small entries can't add up past it.
+            const remaining = maxBytes - extracted
+            const contents =
+                method === 0 || data.length === 0
+                    ? data
+                    : inflateRawSync(data, { maxOutputLength: Math.max(remaining, 1) })
+            extracted += contents.length
+            if (extracted > maxBytes) {
+                throw tooLarge(maxBytes)
+            }
+            files.set(basename(entryName), contents)
         }
         entry += 46 + nameLength + extraLength + commentLength
     }
@@ -93,7 +106,7 @@ export function extractAll(
         return archiveName.endsWith('.zip') ? fromZip(archive, maxBytes) : fromTarGz(archive, maxBytes)
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
-            throw brokenArchive(`it unpacks to more than ${maxBytes} bytes`)
+            throw tooLarge(maxBytes)
         }
         throw error instanceof HogError ? error : brokenArchive(error instanceof Error ? error.message : String(error))
     }

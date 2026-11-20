@@ -39,6 +39,12 @@ describe('starting hog-worker', () => {
         expect(failure).toMatchObject({ code: 'worker_mismatch', message: expect.stringContaining(message) })
     })
 
+    test('gives up on a worker that never answers', async () => {
+        const failure = await new Worker(program('exec sleep 30')).check(100).catch((error: unknown) => error)
+
+        expect(failure).toMatchObject({ code: 'worker_mismatch' })
+    })
+
     test('names the path when the worker is not there', async () => {
         const path = join(tmpdir(), 'hog-worker-test-missing', 'hog-worker')
 

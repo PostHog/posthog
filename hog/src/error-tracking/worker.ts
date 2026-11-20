@@ -20,6 +20,9 @@ import type { ReleaseMode } from './session'
 // that replaced only one of them is caught here instead of in a request the other can't read.
 export const WORKER_PROTOCOL = 1
 
+// A first run of a signed binary can wait on the system's notarization check.
+const WORKER_CHECK_TIMEOUT_MS = 30_000
+
 // Where `pnpm --filter hog build:worker` puts the worker, for a hog that runs from source.
 const SOURCE_BUILD = join(import.meta.dir, '..', '..', 'worker', 'target', 'release')
 
@@ -197,6 +200,7 @@ interface Running {
 
 export class Worker {
     private running: Promise<Running> | undefined
+    private child: Running['child'] | undefined
 
     constructor(
         private readonly path: string = workerPath({
@@ -213,6 +217,7 @@ export class Worker {
             let child: Running['child']
             try {
                 child = Bun.spawn([this.path], { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' })
+                this.child = child
             } catch (error) {
                 throw new HogError(
                     'worker_missing',
@@ -387,11 +392,14 @@ export class Worker {
         })
     }
 
-    async check(): Promise<void> {
+    // A worker that never answers or never exits counts as broken, so `hog upgrade` can repair it.
+    async check(timeoutMs: number = WORKER_CHECK_TIMEOUT_MS): Promise<void> {
+        const timer = setTimeout(() => this.child?.kill(), timeoutMs)
         try {
             await this.start()
         } finally {
             await this.close()
+            clearTimeout(timer)
         }
     }
 
