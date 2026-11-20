@@ -3824,25 +3824,30 @@ ${classifyTemplate.code}`,
             })
             const { executor: capped } = createExecutor(createEmailService(), new ClassifyDailyCap(capValkey, 2))
             const django = djangoAnswers(200, 200, 200)
-            const classifyToTheEnd = async (): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+            const classifyToTheEnd = async (): Promise<{
+                result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+                logs: string[]
+            }> => {
                 let result = await capped.execute(await classifyRun())
+                const logs = result.logs.map((log) => log.message)
                 while (!result.finished) {
                     result = await capped.execute(result.invocation)
+                    logs.push(...result.logs.map((log) => log.message))
                 }
-                return result
+                return { result, logs }
             }
             const today = DateTime.fromISO('2026-11-20T23:00:00Z')
             const dateNow = jest.spyOn(Date, 'now').mockReturnValue(today.toMillis())
 
             const runsToday = [await classifyToTheEnd(), await classifyToTheEnd(), await classifyToTheEnd()]
 
-            expect(runsToday.map((run) => run.invocation.state.variables?.classification)).toEqual([
+            expect(runsToday.map((run) => run.result.invocation.state.variables?.classification)).toEqual([
                 { category: 'spam', confidence: 0.9 },
                 { category: 'spam', confidence: 0.9 },
-                expect.objectContaining({ skipped: true }),
+                { category: null, confidence: null, skipped: true },
             ])
-            expect(runsToday[2].error).toBeUndefined()
-            expect(runsToday[2].logs.map((log) => log.message)).toEqual(
+            expect(runsToday[2].result.error).toBeUndefined()
+            expect(runsToday[2].logs).toEqual(
                 expect.arrayContaining([expect.stringContaining('daily limit of 2 classifications')])
             )
             expect(django).toHaveBeenCalledTimes(2)
@@ -3850,7 +3855,7 @@ ${classifyTemplate.code}`,
             dateNow.mockReturnValue(today.plus({ hours: 2 }).toMillis())
             const tomorrow = await classifyToTheEnd()
 
-            expect(tomorrow.invocation.state.variables?.classification?.category).toBe('spam')
+            expect(tomorrow.result.invocation.state.variables?.classification?.category).toBe('spam')
             expect(django).toHaveBeenCalledTimes(3)
         })
 

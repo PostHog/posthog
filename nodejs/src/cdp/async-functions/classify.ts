@@ -126,8 +126,8 @@ registerAsyncFunction('postHogClassify', {
     },
 })
 
-// Longer than the UTC day a key counts, so a key never expires while its day still runs.
 const DAILY_COUNT_TTL_SECONDS = 2 * 24 * 60 * 60
+const DAILY_COUNT_DEADLINE_MS = 500
 
 /** Counts each team's classifications per UTC day, so one team cannot spend the whole model budget. */
 export class ClassifyDailyCap {
@@ -136,17 +136,26 @@ export class ClassifyDailyCap {
         readonly dailyCap: number
     ) {}
 
-    /** Counts one classification and says whether it fits. A Valkey error lets it through: the queue's limiter still bounds the rate. */
+    /** Counts one classification and says whether it fits. A slow or failing Valkey lets it through: the queue's limiter still bounds the rate. */
     async countAndCheck(teamId: number): Promise<boolean> {
         const day = new Date(Date.now()).toISOString().slice(0, 10)
         const key = `@posthog/classify-day/{${teamId}}/${day}`
-        const count = await this.valkey.useClient({ name: 'classify-daily-cap', failOpen: true }, async (client) => {
-            const [[, counted]] = (await client.multi().incr(key).expire(key, DAILY_COUNT_TTL_SECONDS).exec()) ?? [
-                [null, 0],
-            ]
-            return Number(counted)
-        })
-        return count === null || count <= this.dailyCap
+        try {
+            const count = await this.valkey.useClient(
+                { name: 'classify-daily-cap', failOpen: true, deadlineMs: DAILY_COUNT_DEADLINE_MS },
+                async (client) => {
+                    const [[, counted]] = (await client
+                        .multi()
+                        .incr(key)
+                        .expire(key, DAILY_COUNT_TTL_SECONDS)
+                        .exec()) ?? [[null, 0]]
+                    return Number(counted)
+                }
+            )
+            return count === null || count <= this.dailyCap
+        } catch {
+            return true
+        }
     }
 }
 
@@ -219,9 +228,15 @@ export async function classifyOnce(
 
     // Only the first attempt counts, because a retry is the same classification.
     if (invocation.state.attempts === 0 && dailyCap && !(await dailyCap.countAndCheck(invocation.teamId))) {
-        const message = `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
-        addLog('warn', message)
-        result.invocation.state.vmState?.stack.push({ status: 409, body: { detail: message } })
+        addLog(
+            'warn',
+            `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
+        )
+        // A success that carries the skip, so a run suspended under any version of the template returns it as the step's output.
+        result.invocation.state.vmState?.stack.push({
+            status: 200,
+            body: { category: null, confidence: null, skipped: true },
+        })
         return result
     }
 
