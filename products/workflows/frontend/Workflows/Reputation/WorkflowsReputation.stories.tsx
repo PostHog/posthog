@@ -94,13 +94,37 @@ const baseResponse: TeamEmailReputationResponseApi = {
     isp_shared_domains: [],
     isp_withheld_domains: [],
     sending_allowance: {
-        tier: 2,
-        max_tier: 4,
-        emails_per_day: 50000,
-        max_batch_audience: 25000,
-        rate_limited_max_batch_audience: 70000,
-        emails_sent_last_day: 18400,
+        tier: 1,
+        max_tier: 7,
+        emails_per_day: 1000,
+        max_batch_audience: 1000,
+        rate_limited_max_batch_audience: 3000,
+        emails_sent_last_day: 640,
         enforced: true,
+        next_tier: {
+            emails_per_day: 3000,
+            daily_target: 500,
+            days_required: 2,
+            days_reached: 1,
+            not_before: '2026-09-02T07:15:00Z',
+        },
+        recent_rates: {
+            window_days: 7,
+            emails_sent: 2900,
+            bounce_rate: 0.004,
+            complaint_rate: 0.0002,
+            max_bounce_rate: 0.02,
+            max_complaint_rate: 0.001,
+            within_limits: true,
+        },
+        recent_changes: [
+            {
+                changed_at: '2026-08-30T07:15:00Z',
+                previous_emails_per_day: 100,
+                emails_per_day: 1000,
+                reason: 'clean_and_used',
+            },
+        ],
     },
     email_sending_suspended: false,
     email_sending_suspended_at: null,
@@ -174,6 +198,95 @@ export const WithInfrastructureHealth: StoryFn = () => {
                 delivery_rate: 0.991,
                 bounce_rate: 0.0028,
                 complaint_rate: 0.0003,
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
+export const AllowanceWaitingAfterChange: StoryFn = () => {
+    // Raised recently, so the time-at-tier wait still applies whatever the project sends.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                tier: 3,
+                emails_per_day: 10000,
+                max_batch_audience: 10000,
+                rate_limited_max_batch_audience: null,
+                emails_sent_last_day: 0,
+                next_tier: {
+                    emails_per_day: 30000,
+                    daily_target: 5000,
+                    days_required: 2,
+                    days_reached: 0,
+                    not_before: '2026-09-08T07:15:00Z',
+                },
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
+export const AllowanceAtTopTier: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                tier: 7,
+                emails_per_day: 1000000,
+                max_batch_audience: 1000000,
+                rate_limited_max_batch_audience: null,
+                emails_sent_last_day: 212000,
+                next_tier: null,
+                recent_changes: [],
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+AllowanceAtTopTier.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const AllowanceRatesOverLimit: StoryFn = () => {
+    // The 30-day rates further down still read healthy while the 7-day bounce rate is over.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                tier: 2,
+                emails_per_day: 3000,
+                max_batch_audience: 3000,
+                rate_limited_max_batch_audience: null,
+                emails_sent_last_day: 1200,
+                next_tier: {
+                    ...baseResponse.sending_allowance!.next_tier!,
+                    emails_per_day: 10000,
+                    daily_target: 1500,
+                    days_reached: 0,
+                },
+                recent_rates: {
+                    ...baseResponse.sending_allowance!.recent_rates!,
+                    emails_sent: 6400,
+                    bounce_rate: 0.031,
+                    within_limits: false,
+                },
+                recent_changes: [
+                    {
+                        changed_at: '2026-09-01T07:15:00Z',
+                        previous_emails_per_day: 10000,
+                        emails_per_day: 3000,
+                        reason: 'rates_above_threshold',
+                    },
+                    {
+                        changed_at: '2026-08-20T07:15:00Z',
+                        previous_emails_per_day: 1000,
+                        emails_per_day: 10000,
+                        reason: 'trusted_account',
+                    },
+                ],
             },
         })
     )
