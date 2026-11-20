@@ -1,8 +1,7 @@
 #!/bin/sh
 # Checks a hog-worker that has no hog next to it yet, in the jobs that only build workers:
 #   release/check-worker.sh <hog-worker> [<version>]
-# The worker says hello in the first line it prints, and stops when its input ends. With a hog next
-# to it, `HOG_CHECK_INSTALL=1 hog --version` is the check: hog starts the worker and compares versions.
+# With a hog next to it, `HOG_CHECK_INSTALL=1 hog --version` is the check.
 
 set -eu
 

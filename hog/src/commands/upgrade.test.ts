@@ -367,7 +367,6 @@ describe('hog upgrade', () => {
         expect(result.executables).toEqual({ [HOG]: BINARY })
     })
 
-    // A hog in a real folder, next to a program that says hello as the hog-worker of `version` does.
     function installed(version: string | undefined): string {
         const folder = mkdtempSync(join(tmpdir(), 'hog-installed-'))
         if (version !== undefined) {

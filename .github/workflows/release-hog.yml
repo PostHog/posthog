@@ -1128,7 +1128,6 @@ jobs:
 
                   for target in darwin-arm64 darwin-x64; do
                       folder="hog/dist/release/bin/$target"
-                      # The folder holds the files the archive ships, which release/package.ts checks.
                       for binary in "$folder"/*; do
                           name=$(basename "$binary")
                           chmod +x "$binary"

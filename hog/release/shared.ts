@@ -13,7 +13,6 @@ export function targetFolder(root: string, target: Target): string {
     return join(resolve(root), 'bin', target.id)
 }
 
-// --target picks the targets and --version makes a release build. Without them, a dev build of every target.
 export const BUILD_OPTIONS = {
     target: { type: 'string', multiple: true },
     version: { type: 'string' },

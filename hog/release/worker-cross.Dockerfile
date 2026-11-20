@@ -17,6 +17,5 @@ RUN apt-get update \
 COPY worker-cross-requirements.txt /tmp/worker-cross-requirements.txt
 RUN pip3 install --break-system-packages --no-deps --require-hashes -r /tmp/worker-cross-requirements.txt
 
-# build-worker.ts runs cargo under /hog/worker, where rustup reads the same file.
 COPY --from=worker rust-toolchain.toml /tmp/toolchain/rust-toolchain.toml
 RUN cd /tmp/toolchain && rustup toolchain install

@@ -140,8 +140,7 @@ async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Ma
         throw brokenArchive(`it has no ${binaryName(target)}`)
     }
     files.delete(binaryName(target))
-    // The paths follow the platform hog runs on, not the one of this code. hog goes last, so a
-    // failure before it leaves the old hog with the old files.
+    // The paths follow the platform hog runs on, not the one of this code.
     const path = runtime.platform === 'win32' ? win32 : posix
     try {
         await runtime.replaceExecutables([
