@@ -124,8 +124,6 @@ const NativeBinary = z.object({
     format: z.enum(['elf', 'macho']),
     size: z.number(),
 })
-// One ELF or Mach-O binary with debug info and an ID, held by the worker. A fat Mach-O gives one
-// for each architecture.
 export type NativeBinary = z.output<typeof NativeBinary>
 
 const NativeFiles = z.object({
@@ -150,7 +148,6 @@ const SourcePaths = z.object({
 const NativeContainer = z.object({
     contentHash: z.string(),
     size: z.number(),
-    // Null in a dry run, which writes nothing.
     path: z.string().nullable(),
 })
 const Packed = z.object({
@@ -174,7 +171,6 @@ export type PackedNative = z.output<typeof Packed>
 export type NativeContainer = z.output<typeof NativeContainer>
 export type WrappedPayload = z.output<typeof Wrapped>
 
-// A binary to pack, with its place in the request's lists of source files. Null packs it alone.
 export interface PackItem {
     id: number
     sources: number | null
@@ -284,8 +280,6 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    // Which files discovery counts: bundles whose sourcemap exists, maps the Hermes compiler
-    // composed, ProGuard mappings, and ELF and Mach-O files. Every answer needs the file's contents.
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
         const asked = files.filter((file) => file.bundle || file.map || file.mapping || file.native)
         if (asked.length === 0) {
@@ -406,7 +400,6 @@ export class Worker {
         return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers)).containers
     }
 
-    // What each ELF or Mach-O file holds: its binaries, and the problems that keep others out.
     async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {
         if (paths.length === 0) {
             return []
@@ -414,7 +407,6 @@ export class Worker {
         return (await this.call({ op: 'native_candidates', paths }, NativeFiles)).files
     }
 
-    // The architectures of each file inside a dSYM bundle, with their UUIDs.
     async dsymSlices(paths: string[]): Promise<DsymMemberAnswer[]> {
         if (paths.length === 0) {
             return []
@@ -422,7 +414,7 @@ export class Worker {
         return (await this.call({ op: 'dsym_slices', paths }, DsymMembers)).members
     }
 
-    // The source files the DWARF of each binary names. A dSYM slice answers for its whole file.
+    // A dSYM slice answers for its whole file.
     async sourcePaths(ids: number[]): Promise<SourcePathsAnswer[]> {
         if (ids.length === 0) {
             return []
@@ -430,9 +422,7 @@ export class Worker {
         return (await this.call({ op: 'source_paths', ids }, SourcePaths)).sources
     }
 
-    // Builds the symbol set of each binary and writes it into `folder`, with the source files of
-    // the list the item names. The worker lets every binary go, so this is the last request that
-    // names one. Without a folder nothing is written.
+    // The worker lets every binary go, so this is the last request that names one.
     async packNative(sources: string[][], items: PackItem[], folder: string | null): Promise<PackedNative> {
         if (items.length === 0) {
             return { unreadable: sources.map(() => []), containers: [] }
@@ -440,7 +430,6 @@ export class Worker {
         return this.call({ op: 'pack_native', sources, items, folder }, Packed)
     }
 
-    // Puts the bytes of a file into a container of one type, as they are.
     async wrap(path: string, kind: ContainerKind, out: string | null): Promise<WrappedPayload> {
         return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }

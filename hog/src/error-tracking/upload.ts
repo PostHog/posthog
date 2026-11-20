@@ -18,8 +18,6 @@ interface SymbolSet {
     releaseId: string | null
 }
 
-// A container hog-worker wrote to a file. It is read when it is sent, so a large build never
-// sits in memory as a whole.
 export interface SymbolSetFile extends SymbolSet {
     // Null in a dry run, which writes and sends nothing.
     file: string | null

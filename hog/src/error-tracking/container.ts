@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 
-// The types of the symbol-data container from the posthog-symbol-data crate (0.5.2). hog-worker
-// writes the containers, and `extract` reads them by type.
+// The types of the symbol-data container from the posthog-symbol-data crate (0.5.2).
 export enum SymbolDataType {
     SourceAndMap = 2,
     HermesMap = 3,

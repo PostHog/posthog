@@ -1,6 +1,5 @@
-// Wraps a payload that is already in a file into a symbol set container. The parity tests compare
-// the result with posthog-cli's for payloads on every boundary of the compressor, which holds the
-// worker's zstd to posthog-cli's.
+// The parity tests compare the result with posthog-cli's for payloads on every boundary of the
+// compressor, which holds the worker's zstd to posthog-cli's.
 
 use anyhow::{anyhow, Result};
 use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping};

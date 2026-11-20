@@ -1,7 +1,6 @@
-// `--include-source`: the source files a binary's DWARF names go into its zip under `__source/`,
-// with a manifest from DWARF path to zip path. Copied from posthog-cli's `dsym/source_bundle.rs`,
-// so the paths found, their zip names and the bytes of the manifest are the ones posthog-cli
-// writes. hog applies its ignore patterns between `extract` and `collect`.
+// Copied from posthog-cli's `dsym/source_bundle.rs`, so the paths found, their zip names and the
+// bytes of the manifest are the ones posthog-cli writes. hog applies its ignore patterns between
+// `extract` and `collect`.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -22,7 +21,6 @@ const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MANIFEST_VERSION: u32 = 1;
 const MANIFEST_ENTRY: &str = "__source/manifest.json";
 const SOURCE_FOLDER: &str = "__source";
-// A name that several files share takes one more parent folder per round, up to this many rounds.
 const MAX_DISAMBIGUATION_ROUNDS: usize = 10;
 
 const REFUSED_SYMLINK: &str = "path is a symlink";
@@ -86,23 +84,19 @@ const GO_MODULE_CACHE: &str = "/pkg/mod/";
 
 #[derive(Clone, Copy)]
 pub enum Filter {
-    // `dsym upload`: system, SDK and generated paths go.
     Dsym,
-    // `symbol-sets upload`: registry and toolchain paths go too.
     Native,
 }
 
 #[derive(Serialize)]
 struct SourceManifest {
     version: u32,
-    // From the path the DWARF names to the path inside the zip. Sorted, so the manifest is the
-    // same on every run.
+    // Sorted, so the manifest is the same on every run.
     files: BTreeMap<String, String>,
 }
 
 pub struct SourceFiles {
     manifest: SourceManifest,
-    // From zip path to contents. A later file with the same zip path replaces the earlier one.
     contents: BTreeMap<String, Vec<u8>>,
 }
 
@@ -112,8 +106,7 @@ pub struct Unreadable {
     message: String,
 }
 
-// The source paths of one binary, filtered for its upload path. An error means the DWARF could
-// not be read, and the binary uploads without sources.
+// An error means the DWARF could not be read, and the binary uploads without sources.
 pub fn extract(data: &[u8], filter: Filter) -> Result<Vec<String>> {
     let paths = extract_source_paths(data)?;
 
@@ -226,7 +219,6 @@ fn filter_go_toolchain_sources(paths: Vec<String>) -> Vec<String> {
 
 #[derive(Default)]
 struct CompileUnits {
-    // The main file of each compile unit that is not Go.
     main_files: Vec<String>,
     has_go: bool,
 }
@@ -358,8 +350,7 @@ fn compile_unit_files_from_dwarf<'data>(object: &impl DwarfObject<'data>) -> Com
     units
 }
 
-// The longest folder that every path is under. File names are cut off first, so two files in one
-// folder share the whole folder and not just the start of their names.
+// File names are cut off first, so two files in one folder share the whole folder.
 fn longest_common_prefix(paths: &[String]) -> Option<String> {
     let folders: Vec<&str> = paths
         .iter()
@@ -422,7 +413,6 @@ fn open_source(path: &Path) -> io::Result<fs::File> {
 
 // A path from DWARF can point anywhere, so symlinks, devices and files over the limit are refused,
 // and the checks run on the opened file, which nothing can swap between the check and the read.
-// The failures read as they did when hog read these files itself.
 fn read_source_file(path: &Path) -> Result<Vec<u8>, String> {
     let failed =
         |syscall: &'static str| move |error: io::Error| node::message(&error, syscall, path);
@@ -452,9 +442,8 @@ fn read_source_file(path: &Path) -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
-// Starts from file names, then gives every name that several files share one more parent folder
-// per round. Dot components never tell two files apart, and a `..` would land in a zip entry name,
-// where a crafted DWARF path could leave `__source/` when the zip is extracted.
+// Dot components never tell two files apart, and a `..` would land in a zip entry name, where a
+// crafted DWARF path could leave `__source/` when the zip is extracted.
 fn zip_relative_paths(paths: &[String]) -> Vec<String> {
     let mut names: Vec<String> = paths
         .iter()
@@ -492,8 +481,7 @@ fn zip_relative_paths(paths: &[String]) -> Vec<String> {
     names
 }
 
-// Reads the files hog allowed. A file that can't be read is reported and left out, and the
-// manifest is written even when every read failed.
+// The manifest is written even when every read failed.
 pub fn collect(paths: &[String]) -> (SourceFiles, Vec<Unreadable>) {
     let mut files = BTreeMap::new();
     let mut contents = BTreeMap::new();

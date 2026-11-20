@@ -2,9 +2,8 @@ import { constants, deflateRawSync, zstdCompressSync } from 'node:zlib'
 
 import type { SymbolDataType } from '@/error-tracking/container'
 
-// Symbol sets for tests that only read them: the extract and download scenarios, and the cases
-// that damage a container on purpose. hog-worker builds the symbol sets that upload, and nothing
-// holds these zips to posthog-cli's bytes.
+// Symbol sets for tests that only read them. hog-worker builds the symbol sets that upload, and
+// nothing holds these zips to posthog-cli's bytes.
 
 const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
 const VERSION = 2

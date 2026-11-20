@@ -6,10 +6,6 @@ import type { Skip } from './kinds/js'
 import { MAX_FILE_SIZE, type SymbolSetFile } from './upload'
 import type { NativeBinary, NativeProblem, PackItem, Worker } from './worker'
 
-// `symbol-sets upload` in posthog-cli. hog-worker parses the binaries, reads their sources and
-// builds the symbol sets. hog decides which files and sources an ignore pattern drops, which of
-// two symbol sets with one ID uploads, and what it tells the person.
-
 const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
     no_debug_info: 'it has no debug info. Build with debug info, and upload before stripping it.',
     no_build_id:
@@ -94,9 +90,8 @@ export function mergePreferDsym<Upload extends Pick<SymbolSetFile, 'chunkId' | '
 
 type DsymMember = { path: string } | { failure: string }
 
-// Every file under the bundle's DWARF folder, in name order, without the ones an ignore pattern
-// matches. Symlinks are followed, as `dwarfdump` and `lipo` follow them for posthog-cli. A file
-// that can't be examined fails the bundle when the walk reaches it, so it holds its place.
+// Symlinks are followed, as `dwarfdump` and `lipo` follow them for posthog-cli. A file that can't
+// be examined fails the bundle when the walk reaches it, so it holds its place.
 function dsymMembers(bundle: string, include: (path: string) => boolean): DsymMember[] {
     if (!statSync(bundle).isDirectory()) {
         throw new Error(`${bundle} is not a directory`)
@@ -179,7 +174,6 @@ interface Packable {
 }
 
 interface SourcePlan {
-    // The binary the worker reads the source paths from.
     id: number
     root: Root
     folder: string
@@ -190,9 +184,6 @@ export interface NativeUpload {
     upload: SymbolSetFile
 }
 
-// Native files are parsed and deduplicated by debug ID, dSYM bundles are split per slice, and a
-// dSYM wins over a native file with the same ID. `folder` is null in a dry run, which writes
-// nothing.
 export async function packageNative(
     worker: Worker,
     artifacts: Artifact[],
@@ -254,7 +245,6 @@ export async function packageNative(
     }
     const found = await worker.sourcePaths([...plans.values()].map(({ id }) => id))
 
-    // What each plan adds to the warnings once the worker has read its files, in plan order.
     const outcomes: ({ failed: string } | { sources: number } | null)[] = []
     const sourceLists: string[][] = []
     const listOf = new Map<string, number>()

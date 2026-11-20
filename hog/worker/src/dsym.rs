@@ -1,7 +1,6 @@
-// The binaries of a dSYM bundle, one slice for each architecture, each with its uppercase UUID.
-// posthog-cli asks `dwarfdump --uuid` and `lipo -thin` for them, which only a Mac with Xcode has.
-// hog reads the fat header and the UUIDs itself, so a dSYM uploads from any machine with the bytes
-// those tools give.
+// posthog-cli asks `dwarfdump --uuid` and `lipo -thin` for the slices of a dSYM bundle, which only
+// a Mac with Xcode has. The worker reads the fat header and the UUIDs itself, so a dSYM uploads
+// from any machine with the bytes those tools give.
 
 use std::{ops::Range, path::Path, sync::Arc};
 use symbolic::debuginfo::{Archive, FileFormat};
@@ -38,8 +37,8 @@ fn big_endian(bytes: &[u8], at: usize, width: usize) -> Option<u64> {
     )
 }
 
-// Where each architecture sits in a fat file. None for a thin file, which is one slice as a whole.
-// A range the file is too short for is cut to the file, and the slice then fails to parse.
+// None for a thin file, which is one slice as a whole. A range the file is too short for is cut
+// to the file, and the slice then fails to parse.
 fn fat_slices(file: &[u8]) -> Option<Vec<Range<usize>>> {
     let magic = big_endian(file, 0, 4)? as u32;
     let count = big_endian(file, 4, 4)? as u32;
@@ -64,8 +63,6 @@ fn fat_slices(file: &[u8]) -> Option<Vec<Range<usize>>> {
         .collect()
 }
 
-// Every slice of one file under `Contents/Resources/DWARF` that is a Mach-O with a UUID. An error
-// means the file can't be read or one of its slices can't be parsed, which fails the bundle.
 pub fn slices(path: &Path) -> Result<Vec<Slice>, String> {
     let file = Arc::new(node::read(path)?);
     let whole = std::iter::once(0..file.len()).collect();
