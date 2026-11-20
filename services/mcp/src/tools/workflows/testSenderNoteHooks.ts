@@ -32,7 +32,6 @@ function keepNoteOnlyWithWarning(result: Record<string, unknown>, flow: unknown)
     return rest
 }
 
-// workflows-publish returns { published, workflow, ... }; workflows-enable returns the workflow itself, with a link.
 async function afterResponse(context: Context, _params: unknown, result: unknown): Promise<unknown> {
     if (!isRecord(result)) {
         return result

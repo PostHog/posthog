@@ -349,7 +349,10 @@ const WorkflowsEnableSchema = () => {
     )
 }
 
-const workflowsEnable = (): ToolBase<ReturnType<typeof WorkflowsEnableSchema>, WithAgentNote<Schemas.HogFlowUpdate>> =>
+const workflowsEnable = (): ToolBase<
+    ReturnType<typeof WorkflowsEnableSchema>,
+    WithAgentNote<Schemas.HogFlowUpdate, false>
+> =>
     withUiApp('workflow', {
         name: 'workflows-enable',
         schema: WorkflowsEnableSchema(),
@@ -790,7 +793,7 @@ const WorkflowsPublishSchema = () => {
 
 const workflowsPublish = (): ToolBase<
     ReturnType<typeof WorkflowsPublishSchema>,
-    WithAgentNote<Schemas.HogFlowPublishResponse>
+    WithAgentNote<Schemas.HogFlowPublishResponse, false>
 > => ({
     name: 'workflows-publish',
     schema: WorkflowsPublishSchema(),
