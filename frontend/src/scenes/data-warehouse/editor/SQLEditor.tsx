@@ -1,9 +1,10 @@
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
+import posthog from 'posthog-js'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconWarning, IconX } from '@posthog/icons'
 import { LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -41,12 +42,15 @@ import { ExpressionModal } from 'products/data_warehouse/frontend/shared/compone
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import {
     LemonSaveAsMenuContent,
     getLemonSaveAsTargetMenuItems,
 } from 'products/data_warehouse/frontend/sql_editor/LemonSaveAsMenu'
+import { QuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuerySaveConfirmation'
+import { QuillQuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuillQuerySaveConfirmation'
 import { SAVE_AS_TARGETS } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -63,6 +67,7 @@ import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { SaveAsMetricModal } from './SaveAsMetricModal'
+import type { SaveCandidates } from './SaveTargetCycler'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { useUpdateEditingView } from './useUpdateEditingView'
@@ -113,6 +118,8 @@ interface SQLEditorProps {
     hideFilters?: boolean
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
@@ -145,6 +152,8 @@ export function SQLEditor({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     hostSync,
 }: SQLEditorProps): JSX.Element {
@@ -242,14 +251,16 @@ export function SQLEditor({
         editor,
         singleStatement,
         hideAgentHints,
+        captureQueryTelemetry,
     })
 
-    const { sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery } = useActions(logic)
+    const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
+    const { setSourceQuery, setSelectedVariables } = useActions(logic)
     const sourceQueryRef = useRef(sourceQuery)
     sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        captureQueryTelemetry,
         key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
@@ -267,6 +278,7 @@ export function SQLEditor({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        captureQueryTelemetry,
         query: sourceQuery.source,
         key: dataLogicKey,
         cachedResults: undefined,
@@ -300,6 +312,8 @@ export function SQLEditor({
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
+        selectedVariables: activeTab?.selectedVariables,
+        onSelectionChange: setSelectedVariables,
         sourceQuery,
         setQuery: (query) => {
             if (query.kind === NodeKind.DataVisualizationNode) {
@@ -375,6 +389,8 @@ export function SQLEditor({
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
+                                                                hideConnectionSelector={hideConnectionSelector}
+                                                                captureQueryTelemetry={captureQueryTelemetry}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />
@@ -491,6 +507,18 @@ function AccessControlModal(): JSX.Element | null {
         return null
     }
 
+    if (editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable) {
+        return (
+            <WarehouseTableAccessControlModal
+                isOpen={accessControlModalOpen}
+                onClose={closeAccessControlModal}
+                tableId={editingAccessControlObject.resourceId}
+                title={editingAccessControlObject.name}
+                description="Control who can query this table. Users without access won't see it and queries referencing it will fail for them."
+            />
+        )
+    }
+
     return (
         <AccessControlObjectModal
             isOpen={accessControlModalOpen}
@@ -501,11 +529,7 @@ function AccessControlModal(): JSX.Element | null {
             description={
                 editingAccessControlObject.resource === AccessControlResourceType.ExternalDataSource
                     ? 'Control who can manage this source. Access set here also applies to its tables, unless a table has access rules of its own.'
-                    : `Control who can query this ${
-                          editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable
-                              ? 'table'
-                              : 'view'
-                      }. Users without access won't see it and queries referencing it will fail for them.`
+                    : "Control who can query this view. Users without access won't see it and queries referencing it will fail for them."
             }
         />
     )
@@ -530,12 +554,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
+        saveAsViewDisabledReason,
         metadata,
         activeQueryText,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget, saveAsCohort } =
         useActions(editorSceneLogic)
     const {
+        runQuery,
+        reviewQuerySave,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -551,7 +578,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setEditingInsightDescription,
         discardChanges,
     } = useActions(sqlEditorLogic)
-    const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
+    const { editingMetricName, metricUpdating, viewUpdateInProgress } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -601,25 +628,49 @@ function SQLEditorSceneTitle(): JSX.Element | null {
           ? 'Write a SQL query before saving'
           : undefined
 
-    const saveAsDisabledReason = useMemo(() => {
-        if (insightLoading) {
-            return 'Loading insight...'
-        }
+    const saveAsDisabledReason = saveAsInsightDisabledReason
+    const saveAsEndpointQueryDisabledReason = saveAsInsightDisabledReason
+    const needsSaveConfirmation = !isSourceQueryLastRun || !response || !!responseError || responseLoading
+    const [pendingSave, setPendingSave] = useState<((candidates?: SaveCandidates) => void) | null>(null)
+    const saveConfirmationAnchor = useRef<HTMLSpanElement>(null)
+    const saveClickPosition = useRef({ x: 0, y: 0 })
+    const [saveConfirmationPosition, setSaveConfirmationPosition] = useState({ x: 0, y: 0 })
 
-        if (!isSourceQueryLastRun) {
-            return 'Run latest query changes before saving'
-        }
+    useEffect(() => {
+        setPendingSave(null)
+    }, [queryInput, editingView?.id, editingInsight?.id, editingMetricName])
 
-        if (responseLoading) {
-            return 'Running query...'
+    const confirmSave = (save: (candidates?: SaveCandidates) => void): void => {
+        if (needsSaveConfirmation) {
+            setSaveConfirmationPosition(saveClickPosition.current)
+            setPendingSave(() => save)
+            posthog.capture('sql-editor-save-confirmation-opened')
+        } else {
+            save()
         }
-
-        if (responseError || !response) {
-            return 'Run query successfully before saving'
+    }
+    const closeSaveConfirmation = (): void => setPendingSave(null)
+    const runLatestBeforeSave = (): void => {
+        closeSaveConfirmation()
+        posthog.capture('sql-editor-save-confirmation-selected', { choice: 'run_latest' })
+        runQuery()
+    }
+    const saveAnyway = (): void => {
+        closeSaveConfirmation()
+        posthog.capture('sql-editor-save-confirmation-selected', { choice: 'save_anyway' })
+        pendingSave?.()
+    }
+    const showSaveDiff = (): void => {
+        closeSaveConfirmation()
+        posthog.capture('sql-editor-save-confirmation-selected', { choice: 'show_diff' })
+        if (pendingSave) {
+            reviewQuerySave(pendingSave)
         }
-
-        return undefined
-    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+    }
+    const SaveConfirmation = todayRailNav ? QuillQuerySaveConfirmation : QuerySaveConfirmation
+    const saveWarning = needsSaveConfirmation ? (
+        <IconWarning data-attr="sql-editor-save-warning" className="ml-1" aria-hidden="true" />
+    ) : null
 
     const saveAsCohortDisabledReason = useMemo(() => {
         if (saveAsDisabledReason) {
@@ -655,26 +706,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         response,
     ])
 
-    const saveAsEndpointQueryDisabledReason = useMemo(() => {
-        if (insightLoading) {
-            return 'Wait for the insight to load before creating an endpoint'
-        }
-
-        if (!queryInput?.trim()) {
-            return 'Write a SQL query before creating an endpoint'
-        }
-
-        if (responseLoading) {
-            return 'Wait for the current query to finish before creating an endpoint'
-        }
-
-        if (!isSourceQueryLastRun || responseError || !response) {
-            return 'Run the current query successfully to check which columns the endpoint will return'
-        }
-
-        return undefined
-    }, [insightLoading, queryInput, responseLoading, isSourceQueryLastRun, responseError, response])
-
     const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
         if (target === 'cohort') {
             return saveAsCohortDisabledReason
@@ -683,7 +714,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return saveAsInsightDisabledReason
         }
         if (target === 'view') {
-            return saveAsDisabledReason ?? saveAsViewAccessDisabledReason
+            return (
+                saveAsViewDisabledReason ??
+                saveAsDisabledReason ??
+                saveAsViewAccessDisabledReason ??
+                (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
+                    ? 'Run the latest query successfully to determine the view’s columns'
+                    : undefined)
+            )
         }
         if (target === 'endpoint') {
             return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason
@@ -700,23 +738,23 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))
 
-    const saveAsTarget = (target: SaveAsTargetId): void => {
+    const saveAsTarget = (target: SaveAsTargetId, candidates?: SaveCandidates): void => {
         if (target === 'insight') {
-            saveAsInsight()
+            saveAsInsight(candidates)
         } else if (target === 'view') {
-            saveAsView()
+            saveAsView(false, undefined, candidates)
         } else if (target === 'endpoint') {
-            saveAsEndpoint()
+            saveAsEndpoint(candidates)
         } else if (target === 'cohort') {
             saveAsCohort()
         } else {
-            saveAsMetric()
+            saveAsMetric(undefined, candidates)
         }
     }
 
     const onSaveAsTargetSelect = (target: SaveAsTargetId): void => {
         selectSaveAsTarget(target)
-        saveAsTarget(target)
+        confirmSave((candidates) => saveAsTarget(target, candidates))
     }
 
     const onSaveAsMenuVisibilityChange = (visible: boolean): void => {
@@ -727,7 +765,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
         ...item,
-        onClick: () => saveAsTarget(item.action),
+        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
         disabledReason: disabledReasonForSaveAsTarget(item.action),
     }))
 
@@ -738,11 +776,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         { action: 'cohort' as const, label: 'Save as cohort...' },
     ].map((item) => ({
         ...item,
-        onClick: () => saveAsTarget(item.action),
+        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
         disabledReason: disabledReasonForSaveAsTarget(item.action),
     }))
 
-    const onPrimarySaveClick = (): void => saveAsTarget(saveAsMenuItems.primary.action)
+    const onPrimarySaveClick = (): void =>
+        confirmSave((candidates) => saveAsTarget(saveAsMenuItems.primary.action, candidates))
     const primarySaveDisabledReason = disabledReasonForSaveAsTarget(saveAsMenuItems.primary.action)
 
     const {
@@ -799,7 +838,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             size="small"
             onClick={() => discardChanges()}
             disabledReason={
-                insightLoading || updatingDataWarehouseSavedQuery
+                insightLoading || viewUpdateInProgress || updatingDataWarehouseSavedQuery
                     ? 'Wait for the current operation to finish'
                     : !hasEditorChanges
                       ? 'No changes to discard'
@@ -812,7 +851,31 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     )
 
     return (
-        <>
+        <div
+            onClickCapture={(event) => {
+                const target = (event.target as HTMLElement).closest('button, [role="menuitem"]')
+                const bounds = target?.getBoundingClientRect()
+                saveClickPosition.current =
+                    event.detail === 0 && bounds
+                        ? { x: bounds.right, y: bounds.bottom }
+                        : { x: event.clientX, y: event.clientY }
+            }}
+        >
+            <span
+                ref={saveConfirmationAnchor}
+                className="fixed pointer-events-none"
+                // The confirmation follows the click position, which cannot be expressed with static utilities.
+                // oxlint-disable-next-line react/forbid-dom-props
+                style={{ left: saveConfirmationPosition.x, top: saveConfirmationPosition.y }}
+            />
+            <SaveConfirmation
+                open={!!pendingSave}
+                anchor={saveConfirmationAnchor}
+                onClose={closeSaveConfirmation}
+                onRunLatest={runLatestBeforeSave}
+                onShowDiff={showSaveDiff}
+                onSaveAnyway={saveAnyway}
+            />
             <SceneTitleSection
                 className="p-1 pl-3 pr-2"
                 noBorder
@@ -859,7 +922,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             closeObjectTooltip={closeObjectTooltip}
                             editingViewDisabledReason={editingViewDisabledReason}
                             editingViewLoading={editingViewLoading}
-                            onUpdateView={updateEditingView}
+                            onUpdateView={() => confirmSave(() => updateEditingView())}
+                            confirmSave={confirmSave}
+                            needsSaveConfirmation={needsSaveConfirmation}
                             saveAsInsightDisabledReason={saveAsInsightDisabledReason}
                             saveAsDisabledReason={saveAsDisabledReason}
                             continueInNotebookAccessDisabledReason={continueInNotebookAccessDisabledReason}
@@ -892,7 +957,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         userAccessLevel={editingView.user_access_level}
                                     >
                                         <LemonButton
-                                            onClick={updateEditingView}
+                                            onClick={() => confirmSave(() => updateEditingView())}
                                             disabledReason={editingViewDisabledReason}
                                             icon={<EditingViewButtonIcon />}
                                             type="primary"
@@ -918,7 +983,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 },
                                             }}
                                         >
-                                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                            <span>
+                                                {viewUpdateInProgress
+                                                    ? 'Checking downstream views…'
+                                                    : isMaterializedView
+                                                      ? 'Update and re-materialize view'
+                                                      : 'Update view'}
+                                            </span>
+                                            {saveWarning}
                                         </LemonButton>
                                     </AccessControlAction>
                                     <LemonButton
@@ -951,7 +1023,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         loading={insightLoading}
                                         type="primary"
                                         size="small"
-                                        onClick={() => updateInsight()}
+                                        onClick={() => confirmSave(updateInsight)}
                                         sideAction={{
                                             icon: <IconChevronDown />,
                                             'data-attr': 'sql-editor-save-options-button',
@@ -974,7 +1046,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             },
                                         }}
                                     >
-                                        Update insight
+                                        <span>Update insight</span>
+                                        {saveWarning}
                                     </LemonButton>
                                     <LemonButton
                                         onClick={() => closeEditingObject()}
@@ -992,7 +1065,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        onClick={() => updateEditingMetric()}
+                                        onClick={() => confirmSave(updateEditingMetric)}
                                         loading={metricUpdating}
                                         disabledReason={saveAsDisabledReason}
                                         data-attr="sql-editor-update-metric"
@@ -1015,7 +1088,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             },
                                         }}
                                     >
-                                        Update metric
+                                        <span>Update metric</span>
+                                        {saveWarning}
                                     </LemonButton>
                                     <LemonButton
                                         onClick={() => setEditingMetricName(null)}
@@ -1047,7 +1121,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 size="small"
                                                 data-attr="sql-editor-save-options-button"
                                             >
-                                                Save as
+                                                <span>Save as</span>
+                                                {saveWarning}
                                             </LemonButton>
                                         </LemonMenu>
                                     ) : (
@@ -1065,7 +1140,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 },
                                             }}
                                         >
-                                            {saveAsMenuItems.primary.label}
+                                            <span>{saveAsMenuItems.primary.label}</span>
+                                            {saveWarning}
                                         </LemonButton>
                                     )}
                                 </>
@@ -1075,7 +1151,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 }
             />
             <QueryHistoryModal />
-        </>
+        </div>
     )
 }
 
