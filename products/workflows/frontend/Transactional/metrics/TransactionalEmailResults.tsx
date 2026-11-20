@@ -34,7 +34,7 @@ export function TransactionalEmailResults(): JSX.Element {
                     value={resultsQuery.workflowId}
                     onChange={(workflowId) => setResultsQuery({ workflowId })}
                     options={resultsEmailOptions}
-                    loading={codeEmailsLoading || transactionalTemplatesLoading}
+                    loading={resultsEmailOptions.length === 0 && (codeEmailsLoading || transactionalTemplatesLoading)}
                     data-attr="transactional-email-results-email"
                 />
                 <span>how many did</span>
