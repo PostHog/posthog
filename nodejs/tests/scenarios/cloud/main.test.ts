@@ -262,30 +262,18 @@ describe('cloud controller', () => {
         })
     })
 
-    it.each<[string, { exitCode?: number }, string[]]>([
-        ['', {}, ['could not read the reader capacity']],
-        [
-            ' and keeps the failure reason of a failed runner',
-            { exitCode: 1 },
-            ['could not read the reader capacity', 'the runner saved a failed scorecard: the card ended failed'],
-        ],
-    ])(
-        'calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps%s',
-        async (_story, card, reasons) => {
-            const { controller } = prepare({
-                profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
-                cloud: { card, liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
-                env: api.credentials,
-            })
+    it('calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps', async () => {
+        const { controller } = prepare({
+            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            cloud: { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
+            env: api.credentials,
+        })
 
-            await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(2)
+        await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(2)
 
-            expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'invalid' })
-            for (const reason of reasons) {
-                expect(published().status_reason).toContain(reason)
-            }
-        }
-    )
+        expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'invalid' })
+        expect(published().status_reason).toContain('could not read the reader capacity')
+    })
 
     it.each<[string, string | undefined, string, Setup]>([
         ['a card that does not exist', 'no-such-card', 'no-such-card is not a card at commit', {}],
@@ -1301,30 +1289,6 @@ describe('cloud controller', () => {
             'reader average above its maximum before T0 ({-3})',
         ],
         [
-            'a failed runner scorecard with an average before T0 above its maximum',
-            {
-                card: { exitCode: 1 },
-                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
-                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
-                ),
-            },
-            () => undefined,
-            'invalid',
-            'reader average above its maximum before T0 ({-3}); the runner saved a failed scorecard: the card ended failed',
-        ],
-        [
-            'a failed runner scorecard whose reason is not text, with an average before T0 above its maximum',
-            {
-                card: { exitCode: 1, runnerStatusReason: { toString: null } },
-                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
-                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
-                ),
-            },
-            () => undefined,
-            'invalid',
-            'reader average above its maximum before T0 ({-3})',
-        ],
-        [
             'a reader above the idle limit while the failover waits for its offset',
             {
                 readerAcu: [
@@ -1400,6 +1364,77 @@ describe('cloud controller', () => {
             expect(out).toContain(`The reader sat at 1.5 ACU in the minute before T0 (${published().t0_at}).`)
         }
     })
+
+    const RUNNER_REASON_CARDS: [string, Partial<FakeCloudOptions>, string][] = [
+        [
+            FAILOVER_CARD,
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
+                ),
+            },
+            'reader average above its maximum before T0 ({-3})',
+        ],
+        [
+            'cyclotron-scale',
+            { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
+            "could not read the reader capacity: CloudWatch's avg series has 5 timestamps and 4 values",
+        ],
+    ]
+    const RUNNER_REASONS: [string, unknown, string][] = [
+        ['a text', 'the drive stopped early', 'the drive stopped early'],
+        ['an empty', '', ''],
+        ['no', undefined, ''],
+        ['a non-text', { toString: null }, ''],
+    ]
+
+    it.each(
+        RUNNER_REASON_CARDS.flatMap(([card, controllerSetup, controllerReason]) =>
+            (['failed', 'invalid'] as const).flatMap((runnerStatus) =>
+                [true, false].flatMap((withControllerReason) =>
+                    RUNNER_REASONS.filter(([kind]) => withControllerReason || kind !== 'a non-text').map(
+                        ([kind, runnerStatusReason, text]) =>
+                            [
+                                card,
+                                runnerStatus,
+                                withControllerReason ? 'with' : 'without',
+                                kind,
+                                withControllerReason ? controllerSetup : {},
+                                runnerStatusReason,
+                                withControllerReason ? 'invalid' : runnerStatus,
+                                withControllerReason
+                                    ? [
+                                          controllerReason,
+                                          ...(text ? [`the runner saved a ${runnerStatus} scorecard: ${text}`] : []),
+                                      ].join('; ')
+                                    : text,
+                            ] as const
+                    )
+                )
+            )
+        )
+    )(
+        'publishes the status reason of %s for a runner verdict of %s, %s a controller reason, and %s runner reason',
+        async (card, runnerStatus, _controller, _kind, controllerSetup, runnerStatusReason, status, reason) => {
+            const { controller } = prepare({
+                cloud: {
+                    ...controllerSetup,
+                    card: { exitCode: runnerStatus === 'failed' ? 1 : 2, runnerStatus, runnerStatusReason },
+                },
+                env: api.credentials,
+            })
+
+            await expect(main(['run', profilePath(), card], controller)).resolves.toBe(status === 'failed' ? 1 : 2)
+
+            const t0Minute = Date.parse(String(published().t0_at)) - (Date.parse(String(published().t0_at)) % 60_000)
+            expect(published()).toMatchObject({ run_id: leasedRunId(), card_id: card, status })
+            expect(published().status_reason).toBe(
+                reason.replace(/\{(-?\d+)\}/g, (_, minute: string) =>
+                    new Date(t0Minute + Number(minute) * 60_000).toISOString()
+                )
+            )
+        }
+    )
 
     it.each<[string, number, number, string, string]>([
         [
