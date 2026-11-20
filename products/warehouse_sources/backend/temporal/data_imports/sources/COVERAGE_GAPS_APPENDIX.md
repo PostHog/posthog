@@ -455,7 +455,7 @@ Note: Static schema list (no dynamic discovery). Coverage of the org/billing obj
 
 ## Alegra — gaps
 
-Today (18): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `purchase_orders`, `recurring_invoices`, `taxes`, `warehouse_transfers`, `warehouses`
+Today (22): `bank_accounts`, `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `incoming_payments`, `inventory_adjustments`, `invoices`, `item_categories`, `items`, `journals`, `outgoing_payments`, `payment_terms`, `price_lists`, `purchase_orders`, `recurring_invoices`, `remissions`, `taxes`, `users`, `warehouse_transfers`, `warehouses`
 
 Diffed against: <https://developer.alegra.com/reference>
 
@@ -474,13 +474,13 @@ Note: Read the official reference index and parsed embedded OpenAPI GET operatio
 
 Re-audited 2026-11-19 against: <https://developer.alegra.com/llms.txt>
 
-- [ ] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
-- [ ] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
+- [x] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
+- [x] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
 - [ ] `Retentions (GET /retentions)` — tax withholding definitions applied to documents (medium)
-- [ ] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
+- [x] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
 - [ ] `Currencies (GET /currencies)` — currency definitions and rates for multi-currency documents (medium)
 - [ ] `Custom fields (GET /custom-fields)` — definitions of user-defined fields on documents and contacts (medium)
-- [ ] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
+- [x] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
 - [ ] `Income debit notes (GET /income-debit-notes)` — debit notes issued to customers, the sales side of debit_notes (medium)
 - [ ] `Global invoices (GET /global-invoices)` — summary invoices for sales without a named customer (low)
 - [ ] `Recurring payments (GET /recurring-payments)` — scheduled recurring payments (low)
@@ -567,14 +567,14 @@ Today (5): `alarm_history`, `alarms`, `log_events`, `log_groups`, `metric_data`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/cloudwatch/2010-08-01/service-2.json>
 
-- [ ] `Metrics inventory (CloudWatch ListMetrics)` — lists namespaces, metric names and dimensions that exist, so users can see what to query with metric_data (high)
-- [ ] `Log streams (CloudWatch Logs DescribeLogStreams)` — streams under each synced log group, with first and last event times and stored bytes (medium)
-- [ ] `Metric filters (CloudWatch Logs DescribeMetricFilters)` — filters that turn log patterns into metrics, tied to the synced log groups (medium)
+- [x] `Metrics inventory (CloudWatch ListMetrics)` — lists namespaces, metric names and dimensions that exist, so users can see what to query with metric_data (high)
+- [x] `Log streams (CloudWatch Logs DescribeLogStreams)` — streams under each synced log group, with first and last event times and stored bytes (medium)
+- [x] `Metric filters (CloudWatch Logs DescribeMetricFilters)` — filters that turn log patterns into metrics, tied to the synced log groups (medium)
 - [ ] `Subscription filters (CloudWatch Logs DescribeSubscriptionFilters)` — where each synced log group streams its logs (low)
 - [ ] `Dashboards (CloudWatch ListDashboards)` — dashboard inventory with last modified time and size (low)
 - [ ] `Anomaly detectors (CloudWatch DescribeAnomalyDetectors)` — metric anomaly detection models configured for the account (low)
 - [ ] `Contributor Insights rules (CloudWatch DescribeInsightRules)` — rule inventory and state for log-based top-contributor analysis (low)
-- [ ] `Log anomalies (CloudWatch Logs ListAnomalies)` — anomalies found in log groups by the log anomaly detectors (low)
+- [x] `Log anomalies (CloudWatch Logs ListAnomalies)` — anomalies found in log groups by the log anomaly detectors (low)
 
 Note: Parsed the botocore service models for cloudwatch (2010-08-01) and logs (2014-03-28) and listed every Describe, List and Get operation against the 5 tables. The vendor reference is the AWS JSON-over-HTTP API, so each item is an operation, not a REST path. Excluded tags, policies, delivery and integration config, export and import tasks, and GetMetricStatistics and GetLogEvents, which duplicate metric_data and log_events. Log stream and metric filter reads fan out over log groups, and each call is region scoped.
 
@@ -9675,14 +9675,14 @@ Note: The reference is a static HTML tree; the full endpoint list is readable fr
 
 ## Mercado Pago (Mercado Libre) — **thin**
 
-Today (3): `payments`, `subscription_plans`, `subscriptions`
+Today (7): `authorized_payments`, `customers`, `merchant_orders`, `payment_methods`, `payments`, `subscription_plans`, `subscriptions`
 
 Diffed against: <https://github.com/mercadopago/sdk-python/tree/master/mercadopago/resources>
 
-- [ ] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high)
-- [ ] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high)
-- [ ] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high)
-- [ ] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high)
+- [x] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high). Added as `payment_methods` (full refresh). The endpoint returns a bare array with no pagination.
+- [x] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high). Added as `customers` (full refresh). The reference documents no time filter.
+- [x] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high). Added as `merchant_orders` (incremental merge on `last_updated` via `last_updated_from`). Rows are under `elements` with a top-level `total`, and searches return only the last 90 days.
+- [x] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high). Added as `authorized_payments` (full refresh). The reference documents no time filter.
 - [ ] `Chargebacks (GET /v1/chargebacks/search)` — measure disputed payments, financial losses, and chargeback outcomes (high)
 - [ ] `Orders (GET /v1/orders)` — analyze Orders API transactions and lifecycle states alongside payment totals (medium)
 

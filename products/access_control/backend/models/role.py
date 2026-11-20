@@ -1,17 +1,33 @@
 from django.db import models
 from django.db.models import F, Q
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDTModel
 
 from products.access_control.backend.models.organization_resource_access import OrganizationResourceAccess
 
 
 class Role(UUIDTModel):
+    class OrganizationAccessLevel(models.IntegerChoices):
+        ADMIN = OrganizationMembership.Level.ADMIN, "administrator"
+
     class Meta:
         app_label = "ee"
-        constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name"),
+            models.CheckConstraint(
+                condition=Q(organization_access_level__isnull=True)
+                | Q(organization_access_level=OrganizationMembership.Level.ADMIN),
+                name="role_org_access_level_admin_or_null",
+            ),
+        ]
 
     name = models.CharField(max_length=200)
+    organization_access_level = models.SmallIntegerField(
+        null=True,
+        blank=True,
+        choices=OrganizationAccessLevel.choices,
+    )
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,

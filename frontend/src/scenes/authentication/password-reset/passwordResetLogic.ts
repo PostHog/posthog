@@ -171,18 +171,18 @@ export interface passwordResetLogicActions {
     validateResetTokenSuccess: (
         validatedResetToken:
             | {
-                  errorCode: any
-                  errorDetail: any
-                  success: false
-                  token?: undefined
-                  uuid?: undefined
-              }
-            | {
                   errorCode?: undefined
                   errorDetail?: undefined
                   success: true
                   token: string
                   uuid: string
+              }
+            | {
+                  errorCode: any
+                  errorDetail: any
+                  success: false
+                  token?: undefined
+                  uuid?: undefined
               },
         payload?: {
             uuid: string
@@ -191,18 +191,18 @@ export interface passwordResetLogicActions {
     ) => {
         validatedResetToken:
             | {
-                  errorCode: any
-                  errorDetail: any
-                  success: false
-                  token?: undefined
-                  uuid?: undefined
-              }
-            | {
                   errorCode?: undefined
                   errorDetail?: undefined
                   success: true
                   token: string
                   uuid: string
+              }
+            | {
+                  errorCode: any
+                  errorDetail: any
+                  success: false
+                  token?: undefined
+                  uuid?: undefined
               }
         payload?: {
             uuid: string

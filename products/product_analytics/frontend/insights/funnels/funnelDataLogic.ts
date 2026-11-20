@@ -315,25 +315,25 @@ export interface funnelDataLogicValues {
     incompletenessOffsetFromEnd: number
     indexedSteps: {
         average_conversion_time: number | null
-        breakdown?: BreakdownKeyType | undefined
-        breakdown_value?: BreakdownKeyType | undefined
-        breakdowns?: BreakdownKeyType[] | undefined
+        breakdown?: BreakdownKeyType
+        breakdown_value?: BreakdownKeyType
+        breakdowns?: BreakdownKeyType[]
         colorIndex: number
         compare: boolean | undefined
-        compare_label?: 'current' | 'previous' | undefined
+        compare_label?: 'current' | 'previous'
         converted_people_url: string
         count: number
-        custom_name?: string | null | undefined
-        data?: number[] | undefined
-        days?: string[] | undefined
+        custom_name?: string | null
+        data?: number[]
+        days?: string[]
         dropped_people_url: string | null
         id: number
-        labels?: string[] | undefined
+        labels?: string[]
         median_conversion_time: number | null
         name: string
-        nested_breakdown?: FunnelStep[] | undefined
+        nested_breakdown?: FunnelStep[]
         order: number
-        people?: string[] | undefined
+        people?: string[]
         seriesIndex: number
     }[]
     isBreakdownCompareFunnel: boolean
@@ -436,7 +436,7 @@ export interface funnelDataLogicMeta {
         funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => Noun
         results: (
             insightData: Record<string, any>,
@@ -547,30 +547,30 @@ export interface funnelDataLogicMeta {
         isSkewed: (conversionMetrics: FunnelTimeConversionMetrics, skewWarningHidden: boolean) => boolean
         indexedSteps: (steps: FunnelStepWithNestedBreakdown[]) => {
             average_conversion_time: number | null
-            breakdown?: BreakdownKeyType | undefined
-            breakdown_value?: BreakdownKeyType | undefined
-            breakdowns?: BreakdownKeyType[] | undefined
+            breakdown?: BreakdownKeyType
+            breakdown_value?: BreakdownKeyType
+            breakdowns?: BreakdownKeyType[]
             colorIndex: number
             compare: boolean | undefined
-            compare_label?: 'current' | 'previous' | undefined
+            compare_label?: 'current' | 'previous'
             converted_people_url: string
             count: number
-            custom_name?: string | null | undefined
-            data?: number[] | undefined
-            days?: string[] | undefined
+            custom_name?: string | null
+            data?: number[]
+            days?: string[]
             dropped_people_url: string | null
             id: number
-            labels?: string[] | undefined
+            labels?: string[]
             median_conversion_time: number | null
             name: string
-            nested_breakdown?: FunnelStep[] | undefined
+            nested_breakdown?: FunnelStep[]
             order: number
-            people?: string[] | undefined
+            people?: string[]
             seriesIndex: number
         }[]
         getFunnelsColorToken: (
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource: FunnelsQuery | null,
             flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],

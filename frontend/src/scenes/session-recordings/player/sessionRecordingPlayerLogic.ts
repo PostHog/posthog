@@ -752,7 +752,7 @@ export interface sessionRecordingPlayerLogicValues {
     snapshotsLoaded: boolean // snapshotDataLogic
     snapshotsLoading: boolean // snapshotDataLogic
     storeVersion: number // snapshotDataLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     clickCount: number
     currentPlayerState:
@@ -780,7 +780,7 @@ export interface sessionRecordingPlayerLogicValues {
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
     forceShowPlayerChrome: boolean
-    fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
+    fromRRWebPlayerTime: (time?: number) => number | undefined
     hasLateFullSnapshot: boolean
     hasSnapshots: boolean
     hasUnrenderableWindow: boolean
@@ -830,7 +830,7 @@ export interface sessionRecordingPlayerLogicValues {
         seconds: number
     } | null
     seekRenderability: (timestamp: number) => SeekRenderability
-    segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null
+    segmentForTimestamp: (timestamp?: number) => RecordingSegment | null
     sessionRecordingId: string
     showAmbientBackground: boolean
     showPlayerChrome: boolean
@@ -891,11 +891,11 @@ export interface sessionRecordingPlayerLogicActions {
         mode: SessionRecordingPlayerMode | undefined
         options:
             | {
-                  css_selector?: string | undefined
-                  filename?: string | undefined
-                  height?: number | undefined
-                  skip_inactivity?: boolean | undefined
-                  width?: number | undefined
+                  css_selector?: string
+                  filename?: string
+                  height?: number
+                  skip_inactivity?: boolean
+                  width?: number
               }
             | undefined
         sessionRecordingId: string
@@ -1148,7 +1148,7 @@ export interface sessionRecordingPlayerLogicActions {
         timestamp: number
     }
     setCurrentSegment: (segment: RecordingSegment) => {
-        segment: RecordingSegment
+        segment: import('@posthog/replay-shared').RecordingSegment
     }
     setCurrentTimestamp: (timestamp: number) => {
         timestamp: number
@@ -1314,10 +1314,7 @@ export interface sessionRecordingPlayerLogicMeta {
         dataBufferedUntilTimestamp: (sessionPlayerData: SessionPlayerData) => number | null
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
-        replayerWindowId: (
-            player: Player | null,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-        ) => number | undefined
+        replayerWindowId: (player: Player | null, currentSegment: null | RecordingSegment) => number | undefined
         toRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
             replayerWindowId: number | undefined
@@ -1328,21 +1325,19 @@ export interface sessionRecordingPlayerLogicMeta {
         ) => (timestamp: number) => number
         fromRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-        ) => (time?: number | undefined) => number | undefined
+            currentSegment: null | RecordingSegment
+        ) => (time?: number) => number | undefined
         jumpTimeMs: (speed: number) => number
         playerSpeed: (
             speed: number,
             isSkippingInactivity: boolean,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment,
+            currentSegment: null | RecordingSegment,
             currentTimestamp: number | undefined,
             arg: any
         ) => number
-        segmentForTimestamp: (
-            sessionPlayerData: SessionPlayerData
-        ) => (timestamp?: number | undefined) => RecordingSegment | null
+        segmentForTimestamp: (sessionPlayerData: SessionPlayerData) => (timestamp?: number) => RecordingSegment | null
         seekRenderability: (
-            segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null,
+            segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
             snapshotStore: SnapshotStore,
             allSourcesLoaded: boolean,
             sessionPlayerData: SessionPlayerData,
@@ -1384,7 +1379,7 @@ export interface sessionRecordingPlayerLogicMeta {
         resolution: (
             sessionPlayerData: SessionPlayerData,
             currentTimestamp: number | undefined,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
+            currentSegment: null | RecordingSegment
         ) => {
             height: number
             width: number

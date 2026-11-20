@@ -146,8 +146,8 @@ export interface setupPlanLogicActions {
         options: {
             label: string
             source: ApplySource
-            suggestionIds?: string[] | undefined
-            undoable?: boolean | undefined
+            suggestionIds?: string[]
+            undoable?: boolean
         }
     }
     applySuggestion: (suggestion: Suggestion) => {
@@ -165,7 +165,9 @@ export interface setupPlanLogicActions {
     focusCapability: (capability: Capability | null) => {
         capability: Capability | null
     }
-    loadSetupPlan: ({ refresh }?: any) => any
+    loadSetupPlan: ({ refresh }?: { refresh?: boolean }) => {
+        refresh?: boolean
+    }
     loadSetupPlanFailure: (
         error: string,
         errorObject?: any
@@ -175,10 +177,14 @@ export interface setupPlanLogicActions {
     }
     loadSetupPlanSuccess: (
         setupPlan: SetupPlanResponse,
-        payload?: any
+        payload?: {
+            refresh?: boolean
+        }
     ) => {
         setupPlan: SetupPlanResponse
-        payload?: any
+        payload?: {
+            refresh?: boolean
+        }
     }
     markApplied: (ids: string[]) => {
         ids: string[]
@@ -315,7 +321,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                  * point of the cache, so switching sections doesn't re-run six
                  * ClickHouse queries. An explicit Rescan click is a request for
                  * current data and has to mean it, or the button looks broken. */
-                loadSetupPlan: async ({ refresh } = { refresh: false }) => {
+                loadSetupPlan: async ({ refresh }: { refresh?: boolean } = { refresh: false }) => {
                     const response = await marketingAnalyticsSetupPlanRetrieve(String(values.currentTeamId), {
                         refresh,
                     })
@@ -537,8 +543,8 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                 entry_point: values.setupEntryPointLabel,
             })
         },
-        loadSetupPlan: ({ refresh } = {}) => {
-            if (refresh) {
+        loadSetupPlan: (payload) => {
+            if (payload?.refresh) {
                 posthog.capture('marketing analytics setup rescan requested', {
                     entry_point: values.setupEntryPointLabel,
                 })
