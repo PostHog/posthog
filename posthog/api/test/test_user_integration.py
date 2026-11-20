@@ -2169,7 +2169,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             patch("posthog.tasks.codex_login.time.time", return_value=now) as clock,
         ):
             with self.captureOnCommitCallbacks(execute=True):
-                complete_codex_login.apply(args=(self.user.id, login_id), throw=False).get()
+                assert complete_codex_login.apply(args=(self.user.id, login_id), throw=False).successful()
             result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
             assert result == {"login_id": login_id, "status": "pending", "user_code": "TEST-CODE"}
             assert schedule.call_args.kwargs["countdown"] == 5
