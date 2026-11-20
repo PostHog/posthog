@@ -24,7 +24,7 @@ const encodeRawExport = (
         block_count: blocks.length,
         ...headerOverrides,
     }
-    const parts = [encoder.encode('PHREC1\n' + JSON.stringify(header) + '\n')]
+    const parts: Uint8Array[] = [encoder.encode('PHREC1\n' + JSON.stringify(header) + '\n')]
     for (const block of blocks) {
         // The mocked decompressor returns its input, so each block is its decompressed JSONL text.
         const body = typeof block === 'string' ? encoder.encode(block) : block
@@ -169,7 +169,7 @@ describe('sessionRecordingFilePlaybackLogic', () => {
                 'too large',
             ],
             [
-                'too many viewports',
+                'a header line over 8 MiB',
                 encodeRawExport([rawBlock(0)], {
                     viewports: Array.from({ length: 200_001 }, () => ({
                         timestamp: 1,

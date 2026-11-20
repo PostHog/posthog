@@ -33,7 +33,6 @@ const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
 
 // Limits for a file a person opens by hand, so a crafted file cannot exhaust the tab before anything renders.
 const MAX_RAW_HEADER_BYTES = 8 * 1024 * 1024
-const MAX_RAW_VIEWPORTS = 200_000
 const MAX_RAW_BLOCK_EXPANDED_BYTES = 256 * 1024 * 1024
 const MAX_RAW_EXPANDED_BYTES = 1024 * 1024 * 1024
 
@@ -73,7 +72,6 @@ const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => 
         typeof header.session_id !== 'string' ||
         !Number.isInteger(header.block_count) ||
         !Array.isArray(header.viewports) ||
-        header.viewports.length > MAX_RAW_VIEWPORTS ||
         !header.viewports.every(isValidViewport)
     ) {
         throw new Error('File does not have a valid header')
