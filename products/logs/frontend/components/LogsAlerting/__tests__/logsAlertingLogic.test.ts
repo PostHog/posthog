@@ -198,7 +198,7 @@ describe('logsAlertingLogic', () => {
                 .toMatchValues({ alertsAccessDenied: true })
             mockList.mockClear()
 
-            jest.advanceTimersByTime(3 * 30_000)
+            jest.advanceTimersByTime(30_000)
             expect(mockList).not.toHaveBeenCalled()
 
             mockList.mockResolvedValue({ results: [MOCK_ALERT] } as any)

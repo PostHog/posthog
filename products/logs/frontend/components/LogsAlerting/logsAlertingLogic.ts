@@ -157,8 +157,8 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         alertsAccessDenied: [
             false,
             {
+                loadAlerts: () => false,
                 loadAlertsFailure: (_, { errorObject }) => isAccessDeniedError(errorObject ?? {}),
-                loadAlertsSuccess: () => false,
             },
         ],
         createdByFilter: [
