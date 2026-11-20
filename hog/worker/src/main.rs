@@ -25,7 +25,8 @@
 //                      | null]}, failed for every slice of a dSYM bundle that failed, and null for a
 //                      native file that a dSYM which fits replaces
 // Each architecture of a fat Mach-O is a binary with an id of its own. `pack_native` reads each
-// list in `sources` once and answers one `unreadable` list for it, and one container per item.
+// list in `sources` when it packs the binaries that use it, keeps it only until they are packed,
+// and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
 // their pairs, maps and binaries go. The others stay in memory until hog closes stdin, which ends
 // the worker. A dry run sends a null `folder`, and the worker then writes no file and answers a
@@ -54,7 +55,7 @@ mod write;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
@@ -972,29 +973,64 @@ impl Worker {
         // A binary hog left out, such as the smaller of two with one debug ID, is never packed.
         self.binaries.release_all();
 
-        let (collected, unreadable): (Vec<_>, Vec<_>) = sources
-            .par_iter()
-            .map(|paths| sources::collect(paths))
-            .unzip();
-        self.trace.mark("collect sources");
-
-        let pack = |item: &PackItem, binary: &native::Binary| {
-            let sources = item.sources.map(|place| &collected[place]);
-            native::pack(binary, sources, folder).map_err(|error| format!("{error:#}"))
-        };
         let dsym_ids: HashSet<&str> = items
             .iter()
             .filter(|item| item.bundle.is_some())
             .map(|item| item.chunk_id.as_str())
             .collect();
-        let first: Vec<Option<Result<upload::Container, String>>> = items
+        let waits: Vec<bool> = items
+            .iter()
+            .map(|item| item.bundle.is_none() && dsym_ids.contains(item.chunk_id.as_str()))
+            .collect();
+
+        let mut groups: BTreeMap<Option<usize>, Vec<usize>> = (0..sources.len())
+            .map(|place| (Some(place), Vec::new()))
+            .collect();
+        for (index, item) in items.iter().enumerate() {
+            groups.entry(item.sources).or_default().push(index);
+        }
+        let pack_group = |place: Option<usize>, indexes: &[usize]| {
+            let (files, unreadable) = match place {
+                Some(place) => {
+                    let (files, unreadable) = sources::collect(&sources[place]);
+                    (Some(files), Some(unreadable))
+                }
+                None => (None, None),
+            };
+            let packed: Vec<(usize, Result<upload::Container, String>)> = indexes
+                .par_iter()
+                .map(|&index| {
+                    let packed = native::pack(&binaries[index], files.as_ref(), folder)
+                        .map_err(|error| format!("{error:#}"));
+                    (index, packed)
+                })
+                .collect();
+            (place.zip(unreadable), packed)
+        };
+
+        let mut unreadable: Vec<Option<Vec<sources::Unreadable>>> =
+            (0..sources.len()).map(|_| None).collect();
+        let mut first: Vec<Option<Result<upload::Container, String>>> =
+            (0..items.len()).map(|_| None).collect();
+        let packed: Vec<_> = groups
             .par_iter()
-            .zip(&binaries)
-            .map(|(item, binary)| {
-                let waits = item.bundle.is_none() && dsym_ids.contains(item.chunk_id.as_str());
-                (!waits).then(|| pack(item, binary))
+            .filter_map(|(&place, indexes)| {
+                let ready: Vec<usize> = indexes
+                    .iter()
+                    .copied()
+                    .filter(|&index| !waits[index])
+                    .collect();
+                (!ready.is_empty()).then(|| pack_group(place, &ready))
             })
             .collect();
+        for (list, packed) in packed {
+            if let Some((place, list)) = list {
+                unreadable[place] = Some(list);
+            }
+            for (index, packed) in packed {
+                first[index] = Some(packed);
+            }
+        }
 
         // As posthog-cli does, a dSYM bundle that fails to pack is skipped whole and leaves a native
         // file with its UUID to upload, while a native file that fails stops the request.
@@ -1023,28 +1059,52 @@ impl Worker {
             })
             .collect();
 
-        let containers: Vec<Option<Packed>> = items
+        // A list that only waiting binaries read is still read, for its warnings.
+        let packed: Vec<_> = groups
             .par_iter()
-            .zip(binaries)
+            .filter_map(|(&place, indexes)| {
+                let late: Vec<usize> = indexes
+                    .iter()
+                    .copied()
+                    .filter(|&index| {
+                        waits[index] && !fitting.contains(items[index].chunk_id.as_str())
+                    })
+                    .collect();
+                let unread = place.is_some_and(|place| unreadable[place].is_none());
+                (unread || !late.is_empty()).then(|| pack_group(place, &late))
+            })
+            .collect();
+        for (list, packed) in packed {
+            if let Some((place, list)) = list {
+                unreadable[place].get_or_insert(list);
+            }
+            for (index, packed) in packed {
+                first[index] = Some(packed);
+            }
+        }
+        self.trace.mark("pack native");
+
+        let containers: Vec<Option<Packed>> = items
+            .iter()
             .zip(first)
-            .map(|((item, binary), packed)| {
+            .map(|(item, packed)| {
                 if let Some(message) = item.bundle.and_then(|bundle| failed_bundles.get(&bundle)) {
                     return Ok(Some(Packed::Failed {
                         failed: message.clone(),
                     }));
                 }
-                match packed {
-                    Some(packed) => packed.map(|packed| Some(Packed::Container(packed))),
-                    None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
-                    None => pack(item, &binary).map(|packed| Some(Packed::Container(packed))),
-                }
+                packed
+                    .transpose()
+                    .map(|packed| packed.map(Packed::Container))
             })
             .collect::<Result<_, _>>()
             .map_err(Failure::failed)?;
-        self.trace.mark("pack native");
 
         Ok(Answer::Packed {
-            unreadable,
+            unreadable: unreadable
+                .into_iter()
+                .map(Option::unwrap_or_default)
+                .collect(),
             containers,
         })
     }
