@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
     EventsRetentionTable,
+    ExpressionField,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -23,6 +24,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.database.schema.flag_evaluations import reads_flag_evaluations_json_table
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
@@ -524,8 +526,14 @@ class ClickHousePrinter(BasePrinter):
 
     def _collect_table_top_level_settings(self, table: Table) -> None:
         super()._collect_table_top_level_settings(table)
-        if isinstance(table, EVENTS_TABLE_TYPES) and self.context.uses_new_events_schema():
+        if self._is_native_json_table(table):
             self._reads_native_events_table = True
+
+    def _is_native_json_table(self, table: Table) -> bool:
+        """Whether the query reads `table` from a native JSON table: events_json, or flag_evaluations_json."""
+        return (
+            isinstance(table, EVENTS_TABLE_TYPES) and self.context.uses_new_events_schema()
+        ) or reads_flag_evaluations_json_table(table, self.context)
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
@@ -645,14 +653,15 @@ class ClickHousePrinter(BasePrinter):
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
         if (
-            self.context.uses_new_events_schema()
-            and isinstance(type.table_type, ast.BaseTableType)
-            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
+            isinstance(type.table_type, ast.BaseTableType)
+            and self._is_native_json_table(type.table_type.resolve_database_table(self.context))
             and isinstance(field := type.resolve_database_field(self.context), DatabaseField)
+            and not isinstance(field, ExpressionField)
         ):
             name = field.name
             if name in {
                 "$session_id",
+                "session_id",
                 "$window_id",
                 "$session_id_uuid",
                 "$group_0",
@@ -663,7 +672,7 @@ class ClickHousePrinter(BasePrinter):
             }:
                 # events_json has no columns for these; they are declared String paths in properties.
                 prefix = field_sql.removesuffix(self._print_identifier(name))
-                path = "$session_id" if name == "$session_id_uuid" else name
+                path = "$session_id" if name in ("$session_id_uuid", "session_id") else name
                 field_sql = f"{prefix}properties.{self._print_identifier(path)}"
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
@@ -672,8 +681,6 @@ class ClickHousePrinter(BasePrinter):
 
     def _events_json_document_field(self, type: ast.FieldType) -> StringJSONDatabaseField | None:
         """The field when it is a JSON document column of the native events table, otherwise None."""
-        if not self.context.uses_new_events_schema():
-            return None
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
@@ -681,7 +688,7 @@ class ClickHousePrinter(BasePrinter):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None
-        if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
+        if not self._is_native_json_table(type.table_type.resolve_database_table(self.context)):
             return None
         return resolved_field
 

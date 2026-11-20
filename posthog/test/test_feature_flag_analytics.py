@@ -29,6 +29,7 @@ from posthog.helpers.dashboard_templates import (
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import (
     calculate_decide_usage,
@@ -1325,6 +1326,25 @@ class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert counts == {self.team.id: team_count, other_team.id: other_team_count}
+
+    @parameterized.expand(
+        [
+            ("native_events_switch_on", True, True, "flag_evaluations_json"),
+            ("native_events_switch_off", True, False, "flag_evaluations"),
+            ("legacy_events_switch_on", False, True, "flag_evaluations"),
+        ]
+    )
+    def test_reads_the_flag_calls_table_that_follows_the_teams_events_table(
+        self, _name, native_events, reads_json, expected_table
+    ):
+        with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events),
+            override_instance_config("FLAG_EVALUATIONS_READS_JSON", reads_json),
+            patch("products.feature_flags.backend.flag_analytics.sync_execute", return_value=[]) as mock_execute,
+        ):
+            get_evaluations_7d_by_team("my_flag", [self.team.id], from_flag_evaluations=True)
+
+        assert f"FROM {expected_table}\n" in mock_execute.call_args.args[0]
 
     def test_returns_empty_dict_when_no_team_ids(self):
         assert get_evaluations_7d_by_team("any_flag", [], from_flag_evaluations=False) == {}

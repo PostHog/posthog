@@ -35,7 +35,8 @@ from posthog.hogql.constants import (
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField, Table
+from posthog.hogql.database.schema.flag_evaluations import reads_flag_evaluations_json_table
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
@@ -126,6 +127,14 @@ def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
     return table_type if isinstance(table_type, ast.TableType) else None
 
 
+def _reads_native_json_table(table: Table, context: HogQLContext) -> bool:
+    """Whether the query reads `table` from a native JSON table: events_json, or flag_evaluations_json."""
+    return reads_flag_evaluations_json_table(table, context) or (
+        context.uses_new_events_schema()
+        and table.to_printed_clickhouse(context) in ("events", DISTRIBUTED_EVENTS_JSON_TABLE)
+    )
+
+
 def resolve_materialized_property_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
@@ -159,13 +168,13 @@ def resolve_materialized_property_source(
         raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
     field_name = field.name
 
-    if json_source := resolve_json_subcolumn_source(field_type, table_name, field_name, property_name, context):
+    if json_source := resolve_json_subcolumn_source(field_type, field_name, property_name, context):
         return json_source
 
     # The registries below list columns of the legacy events table. The native table has no materialized, dmat or
     # property-group columns, so the reads that reach this point on it (`groupN_properties` keys, and paths that
     # overlap a restriction) stay JSON reads.
-    if context.uses_new_events_schema() and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+    if _reads_native_json_table(table_type.table, context):
         return None
 
     if context.modifiers.materializationMode == "disabled":
@@ -200,13 +209,12 @@ def resolve_materialized_property_source(
 
 
 def resolve_json_subcolumn_source(
-    field_type: ast.FieldType, table_name: str, field_name: str, property_name: str, context: HogQLContext
+    field_type: ast.FieldType, field_name: str, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
     if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
-    if not context.uses_new_events_schema():
-        return None
-    if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+    table_type = _unwrap_to_table_type(field_type)
+    if table_type is None or not _reads_native_json_table(table_type.table, context):
         return None
     if field_name not in ("properties", "person_properties"):
         return None
@@ -264,9 +272,9 @@ def resolve_property_group_source(
     if not isinstance(field, DatabaseField):
         return None
 
-    table_name = table_type.table.to_printed_clickhouse(context)
-    if context.uses_new_events_schema() and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+    if _reads_native_json_table(table_type.table, context):
         return None
+    table_name = table_type.table.to_printed_clickhouse(context)
     for group_column in property_groups.get_property_group_columns(table_name, field.name, property_name):
         return MaterializedPropertySource(kind="property_group", column=group_column, is_nullable=True)
     return None
@@ -612,7 +620,7 @@ def _is_events_properties(field_type: ast.FieldType, context: HogQLContext) -> b
     field = field_type.resolve_database_field(context)
     return (
         table_type is not None
-        and table_type.table.to_printed_clickhouse(context) in ("events", DISTRIBUTED_EVENTS_JSON_TABLE)
+        and _reads_native_json_table(table_type.table, context)
         and isinstance(field, DatabaseField)
         and field.name == "properties"
     )
@@ -693,9 +701,7 @@ def _json_path_first_member(path: str) -> str | None:
 
 
 def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.Expr | None:
-    source = resolve_json_subcolumn_source(
-        field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", "$feature_flags", context
-    )
+    source = resolve_json_subcolumn_source(field_type, "properties", "$feature_flags", context)
     return (
         _json_subcolumn_access(field_type, "$feature_flags", source=source, is_nullable=False)
         if source is not None
@@ -1809,10 +1815,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if not isinstance(field_type, ast.FieldType):
             return None
         table_type = _unwrap_to_table_type(field_type)
-        if table_type is None or table_type.table.to_printed_clickhouse(self.context) not in (
-            "events",
-            DISTRIBUTED_EVENTS_JSON_TABLE,
-        ):
+        if table_type is None or not _reads_native_json_table(table_type.table, self.context):
             return None
         field = field_type.resolve_database_field(self.context)
         if not isinstance(field, DatabaseField) or field.name not in ("properties", "person_properties"):
@@ -1842,9 +1845,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 args=[_temporary_properties_document(field_type), *[self.visit(arg) for arg in node.args[1:]]],
             )
 
-        source = resolve_json_subcolumn_source(
-            field_type, table_type.table.to_printed_clickhouse(self.context), field.name, first_key, self.context
-        )
+        source = resolve_json_subcolumn_source(field_type, field.name, first_key, self.context)
         # Every key on the JSON tables resolves to a declared or Dynamic subcolumn. Leaving the call on the blob
         # would serialize the whole document per row, so a missing source is a bug, not a fallback.
         assert source is not None

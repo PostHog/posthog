@@ -277,13 +277,16 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value. Events stores an
     object or array as a string of its JSON text and reads any string that is a valid JSON object or array as that
     container, so this does the same.
+
+    flag_evaluations_json stores the same JSON types as events_json, so a read from it serializes as the events read
+    does, and the translation does not apply.
     """
     # Deferred: restricted_properties imports this module.
     from posthog.hogql.restricted_properties import property_path_overlaps_restriction  # noqa: PLC0415
 
     serialized = ast.Call(name="toJSONString", args=[read])
     field, rest = _field(table, chain)
-    if not context.uses_new_events_schema() or len(rest) != 1:
+    if not context.uses_new_events_schema() or context.reads_flag_evaluations_json() or len(rest) != 1:
         return serialized
     key = str(rest[0])
     on_event_properties = _column_name(field) == "properties"
