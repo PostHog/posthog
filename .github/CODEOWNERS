@@ -17,6 +17,8 @@
 # cover the CI security scans, the pull_request_target workflows and their scripts, the
 # authentication code, the Content Security Policy and the dev sandbox.
 
+/.github/CODEOWNERS @PostHog/team-devex
+
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
