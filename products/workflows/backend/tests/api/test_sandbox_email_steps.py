@@ -687,8 +687,21 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["type"] == expected_type
         if expected_type == "function_email":
             expected_id = senders[expected_index].id if expected_index is not None else None
-            assert stored["config"]["inputs"]["email"]["value"]["from"].get("integrationId") == expected_id
+            assert stored["config"]["inputs"]["email"]["value"]["from"] == {**sender, "integrationId": expected_id}
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
+
+    def test_a_new_api_email_step_with_a_from_address_that_is_not_text_is_refused(self) -> None:
+        self._sender("mail0.example.com", stopped=False)
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                _flow(_own_email_step(None, **{"from": {"integrationId": None, "email": ["hi@mail0.example.com"]}})),
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 400, response.json()
 
     @parameterized.expand([("web_save", True), ("real_test", True), ("mocked_test", False)])
     def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(self, path: str, expected: bool) -> None:

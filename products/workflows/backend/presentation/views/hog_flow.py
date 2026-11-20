@@ -1160,7 +1160,10 @@ def _email_value(config: dict) -> dict:
 
 def _custom_address_fits(action: dict, sender_domain: str) -> bool:
     sender = _email_value(action["config"]).get("from")
-    address = (sender.get("email") or "").strip() if isinstance(sender, dict) else ""
+    address = sender.get("email") if isinstance(sender, dict) else None
+    if not isinstance(address, str):
+        return not address
+    address = address.strip()
     if not address or "{" in address:
         return True
     return (email_domain(address.lower()) or "") == sender_domain

@@ -779,10 +779,11 @@ tools:
             mock_async_functions=false to fire real side effects. A real test of an email_sandbox step sets up the
             PostHog test sender for the project first. If the step is skipped with reason sandbox_not_provisioned, the
             test sender couldn't be set up for this caller or project: ask someone with edit access to all workflows to
-            save the workflow and test again, and if it is still skipped, the organization can't use the test sender, so
-            verify a domain instead. Returns the step's execution trace. Set use_draft=true to test a workflow's staged
-            draft instead of its live config — always do this before workflows-publish. use_draft requires a staged
-            draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
+            save the workflow with its steps, then test again. If that save leaves it skipped, the organization may not
+            be able to use the test sender, so suggest verifying a domain. Returns the step's execution trace. Set
+            use_draft=true to test a workflow's staged draft instead of its live config — always do this before
+            workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a
+            workflow with nothing staged, omit it.
         exclude_params:
             - configuration
     workflows-update:
