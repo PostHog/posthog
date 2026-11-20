@@ -207,264 +207,161 @@ function uncarriedTools(input: GapInput, carried: Set<string>, file: string): st
 
 const printer = ts.createPrinter({ removeComments: true })
 
-interface Scope {
-    zod: Set<string>
-    globalRegExp: boolean
-}
-
-// The names a top-level statement binds. Undefined stands for a binding this can't name, like a destructured one.
-function declaredNames(statement: ts.Statement): (string | undefined)[] {
-    if (ts.isImportDeclaration(statement)) {
-        const clause = statement.importClause
-        const bindings = clause?.namedBindings
-        return [
-            ...(clause?.name ? [clause.name.text] : []),
-            ...(bindings && ts.isNamespaceImport(bindings) ? [bindings.name.text] : []),
-            ...(bindings && ts.isNamedImports(bindings) ? bindings.elements.map((element) => element.name.text) : []),
-        ]
-    }
-    if (ts.isVariableStatement(statement)) {
-        return statement.declarationList.declarations.map((declaration) =>
-            ts.isIdentifier(declaration.name) ? declaration.name.text : undefined
-        )
-    }
-    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
-        return [statement.name?.text]
-    }
-    return []
-}
-
-function moduleScope(file: ts.SourceFile): Scope {
-    const zod = new Set<string>()
-    let globalRegExp = true
-    for (const statement of file.statements) {
-        if (ts.isImportDeclaration(statement)) {
-            const bindings = statement.importClause?.namedBindings
-            const fromZod =
-                ts.isStringLiteral(statement.moduleSpecifier) && ZOD_MODULES.has(statement.moduleSpecifier.text)
-            if (fromZod && bindings && ts.isNamespaceImport(bindings)) {
-                zod.add(bindings.name.text)
-            }
-            if (fromZod && bindings && ts.isNamedImports(bindings)) {
-                bindings.elements
-                    .filter((element) => (element.propertyName ?? element.name).text === 'z')
-                    .forEach((element) => zod.add(element.name.text))
-            }
-        }
-        if (declaredNames(statement).some((name) => name === 'RegExp' || name === undefined)) {
-            globalRegExp = false
-        }
-    }
-    return { zod, globalRegExp }
-}
-
-// Whether evaluating the expression when hog imports the module runs no code beyond building literals,
-// functions, regular expressions and zod schemas.
-function inertExpression(node: ts.Expression, scope: Scope): boolean {
-    if (
-        ts.isParenthesizedExpression(node) ||
-        ts.isAsExpression(node) ||
-        ts.isSatisfiesExpression(node) ||
-        ts.isNonNullExpression(node)
-    ) {
-        return inertExpression(node.expression, scope)
-    }
-    if (
-        ts.isArrowFunction(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isLiteralExpression(node) ||
-        ts.isIdentifier(node)
-    ) {
-        return true
-    }
-    if (
-        node.kind === ts.SyntaxKind.TrueKeyword ||
-        node.kind === ts.SyntaxKind.FalseKeyword ||
-        node.kind === ts.SyntaxKind.NullKeyword
-    ) {
-        return true
-    }
-    if (ts.isPrefixUnaryExpression(node)) {
-        return node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand)
-    }
-    if (ts.isArrayLiteralExpression(node)) {
-        return node.elements.every((element) => !ts.isSpreadElement(element) && inertExpression(element, scope))
-    }
-    if (ts.isObjectLiteralExpression(node)) {
-        return node.properties.every(
-            (property) =>
-                (ts.isPropertyAssignment(property) &&
-                    !ts.isComputedPropertyName(property.name) &&
-                    inertExpression(property.initializer, scope)) ||
-                (ts.isShorthandPropertyAssignment(property) && !property.objectAssignmentInitializer)
-        )
-    }
-    if (ts.isNewExpression(node)) {
-        return (
-            scope.globalRegExp &&
-            ts.isIdentifier(node.expression) &&
-            node.expression.text === 'RegExp' &&
-            (node.arguments ?? []).every((argument) => ts.isStringLiteralLike(argument))
-        )
-    }
-    if (ts.isCallExpression(node)) {
-        return (
-            !node.questionDotToken &&
-            zodBuilder(node.expression, scope) &&
-            node.arguments.every((argument) => inertExpression(argument, scope))
-        )
-    }
-    return ts.isPropertyAccessExpression(node) && zodBuilder(node, scope)
-}
-
-function zodBuilder(node: ts.Expression, scope: Scope): boolean {
-    if (ts.isIdentifier(node)) {
-        return scope.zod.has(node.text)
-    }
-    if (ts.isPropertyAccessExpression(node)) {
-        return !node.questionDotToken && ZOD_BUILDERS.has(node.name.text) && zodBuilder(node.expression, scope)
-    }
-    return ts.isCallExpression(node) && inertExpression(node, scope)
-}
-
-// The name a top-level statement declares when evaluating it at import runs nothing, as for the generator's
-// `export const X = () => zod.object(...)`. Undefined for any other statement.
-function inertDeclaration(statement: ts.Statement, scope: Scope): string | undefined {
-    if (ts.isFunctionDeclaration(statement)) {
-        return statement.body && statement.name?.text
-    }
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) {
-        return undefined
-    }
-    const [declaration, ...others] = statement.declarationList.declarations
-    return declaration &&
-        others.length === 0 &&
-        ts.isIdentifier(declaration.name) &&
-        declaration.initializer &&
-        inertExpression(declaration.initializer, scope)
-        ? declaration.name.text
-        : undefined
-}
-
 interface Block {
     // As written, for reading tool names and schema references.
     text: string
     // As compiled, without comments, for comparing.
     code: string
-    references: References
 }
 
-interface References {
-    names: Set<string>
-    // Code that reaches bindings by a name the parser can't see, like `eval` or `globalThis[key]`.
-    dynamic: boolean
-}
-
-const DYNAMIC_SCOPE = new Set(['eval', 'Function', 'globalThis', 'global', 'window', 'self', 'arguments'])
-
-function references(node: ts.Node): References {
-    const found: References = { names: new Set(), dynamic: false }
-    const visit = (child: ts.Node): void => {
-        if (ts.isIdentifier(child)) {
-            found.names.add(child.text)
-            found.dynamic ||= DYNAMIC_SCOPE.has(child.text)
-        }
-        found.dynamic ||=
-            child.kind === ts.SyntaxKind.ThisKeyword ||
-            ts.isWithStatement(child) ||
-            (ts.isElementAccessExpression(child) && !ts.isStringLiteralLike(child.argumentExpression))
-        ts.forEachChild(child, visit)
-    }
-    visit(node)
-    return found
-}
-
-interface TopLevel {
-    prelude: string
+interface GeneratedModule {
+    // Whether the module has only the shape the generator writes, which runs no code of its own on import.
+    declarative: boolean
+    // The import statements, as compiled.
+    imports: string
     blocks: Map<string, Block>
-    // The declarations the prelude can run or read when hog imports the module, directly or through other
-    // declarations. Every declaration when the prelude reaches bindings dynamically.
-    importTime: Set<string>
 }
 
-// Splits a module into the declarations hog can import without running anything, and the prelude: every other
-// top-level statement, such as imports and calls. The prelude runs whenever hog imports the module, so a change
-// to it, or to a declaration it reaches, counts as a change to everything.
-function topLevelBlocks(source: string): TopLevel {
-    const file = ts.createSourceFile('module.ts', source, ts.ScriptTarget.Latest, true)
-    const scope = moduleScope(file)
-    const prelude: string[] = []
+// The generator writes imports and consts, and each const is a literal, an arrow function, `new RegExp` of a
+// string, a chain of zod builders, or an object or array of those and of the module's other consts. Evaluating
+// that calls no code but zod's, so hog runs nothing of the module's own when it imports it. Any other statement
+// or expression, such as a call, an assignment or a global, makes the module not declarative, so no exemption
+// applies to it.
+function generatedModule(source: string | undefined): GeneratedModule {
+    const file = ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
+    const zod = new Set<string>()
+    const imported = new Set<string>()
+    const consts = new Map<string, ts.Expression>()
     const blocks = new Map<string, Block>()
-    const reached: References = { names: new Set(), dynamic: false }
+    const imports: string[] = []
+    let declarative = true
+
     for (const statement of file.statements) {
-        const code = printer.printNode(ts.EmitHint.Unspecified, statement, file)
-        const name = inertDeclaration(statement, scope)
-        if (name && !blocks.has(name)) {
-            blocks.set(name, { text: statement.getText(file), code, references: references(statement) })
+        if (ts.isImportDeclaration(statement)) {
+            const clause = statement.importClause
+            const bindings = clause?.namedBindings
+            const fromZod =
+                ts.isStringLiteral(statement.moduleSpecifier) && ZOD_MODULES.has(statement.moduleSpecifier.text)
+            if (clause?.name) {
+                imported.add(clause.name.text)
+            }
+            if (bindings && ts.isNamespaceImport(bindings)) {
+                imported.add(bindings.name.text)
+                if (fromZod) {
+                    zod.add(bindings.name.text)
+                }
+            }
+            for (const element of bindings && ts.isNamedImports(bindings) ? bindings.elements : []) {
+                imported.add(element.name.text)
+                if (fromZod && (element.propertyName ?? element.name).text === 'z') {
+                    zod.add(element.name.text)
+                }
+            }
+            imports.push(printer.printNode(ts.EmitHint.Unspecified, statement, file))
             continue
         }
-        prelude.push(code)
-        if (!ts.isImportDeclaration(statement)) {
-            const found = references(statement)
-            found.names.forEach((reference) => reached.names.add(reference))
-            reached.dynamic ||= found.dynamic
+        const declaration =
+            ts.isVariableStatement(statement) &&
+            statement.declarationList.flags & ts.NodeFlags.Const &&
+            statement.declarationList.declarations.length === 1
+                ? statement.declarationList.declarations[0]
+                : undefined
+        if (
+            !declaration ||
+            !ts.isIdentifier(declaration.name) ||
+            !declaration.initializer ||
+            consts.has(declaration.name.text)
+        ) {
+            declarative = false
+            continue
         }
+        consts.set(declaration.name.text, declaration.initializer)
+        blocks.set(declaration.name.text, {
+            text: statement.getText(file),
+            code: printer.printNode(ts.EmitHint.Unspecified, statement, file),
+        })
     }
 
-    const importTime = new Set<string>()
-    const pending = [...reached.names]
-    while (pending.length > 0) {
-        const name = pending.pop()!
-        const block = blocks.get(name)
-        if (block && !importTime.has(name)) {
-            importTime.add(name)
-            pending.push(...block.references.names)
-            reached.dynamic ||= block.references.dynamic
+    const regExp = !consts.has('RegExp') && !imported.has('RegExp')
+    const zodChain = (node: ts.Expression): boolean => {
+        if (ts.isIdentifier(node)) {
+            return zod.has(node.text)
         }
-    }
-    return { prelude: prelude.join('\n'), blocks, importTime: reached.dynamic ? new Set(blocks.keys()) : importTime }
-}
-
-// Whether hog runs anything different when it imports the module: its prelude changed, or a declaration the
-// prelude reaches did.
-function importTimeChanged(base: TopLevel, head: TopLevel): boolean {
-    return (
-        base.prelude !== head.prelude ||
-        [...base.importTime, ...head.importTime].some(
-            (name) => base.blocks.get(name)?.code !== head.blocks.get(name)?.code
+        if (ts.isPropertyAccessExpression(node)) {
+            return !node.questionDotToken && ZOD_BUILDERS.has(node.name.text) && zodChain(node.expression)
+        }
+        return (
+            ts.isCallExpression(node) &&
+            !node.questionDotToken &&
+            zodChain(node.expression) &&
+            node.arguments.every((argument) => eager(argument))
         )
-    )
-}
+    }
+    const eager = (node: ts.Expression): boolean => {
+        if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+            return eager(node.expression)
+        }
+        if (ts.isArrowFunction(node) || ts.isLiteralExpression(node)) {
+            return true
+        }
+        if (
+            node.kind === ts.SyntaxKind.TrueKeyword ||
+            node.kind === ts.SyntaxKind.FalseKeyword ||
+            node.kind === ts.SyntaxKind.NullKeyword
+        ) {
+            return true
+        }
+        if (ts.isPrefixUnaryExpression(node)) {
+            return node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand)
+        }
+        if (ts.isIdentifier(node)) {
+            return consts.has(node.text)
+        }
+        if (ts.isArrayLiteralExpression(node)) {
+            return node.elements.every((element) => !ts.isSpreadElement(element) && eager(element))
+        }
+        if (ts.isObjectLiteralExpression(node)) {
+            return node.properties.every(
+                (property) =>
+                    (ts.isPropertyAssignment(property) &&
+                        !ts.isComputedPropertyName(property.name) &&
+                        eager(property.initializer)) ||
+                    (ts.isShorthandPropertyAssignment(property) &&
+                        !property.objectAssignmentInitializer &&
+                        consts.has(property.name.text))
+            )
+        }
+        if (ts.isNewExpression(node)) {
+            return (
+                regExp &&
+                ts.isIdentifier(node.expression) &&
+                node.expression.text === 'RegExp' &&
+                (node.arguments ?? []).every((argument) => ts.isStringLiteralLike(argument))
+            )
+        }
+        return zodChain(node)
+    }
 
-// Whether every top-level statement of the module runs nothing when hog imports it, apart from importing types
-// and zod.
-function inertModule(source: string | undefined): boolean {
-    const file = ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
-    const scope = moduleScope(file)
-    return file.statements.every(
-        (statement) =>
-            (ts.isImportDeclaration(statement) &&
-                ts.isStringLiteral(statement.moduleSpecifier) &&
-                (statement.importClause?.isTypeOnly || ZOD_MODULES.has(statement.moduleSpecifier.text))) ||
-            inertDeclaration(statement, scope) !== undefined
-    )
+    declarative &&= [...consts.values()].every((initializer) => eager(initializer))
+    return { declarative, imports: imports.join('\n'), blocks }
 }
 
 function referencesAny(text: string, names: Iterable<string>): boolean {
     return [...names].some((name) => new RegExp(`\\b${name}\\b`).test(text))
 }
 
-// Undefined when the change reaches beyond the blocks, which leaves every schema suspect.
+// Undefined when the file isn't declarative on either side, which leaves every importer suspect. A change to
+// its imports alters every schema.
 function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
-    const base = topLevelBlocks(input.readBase(file) ?? '')
-    const head = topLevelBlocks(input.readHead(file) ?? '')
-    if (importTimeChanged(base, head)) {
+    const base = generatedModule(input.readBase(file))
+    const head = generatedModule(input.readHead(file))
+    if (!base.declarative || !head.declarative) {
         return undefined
     }
 
     const altered = new Set(
         [...new Set([...base.blocks.keys(), ...head.blocks.keys()])].filter(
-            (name) => base.blocks.get(name)?.code !== head.blocks.get(name)?.code
+            (name) => base.imports !== head.imports || base.blocks.get(name)?.code !== head.blocks.get(name)?.code
         )
     )
     let grew = true
@@ -485,7 +382,7 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     if (!source) {
         return undefined
     }
-    const { blocks } = topLevelBlocks(source)
+    const { blocks } = generatedModule(source)
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
         const text = blocks.get(name)?.text ?? ''
         const schemas = new Set([...text.matchAll(/orvalSchemas\.(\w+)/g)].map((match) => match[1]!))
@@ -633,7 +530,7 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
         return (
             path === undefined ||
             (generatedModuleName(path) !== undefined &&
-                inertModule(read(path)) &&
+                generatedModule(read(path)).declarative &&
                 tools.length > 0 &&
                 tools.every((tool) => carried.has(tool)))
         )
@@ -663,12 +560,10 @@ export function findCatalogGaps(input: GapInput): GapResult {
 
         if (generatedModuleName(file)) {
             if (
-                importTimeChanged(
-                    topLevelBlocks(input.readBase(file) ?? ''),
-                    topLevelBlocks(input.readHead(file) ?? '')
-                )
+                !generatedModule(input.readBase(file)).declarative ||
+                !generatedModule(input.readHead(file)).declarative
             ) {
-                reasons.push({ file, why: 'top-level code that runs whenever hog loads the module' })
+                reasons.push({ file, why: 'code other than the declarations the generator writes' })
                 continue
             }
             const missing = uncarriedTools(input, carried, file)
