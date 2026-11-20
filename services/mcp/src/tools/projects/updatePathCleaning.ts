@@ -62,15 +62,16 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
 // large enough to block the event loop while it compiles. The estimate refuses that expansion
 // before RE2JS.compile allocates it, and programSize() checks the real program afterwards.
 const MAX_PROGRAM_SIZE = 1000
-// One search costs up to program size × the input it scans, and replaceAll starts a new search after
-// every match, so a preview with many matches can cost path length squared × program size.
-const PREVIEW_WORK_BUDGET = 50_000_000
+// One search costs up to program size × capture groups × the input it scans, and replaceAll starts a
+// new search after every match, so a preview with many matches can cost path length squared × that.
+const PREVIEW_WORK_BUDGET = 20_000_000
 
 const COUNTED_REPEAT = /\{(\d+)(?:,(\d*))?\}/y
+const GROUP_PREFIX = /\(\?(?:P?<[^>]*>|[a-zA-Z-]*:?)/y
 
 /** Approximates the RE2 instruction count, multiplying each counted repeat's operand as the compiler does. */
 function estimateProgramSize(regex: string): number {
-    const frames = [{ size: 0, last: 0 }]
+    const frames = [{ size: 0, last: 0, capturing: false }]
     let i = 0
     while (i < regex.length) {
         const char = regex[i]!
@@ -86,8 +87,11 @@ function estimateProgramSize(regex: string): number {
             continue
         }
         if (char === '(') {
-            frames.push({ size: 0, last: 0 })
-            i++
+            // Flags and non-capturing groups compile to no instructions; a capturing group adds two.
+            GROUP_PREFIX.lastIndex = i
+            const groupPrefix = GROUP_PREFIX.exec(regex)?.[0] ?? '('
+            frames.push({ size: 0, last: 0, capturing: groupPrefix === '(' || groupPrefix.endsWith('>') })
+            i += groupPrefix.length
             continue
         }
         if ('*+?|'.includes(char)) {
@@ -98,7 +102,8 @@ function estimateProgramSize(regex: string): number {
         let atom = 1
         let next = i + 1
         if (char === ')' && frames.length > 1) {
-            atom = frames.pop()!.size + 1
+            const group = frames.pop()!
+            atom = group.size + (group.capturing ? 2 : 0)
         } else if (char === '\\' && regex[i + 1] === 'Q') {
             const end = regex.indexOf('\\E', i)
             next = end === -1 ? regex.length : end + 2
@@ -304,17 +309,18 @@ function applyChain(path: string, rules: CompiledRule[], spend: (work: number) =
     let out = path
     for (const { alias, re } of rules) {
         const input = out
-        const programSize = re.programSize()
-        spend(input.length * programSize)
+        const cost = re.programSize() * (re.groupCount() + 1)
+        spend(input.length * cost)
         out = re.matcher(input).replaceAll((match: string, ...rest: unknown[]): string => {
             // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
             // the pattern didn't fill arrives as undefined, so the first number is the offset and
             // marks where the capture values stop.
             const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
             const offset = rest[offsetIndex] as number
-            spend((input.length - offset - match.length) * programSize)
             const captures = rest.slice(0, offsetIndex) as (string | undefined)[]
-            return expandAlias(alias, [match, ...captures])
+            const replacement = expandAlias(alias, [match, ...captures])
+            spend((input.length - offset - match.length) * cost + replacement.length)
+            return replacement
         })
     }
     return out

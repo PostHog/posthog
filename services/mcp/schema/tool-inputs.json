@@ -1817,6 +1817,7 @@
             "properties": {
                 "operations": {
                     "minItems": 1,
+                    "maxItems": 50,
                     "type": "array",
                     "items": {
                         "oneOf": [

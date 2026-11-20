@@ -136,6 +136,7 @@ describe('applyOperations', () => {
         ['a leading inline flag', '(?i)/ci/[0-9]+'],
         ['literal braces in a quoted span', '\\Q/api/{500}\\E'],
         ['literal braces in a character class', '[/#{500}]'],
+        ['a counted repeat of a non-capturing group', '(?:/[0-9]){300}'],
     ])('accepts a valid re2 regex with %s', (_name, regex) => {
         const { rules } = applyOperations(base, [{ action: 'append', alias: '/ok', regex }])
         expect(rules[rules.length - 1]).toEqual({ alias: '/ok', regex })
@@ -321,11 +322,15 @@ describe('path-cleaning-rules-update handler', () => {
         expect(result.sample_preview).toEqual([{ path, before: path, after: path }])
     })
 
-    it('refuses a preview whose matches would rescan long paths too many times', async () => {
+    it.each([
+        ['rescans a long path after every match', '(?:' + '[^Z]*'.repeat(50) + 'Z)?a', '/b'],
+        ['carries many capture groups', '(a*)'.repeat(100), '/b'],
+        ['expands a long alias at every match', 'a', 'x'.repeat(10_000)],
+    ])('refuses a preview that %s', async (_name, regex, alias) => {
         const context = createMockContext({ currentFilters: [] })
         await expect(
             updatePathCleaningHandler(context, {
-                operations: [{ action: 'append', alias: '/b', regex: '(?:' + '[^Z]*'.repeat(50) + 'Z)?a' }],
+                operations: [{ action: 'append', alias, regex }],
                 sample_paths: ['/' + 'a'.repeat(2047)],
                 confirm: false,
             })
