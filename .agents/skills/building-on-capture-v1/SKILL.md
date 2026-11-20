@@ -40,6 +40,7 @@ Sources of truth, in the order to read them:
 - For events sent on a customer's behalf, set `"capture_internal": true` on the batch, not in `properties`. Capture then records `127.0.0.1` instead of the PostHog server's IP. Capture v1 ignores a `capture_internal` property, which is where legacy capture reads it.
 - Send `$ai_*` events to `/i/v1/ai/events` and every other event to `/i/v1/analytics/events`.
   Capture still routes `$ai_*` events from the analytics endpoint to the AI topic, but only for now. Do not rely on it.
+  The AI endpoint, and an SDK's AI capture call, drop every event that is not `$ai_*` with `misrouted_event`. That includes `$mcp_*` events: send them to the analytics endpoint.
 - Give every event its own UUID. On a retry, resend only the events with result `retry`, with the same uuid, `PostHog-Request-Id` and `created_at`, `PostHog-Attempt` plus one, and a new `PostHog-Request-Timestamp`.
 - Set `PostHog-Sdk-Info` to `<sender>/<version>`. Ingestion uses it as `$lib` and `$lib_version` only when the event has no `$lib`.
 
