@@ -1081,9 +1081,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } catch (error) {
                 // The edit stays pending, so the next edit or a flush tries again.
                 posthog.captureException(error)
-                if (values.activeContentTab === 'plaintext') {
-                    return
-                }
                 if (!values.latestEditUnsaved) {
                     showEmailSaveFailed()
                 }
@@ -1229,14 +1226,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!commitsLive || !values.isEmailEditorReady) {
                 return
             }
-            // Plain text replaces the canvas when saved, so the canvas holds nothing to hand over.
-            if (values.activeContentTab === 'plaintext') {
-                cache.pendingDesignEdit = false
-                actions.setLatestEditUnsaved(false)
-                return
-            }
-            // The old editor reports a typed edit up to a second late, so read the canvas even when nothing is pending.
-            let readCanvas = true
+            // The old editor reports a typed edit up to a second late, so its canvas is read even when nothing is
+            // pending. Only once a design has loaded, as a canvas with nothing to compare against would overwrite the email.
+            let readCanvas = !values.usesDocumentEditor && cache.lastEditorDesign !== undefined
             while (readCanvas || cache.pendingDesignEdit) {
                 readCanvas = false
                 const editsBeforeExport = cache.designEdits

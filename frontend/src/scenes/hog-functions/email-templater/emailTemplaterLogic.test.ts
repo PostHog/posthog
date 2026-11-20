@@ -971,26 +971,53 @@ describe('emailTemplaterLogic', () => {
             expect(save).toHaveBeenCalledTimes(1)
         })
 
-        it('lets a plain-text save through when the hidden canvas cannot be read', async () => {
-            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
-            logic.actions.setEmailEditorRef({
-                editor: {
-                    ...fakeEditorRef().editor,
-                    exportPlainText: () => {
-                        throw new Error('export failed')
-                    },
-                },
-            } as unknown as EditorRef)
+        it('a flush on the plain-text tab picks up an edit the old editor has not reported yet', async () => {
             logic.actions.setActiveContentTab('plaintext')
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('saves a canvas edit still waiting when the plain-text tab opens', async () => {
             const save = jest.fn()
             jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
             editorListeners['design:updated']()
-            await jest.advanceTimersByTimeAsync(500)
+            logic.actions.setActiveContentTab('plaintext')
             await saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
 
             expect(save).toHaveBeenCalledTimes(1)
-            expect(toast).not.toHaveBeenCalled()
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('leaves the email alone on a save when no design was ever loaded into the canvas', async () => {
+            logic.cache.lastEditorDesign = undefined
+            const before = parent.email
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toBe(before)
+        })
+
+        it('blocks the save when an edit is waiting and the canvas stops answering', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            const saved = saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+            jest.useRealTimers()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
             toast.mockRestore()
         })
 
