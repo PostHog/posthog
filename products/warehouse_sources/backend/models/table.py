@@ -198,6 +198,10 @@ HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debu
 HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
     {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
 )
+# Mirrors `WEBHOOK_EVENT_COLUMNS` in `webhook_event_columns.py`; a test keeps the two equal.
+WEBHOOK_EVENT_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_event_id", "_ph_event_time", "_ph_event_rank", "_ph_arrival"}
+)
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"
@@ -642,8 +646,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""
         if self.is_history_table:
-            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
-        return HIDDEN_COLUMNS
+            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS | WEBHOOK_EVENT_HIDDEN_COLUMNS
+        return HIDDEN_COLUMNS | WEBHOOK_EVENT_HIDDEN_COLUMNS
 
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
         """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
@@ -1371,10 +1375,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
             # Hidden rather than removed, so a saved query that names one of these still resolves.
-            if self.is_history_table:
-                for name in HISTORY_HIDDEN_COLUMNS:
-                    if (field := fields.get(name)) is not None:
-                        fields[name] = field.model_copy(update={"hidden": True})
+            hidden_columns = (HISTORY_HIDDEN_COLUMNS if self.is_history_table else frozenset()) | (
+                WEBHOOK_EVENT_HIDDEN_COLUMNS
+            )
+            for name in hidden_columns:
+                if (field := fields.get(name)) is not None:
+                    fields[name] = field.model_copy(update={"hidden": True})
 
         table_def = HogQLDataWarehouseTable(
             name=self.name,

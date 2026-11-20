@@ -141,6 +141,10 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     PostHogInternalDatabaseError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.webhook_history import (
+    attach_webhook_history_lanes,
+    reads_webhook_history,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
@@ -818,6 +822,7 @@ async def _import_data_with_reporting(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
 
+            webhook_history = await database_sync_to_async_pool(reads_webhook_history)(schema)
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 sync_type=resolved_sync_type,
@@ -853,6 +858,7 @@ async def _import_data_with_reporting(
                 activity_attempt=current_import_attempt(),
                 worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
+                webhook_history=webhook_history,
             )
 
             try:
@@ -983,6 +989,12 @@ async def _import_data_with_reporting(
             try:
                 await database_sync_to_async_pool(attach_history_lanes)(
                     schema, source_response, destination_ids=list(model.destination_ids or [])
+                )
+                await database_sync_to_async_pool(attach_webhook_history_lanes)(
+                    schema,
+                    source_response,
+                    webhook_history=webhook_history,
+                    destination_ids=list(model.destination_ids or []),
                 )
             except IncrementalHistoryUnavailableError as e:
                 await _handle_import_error(job_inputs, logger, e)

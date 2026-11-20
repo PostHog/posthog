@@ -248,6 +248,7 @@ class DeltaWriter:
         self._table = table
         self._logger = table.logger
         self._deltalite_file_count_change: int | None = None
+        self._rows_older_than_main = 0
 
     @property
     def deltalite_file_count_change(self) -> int | None:
@@ -255,6 +256,11 @@ class DeltaWriter:
         None when deltalite did not commit that write. The handle `write` returns is one commit
         behind after a deltalite commit, so this is what its file list is off by."""
         return self._deltalite_file_count_change
+
+    @property
+    def rows_older_than_main(self) -> int:
+        """Rows of the last `write` that its `order_columns` kept from replacing a newer stored row."""
+        return self._rows_older_than_main
 
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
@@ -303,6 +309,7 @@ class DeltaWriter:
         normalized_primary_keys: list[str],
         use_partitioning: bool,
         commit_metadata: dict[str, str] | None,
+        order_columns: Sequence[str] | None = None,
     ) -> bool:
         """Perform the incremental merge via deltalite instead of the delta-rs MERGE.
 
@@ -384,6 +391,7 @@ class DeltaWriter:
             max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
             # Passed only to turn the cache off, so a deltalite build without the argument keeps working.
             probe_cache_kwargs = {} if settings.DATA_WAREHOUSE_DELTALITE_PROBE_CACHE else {"use_probe_cache": False}
+            order_kwargs = {"order_column": list(order_columns)} if order_columns else {}
             async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
@@ -394,6 +402,7 @@ class DeltaWriter:
                         commit_metadata=commit_metadata,
                         max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
                         **probe_cache_kwargs,
+                        **order_kwargs,
                         **upsert_kwargs,
                     )
 
@@ -410,6 +419,9 @@ class DeltaWriter:
                 stats = await asyncio.to_thread(_upsert)
                 duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
+            if order_columns:
+                # The MERGE would let an older row replace a newer one.
+                raise
             partition_bytes, budget_bytes = await self._fallback_partition_size(
                 existing_delta_table, data, use_partitioning
             )
@@ -441,6 +453,7 @@ class DeltaWriter:
         # or file list again. The ref refreshes it on the next `get_delta_table` call instead.
         self._table.note_deltalite_commit(_committed_version(stats))
         self._deltalite_file_count_change = _committed_file_count_change(stats)
+        self._rows_older_than_main = int(getattr(stats, "rows_older_than_main", 0) or 0)
 
         # NOTHING past this point may raise into the caller: an exception here would leave
         # `deltalite_wrote` unset and either fail/retry the sync or re-run the delta-rs MERGE on top of
@@ -501,7 +514,9 @@ class DeltaWriter:
         primary_keys: Sequence[Any] | None,
         progress_callback: Callable[[], None] | None = None,
         commit_metadata: dict[str, str] | None = None,
+        order_columns: Sequence[str] | None = None,
     ) -> deltalake.DeltaTable:
+        """`order_columns` keeps a merged row from replacing a stored row whose order value is newer."""
         # `.nbytes` rather than the slice-accurate accounting: tables reaching the writer are
         # materialised chunks, not zero-copy slices, and the merge working set scales with the full
         # buffers delta-rs will read anyway. This reports the merge *input* only — the decompressed
@@ -511,6 +526,7 @@ class DeltaWriter:
         report_phase("merge")
         report_buffer_bytes(data.nbytes)
         self._deltalite_file_count_change = None
+        self._rows_older_than_main = 0
 
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
@@ -607,6 +623,7 @@ class DeltaWriter:
                 normalized_primary_keys=normalized_primary_keys,
                 use_partitioning=use_partitioning,
                 commit_metadata=commit_metadata,
+                order_columns=order_columns,
             )
 
             if not deltalite_wrote:

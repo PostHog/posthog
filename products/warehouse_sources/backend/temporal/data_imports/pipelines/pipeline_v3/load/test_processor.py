@@ -888,7 +888,7 @@ class TestHistoryLaneFinalBatch:
             _finalize_run(
                 signal,
                 job=MagicMock(),
-                schema=MagicMock(),
+                schema=MagicMock(is_webhook=False),
                 delta_table_ref=ref,
                 internal_schema=batch_schema,
                 verify_ownership=None,
@@ -912,7 +912,9 @@ class TestHistoryLaneFinalBatch:
         _complete: MagicMock,
         mock_unfinished: MagicMock,
     ) -> None:
-        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(
+            return_value=MagicMock(**{"schema.is_webhook": False})
+        )
 
         self._assert_post_load_sees_the_history_table(
             lambda signal, _ref, _batch: _run_post_load_for_already_processed_batch(signal),

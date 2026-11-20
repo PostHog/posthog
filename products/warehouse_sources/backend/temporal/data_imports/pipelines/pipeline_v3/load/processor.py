@@ -48,7 +48,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
-    finalize_history_lane,
     stage_history_batch,
     stages_history,
 )
@@ -142,6 +141,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
     delete_consumed_webhook_files,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.temporal.data_imports.webhook_history import (
+    finalize_run_history,
+    main_table_order_columns,
+    record_webhook_history_rows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
 from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
@@ -591,9 +595,10 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         )
         if stages_history(export_signal.cdc_write_mode, export_signal.sync_type):
             # The staged rows of a history lane become versions only here, and finalize runs again safely.
-            await finalize_history_lane(
+            await finalize_run_history(
                 delta_table_ref,
                 export_signal.primary_keys or [],
+                schema=schema,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -1274,9 +1279,10 @@ def _finalize_run(
             # Versions written past a batch that never loaded would make its rows look older on the re-read.
             _refuse_incomplete_run(run_signal)
             # Before post-load, which registers and publishes the history table this writes.
-            async_to_sync(finalize_history_lane)(
+            async_to_sync(finalize_run_history)(
                 delta_table_ref,
                 run_signal.primary_keys or [],
+                schema=schema,
                 run_uuid=run_signal.run_uuid,
                 batch_index=run_signal.batch_index,
             )
@@ -1670,6 +1676,8 @@ def _process_message_reported(
                 pa_table = _read_constituents(constituents)
             else:
                 pa_table = read_parquet(export_signal.s3_path)
+        # Read before the schema evolves the batch, which adds the stored event columns as nulls.
+        order_columns = main_table_order_columns(schema, pa_table.column_names)
 
         logger.debug(
             "parquet_file_read",
@@ -1851,8 +1859,11 @@ def _process_message_reported(
                     primary_keys=primary_keys,
                     progress_callback=progress_callback,
                     commit_metadata=commit_metadata,
+                    order_columns=order_columns,
                 )
                 deltalite_file_count_change = delta_writer.deltalite_file_count_change
+            if order_columns:
+                record_webhook_history_rows(schema, "older_than_main", delta_writer.rows_older_than_main)
 
         DELTA_ROWS_WRITTEN_TOTAL.inc(source_rows)
 

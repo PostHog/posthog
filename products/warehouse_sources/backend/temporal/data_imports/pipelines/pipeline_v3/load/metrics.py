@@ -154,3 +154,13 @@ LOADED_PREFIX_PROMOTION_TOTAL = Counter(
     "Watermark promotions after a loaded prefix of an incremental run, by outcome",
     labelnames=["outcome"],
 )
+
+# Webhook events whose history or main-table write took a path other than the newest-event one.
+#   outcome - late (inserted into the past) | versions_split (closed versions a late event shortened) |
+#             redelivered | order_mismatch (dropped: its time is out of order with its neighbours) |
+#             older_than_main (kept out of the main table by a newer row)
+WEBHOOK_HISTORY_ROWS_TOTAL = Counter(
+    "warehouse_load_webhook_history_rows_total",
+    "Webhook history rows by what the history or main-table write did with them",
+    labelnames=["source_type", "object_type", "outcome"],
+)

@@ -294,6 +294,9 @@ FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
 # because a schema that left CDC keeps the mode it had there.
 INCREMENTAL_HISTORY_KEY = "incremental_history"
+# When a webhook schema started keeping history. Versions seeded from the table's rows start here, and late
+# events can land before it, so it cannot be worked out from the history table later.
+HISTORY_TRACKED_SINCE_KEY = "history_tracked_since"
 
 
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
@@ -614,7 +617,23 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def keeps_history(self) -> bool:
         if self.cdc_table_mode not in ("cdc_only", "both"):
             return False
+        if self.is_webhook:
+            return self._declares_webhook_events()
         return self.is_cdc or (self.is_incremental and bool(self.sync_type_config.get(INCREMENTAL_HISTORY_KEY)))
+
+    def _declares_webhook_events(self) -> bool:
+        # Lazy import: the registry imports the sources, which import this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+            SourceRegistry,
+            known_source_key,
+        )
+
+        try:
+            source = SourceRegistry.get_source(known_source_key(self.source.source_type))
+        except ValueError:
+            return False
+        return isinstance(source, WebhookSource) and source.webhook_events(self.name) is not None
 
     @property
     def should_use_incremental_field(self):
