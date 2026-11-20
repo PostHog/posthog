@@ -449,7 +449,7 @@ impl Config {
     pub fn cache_fill(&self) -> Option<crate::warming::FillConfig> {
         (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
-            chunk_offsets: self.cache_fill_chunk_offsets.max(1),
+            chunk_offsets: self.cache_fill_chunk_offsets,
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
         })
     }
@@ -462,15 +462,26 @@ impl Config {
     }
 
     /// A fill paced to zero would never finish, and the pace counts in whole nanoseconds
-    /// per offset, so above a billion a second it would not pace at all.
+    /// per offset, so above a billion a second it would not pace at all. A chunk is one
+    /// turn on the pace, so keeping it to a second's worth bounds how long a turn holds
+    /// up the pod's other fills.
     pub fn validate_cache_fill(&self) -> Result<(), String> {
+        if self.cache_fill_lookback_secs == 0 {
+            return Ok(());
+        }
         let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
-        if self.cache_fill_lookback_secs > 0
-            && !(1..=max).contains(&self.cache_fill_offsets_per_sec)
-        {
+        if !(1..=max).contains(&self.cache_fill_offsets_per_sec) {
             return Err(format!(
                 "CACHE_FILL_OFFSETS_PER_SEC must be from 1 to {max} while CACHE_FILL_LOOKBACK_SECS is above zero"
             ));
+        }
+        if !(1..=i64::from(self.cache_fill_offsets_per_sec))
+            .contains(&self.cache_fill_chunk_offsets)
+        {
+            return Err(
+                "CACHE_FILL_CHUNK_OFFSETS must be from 1 to CACHE_FILL_OFFSETS_PER_SEC while CACHE_FILL_LOOKBACK_SECS is above zero"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -1369,24 +1380,28 @@ mod cache_fill_tests {
     use super::*;
 
     #[test]
-    fn a_pace_outside_its_range_is_refused_only_while_fills_are_on() {
+    fn a_pace_or_chunk_outside_its_range_is_refused_only_while_fills_are_on() {
         let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
-        for (lookback_secs, offsets_per_sec, valid) in [
-            (3600, 0, false),
-            (3600, 1, true),
-            (3600, max, true),
-            (3600, max + 1, false),
-            (0, 0, true),
+        for (lookback_secs, offsets_per_sec, chunk_offsets, valid) in [
+            (3600, 0, 1, false),
+            (3600, 1, 1, true),
+            (3600, max, 5000, true),
+            (3600, max + 1, 5000, false),
+            (3600, 10_000, 10_000, true),
+            (3600, 10_000, 10_001, false),
+            (3600, 10_000, 0, false),
+            (0, 0, 0, true),
         ] {
             let mut config =
                 Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
             config.cache_fill_lookback_secs = lookback_secs;
             config.cache_fill_offsets_per_sec = offsets_per_sec;
+            config.cache_fill_chunk_offsets = chunk_offsets;
 
             assert_eq!(
                 config.validate_cache_fill().is_ok(),
                 valid,
-                "lookback {lookback_secs}, pace {offsets_per_sec}"
+                "lookback {lookback_secs}, pace {offsets_per_sec}, chunk {chunk_offsets}"
             );
         }
     }
