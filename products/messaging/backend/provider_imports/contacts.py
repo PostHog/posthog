@@ -166,17 +166,18 @@ def save_contact_lists(
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
-    if result.status == "failed":
-        # The lists' contacts never became people, so the step fails rather than leave every list empty.
-        raise ImportStepError(
-            f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}"
-        )
     # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
+    if result.status == "failed":
+        # The lists' contacts never became people, so the step fails rather than leave every list empty.
+        return SavedPage(
+            imported=0,
+            error=f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}",
+        )
     notes = _notes(everyone, result)
     if result.people:
         notes.append(

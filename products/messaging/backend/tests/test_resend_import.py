@@ -841,9 +841,13 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         )
         assert any(expected in note for note in notes)
 
-    def test_segments_stay_unfilled_when_the_contacts_cohort_cannot_be_imported(self) -> None:
+    def test_a_contacts_cohort_that_cannot_be_imported_fills_no_segment_but_still_carries_opt_outs(self) -> None:
         Cohort.objects.create(
             team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
+        )
+        # Stored by an earlier import under another spelling of a Resend contact's address.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="HAPPY@example.com", preferences={"$all": "OPTED_OUT"}
         )
 
         steps = [*OPT_OUT_STEPS, "contacts", "new_people", "automations"]
@@ -861,6 +865,10 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert "Resend contacts couldn't be imported" in run.progress["contacts"]["last_error"]
         notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
         assert notes and not any("added the segment's contacts" in note for note in notes)
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["happy@example.com"] == {"$all": "OPTED_OUT"}
 
     @parameterized.expand(
         [

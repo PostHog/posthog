@@ -38,7 +38,7 @@ __all__ = [
     "import_contact_chunk",
     "send_provider_contact_properties",
     "stage_provider_contacts",
-    "staged_contact_imports",
     "resend_segment_description",
+    "staged_contact_imports",
     "start_people_import",
 ]

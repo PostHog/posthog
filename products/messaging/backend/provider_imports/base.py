@@ -141,6 +141,8 @@ class SavedPage:
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
     people_imports: tuple[PeopleImportPlan, ...] = ()
+    # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
+    error: str | None = None
 
 
 @frozen
