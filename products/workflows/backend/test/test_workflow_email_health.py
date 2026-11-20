@@ -359,28 +359,12 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 [("paused", False, True)],
             ),
             (
-                "a_generic_email_template_step_makes_it_pausable",
-                ["transactional", "generic"],
-                (300, 60),
-                None,
-                ["own"],
-                [("paused", False, True)],
-            ),
-            (
-                "a_legacy_sms_step_on_the_email_template_makes_it_pausable",
-                ["transactional", "sms_on_email_template"],
-                (300, 60),
-                None,
-                ["own"],
-                [("paused", False, True)],
-            ),
-            (
-                "a_step_with_a_malformed_config_is_skipped",
+                "an_email_step_with_a_malformed_config_makes_it_pausable",
                 ["transactional", "malformed"],
                 (300, 60),
                 None,
-                [],
-                [("warning", True, False)],
+                ["own"],
+                [("paused", False, True)],
             ),
         ]
     )
@@ -401,9 +385,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.organization_membership.save()
         sent_emails = mock_email_messages(MockEmailMessage)
         other_steps: dict[str, dict[str, object]] = {
-            "generic": {"type": "function", "config": {"template_id": "template-email"}},
-            "sms_on_email_template": {"type": "function_sms", "config": {"template_id": "template-email"}},
-            "malformed": {"type": "function", "config": "not an object"},
+            "malformed": {"type": "function_email", "config": "not an object"},
         }
         self.flow.actions = [
             {"id": f"step_{index}", **other_steps[category]}
@@ -430,7 +412,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert [
             (
                 message.template_name.removeprefix("workflow_email_sending_"),
-                "we don't pause it automatically" in message.html_body,
+                "we don't pause it automatically" in message.html_body
+                and "only emails the person who triggered it" in message.html_body,
                 "never open anything" in message.html_body,
             )
             for message in sent_emails

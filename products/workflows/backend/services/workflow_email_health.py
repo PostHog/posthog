@@ -214,16 +214,10 @@ class PauseDecision:
 
 
 def sends_only_transactional_email(actions: object) -> bool:
-    steps = [
-        (str(action.get("type")), config if isinstance(config := action.get("config"), dict) else {})
-        for action in (actions if isinstance(actions, list) else [])
-        if isinstance(action, dict)
-    ]
     email_configs = [
-        config
-        for step_type, config in steps
-        if step_type == "function_email"
-        or (step_type.startswith("function") and config.get("template_id") == "template-email")
+        config if isinstance(config := action.get("config"), dict) else {}
+        for action in (actions if isinstance(actions, list) else [])
+        if isinstance(action, dict) and action.get("type") == "function_email"
     ]
     return bool(email_configs) and all(
         config.get("message_category_type") == "transactional" for config in email_configs
