@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -51,6 +51,12 @@ function schemas(descriptions: Record<string, string>, prelude = "import * as zo
 function lifecycleTool(...names: string[]): string {
     return `import { ${names.join(', ')} } from '@/generated/workflows/api'\n\nexport const tool = () => null\n`
 }
+
+const FETCH = "void fetch('https://example.com/collect')"
+const ZOD_ONLY_MODULE = generated('action-get', 'action-create').replace(
+    "import * as orvalSchemas from '@/generated/api'",
+    "import { z } from 'zod'"
+)
 
 const CATALOG = JSON.stringify({ 'action-get': {}, 'action-create': {}, 'workflows-get': {} })
 const WORKFLOW_SCHEMAS = {
@@ -181,6 +187,42 @@ describe('catalog gaps', () => {
             {},
         ],
         [
+            'a generated schema file line that runs code after a comment',
+            [SCHEMAS],
+            { [SCHEMAS]: `${MODULES[SCHEMAS]}/** @license MIT */ ${FETCH}\n` },
+            {},
+        ],
+        [
+            'a generated schema file line that continues an expression with a call',
+            [SCHEMAS],
+            { [SCHEMAS]: `${MODULES[SCHEMAS]}export const limit = 2\n    * ${FETCH.replace('void ', '')}\n` },
+            {},
+        ],
+        [
+            'a call added to a generated schema file only carried tools read',
+            [SCHEMAS],
+            { [SCHEMAS]: `${MODULES[SCHEMAS]}const telemetry = (() => { ${FETCH} })()\n` },
+            {},
+        ],
+        [
+            'a generated schema that reaches the Function constructor through zod',
+            [SCHEMAS],
+            { [SCHEMAS]: `${MODULES[SCHEMAS]}export const Built = zod.constructor.constructor("${FETCH}")()\n` },
+            {},
+        ],
+        [
+            'top-level code added to a generated module whose tools the catalog carries',
+            [GENERATED],
+            { [GENERATED]: `${MODULES[GENERATED]}${FETCH}\n` },
+            {},
+        ],
+        [
+            'a registered module whose tools the catalog carries, which imports code hog runs on load',
+            [REGISTRY],
+            { [REGISTRY]: registry('actions') },
+            { [REGISTRY]: registry() },
+        ],
+        [
             'a registered module whose tools the catalog leaves out',
             [REGISTRY],
             { [REGISTRY]: registry('actions', 'workflows') },
@@ -245,9 +287,9 @@ describe('catalog gaps', () => {
             {},
         ],
         [
-            'a registered module whose tools the catalog carries',
+            'a registered module whose tools the catalog carries, which imports only zod',
             [REGISTRY],
-            { [REGISTRY]: registry('actions') },
+            { [REGISTRY]: registry('actions'), [GENERATED]: ZOD_ONLY_MODULE },
             { [REGISTRY]: registry() },
         ],
     ])('needs no release for %s', (_name, changed, head: Record<string, string>, base: Record<string, string>) => {
@@ -340,6 +382,8 @@ describe('catalog gaps', () => {
 test('reads compiled files from metafiles relative to the folder each build ran in', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'hog-metafile-'))
     const metafile = join(folder, 'meta.json')
+    await mkdir(join(folder, 'services/mcp/src/lib'), { recursive: true })
+    await writeFile(join(folder, 'services/mcp/src/lib/time:format.ts'), 'export const format = 1\n')
     await writeFile(
         metafile,
         JSON.stringify({
@@ -354,18 +398,41 @@ test('reads compiled files from metafiles relative to the folder each build ran 
                 '../../node_modules/.pnpm/zod/index.js': {},
                 'dist/cli-library.mjs': {},
                 '../../hog/src/version.ts': {},
+                'src/lib/time:format.ts': {},
                 'cf-stub:cloudflare:workers': {},
             },
         })
     )
 
-    const { files, importers, specifiers } = compiledFiles([{ path: metafile, root: '/repo/services/mcp' }], '/repo')
+    const { files, importers, specifiers } = compiledFiles(
+        [{ path: metafile, root: join(folder, 'services/mcp') }],
+        folder
+    )
 
-    expect([...files].sort()).toEqual(['hog/src/version.ts', 'services/mcp/src/cli/library.ts'])
+    expect([...files].sort()).toEqual([
+        'hog/src/version.ts',
+        'services/mcp/src/cli/library.ts',
+        'services/mcp/src/lib/time:format.ts',
+    ])
     expect(importers.get('hog/src/version.ts')).toEqual(new Set(['services/mcp/src/cli/library.ts']))
     expect(specifiers?.get('hog/src/version.ts')).toEqual(
         new Map([['services/mcp/src/cli/library.ts', ['@hog/version']]])
     )
+})
+
+test.each([
+    ['unparseable', '{'],
+    ['without inputs', JSON.stringify({ outputs: {} })],
+    ['with no inputs', JSON.stringify({ inputs: {} })],
+    ['missing', undefined],
+])('fails on a metafile that is %s', async (_name, content) => {
+    const folder = await mkdtemp(join(tmpdir(), 'hog-metafile-'))
+    const metafile = join(folder, 'meta.json')
+    if (content !== undefined) {
+        await writeFile(metafile, content)
+    }
+
+    expect(() => compiledFiles([{ path: metafile, root: folder }], folder)).toThrow(metafile)
 })
 
 test('reads a file larger than the default subprocess buffer, and only a missing path as missing', async () => {
