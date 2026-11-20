@@ -2227,6 +2227,25 @@ export const signalsScoutConfigRun = async (
     })
 }
 
+export const getSignalsScoutConfigStopUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/stop/`
+}
+
+/**
+ * Stop the run of this scout that is in progress now. The run is cancelled the same way as a task run cancel: the agent is interrupted, the sandbox is torn down, and the run is marked cancelled, so the scout can run again. Idempotent: a run that already finished is returned unchanged. Returns 404 when the scout has no run in progress.
+ * @summary Stop a scout's run
+ */
+export const signalsScoutConfigStop = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutConfigStopUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsScoutConfigTrialUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/${id}/trial/`
 }

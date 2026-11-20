@@ -30,6 +30,7 @@ from products.signals.backend.quota import (
     self_driving_quota_gate,
 )
 from products.signals.backend.scout_harness.limits import (
+    SCOUT_TRIAL_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_RUN_COOLDOWN_S,
@@ -141,8 +142,8 @@ def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRun
     return None
 
 
-def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
-    """Return whether one of `lane_runs` has a QUEUED or IN_PROGRESS TaskRun newer than `STALE_RUN_CUTOFF_S`.
+def live_lane_runs(lane_runs: QuerySet[SignalScoutRun]) -> QuerySet[SignalScoutRun]:
+    """Narrow `lane_runs` to runs with a QUEUED or IN_PROGRESS TaskRun newer than `STALE_RUN_CUTOFF_S`.
 
     The read has two steps on purpose. As one join, the planner can start from `posthog_task_run`
     and read many task runs of other products to find the few that belong to this lane. The first
@@ -152,12 +153,26 @@ def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
     live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     recent_run_ids = list(lane_runs.filter(created_at__gte=live_cutoff).values_list("id", flat=True))
     if not recent_run_ids:
-        return False
+        return lane_runs.none()
     return lane_runs.filter(
         id__in=recent_run_ids,
         task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
         task_run__created_at__gte=live_cutoff,
-    ).exists()
+    )
+
+
+def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
+    """Return whether one of `lane_runs` is live. See `live_lane_runs`."""
+    return live_lane_runs(lane_runs).exists()
+
+
+def scout_lane_runs(team_id: int, skill_name: str) -> QuerySet[SignalScoutRun]:
+    """The runs of one `(canonical team, skill)` lane. Private trial runs are not part of the lane."""
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+    )
 
 
 def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
@@ -172,10 +187,7 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     `_self_heal_stale_runs` reap can clear it, wedging the lane until a scheduled tick happens to
     reap it — which never comes for a disabled scout, whose only run path is a trigger.
     """
-    lane_runs = (
-        SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
-    )
-    if not lane_has_live_run(lane_runs):
+    if not lane_has_live_run(scout_lane_runs(team_id, skill_name)):
         return None
     return ScoutRunRejection(
         kind=ScoutRunRejectionKind.CONFLICT,
