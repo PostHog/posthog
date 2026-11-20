@@ -8,6 +8,7 @@ sends its event once, so a late chart there would be a second message.
 
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import replace
 
 from temporalio import activity, workflow
@@ -119,4 +120,4 @@ def _count(outcome: "ChartRenderOutcome") -> None:
 
 
 LATE_CHART_WORKFLOWS = [InsightAlertPlatformLateChartWorkflow]
-LATE_CHART_ACTIVITIES = [add_late_platform_insight_chart_activity]
+LATE_CHART_ACTIVITIES: list[Callable[..., object]] = [add_late_platform_insight_chart_activity]

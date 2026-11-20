@@ -202,6 +202,7 @@ export type SettingId =
     | 'error-tracking-spike-detection'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-tag-rules'
     | 'error-tracking-user-groups'
     | 'feature-flag-confirmation'
     | 'feature-flag-default-evaluation-contexts'

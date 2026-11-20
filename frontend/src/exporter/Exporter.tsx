@@ -258,7 +258,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     <h1 className="text-center p-4">Something went wrong...</h1>
                 )}
                 {!whitelabel && dashboard && (
-                    <div className="text-center pb-4">
+                    <div className="Exporter-footer text-center pb-4">
                         {type === ExportType.Image ? <Logo size="xs" /> : null}
                         <div>
                             Made with{' '}

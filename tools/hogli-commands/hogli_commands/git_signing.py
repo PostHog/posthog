@@ -81,6 +81,14 @@ def add_allowed_signer(path: Path, email: str, public_key_line: str) -> bool:
     return True
 
 
+def gh_env_without_app_tokens() -> dict[str, str]:
+    """The environment for `gh`, so it acts as the engineer's stored login.
+
+    hogli loads .env.local, which can hold an application GITHUB_TOKEN for another account.
+    """
+    return {key: value for key, value in os.environ.items() if key not in ("GH_TOKEN", "GITHUB_TOKEN")}
+
+
 def signs_with_secure_enclave_key() -> bool:
     """Return whether the global git config signs through the wrapper this command installs."""
     result = subprocess.run(["git", "config", "--global", "--get", "gpg.ssh.program"], capture_output=True, text=True)
@@ -232,13 +240,8 @@ class SecureEnclaveSigningSetup:
             raise click.ClickException(f"The test signature failed:\n{result.stderr.strip()}")
         click.echo("A test signature with the key worked.")
 
-    def _gh_env(self) -> dict[str, str]:
-        # hogli loads .env.local, which can hold an application GITHUB_TOKEN. The key must go
-        # to the engineer's own account, so gh uses its stored login instead.
-        return {key: value for key, value in os.environ.items() if key not in ("GH_TOKEN", "GITHUB_TOKEN")}
-
     def _gh(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["gh", *args], capture_output=True, text=True, env=self._gh_env())
+        return subprocess.run(["gh", *args], capture_output=True, text=True, env=gh_env_without_app_tokens())
 
     def _is_on_github(self, login: str) -> bool:
         # The list of a user's signing keys is public, so this needs no extra gh scope.
