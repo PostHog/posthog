@@ -1712,13 +1712,13 @@ class DenyWorkloadAccessToken(BasePermission):
 
 
 class DenyIDJagAccessToken(BasePermission):
-    """For views that act on a person's own connections to other accounts. The organization's identity provider
-    mints an ID-JAG token without the person approving it, and confines it to one organization. A connection
-    reaches another organization or region with the person's own grant, so the token must not borrow it."""
+    """For views that forward requests to another PostHog organization or region with a person's own grant. The
+    organization's identity provider mints an ID-JAG token without the person approving it, and confines it to one
+    organization, so the token must not borrow that grant."""
 
     message = (
-        "ID-JAG tokens can't use this endpoint, because it acts on a person's own connections. "
-        "Sign in to PostHog with OAuth to use it."
+        "ID-JAG tokens can't use PostHog connections, because a connection reaches past the token's organization. "
+        "Sign in to PostHog with OAuth to use them."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
