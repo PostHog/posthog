@@ -6,6 +6,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals, PersonType } from '~/types'
 
+import type { HogFlowInvocationApi } from '../../../../generated/api.schemas'
 import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
@@ -445,6 +446,86 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
     })
 
+    describe('test email events', () => {
+        const OWN_STEP = { ...SANDBOX_STEP, type: 'function_email', config: { inputs: {} } } as HogFlowAction
+        const ownSend = (emailSendResult: Record<string, unknown>): Record<string, unknown> => ({
+            status: 'success',
+            logs: [],
+            nextActionId: null,
+            emailSendResult,
+        })
+
+        it.each([
+            [
+                'an own sender delivers',
+                OWN_STEP,
+                false,
+                ownSend({ status: 'accepted' }),
+                [
+                    {
+                        event: 'workflows test email sent',
+                        properties: { step_type: 'function_email', sender_kind: 'own_domain' },
+                    },
+                ],
+            ],
+            ['an own sender skips the recipient', OWN_STEP, false, ownSend({ status: 'skipped', reason: 'x' }), []],
+            ['an own sender test is mocked', OWN_STEP, true, ownSend({ status: 'accepted' }), []],
+            [
+                'the sandbox sender delivers',
+                SANDBOX_STEP,
+                false,
+                ACCEPTED,
+                [
+                    { event: 'workflows sandbox test sent', properties: { status: 'accepted', reason: null } },
+                    {
+                        event: 'workflows test email sent',
+                        properties: { step_type: 'email_sandbox', sender_kind: 'sandbox' },
+                    },
+                ],
+            ],
+            [
+                'the sandbox sender refuses the recipient',
+                SANDBOX_STEP,
+                false,
+                { ...ACCEPTED, execResult: { status: 'skipped', reason: 'not_member' } },
+                [{ event: 'workflows sandbox test sent', properties: { status: 'skipped', reason: 'not_member' } }],
+            ],
+        ])('records the test email events when %s', async (_, step, mocked, response, expected) => {
+            const events: { event: string; properties: unknown }[] = []
+            const submitted: HogFlowInvocationApi[] = []
+            jest.mocked(posthog.capture).mockImplementation((event, properties) => {
+                events.push({ event, properties })
+                return undefined
+            })
+            useMocks({
+                get: { '/api/organizations/:organization_id/members/': { results: MEMBERS, next: null } },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        submitted.push((await request.json()) as HogFlowInvocationApi)
+                        return [200, response]
+                    },
+                },
+            })
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
+            workflowLogicInstance.actions.setWorkflowValues({ actions: [step] })
+            logic.actions.setTestInvocationValue('globals', '{"person": {"properties": {"email": "ana@example.com"}}}')
+            logic.actions.setTestInvocationValue('mock_async_functions', mocked)
+            logic.actions.setEmailAddressOverride('ana@example.com')
+            logic.actions.setSelectedNodeId('email')
+            membersLogic.actions.ensureAllMembersLoaded()
+            await expectLogic(membersLogic).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toFinishAllListeners()
+
+            expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
+                ['email', mocked],
+            ])
+            expect(events.filter(({ event }) => event.startsWith('workflows') && event.includes('test'))).toEqual(
+                expected
+            )
+        })
+    })
+
     describe('sandbox step test', () => {
         let sentTo: string[]
         let personEmails: string[]
@@ -453,7 +534,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             sentTo = []
             personEmails = []
             useMocks({
-                get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
+                get: { '/api/organizations/:organization_id/members/': { results: MEMBERS, next: null } },
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
                         const { configuration, globals } = (await request.json()) as {
@@ -500,7 +581,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             ['the member lookup failed', 'mocked', false],
         ])('sends nothing from a sandbox step when %s (%s run)', async (_, run, membersLoad) => {
             if (!membersLoad) {
-                useMocks({ get: { '/api/organizations/@current/members/': () => [500, { detail: 'Unavailable' }] } })
+                useMocks({
+                    get: { '/api/organizations/:organization_id/members/': () => [500, { detail: 'Unavailable' }] },
+                })
             }
             await openSandboxTest('lead@example.com')
 
@@ -526,7 +609,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 "Couldn't load your organization's members. Refresh the page to try again.",
             ],
         ])('explains why a sandbox step test cannot run when %s', async (_, membersResponse, reason) => {
-            useMocks({ get: { '/api/organizations/@current/members/': membersResponse } })
+            useMocks({ get: { '/api/organizations/:organization_id/members/': membersResponse } })
 
             await openSandboxTest('lead@example.com')
 

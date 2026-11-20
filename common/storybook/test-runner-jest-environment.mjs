@@ -76,7 +76,12 @@ class CustomEnvironment extends BaseEnvironment {
         const cpu = await withTimeout(this.sampleRendererCpu(), PAGE_LIVENESS_TIMEOUT_MS, 'CPU sample timed out').catch(
             (error) => error.message
         )
-        await this.pageSession.send('Runtime.terminateExecution').catch(() => undefined)
+        // Chromium stops a script through a V8 interrupt, so a page blocked outside script never answers.
+        await withTimeout(
+            this.pageSession.send('Runtime.terminateExecution'),
+            PAGE_LIVENESS_TIMEOUT_MS,
+            'terminateExecution timed out'
+        ).catch(() => undefined)
         const outcome = (await this.pageResponds())
             ? 'The page recovered when its script was stopped, so a script was running without end.'
             : 'The page stayed frozen after its script was stopped, so no script loop holds it.'

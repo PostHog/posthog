@@ -19,6 +19,8 @@ interface TimeToSeeDataFields {
     max_last_refresh?: string | null
     // Signifies whether the action was user-initiated or a secondary effect
     is_primary_interaction?: boolean
+    // Whether the viewer sees the dashboard-v2 UI, which is gated per person as well as per project
+    dashboard_v2_ui?: boolean
 }
 
 export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {

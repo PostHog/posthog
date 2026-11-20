@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.wizard.backend.temporal.activities.execution import execute_wizard
 from products.wizard.backend.temporal.activities.handoff import create_run_artifacts
 from products.wizard.backend.temporal.activities.lifecycle import finalize_run
@@ -7,7 +9,7 @@ from products.wizard.backend.temporal.workflows.execute_run import ExecuteWizard
 
 WORKFLOWS = [ExecuteWizardRunWorkflow]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     provision_worker,
     prepare_local_wizard,
     clone_repository,

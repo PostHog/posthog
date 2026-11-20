@@ -169,7 +169,13 @@ describe('sandbox email test sends', () => {
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: true },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: true,
+                        source: 'test',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
@@ -215,6 +221,22 @@ describe('sandbox email test sends', () => {
             reason: 'not_member',
         })
         expect(world.ses.delivered).toEqual([])
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email blocked', 'test'],
+            ])
+        )
+    })
+
+    it('reports a send SES rejected as failed', async () => {
+        world.ses.replyNext(SES_REJECTED)
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email failed', 'test'],
+            ])
+        )
     })
 
     it('skips the test when the worker has sending off', async () => {

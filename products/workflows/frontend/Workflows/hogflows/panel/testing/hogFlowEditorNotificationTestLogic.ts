@@ -25,7 +25,7 @@ import {
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { withSandboxRecipient } from '../../steps/email/emailStepVariants'
-import { reportSandboxTest } from '../../steps/email/sandboxTestResult'
+import { reportEmailTest } from '../../steps/email/emailTestReport'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow, HogFlowAction } from '../../types'
@@ -124,14 +124,14 @@ export interface hogFlowEditorNotificationTestLogicActions {
         errorObject?: any
     } // membersLogic
     loadAllMembersSuccess: (
-        members: OrganizationMemberType[],
+        members: OrganizationMemberType[] | null,
         payload?:
             | {
                   value: true
               }
             | undefined
     ) => {
-        members: OrganizationMemberType[]
+        members: OrganizationMemberType[] | null
         payload?: {
             value: true
         }
@@ -593,7 +593,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         })),
                     }
 
-                    reportSandboxTest(testedWorkflow, testedActionId, result)
+                    reportEmailTest(testedWorkflow, testedActionId, result)
                     if (values.selectedNodeId === testedActionId) {
                         actions.setTestResult(
                             result,

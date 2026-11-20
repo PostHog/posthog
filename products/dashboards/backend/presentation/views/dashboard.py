@@ -5,12 +5,12 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import timedelta
 from enum import StrEnum
-from functools import partial
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -30,7 +30,6 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
-    TextChoices,
     UUIDField,
     Value,
 )
@@ -66,6 +65,7 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import PlannedQuery
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
     check_can_add_insight_to_dashboard,
@@ -92,7 +92,6 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.access_controlled_resources import shared_warehouse_lookups
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface, refresh_param_present
@@ -108,8 +107,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
-from posthog.query_cache.read_history import batched_reads
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -159,7 +156,16 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CachedTileStatus,
+    CannotAddToDashboard,
+    add_insight_to_dashboard,
+    board_stream_cached_event,
+    dashboard_v2_enabled,
+    read_cached_tiles,
+    shared_tile_work,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.facade.query_sharing import (
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
@@ -178,6 +184,7 @@ from products.dashboards.backend.presentation.dashboard_template_json_schema_par
 from products.dashboards.backend.presentation.query_sharing import (
     DashboardQuerySharingParamsSerializer,
     DashboardSharingDebugSerializer,
+    DashboardSharingRefreshType,
 )
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.dashboards.backend.presentation.widget_openapi_serializers import (
@@ -530,25 +537,6 @@ def tile_insights_context(tiles: Iterable[DashboardTile]) -> dict[str, Any]:
         "insights_in_response": [tile.insight for tile in tiles if tile.insight is not None],
         "_shown_insight_alerts": {},
     }
-
-
-@contextmanager
-def shared_tile_work(team: Team, user: Any) -> Iterator[None]:
-    """With `dashboard-v2` on, the tiles serialized inside the block share the work that is the same for
-    every tile: warehouse name lookups for their cache keys, and the write that records their cache reads.
-    Each tile's response is unchanged."""
-    enabled = posthog_feature_flag_enabled(
-        "dashboard-v2",
-        str(getattr(user, "distinct_id", None) or team.uuid),
-        organization_id=team.organization_id,
-        team_id=team.pk,
-        only_evaluate_locally=True,
-    )
-    if not enabled:
-        yield
-        return
-    with shared_warehouse_lookups(), batched_reads():
-        yield
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -1271,12 +1259,6 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
         return representation
 
 
-class DashboardQuerySharingEventSerializer(serializers.Serializer):
-    type = serializers.CharField(help_text="SSE event type: tile, complete, or error.")
-    tile = DashboardTileSerializer(required=False, help_text="Independently completed dashboard tile.")
-    debug = DashboardSharingDebugSerializer(required=False, help_text="Present only when debug is requested.")
-
-
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
@@ -1348,13 +1330,6 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
-class CachedTileStatus(TextChoices):
-    HIT = "hit", "Hit"
-    MISS = "miss", "Miss"
-    FORBIDDEN = "forbidden", "Forbidden"
-    NOT_FOUND = "not_found", "Not found"
-
-
 class CachedTileInsightResultSerializer(InsightSerializer):
     """The result fields of an insight tile, without the insight's own metadata.
 
@@ -1380,17 +1355,35 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             "resolved_compare_date_range",
             "action_names",
             "warnings",
+            "query",
         ]
         read_only_fields = fields
 
     def to_representation(self, instance: Insight) -> dict[str, Any]:
-        # InsightSerializer.to_representation rebuilds the insight's `query` and reads fields this serializer
-        # drops. The view checks insight access before any tile reaches this serializer.
+        # InsightSerializer.to_representation reads fields this serializer drops.
+        # The view checks insight access before any tile reaches this serializer.
         # The per-tile endpoint's `query` field maps stale variable IDs to current ones in place before the
-        # result is computed. This serializer has no `query` field, so it maps them here to read the same entry.
+        # result is computed. Here `query` renders after `result`, so map them first to read the same entry.
         if isinstance(instance.query, dict):
             self._query_variables_mapping(instance.query)
-        return serializers.ModelSerializer.to_representation(self, instance)
+        representation = serializers.ModelSerializer.to_representation(self, instance)
+        # The query the result was computed with, so a client that swaps in this result renders it with the same filters.
+        representation["query"] = self.effective_query(instance)
+        return representation
+
+    def plan_tile_query(self, insight: Insight) -> PlannedQuery | None:
+        """The query `to_representation` runs for the tile in context, planned with the same variable mapping."""
+        if isinstance(insight.query, dict):
+            self._query_variables_mapping(insight.query)
+        return self.plan_query(insight)
+
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one tile at a time
+    def insight_result(self, insight: Insight) -> InsightResult:
+        tile = self.context.get("dashboard_tile")
+        planned = self.context.get("planned_queries", {}).get(tile.id) if tile is not None else None
+        if planned is None:
+            return super().insight_result(insight)
+        return self.planned_insight_result(insight, planned)
 
 
 class CachedTileResultSerializer(serializers.Serializer):
@@ -1411,6 +1404,28 @@ class CachedTileResultSerializer(serializers.Serializer):
 
 class CachedTilesResponseSerializer(serializers.Serializer):
     results = CachedTileResultSerializer(many=True, help_text="One entry per requested tile ID, in request order.")
+
+
+class DashboardStreamCachedTileSerializer(CachedTileResultSerializer):
+    stale = serializers.BooleanField(
+        required=False, help_text="Present on hits: whether the cached result is past its target age."
+    )
+
+
+class DashboardQuerySharingEventSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="SSE event type: cached, tile, complete, or error.")
+    tiles = DashboardStreamCachedTileSerializer(
+        many=True,
+        required=False,
+        help_text="On the cached event: every requested tile's cached result, in request order.",
+    )
+    pending = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="On the cached event: the tiles that will each get a tile event, in compute order.",
+    )
+    tile = DashboardTileSerializer(required=False, help_text="Independently completed dashboard tile.")
+    debug = DashboardSharingDebugSerializer(required=False, help_text="Present only when debug is requested.")
 
 
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
@@ -3140,7 +3155,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         with (
             task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
-            shared_tile_work(team, getattr(self.context.get("request"), "user", None)),
+            shared_tile_work(
+                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
+            ),
         ):
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -3697,7 +3714,8 @@ class DashboardsViewSet(
     # Tile events carry full insight payloads, so the metadata scopes apply on top of running queries.
     @action(methods=["GET"], detail=True, required_scopes=["dashboard:read", "insight:read", "query:read"])
     def stream_query_results(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        if request.user.is_anonymous or not is_query_sharing_enabled(self.team):
+        share_queries = not request.user.is_anonymous and is_query_sharing_enabled(self.team)
+        if not share_queries and not self._dashboard_v2_enabled(request):
             raise exceptions.PermissionDenied("Dashboard query sharing is not enabled.")
         params = DashboardQuerySharingParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -3732,19 +3750,32 @@ class DashboardsViewSet(
         )
         context.update(tile_insights_context(tiles))
         by_id = {tile.id: tile for tile in tiles}
+        initial_events: list[DashboardQuerySharingStreamEvent] = []
+        compute_ids = tile_ids
+        if params.validated_data["cached_first"]:
+            cached = board_stream_cached_event(
+                self._read_cached_tiles(request, dashboard, tile_ids),
+                force=params.validated_data["refresh"] == DashboardSharingRefreshType.FORCE_BLOCKING,
+            )
+            compute_ids = cached["pending"]
+            initial_events.append(cached)
+        order_of = {tile_id: order for order, tile_id in enumerate(tile_ids)}
         jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
-        for order, tile_id in enumerate(tile_ids):
+        for tile_id in compute_ids:
             tile = by_id[tile_id]
             level = access_by_team[tile.insight.team_id].get_user_access_level(tile.insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
                 jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
-                jobs.append(partial(_serialize_shared_tile, tile, order, context))
+                jobs.append(partial(_serialize_shared_tile, tile, order_of[tile_id], context))
         stream = DashboardQuerySharingStream(
             jobs=jobs,
             team_id=self.team.pk,
             query_id=str(params.validated_data["client_query_id"]),
-            debug_tile_ids=tile_ids if params.validated_data["debug"] else (),
+            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
+            initial_events=initial_events,
+            share_queries=share_queries,
+            kind="board" if initial_events else "sharing",
         )
         return sse_streaming_response(
             stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),
@@ -4433,14 +4464,13 @@ class DashboardsViewSet(
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
-        if not posthog_feature_flag_enabled(
-            "dashboard-v2",
-            str(cast(User, request.user).distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        ):
+        if not self._dashboard_v2_enabled(request):
             raise exceptions.NotFound()
+        tile_ids = self._requested_tile_ids(request)
+        return Response({"results": self._read_cached_tiles(request, self.get_object(), tile_ids)})
+
+    @staticmethod
+    def _requested_tile_ids(request: Request) -> builtins.list[int]:
         # Covers the body as well as the query string: `resolve_execution_mode` honors either.
         if refresh_param_present(request):
             raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
@@ -4451,8 +4481,16 @@ class DashboardsViewSet(
             raise exceptions.ValidationError(
                 {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
             )
+        return tile_ids
 
-        dashboard = self.get_object()
+    def _dashboard_v2_enabled(self, request: Request) -> bool:
+        return not request.user.is_anonymous and dashboard_v2_enabled(
+            self.team, str(cast(User, request.user).distinct_id)
+        )
+
+    def _read_cached_tiles(
+        self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
+    ) -> builtins.list[dict[str, Any]]:
         tiles_by_id = {
             tile.id: (tile, insight)
             for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
@@ -4467,24 +4505,21 @@ class DashboardsViewSet(
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
 
-        results: list[dict[str, Any]] = []
-        for tile_id in tile_ids:
-            tile_and_insight = tiles_by_id.get(tile_id)
-            if tile_and_insight is None:
-                results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
-                continue
-            tile, insight = tile_and_insight
-            if tile_id in restricted_levels:
-                results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
-                continue
+        def tile_insight(tile_id: int) -> Insight:
+            tile, insight = tiles_by_id[tile_id]
             context["dashboard_tile"] = tile
-            insight_data = insight_serializer.to_representation(insight)
-            if not insight_data.get("is_cached"):
-                results.append({"id": tile_id, "status": CachedTileStatus.MISS})
-                continue
-            results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+            return insight
 
-        return Response({"results": results})
+        return read_cached_tiles(
+            team=self.team,
+            distinct_id=str(cast(User, request.user).distinct_id),
+            tile_ids=tile_ids,
+            found_tile_ids=tiles_by_id.keys(),
+            forbidden_tile_ids=restricted_levels.keys(),
+            plan_tile=lambda tile_id: insight_serializer.plan_tile_query(tile_insight(tile_id)),
+            serialize_tile=lambda tile_id: insight_serializer.to_representation(tile_insight(tile_id)),
+            context=context,
+        )
 
     @extend_schema(
         parameters=[
