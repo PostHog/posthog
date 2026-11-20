@@ -1,5 +1,7 @@
+import json
 from datetime import UTC, datetime
 from typing import cast
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -48,6 +50,8 @@ from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1004,3 +1008,69 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             str(last_seen_value),
             "Should round to the bottom of the hour of the event (user creation)",
         )
+
+    def test_flag_calls_people_list_search_reads_flag_evaluations_for_flag_evaluations_only_organization(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        person = _create_person(
+            properties={"email": "flag-caller@example.com"},
+            team=self.team,
+            distinct_ids=["flag-caller"],
+            is_identified=True,
+        )
+        flush_persons_and_events()
+        called_at = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
+        sync_execute(
+            """
+            INSERT INTO writable_flag_evaluations
+                (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+            VALUES
+            """,
+            [
+                (
+                    str(uuid4()),
+                    "$feature_flag_called",
+                    json.dumps({"$feature_flag": "checkout", "$feature_flag_response": "true"}),
+                    called_at,
+                    self.team.pk,
+                    "flag-caller",
+                    called_at,
+                    str(person.uuid),
+                )
+            ],
+        )
+
+        with time_machine.travel("2020-01-12", tick=False):
+            runner = self._create_runner(
+                ActorsQuery(
+                    select=["properties.email"],
+                    search="flag-caller",
+                    source=InsightActorsQuery(
+                        source=TrendsQuery(
+                            series=[
+                                EventsNode(
+                                    event="$feature_flag_called",
+                                    properties=[
+                                        EventPropertyFilter(
+                                            key="$feature_flag", value="checkout", operator=PropertyOperator.EXACT
+                                        )
+                                    ],
+                                )
+                            ],
+                            dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-12"),
+                            interval=IntervalType.DAY,
+                            breakdownFilter=BreakdownFilter(
+                                breakdown="$feature_flag_response", breakdown_type=BreakdownType.EVENT
+                            ),
+                        ),
+                        day="2020-01-11",
+                        breakdown="true",
+                        series=0,
+                    ),
+                )
+            )
+            results = runner.calculate().results
+
+        assert [row[0] for row in results] == ["flag-caller@example.com"]
