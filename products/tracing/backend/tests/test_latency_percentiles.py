@@ -1,5 +1,7 @@
 import datetime as dt
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
@@ -17,7 +19,14 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
 
         rows: list[str] = []
 
-        def add(service: str, kind: int, duration_ms: int, parent: str = "", env: str = "") -> str:
+        def add(
+            service: str,
+            kind: int,
+            duration_ms: int,
+            parent: str = "",
+            env: str = "",
+            env_key: str = "deployment.environment",
+        ) -> str:
             index = len(rows)
             span_id = _b64((5000 + index).to_bytes(8, "big"))
             start = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -26,7 +35,7 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
                 f"('019e8758-0000-0000-0000-{index:012d}', {cls.team.id}, '{_b64(index.to_bytes(16, 'big'))}', "
                 f"'{span_id}', '{parent}', 'op', {kind}, '{start:%Y-%m-%d %H:%M:%S.%f}', "
                 f"'{end:%Y-%m-%d %H:%M:%S.%f}', '{start:%Y-%m-%d %H:%M:%S.%f}', 0, '{service}', "
-                f"map('deployment.environment', '{env}'))"
+                f"map('{env_key}', '{env}'))"
             )
             return span_id
 
@@ -40,6 +49,8 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
         # mixed: server spans in prod, only root spans in staging. Each environment picks its own population.
         add("mixed", SERVER, 100, env="prod")
         add("mixed", INTERNAL, 300, env="staging")
+        add("clustered", SERVER, 100, env="cluster-a", env_key="k8s.cluster.name")
+        add("clustered", INTERNAL, 300, env="cluster-b", env_key="k8s.cluster.name")
 
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -74,7 +85,8 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
         self.assertEqual(bucket["count"], 2)
         self.assertAlmostEqual(bucket["p50_ns"] / MS, 300, delta=1)
 
-    def test_fallback_is_chosen_per_environment(self):
-        bucket = next(row for row in self._percentiles("mixed") if row["time"] == T0800)
+    @parameterized.expand([("mixed",), ("clustered",)])
+    def test_fallback_is_chosen_per_environment(self, service: str):
+        bucket = next(row for row in self._percentiles(service) if row["time"] == T0800)
         self.assertEqual(bucket["count"], 2)
         self.assertGreater(bucket["p99_ns"] / MS, 250)

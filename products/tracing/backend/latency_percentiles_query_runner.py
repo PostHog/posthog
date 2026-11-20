@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 # The environment key the APM services API groups by, so the fallback below splits spans the same way.
 _ENVIRONMENT = (
     "coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
-    "nullIf(resource_attributes['deployment.environment'], ''), nullIf(resource_attributes['env'], ''), '')"
+    "nullIf(resource_attributes['deployment.environment'], ''), nullIf(resource_attributes['env'], ''), "
+    "nullIf(resource_attributes['k8s.cluster.name'], ''), '')"
 )
 
 
@@ -74,9 +75,9 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
                 SELECT
                     am.time_bucket AS time,
                     ifNull(ac.count, 0) AS count,
-                    ac.p50 AS p50,
-                    ac.p95 AS p95,
-                    ac.p99 AS p99
+                    arrayElement(ac.quantiles, 1) AS p50,
+                    arrayElement(ac.quantiles, 2) AS p95,
+                    arrayElement(ac.quantiles, 3) AS p99
                 FROM (
                     SELECT
                         dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
@@ -98,9 +99,7 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
                     SELECT
                         time,
                         sum(if(use_entry, entry_count, root_count)) AS count,
-                        arrayElement(quantilesMerge(0.5)(if(use_entry, entry_p50, root_p50)), 1) AS p50,
-                        arrayElement(quantilesMerge(0.95)(if(use_entry, entry_p95, root_p95)), 1) AS p95,
-                        arrayElement(quantilesMerge(0.99)(if(use_entry, entry_p99, root_p99)), 1) AS p99
+                        quantilesMerge(0.5, 0.95, 0.99)(if(use_entry, entry_quantiles, root_quantiles)) AS quantiles
                     FROM (
                         SELECT
                             *,
@@ -111,13 +110,9 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
                                 service_name,
                                 {environment} AS environment,
                                 countIf(kind IN (2, 5)) AS entry_count,
-                                quantilesStateIf(0.5)(duration_nano, kind IN (2, 5)) AS entry_p50,
-                                quantilesStateIf(0.95)(duration_nano, kind IN (2, 5)) AS entry_p95,
-                                quantilesStateIf(0.99)(duration_nano, kind IN (2, 5)) AS entry_p99,
+                                quantilesStateIf(0.5, 0.95, 0.99)(duration_nano, kind IN (2, 5)) AS entry_quantiles,
                                 countIf(is_root_span) AS root_count,
-                                quantilesStateIf(0.5)(duration_nano, is_root_span) AS root_p50,
-                                quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95,
-                                quantilesStateIf(0.99)(duration_nano, is_root_span) AS root_p99
+                                quantilesStateIf(0.5, 0.95, 0.99)(duration_nano, is_root_span) AS root_quantiles
                             FROM posthog.trace_spans
                             WHERE {where} AND (kind IN (2, 5) OR is_root_span)
                                 AND timestamp >= {date_from} AND timestamp < {date_to}
