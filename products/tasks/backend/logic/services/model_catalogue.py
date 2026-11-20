@@ -22,26 +22,17 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from django.core.cache import cache
-
-import structlog
-
 from products.tasks.backend import model_catalog
+from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
+from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
 from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
 
-logger = structlog.get_logger(__name__)
-
 # The gateway product a user-initiated task run authenticates as — the same one the
 # sandbox agent uses, so the picker can only ever offer models the run itself may call.
 TASK_RUN_GATEWAY_PRODUCT: Product = "posthog_code"
-
-_CACHE_KEY_PREFIX = "tasks:llm_gateway_models"
-_CACHE_TTL_SECONDS = 30 * 60
-_NEGATIVE_CACHE_TTL_SECONDS = 30
-_FETCH_TIMEOUT_SECONDS = 3.0
 
 # A runtime's name is a UI string with no run-config equivalent, so it is written here. A
 # model's comes from `display_name_for_model`, and an effort's from the catalog.
@@ -51,13 +42,6 @@ RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
 }
 
 REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = model_catalog.REASONING_EFFORT_LABELS
-
-
-@dataclass(frozen=True)
-class GatewayModel:
-    id: str
-    owned_by: str
-    context_window: int
 
 
 @dataclass(frozen=True)
@@ -113,50 +97,6 @@ def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ..
     )
 
 
-def _cache_quietly(key: str, value: tuple[GatewayModel, ...], timeout: int) -> None:
-    """Caching is an optimization — an unreachable cache must not fail the caller."""
-    try:
-        cache.set(key, value, timeout=timeout)
-    except Exception:
-        logger.exception("tasks_llm_gateway_models_cache_write_failed", cache_key=key)
-
-
-def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
-    """Return the model list the given gateway product exposes.
-
-    Returns an empty tuple on any error, the cache included — a picker with no models is a
-    worse day than a 500 for every caller. The empty result is briefly cached so subsequent
-    calls during a gateway outage fail fast.
-    """
-    cache_key = f"{_CACHE_KEY_PREFIX}:{product}"
-
-    # Deferred: `gateway_client` pulls the Anthropic and OpenAI SDKs, and this module is reachable from
-    # the tasks API's import path — every other caller in the repo defers it for the same reason.
-    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the LLM SDKs off startup paths
-
-    try:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        page = get_llm_client(product=product).with_options(timeout=_FETCH_TIMEOUT_SECONDS).models.list()
-    except Exception:
-        logger.exception("tasks_llm_gateway_models_fetch_failed", gateway_product=product)
-        _cache_quietly(cache_key, (), _NEGATIVE_CACHE_TTL_SECONDS)
-        return ()
-
-    models = tuple(
-        GatewayModel(
-            id=m.id,
-            owned_by=getattr(m, "owned_by", ""),
-            context_window=getattr(m, "context_window", 0),
-        )
-        for m in page.data
-    )
-    _cache_quietly(cache_key, models, _CACHE_TTL_SECONDS)
-    return models
-
-
 def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     """Every model a run on the given gateway product may use.
 
@@ -175,6 +115,8 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     by_provider = _runtime_adapter_by_provider()
     choices = []
     for model in list_gateway_models(product):
+        if not model_allowed_by_product_pin(product, model.id):
+            continue
         # The catalog names the harness that drives a model; `owned_by` names whoever
         # serves it, which for the vendor-served models is `cloudflare`/`baseten`/the
         # vendor org and says nothing about the harness. Falling back to the provider

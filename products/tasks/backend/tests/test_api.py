@@ -20238,7 +20238,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         # The cache is an optimization in front of the gateway; if Redis is down the endpoint still has to
         # answer with the documented empty catalogue rather than 500 every caller.
         with patch(
-            "products.tasks.backend.logic.services.model_catalogue.cache.get",
+            "products.tasks.backend.logic.services.gateway_models.cache.get",
             side_effect=RuntimeError("redis down"),
         ):
             response = self.client.get("/api/projects/@current/tasks/models/")
