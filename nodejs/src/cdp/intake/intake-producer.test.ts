@@ -6,12 +6,7 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
-import {
-    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
-    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
-} from '../outputs/outputs'
+import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     INTAKE_ACK_DEADLINE_MS,
@@ -19,7 +14,6 @@ import {
     IntakeProducer,
     IntakeRun,
     PublishSettlement,
-    intakeClusterOf,
     intakeModeOf,
     publishesSettled,
 } from './intake-producer'
@@ -36,8 +30,6 @@ describe('IntakeProducer', () => {
             checkTopicExists: () => Promise.resolve(),
         })
         return new IngestionOutputs({
-            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
-            [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT),
             [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
         })
@@ -66,8 +58,8 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
-        ['workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, undefined],
+        ['transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
+        ['workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, undefined],
     ] as const)('produces a %s run to its topic, keyed by its run id', async (kind, output, fingerprint) => {
         const run = invocation({ acceptedAt: '2026-11-12T10:00:00.000Z' })
 
@@ -90,40 +82,27 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['b-1:9094', '7', 'shadow', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
-        ['b-1:9094', '*', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
-        ['b-1:9094', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
-        ['', '*', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
-    ] as const)(
-        'with MSK brokers %p and MSK teams %p, routes a %s %s run of team 7 to %s',
-        async (brokers, mskTeams, mode, kind, output, cluster) => {
-            const clusterOf = intakeClusterOf({
-                KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers,
-                CDP_INTAKE_MSK_TEAMS: mskTeams,
-            })
-            const acked = async (): Promise<number> => {
-                const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
-                return metric.values
-                    .filter(
-                        (v) =>
-                            v.labels.kind === kind &&
-                            v.labels.mode === mode &&
-                            v.labels.outcome === 'acked' &&
-                            v.labels.cluster === cluster
-                    )
-                    .reduce((sum, v) => sum + v.value, 0)
-            }
-            const before = await acked()
-
-            await new IntakeProducer(outputs(), undefined, undefined, clusterOf).produce(
-                { kind, invocation: invocation() },
-                mode
-            )
-
-            expect(produced.map((p) => p.output)).toEqual([output])
-            expect((await acked()) - before).toBe(1)
+        ['shadow', 'transactional-email'],
+        ['async', 'workflow-webhook'],
+    ] as const)('counts an acked %s %s run under the msk cluster label', async (mode, kind) => {
+        const acked = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
+            return metric.values
+                .filter(
+                    (v) =>
+                        v.labels.kind === kind &&
+                        v.labels.mode === mode &&
+                        v.labels.outcome === 'acked' &&
+                        v.labels.cluster === 'msk'
+                )
+                .reduce((sum, v) => sum + v.value, 0)
         }
-    )
+        const before = await acked()
+
+        await new IntakeProducer(outputs()).produce({ kind, invocation: invocation() }, mode)
+
+        expect((await acked()) - before).toBe(1)
+    })
 
     it('produces nothing for a run too large for the topic', async () => {
         const run = invocation({ variables: { body: 'x'.repeat(2 * 1024 * 1024) } })

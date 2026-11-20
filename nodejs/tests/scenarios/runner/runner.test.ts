@@ -35,7 +35,6 @@ import {
     CdpProducerName,
     MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -656,7 +655,6 @@ async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
         cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
             [WARPSTREAM_INGESTION_PRODUCER]: discardingProducer,
             [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
-            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: discardingProducer,
             [WAREHOUSE_PRODUCER]: discardingProducer,
             [MSK_CDP_INTAKE_PRODUCER]: discardingProducer,
         }),
