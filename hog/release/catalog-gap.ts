@@ -225,7 +225,7 @@ interface GeneratedModule {
     schemaImports: string[]
     // The names it imports generated schema files under as namespaces, and whether it imports them any
     // other way.
-    schemaNamespaces: string[]
+    schemaNamespaces: { name: string; specifier: string; file: string }[]
     otherSchemaImports: boolean
     // The import statements, as compiled.
     imports: string
@@ -257,7 +257,7 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
     const blocks = new Map<string, Block>()
     const imports: string[] = []
     const schemaImports: string[] = []
-    const schemaNamespaces: string[] = []
+    const schemaNamespaces: GeneratedModule['schemaNamespaces'] = []
     let otherSchemaImports = false
     let declarative = true
     let allowedImports = true
@@ -274,7 +274,7 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
                 if (schemaFile) {
                     schemaImports.push(schemaFile)
                     if (!clause?.name && bindings && ts.isNamespaceImport(bindings)) {
-                        schemaNamespaces.push(bindings.name.text)
+                        schemaNamespaces.push({ name: bindings.name.text, specifier, file: schemaFile })
                     } else {
                         otherSchemaImports = true
                     }
@@ -438,34 +438,49 @@ function alteredSchemas(input: GapInput, file: string): Set<string> | undefined 
     return altered
 }
 
-// Undefined when a tool the module registers can't be traced, so every tool counts. Tracing follows the
-// module's consts and `<namespace>.<Schema>` reads of the schema files it imports as namespaces, so a module
-// that isn't declarative, imports a schema file any other way, or uses a namespace other than to read a
-// schema by name can't be traced.
-function schemasByTool(source: string | undefined, path: string): Map<string, Set<string>> | undefined {
-    if (!source) {
+// The schemas of a schema file that each tool of a generated module reads. Undefined when a tool the module
+// registers can't be traced, so every tool counts. Tracing follows the module's consts and
+// `<namespace>.<Schema>` reads of the schema files it imports as namespaces. It needs the build's import
+// records of the schema file, `specifiers`, to name exactly the namespace imports the parser found, so a
+// module that also reaches the file another way, like `import()` or `require` inside a function, can't be
+// traced. Nor can one that isn't declarative, imports a schema file other than as a namespace, or uses a
+// namespace other than to read a schema by name.
+function schemasByTool(
+    source: string | undefined,
+    path: string,
+    schemaFile: string,
+    specifiers: string[] | undefined
+): Map<string, Set<string>> | undefined {
+    if (!source || !specifiers?.length) {
         return undefined
     }
     const { declarative, otherSchemaImports, schemaNamespaces, blocks } = generatedModule(source, path)
+    const namespaces = schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ name }) => name)
+    const parsed = new Set(
+        schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ specifier }) => specifier)
+    )
+    const recorded = new Set(specifiers)
     const untraceable = [...blocks.values()].some(({ text }) =>
         schemaNamespaces.some(
-            (namespace) =>
-                text.match(new RegExp(`\\b${namespace}\\b`, 'g'))?.length !==
-                text.match(new RegExp(`\\b${namespace}\\.\\w+`, 'g'))?.length
+            ({ name }) =>
+                !/^\w+$/.test(name) ||
+                text.match(new RegExp(`\\b${name}\\b`, 'g'))?.length !==
+                    text.match(new RegExp(`\\b${name}\\.\\w+`, 'g'))?.length
         )
     )
     if (
         !declarative ||
         otherSchemaImports ||
         untraceable ||
-        schemaNamespaces.some((namespace) => !/^\w+$/.test(namespace))
+        parsed.size !== recorded.size ||
+        [...recorded].some((specifier) => !parsed.has(specifier))
     ) {
         return undefined
     }
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
         const text = blocks.get(name)?.text ?? ''
         const schemas = new Set(
-            schemaNamespaces.flatMap((namespace) =>
+            namespaces.flatMap((namespace) =>
                 [...text.matchAll(new RegExp(`\\b${namespace}\\.(\\w+)`, 'g'))].map((match) => match[1]!)
             )
         )
@@ -558,7 +573,12 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
 
     return importers.filter((importer) => {
         if (generatedModuleName(importer)) {
-            const byTool = schemasByTool(input.readHead(importer), importer)
+            const byTool = schemasByTool(
+                input.readHead(importer),
+                importer,
+                file,
+                input.compiled.specifiers?.get(file)?.get(importer)
+            )
             const affected = byTool
                 ? [...byTool]
                       .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
