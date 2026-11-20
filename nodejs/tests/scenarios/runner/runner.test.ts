@@ -1629,6 +1629,7 @@ describe('runner through seed, drive and judge', () => {
             limit: 70,
             passed: false,
             unjudged: 'no writer CPU reading off a run host in the 1x step',
+            harnessLimit: expect.objectContaining({ by: 'run_host', scale: 1 }),
         })
     }, 30_000)
 
