@@ -117547,9 +117547,9 @@ export namespace Schemas {
       /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
       migration_required: boolean;
       /**
-       * URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.
-       * @nullable
-       */
+         * URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.
+         * @nullable
+         */
       migration_guide_url: string | null;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
        *
