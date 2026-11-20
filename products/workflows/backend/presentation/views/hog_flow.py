@@ -376,6 +376,7 @@ from products.workflows.backend.facade.writes import (
     edit_workflow_content,
     publish_confirm_value,
     publish_draft,
+    publish_moves_to_sandbox_sender,
     save_validated_workflow,
     trigger_has_audience,
     update_workflow,
@@ -4812,6 +4813,15 @@ class HogFlowPublishRequestSerializer(serializers.Serializer):
             "draft edit invalidates it (409), so you always publish the exact draft you previewed."
         ),
     )
+    sandbox_sender_warned = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses "
+            "the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test "
+            "sender. Omit it to skip that check."
+        ),
+    )
 
 
 class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
@@ -4890,6 +4900,16 @@ class HogFlowPublishImpactSerializer(serializers.Serializer):
     )
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _step_counts_or_none(value: Any) -> Optional[dict[str, int]]:
+    if not isinstance(value, dict) or any(_int_or_none(count) is None for count in value.values()):
+        return None
+    return value
+
+
 class HogFlowPublishResponseSerializer(serializers.Serializer):
     published = serializers.BooleanField(help_text="Whether the draft was applied to the live workflow.")
     in_flight_runs = serializers.IntegerField(
@@ -4910,6 +4930,13 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
     impact = HogFlowPublishImpactSerializer(
         allow_null=True,
         help_text="What publishing does to people in-flight. Only set on previews; counts are approximate.",
+    )
+    moves_to_sandbox_sender = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which "
+            "reaches only verified members of the organization. Only set on previews."
+        ),
     )
     workflow = HogFlowSerializer(
         required=False,
@@ -6229,6 +6256,8 @@ class HogFlowViewSet(
                 route_to_draft=route_to_draft,
                 base_updated_at=self.request.data.get("base_updated_at"),
                 base_live_updated_at=self.request.data.get("base_live_updated_at"),
+                # Raw body like "base_updated_at": the web builder says whether it warned about the test sender.
+                sandbox_sender_warned=self._sandbox_sender_warned(),
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
@@ -6351,6 +6380,15 @@ class HogFlowViewSet(
         return self._is_mcp_request(self.request) and (
             state.status == HogFlowState.ACTIVE or state.disabled_from_active is True
         )
+
+    def _sandbox_sender_warned(self) -> Optional[bool]:
+        # A form body sends "false" as a string, which an identity check against False would skip.
+        value = self.request.data.get("sandbox_sender_warned")
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.lower() in ("true", "false"):
+            return value.lower() == "true"
+        raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
@@ -6565,10 +6603,11 @@ class HogFlowViewSet(
             res = get_hog_flow_in_flight_count(team_id=self.team_id, hog_flow_id=str(hog_flow.id))
             if res.status_code == 200:
                 body = res.json()
+                # The preview goes through its serializer, so a malformed count degrades instead of failing it.
                 return {
-                    "count": body.get("count"),
-                    "by_action": body.get("by_action"),
-                    "position_unknown": body.get("position_unknown"),
+                    "count": _int_or_none(body.get("count")),
+                    "by_action": _step_counts_or_none(body.get("by_action")),
+                    "position_unknown": _int_or_none(body.get("position_unknown")),
                 }
             logger.warning(
                 "Failed to fetch in-flight run count for workflow",
@@ -6599,20 +6638,23 @@ class HogFlowViewSet(
         confirm = param_serializer.validated_data["confirm"]
 
         instance = self._edit_state()
-        if not instance.draft:
-            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
-
         if not confirm:
+            if not instance.draft:
+                raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             counts = self._get_in_flight_counts(instance)
-            return Response(
+            preview = HogFlowPublishResponseSerializer(
                 {
                     "published": False,
                     "in_flight_runs": counts.get("count") if counts else None,
                     "draft_updated_at": instance.draft_updated_at,
                     "confirm_token": mint_publish_confirm_token(instance),
                     "impact": self._build_publish_impact(instance, counts),
+                    "moves_to_sandbox_sender": publish_moves_to_sandbox_sender(
+                        status=instance.status, live_actions=instance.actions, draft=instance.draft
+                    ),
                 }
             )
+            return Response(preview.data)
 
         confirm_token = param_serializer.validated_data.get("confirm_token")
         if not confirm_token:
@@ -6641,6 +6683,10 @@ class HogFlowViewSet(
                 }
             )
 
+        # A valid token names a draft that existed at the preview, so a missing one was published or discarded since.
+        if not instance.draft:
+            raise StaleWorkflowUpdateError()
+
         def validate(state: WorkflowEditState, content: dict) -> dict:
             try:
                 return self._validate_locked_content(state, content)
@@ -6662,10 +6708,9 @@ class HogFlowViewSet(
                 hog_flow_id=instance.id,
                 previewed_value=previewed_value,
                 validate=validate,
+                sandbox_sender_warned=param_serializer.validated_data.get("sandbox_sender_warned"),
             )
-        except WorkflowHasNoDraft:
-            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
-        except WorkflowStale:
+        except (WorkflowHasNoDraft, WorkflowStale):
             raise StaleWorkflowUpdateError()
         locked = self._written_workflow(result)
 
@@ -6674,16 +6719,19 @@ class HogFlowViewSet(
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
-        return Response(
+        published = HogFlowPublishResponseSerializer(
             {
                 "published": True,
                 "in_flight_runs": None,
                 "draft_updated_at": None,
                 "confirm_token": None,
                 "impact": None,
-                "workflow": self.get_serializer(locked).data,
-            }
+                "moves_to_sandbox_sender": None,
+                "workflow": locked,
+            },
+            context=self.get_serializer_context(),
         )
+        return Response(published.data)
 
     @extend_schema(request=None, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["POST"])
