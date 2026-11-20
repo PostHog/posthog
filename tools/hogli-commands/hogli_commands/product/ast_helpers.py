@@ -543,15 +543,6 @@ def count_viewset_files(directory: Path) -> int:
     return count
 
 
-def _importing_package(file_path: Path, package_root: Path, package_prefix: str) -> str:
-    """The dotted package a relative import in `file_path` resolves against.
-
-    A module names the directory it sits in, and an `__init__.py` names its own directory,
-    so both are the parent of the file path.
-    """
-    return ".".join([package_prefix, *file_path.relative_to(package_root).parent.parts])
-
-
 def import_from_module(node: ast.ImportFrom, package: str) -> str | None:
     """The absolute module an `ImportFrom` reads from, with relative forms resolved.
 
@@ -563,43 +554,6 @@ def import_from_module(node: ast.ImportFrom, package: str) -> str | None:
         return importlib.util.resolve_name("." * node.level + (node.module or ""), package)
     except ImportError:
         return None
-
-
-def module_import_targets(file_path: Path, package_root: Path, package_prefix: str) -> list[tuple[int, str]]:
-    """(line, dotted module) for every import in the file that names a module under
-    `package_prefix` (e.g. "products.foo.backend"), resolved against `package_root` (the
-    directory that prefix maps to) so `from a.b import c` yields `a.b.c` when c is a
-    module or package and `a.b` when c is a name.
-
-    Relative imports (`from . import x`, `from ..services import y`) resolve to the same
-    absolute form first, so a rule reads one shape and a writer cannot dodge it by spelling
-    the import the other way.
-
-    Pure AST: unlike grimp it does not need __init__.py markers to see a module, which is
-    what lets a lint hold an import-linter contract in directories grimp cannot descend into.
-    """
-    tree = ast_parse_safe(file_path)
-    if not tree:
-        return []
-    prefix_dot = package_prefix + "."
-    package = _importing_package(file_path, package_root, package_prefix)
-
-    def is_module(dotted: str) -> bool:
-        rel = Path(*dotted[len(prefix_dot) :].split("."))
-        return (package_root / rel).is_dir() or (package_root / rel).with_suffix(".py").exists()
-
-    targets: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            targets.extend((node.lineno, a.name) for a in node.names if a.name.startswith(prefix_dot))
-        elif isinstance(node, ast.ImportFrom):
-            module = import_from_module(node, package)
-            if not module or (module != package_prefix and not module.startswith(prefix_dot)):
-                continue
-            for alias in node.names:
-                candidate = f"{module}.{alias.name}"
-                targets.append((node.lineno, candidate if is_module(candidate) else module))
-    return [(line, dotted) for line, dotted in targets if dotted.startswith(prefix_dot)]
 
 
 def _collect_py_files(path: Path) -> list[Path]:
