@@ -26,6 +26,7 @@ import requests
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.security.outbound_proxy import internal_requests_session
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -45,6 +46,7 @@ class GigahogConfig:
     token_url: str
     client_id: str
     client_secret: str = field(repr=False)
+    api_direct: bool = False
 
 
 @frozen
@@ -216,9 +218,12 @@ class GigahogClient:
         self._config = config
         self._team_id = team_id
         self._session = session or requests.Session()
+        self._api_session = internal_requests_session() if config.api_direct else self._session
         self._base = f"{config.url.rstrip('/')}/v1/catalogs/{_segment(config.catalog)}"
 
     def close(self) -> None:
+        if self._api_session is not self._session:
+            self._api_session.close()
         self._session.close()
 
     def __enter__(self) -> GigahogClient:
@@ -309,12 +314,13 @@ class GigahogClient:
             token = _team_credentials_for(self._config, self._team_id, self._session, renew=renewed).access_token
             response, ambiguous_send = _send_repeating_transient_failures(
                 partial(
-                    self._session.request,
+                    self._api_session.request,
                     method,
                     f"{self._base}{path}",
                     json=json,
                     headers={"User-Agent": _USER_AGENT, "Authorization": f"Bearer {token}"},
                     timeout=_REQUEST_TIMEOUT_SECONDS,
+                    allow_redirects=not self._config.api_direct,
                 ),
                 target=path,
             )
