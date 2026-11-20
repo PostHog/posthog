@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
@@ -24,7 +25,8 @@
         "@types/react": "*",
         "fast-equals": "catalog:",
         "react": "*",
-        "typescript": "catalog:*",
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:",
         "zod": "*"
     }
 }

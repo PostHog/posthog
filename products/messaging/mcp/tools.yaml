@@ -118,26 +118,29 @@ tools:
         enabled: true
         scopes:
             - hog_flow:write
+            - person:read
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
         title: Start an import from another email tool
         description: >
-            Start a background import from another email tool, such as Resend, Postmark or SendGrid, into the active
-            project. Before the first call, tell the user the project's name and id and ask whether the data belongs
-            there. Check for an active run first, then ask the user to create the API key themselves and treat it as a
-            secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and any
-            `settings` it lists: ask the user for a setting whose `default` is null, and don't guess it. Returns at once
-            with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a
-            run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog
-            as it is. Creates people only when the `new_people` step is selected, and each new person counts as one
-            event, so ask the user before including it. Imported drafts never send on their own.
+            Start a background import from another email tool, such as Resend, Postmark, SendGrid or Mailgun, into the
+            active project. Before the first call, tell the user the project's name and id and ask whether the data
+            belongs there. Check for an active run first, then ask the user to create the API key themselves and treat
+            it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers,
+            and any `settings` it lists: ask the user for a setting whose `default` is null, such as Mailgun's region,
+            and don't guess it, because PostHog sends the key to that region. Returns at once with the run. Poll
+            provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns
+            409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Creates
+            people only when the `new_people` step is selected, and each new person counts as one event, so ask the user
+            before including it. Imported drafts never send on their own.
     provider-imports-get:
         operation: messaging_provider_imports_retrieve
         enabled: true
         scopes:
             - hog_flow:read
+            - person:read
         annotations:
             readOnly: true
             destructive: false
@@ -152,6 +155,7 @@ tools:
         enabled: true
         scopes:
             - hog_flow:read
+            - person:read
         annotations:
             readOnly: true
             destructive: false
@@ -187,7 +191,6 @@ tools:
             Get how the project sends a Supabase project's auth emails through PostHog email templates, including the
             hook URL to paste into Supabase and every email type it can map. Call this before
             supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.
-        feature_flag: workflows-supabase-auth-emails
     supabase-auth-emails-settings-update:
         operation: messaging_supabase_auth_emails_settings_partial_update
         enabled: true
@@ -204,7 +207,6 @@ tools:
             supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook
             secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the
             setting-up-supabase-auth-emails skill before you set up or change the connection.
-        feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
                 - email_types
@@ -224,7 +226,6 @@ tools:
             call skips types that still have one. Needs a verified email sender on the project. Edit the templates
             afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up
             the connection.
-        feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
                 - email_types

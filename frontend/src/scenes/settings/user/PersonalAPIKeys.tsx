@@ -5,18 +5,17 @@ import { ReactNode, useEffect } from 'react'
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
-    LemonDialog,
     LemonInput,
     LemonLabel,
     LemonModal,
     LemonModalProps,
     LemonSelect,
-    LemonSelectOption,
     LemonTableColumn,
     LemonTag,
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
@@ -27,12 +26,27 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { API_KEY_SCOPE_PRESETS, DEFAULT_MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { userLogic } from 'scenes/userLogic'
 
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { KeyExpirationOption, expiresAtForOption, isExpired, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { expiresAtForOption, isExpired, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import {
+    DELETE_KEY_DESCRIPTION,
+    EXPIRY_DATE_FORMAT,
+    EXPIRY_TIME_FORMAT,
+    LEGACY_HASHING_TOOLTIP,
+    editingKeySubmitDisabledReason,
+    keyExpirationOptions,
+    openRollKeyDialog,
+    openUpgradeHashingRollDialog,
+    personalAPIKeyAccessTags,
+    personalAPIKeyStatus,
+} from './personalAPIKeysUtils'
+import { QuillEditKeyModal } from './QuillEditKeyModal'
+import { QuillPersonalAPIKeysTable } from './QuillPersonalAPIKeysTable'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 
@@ -66,36 +80,65 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         showDescriptionField,
     } = useActions(personalAPIKeysLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const quillSurface = useQuillSurface()
 
     const isNew = editingKeyId === 'new'
     const editingKeyRecord = isNew ? undefined : keys.find((key) => key.id === editingKeyId)
 
-    const submitDisabledReason = !editingKeyChanged
-        ? 'No changes to save'
-        : !editingKey.label
-          ? 'Add a label'
-          : !editingKey.scopes?.length
-            ? 'Select at least one scope'
-            : !editingKey.access_type
-              ? 'Select access mode'
-              : editingKey.access_type === 'organizations' && !editingKey.scoped_organizations?.length
-                ? 'Select at least one organization'
-                : editingKey.access_type === 'teams' && !editingKey.scoped_teams?.length
-                  ? 'Select at least one project'
-                  : undefined
+    const submitDisabledReason = editingKeySubmitDisabledReason(editingKeyChanged, editingKey)
+
+    const closeModal = (): void => setEditingKeyId(null)
+
+    const rollLegacyKey = (): void => {
+        if (editingKeyRecord) {
+            openUpgradeHashingRollDialog(editingKeyRecord, () => setEditingKeyId(null), rollKey)
+        }
+    }
+
+    const scopePresets = API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)
+
+    if (quillSurface) {
+        return (
+            <QuillEditKeyModal
+                isNew={isNew}
+                isOpen={!!editingKeyId}
+                onClose={closeModal}
+                hasUnsavedInput={editingKeyChanged}
+                isSubmitting={isEditingKeySubmitting}
+                submitDisabledReason={submitDisabledReason}
+                onSubmit={() => submitEditingKey()}
+                showLegacyHashingNotice={!isNew && isEditingKeyLegacy}
+                onRollLegacyKey={rollLegacyKey}
+                isDescriptionFieldVisible={isDescriptionFieldVisible}
+                onShowDescriptionField={() => showDescriptionField()}
+                currentExpiresAt={editingKeyRecord?.expires_at ?? null}
+                accessType={editingKey.access_type}
+                organizations={allOrganizations}
+                teams={allTeams ?? undefined}
+                presets={scopePresets}
+                allAccessSelected={allAccessSelected}
+                onResetScopes={() => resetScopes()}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                scopeGroups={filteredScopeGroups}
+                onChangeScopeRow={setScopeRadioValue}
+                onChangeScopeGroup={setScopeGroupAccess}
+            />
+        )
+    }
 
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
             <LemonModal
                 title={`${isNew ? 'Create' : 'Edit'} personal API key`}
-                onClose={() => setEditingKeyId(null)}
+                onClose={closeModal}
                 isOpen={!!editingKeyId}
                 width="40rem"
                 hasUnsavedInput={editingKeyChanged}
                 zIndex={zIndex}
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
+                        <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>
 
@@ -118,20 +161,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             className="mb-4"
                             action={{
                                 children: 'Roll key',
-                                onClick: () => {
-                                    if (editingKeyRecord) {
-                                        openRollKeyDialog(
-                                            editingKeyRecord,
-                                            (id, expiresAt) => {
-                                                // Close the edit modal first so the post-roll new key value
-                                                // is shown via the table's standard roll confirmation flow.
-                                                setEditingKeyId(null)
-                                                rollKey(id, expiresAt)
-                                            },
-                                            'Roll key to upgrade hashing?'
-                                        )
-                                    }
-                                },
+                                onClick: rollLegacyKey,
                             }}
                         >
                             <b>This key uses legacy hashing.</b> Roll it to upgrade to the new secure format. Your
@@ -175,7 +205,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             <LemonSelect
                                 size="small"
                                 placeholder="Select preset"
-                                options={API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)}
+                                options={scopePresets}
                                 dropdownMatchSelectWidth={false}
                                 dropdownPlacement="bottom-end"
                             />
@@ -244,30 +274,10 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     )
 }
 
-const EXPIRY_DATE_FORMAT = 'MMMM D, YYYY'
-const EXPIRY_TIME_FORMAT = 'h:mm A'
-
-const EXPIRATION_PRESETS: LemonSelectOption<KeyExpirationOption>[] = [
-    { value: 'never', label: 'Never' },
-    { value: '1', label: '1 day' },
-    { value: '7', label: '7 days' },
-    { value: '30', label: '30 days' },
-    { value: '90', label: '90 days' },
-    { value: '365', label: '1 year' },
-]
-
 function KeyExpirationField({ currentExpiresAt }: { currentExpiresAt: string | null }): JSX.Element {
     const { editingKey } = useValues(personalAPIKeysLogic)
 
-    const options: LemonSelectOption<KeyExpirationOption>[] = currentExpiresAt
-        ? [
-              {
-                  value: 'keep',
-                  label: `${isExpired(currentExpiresAt) ? 'Expired' : 'Expires'} ${dayjs(currentExpiresAt).format(EXPIRY_DATE_FORMAT)}`,
-              },
-              ...EXPIRATION_PRESETS,
-          ]
-        : EXPIRATION_PRESETS
+    const options = keyExpirationOptions(currentExpiresAt)
 
     const expiresAt = expiresAtForOption(editingKey.expiration)
 
@@ -291,26 +301,6 @@ function KeyExpirationField({ currentExpiresAt }: { currentExpiresAt: string | n
             )}
         </div>
     )
-}
-
-/** Asks for the rolled key's expiry, the same way GitHub does when it regenerates a token. */
-function openRollKeyDialog(
-    key: PersonalAPIKeyType,
-    onRoll: (id: PersonalAPIKeyType['id'], expiresAt: string | null | undefined) => void,
-    title: string = `Roll key "${key.label}"?`
-): void {
-    LemonDialog.openForm({
-        title,
-        description: 'This will generate a new key. The old key will immediately stop working.',
-        initialValues: { expiration: key.expires_at ? '30' : 'never' },
-        content: (
-            <LemonField name="expiration" label="New key expires">
-                <LemonSelect options={EXPIRATION_PRESETS} data-attr="personal-api-key-roll-expiration" />
-            </LemonField>
-        ),
-        primaryButtonProps: { children: 'Roll', status: 'danger' },
-        onSubmit: ({ expiration }) => onRoll(key.id, expiresAtForOption(expiration)),
-    })
 }
 
 type TagListProps = {
@@ -387,100 +377,24 @@ function PersonalAPIKeysTable(): JSX.Element {
         key: 'status',
         dataIndex: 'id',
         render: function RenderStatus(_, key) {
-            const keyDisabled = isPersonalApiKeyIdDisabled(key.id)
-            const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
-            const restrictedTeams = getRestrictedTeamsForKey(key.id)
-            const hasPartialRestrictions = (restrictedOrgs.length > 0 || restrictedTeams.length > 0) && !keyDisabled
+            const status = personalAPIKeyStatus(
+                key,
+                isPersonalApiKeyIdDisabled(key.id),
+                getRestrictedOrganizationsForKey(key.id),
+                getRestrictedTeamsForKey(key.id)
+            )
 
             const legacyTag = key.is_legacy_hashing ? (
-                <Tooltip title="This key uses legacy hashing. Roll or delete it to upgrade.">
+                <Tooltip title={LEGACY_HASHING_TOOLTIP}>
                     <LemonTag type="caution">Legacy</LemonTag>
                 </Tooltip>
             ) : null
 
-            let statusTag: JSX.Element | null = null
-
-            if (isExpired(key.expires_at)) {
-                statusTag = (
-                    <Tooltip title="This key has expired and no longer works. Edit it to set a new expiry, or delete it.">
-                        <LemonTag type="danger">Expired</LemonTag>
-                    </Tooltip>
-                )
-            } else if (keyDisabled) {
-                const orgNames = restrictedOrgs.map((org: any) => org.name)
-
-                statusTag = (
-                    <Tooltip
-                        title={
-                            orgNames.length === 1 ? (
-                                <span>
-                                    Organization <strong>{orgNames[0]}</strong> has restricted the use of personal API
-                                    keys.
-                                </span>
-                            ) : (
-                                <span>
-                                    Organizations <strong>{orgNames.join(', ')}</strong> have restricted the use of
-                                    personal API keys.
-                                </span>
-                            )
-                        }
-                    >
-                        <LemonTag type="danger">Disabled</LemonTag>
-                    </Tooltip>
-                )
-            } else if (hasPartialRestrictions) {
-                let tooltipMessage: JSX.Element = <span />
-
-                if (restrictedTeams.length > 0) {
-                    const restrictedTeamNames = restrictedTeams.map((team: any) => team.name)
-                    const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
-
-                    if (restrictedOrgNames.length === 1 && restrictedTeamNames.length === 1) {
-                        tooltipMessage = (
-                            <span>
-                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
-                                API keys. This key will not work for project <strong>{restrictedTeamNames[0]}</strong>.
-                            </span>
-                        )
-                    } else if (restrictedOrgNames.length === 1) {
-                        tooltipMessage = (
-                            <span>
-                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
-                                API keys. This key will not work for projects:{' '}
-                                <strong>{restrictedTeamNames.join(', ')}</strong>.
-                            </span>
-                        )
-                    } else {
-                        tooltipMessage = (
-                            <span>
-                                Multiple organizations have restricted personal API keys. This key will not work for
-                                projects: <strong>{restrictedTeamNames.join(', ')}</strong>.
-                            </span>
-                        )
-                    }
-                } else if (restrictedOrgs.length > 0) {
-                    const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
-
-                    tooltipMessage =
-                        restrictedOrgNames.length === 1 ? (
-                            <span>
-                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
-                                API keys.
-                            </span>
-                        ) : (
-                            <span>
-                                Organizations <strong>{restrictedOrgNames.join(', ')}</strong> have restricted the use
-                                of personal API keys.
-                            </span>
-                        )
-                }
-
-                statusTag = (
-                    <Tooltip title={tooltipMessage}>
-                        <LemonTag type="warning">Partial restrictions</LemonTag>
-                    </Tooltip>
-                )
-            }
+            const statusTag = status ? (
+                <Tooltip title={status.tooltip}>
+                    <LemonTag type={status.severity}>{status.label}</LemonTag>
+                </Tooltip>
+            ) : null
 
             if (statusTag && legacyTag) {
                 return (
@@ -500,33 +414,16 @@ function PersonalAPIKeysTable(): JSX.Element {
         key: 'access',
         dataIndex: 'id',
         render: function RenderAccess(_, key) {
-            const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
-            const restrictedTeams = getRestrictedTeamsForKey(key.id)
+            const accessTags = personalAPIKeyAccessTags(
+                key,
+                allOrganizations,
+                allTeams,
+                getRestrictedOrganizationsForKey(key.id),
+                getRestrictedTeamsForKey(key.id)
+            )
 
-            if (key?.scoped_organizations?.length) {
-                const orgTags =
-                    key.scoped_organizations?.map((id) => {
-                        const org = allOrganizations.find((org) => org.id === id)
-                        return {
-                            id,
-                            name: org?.name || '',
-                            restricted: restrictedOrgs.some((org: any) => org.id === id),
-                        }
-                    }) || []
-
-                return <TagListWithRestrictions tags={orgTags} onMoreClick={() => setEditingKeyId(key.id)} />
-            } else if (key?.scoped_teams?.length) {
-                const teamTags =
-                    key.scoped_teams?.map((id) => {
-                        const team = allTeams?.find((team) => team.id === id)
-                        return {
-                            id: String(id),
-                            name: team?.name || '',
-                            restricted: restrictedTeams.some((team: any) => team.id === id),
-                        }
-                    }) || []
-
-                return <TagListWithRestrictions tags={teamTags} onMoreClick={() => setEditingKeyId(key.id)} />
+            if (accessTags) {
+                return <TagListWithRestrictions tags={accessTags} onMoreClick={() => setEditingKeyId(key.id)} />
             }
             return <LemonTag type="warning">All access</LemonTag>
         },
@@ -568,7 +465,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                 rowClassName={(key) =>
                     isPersonalApiKeyIdDisabled(key.id) || isExpired(key.expires_at) ? 'opacity-50' : ''
                 }
-                deleteDescription="This action cannot be undone. Make sure to have removed the key from any live integrations first."
+                deleteDescription={DELETE_KEY_DESCRIPTION}
                 renderLabel={(key) => (
                     <div className="flex flex-col">
                         <Link
@@ -631,6 +528,32 @@ export function PersonalAPIKeys(): JSX.Element {
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
     const { user } = useValues(userLogic)
     const keysLimit = user?.personal_api_keys_limit ?? DEFAULT_MAX_API_KEYS_PER_USER
+    const todayRailNav = useQuillSurface()
+
+    const createDisabledReason = !canUsePersonalApiKeys
+        ? 'Your organization does not allow members using personal API keys.'
+        : keys.length >= keysLimit
+          ? `You can only have ${keysLimit} personal API keys. Remove an existing key before creating a new one.`
+          : false
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div>
+                    <Button
+                        variant="primary"
+                        onClick={() => setEditingKeyId('new')}
+                        disabledReason={createDisabledReason || null}
+                    >
+                        <IconPlus />
+                        Create personal API key
+                    </Button>
+                </div>
+                <QuillPersonalAPIKeysTable />
+                <EditKeyModal />
+            </div>
+        )
+    }
 
     return (
         <>
@@ -638,13 +561,7 @@ export function PersonalAPIKeys(): JSX.Element {
                 type="primary"
                 icon={<IconPlus />}
                 onClick={() => setEditingKeyId('new')}
-                disabledReason={
-                    !canUsePersonalApiKeys
-                        ? 'Your organization does not allow members using personal API keys.'
-                        : keys.length >= keysLimit
-                          ? `You can only have ${keysLimit} personal API keys. Remove an existing key before creating a new one.`
-                          : false
-                }
+                disabledReason={createDisabledReason}
             >
                 Create personal API key
             </LemonButton>

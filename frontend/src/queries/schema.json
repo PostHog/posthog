@@ -20695,6 +20695,9 @@
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -20718,6 +20721,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {

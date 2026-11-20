@@ -87,7 +87,7 @@ export interface traceDialogOpenLogicActions {
         trace: {
             spanId: string | null
             traceId: string
-            ts?: string | null | undefined
+            ts?: string | null
         }
     }
 }

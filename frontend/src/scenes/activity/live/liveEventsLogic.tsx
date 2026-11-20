@@ -62,8 +62,8 @@ export interface liveEventsLogicActions {
     }
     setFilters: (filters: { eventType?: string | null; properties?: AnyPropertyFilter[] }) => {
         filters: {
-            eventType?: string | null | undefined
-            properties?: AnyPropertyFilter[] | undefined
+            eventType?: string | null
+            properties?: AnyPropertyFilter[]
         }
     }
     updateEventsConnection: () => {

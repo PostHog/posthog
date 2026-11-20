@@ -4,8 +4,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { FeatureFlagGroupType } from '~/types'
 
 /** First SDK releases that deserialize a fractional rollout percentage. */
-const MIN_DOTNET_VERSION = '2.13.3'
-const MIN_JAVA_VERSION = '2.12.1'
+export const MIN_DOTNET_VERSION = '2.13.3'
+export const MIN_JAVA_VERSION = '2.12.1'
 
 /** Release-condition rollout percentages that aren't whole numbers.
  *

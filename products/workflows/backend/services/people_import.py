@@ -91,6 +91,8 @@ class StagedPerson(TypedDict):
     properties: dict[str, str]
     # Only fills properties the person doesn't have yet.
     fill_only: NotRequired[bool]
+    # False for a person whose events the import sends but who stays out of the cohort.
+    member: NotRequired[bool]
 
 
 @frozen
@@ -126,48 +128,12 @@ def start_people_import(
             f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
         )
 
-    cleaned = _clean_rows(rows)
-    if not cleaned.rows:
-        raise PeopleImportInvalid("No row has a valid email address.")
-    _check_writable_columns(team, user, cleaned.columns)
-
-    resolved_people = _resolve_distinct_ids(team, user, cleaned.rows)
-    distinct_ids = resolved_people.distinct_ids
-    person_emails = tuple(sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled}))
-    people: list[StagedPerson] = []
-    seen_distinct_ids: set[str] = set()
-    dropped_duplicate_distinct_id = 0
-    skipped_new_people = 0
-    for row, distinct_id in zip(cleaned.rows, distinct_ids):
-        if distinct_id is None and not create_missing:
-            skipped_new_people += 1
-            continue
-        # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
-        resolved = distinct_id or row["email"]
-        if resolved in seen_distinct_ids:
-            dropped_duplicate_distinct_id += 1
-            continue
-        seen_distinct_ids.add(resolved)
-        people.append(
-            {"distinct_id": resolved, "properties": row, "fill_only": True}
-            if fill_only
-            else {"distinct_id": resolved, "properties": row}
-        )
-
+    prepared = prepare_people(team, user, rows, create_missing=create_missing, fill_only=fill_only)
+    people = prepared.people
     if not people:
         # Every row was left out, so there is nothing to send and the cohort stays as it is.
         assert cohort_id is not None
-        return PeopleImportSummary(
-            cohort_id=cohort_id,
-            row_count=0,
-            new_people=0,
-            columns=cleaned.columns,
-            dropped_invalid_email=cleaned.dropped_invalid_email,
-            dropped_duplicate_email=cleaned.dropped_duplicate_email,
-            dropped_too_large=cleaned.dropped_too_large,
-            skipped_new_people=skipped_new_people,
-            person_emails=person_emails,
-        )
+        return prepared.summary(cohort_id, new_people=0)
     existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
     target_id = _start_filling(team, user, name, cohort_id)
     storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{target_id}-{uuid.uuid4()}.json"
@@ -208,17 +174,100 @@ def start_people_import(
     # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
     transaction.on_commit(dispatch)
 
-    return PeopleImportSummary(
-        cohort_id=target_id,
-        row_count=len(people),
-        new_people=sum(1 for person in people if person["distinct_id"] not in existing),
+    return prepared.summary(target_id, new_people=sum(1 for person in people if person["distinct_id"] not in existing))
+
+
+@frozen
+class PreparedPeople:
+    """The people an import's rows write to, and the rows it left out."""
+
+    people: list[StagedPerson]
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+    skipped_new_people: int
+    person_emails: tuple[str, ...]
+
+    def summary(self, cohort_id: int, *, new_people: int) -> PeopleImportSummary:
+        return PeopleImportSummary(
+            cohort_id=cohort_id,
+            row_count=len(self.people),
+            new_people=new_people,
+            columns=self.columns,
+            dropped_invalid_email=self.dropped_invalid_email,
+            dropped_duplicate_email=self.dropped_duplicate_email,
+            dropped_too_large=self.dropped_too_large,
+            skipped_new_people=self.skipped_new_people,
+            person_emails=self.person_emails,
+        )
+
+
+def prepare_people(
+    team: Team,
+    user: User | None,
+    rows: list[dict[str, str]],
+    *,
+    create_missing: bool,
+    fill_only: bool,
+    require_rows: bool = True,
+) -> PreparedPeople:
+    """Checks the rows and finds the person each one writes to. Raises PeopleImportInvalid, also when no row has a
+    valid email and `require_rows` is set."""
+    cleaned = _clean_rows(rows)
+    if not cleaned.rows and require_rows:
+        raise PeopleImportInvalid("No row has a valid email address.")
+    _check_writable_columns(team, user, cleaned.columns)
+
+    resolved_people = _resolve_distinct_ids(team, user, cleaned.rows)
+    people: list[StagedPerson] = []
+    seen_distinct_ids: set[str] = set()
+    dropped_duplicate_distinct_id = 0
+    skipped_new_people = 0
+    for row, distinct_id in zip(cleaned.rows, resolved_people.distinct_ids):
+        if distinct_id is None and not create_missing:
+            skipped_new_people += 1
+            continue
+        # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
+        resolved = distinct_id or row["email"]
+        if resolved in seen_distinct_ids:
+            dropped_duplicate_distinct_id += 1
+            continue
+        seen_distinct_ids.add(resolved)
+        people.append(
+            {"distinct_id": resolved, "properties": row, "fill_only": True}
+            if fill_only
+            else {"distinct_id": resolved, "properties": row}
+        )
+    return PreparedPeople(
+        people=people,
         columns=cleaned.columns,
         dropped_invalid_email=cleaned.dropped_invalid_email,
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
         dropped_too_large=cleaned.dropped_too_large,
         skipped_new_people=skipped_new_people,
-        person_emails=person_emails,
+        person_emails=tuple(
+            sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled})
+        ),
     )
+
+
+def set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, object]]:
+    """One $set event per person. The uuid stays the same for a person in the same stored list, so a retry can find
+    which events capture didn't acknowledge."""
+    return [
+        {
+            "event": "$set",
+            "distinct_id": person["distinct_id"],
+            # The server's IP says nothing about where the person is.
+            "properties": {
+                "$set_once" if person.get("fill_only") else "$set": person["properties"],
+                "$geoip_disable": True,
+            },
+            "event_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{storage_key}/{person['distinct_id']}")),
+        }
+        for person in people
+    ]
 
 
 def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | None) -> int:
@@ -227,10 +276,7 @@ def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | No
         return Cohort.objects.create(
             team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user
         ).pk
-    if not Cohort.objects.filter(team_id=team.id, pk=cohort_id, is_static=True, deleted=False).update(
-        is_calculating=True
-    ):
-        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
+    mark_cohort_filling(team.id, cohort_id)
     return cohort_id
 
 
@@ -243,11 +289,25 @@ def delete_people(storage_key: str) -> None:
     object_storage.delete(storage_key)
 
 
-def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
-    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
+def mark_cohort_filling(team_id: int, cohort_id: int) -> None:
+    """Shows the cohort as calculating until an import sets its people. Raises PeopleImportInvalid for a cohort that
+    was deleted or isn't static anymore."""
+    if not Cohort.objects.filter(team_id=team_id, pk=cohort_id, is_static=True, deleted=False).update(
+        is_calculating=True
+    ):
+        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
+
+
+def fail_cohort_fill(team_id: int, cohort_id: int) -> None:
+    """The cohort stops calculating and shows an error."""
     Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
         is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
     )
+
+
+def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
+    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
+    fail_cohort_fill(team_id, cohort_id)
     try:
         delete_people(storage_key)
     except Exception:

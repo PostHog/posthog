@@ -17,6 +17,7 @@ import {
     PlatformAlertConfigurationApi,
     TracesPlatformAlertConfigurationCreateApiSourceKind,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
+import type { PlatformAlertCreateDestinationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 import {
@@ -57,10 +58,10 @@ export interface tracesAlertFormLogicActions {
     loadAlerts: (_?: any) => any // tracesAlertsLogic
     openEditWithFailedDestinations: (
         alert: PlatformAlertConfigurationApi,
-        destinations: import('products/alerts_platform/frontend/generated/api.schemas').PlatformAlertCreateDestinationApi[]
+        destinations: PlatformAlertCreateDestinationApi[]
     ) => {
         alert: PlatformAlertConfigurationApi
-        destinations: import('products/alerts_platform/frontend/generated/api.schemas').PlatformAlertCreateDestinationApi[]
+        destinations: PlatformAlertCreateDestinationApi[]
     } // tracesAlertsLogic
     resetAlertForm: (values?: TracesAlertFormType) => {
         values?: TracesAlertFormType

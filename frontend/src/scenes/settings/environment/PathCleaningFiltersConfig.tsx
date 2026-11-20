@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import { PathCleanFilterAddItemButton } from 'lib/components/PathCleanFilters/PathCleanFilterAddItemButton'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -11,11 +12,15 @@ import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathC
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { PathCleaningSuggestionsBanner } from 'scenes/settings/environment/PathCleaningSuggestionsBanner'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, PathCleaningFilter } from '~/types'
+
+import { QuillPathCleaningFiltersConfig } from './QuillPathCleaningFiltersConfig'
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const [testValue, setTestValue] = useState('')
@@ -28,12 +33,35 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!currentTeam) {
         return null
     }
 
     if (!hasAdvancedPaths) {
+        if (todayRailNav) {
+            return (
+                <Text size="xs" render={<p className="m-0" />}>
+                    Advanced path cleaning is a premium feature. Check{' '}
+                    <Button
+                        variant="link"
+                        size="inline"
+                        nativeButton={false}
+                        render={
+                            <LinkPrimitive
+                                to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules"
+                                target="_blank"
+                            />
+                        }
+                    >
+                        our path cleaning rules documentation
+                    </Button>{' '}
+                    to learn more about it.
+                </Text>
+            )
+        }
+
         return (
             <p>
                 Advanced path cleaning is a premium feature. Check{' '}
@@ -58,6 +86,20 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
             order: (currentTeam.path_cleaning_filters || []).length,
         }
         updateFilters([...(currentTeam.path_cleaning_filters || []), filterWithOrder])
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillPathCleaningFiltersConfig
+                filters={currentTeam.path_cleaning_filters || []}
+                testValue={testValue}
+                onTestValueChange={setTestValue}
+                readableTestPath={readableTestPath}
+                restrictedReason={restrictedReason}
+                onFiltersChange={updateFilters}
+                onAddFilter={onAddFilter}
+            />
+        )
     }
 
     return (
