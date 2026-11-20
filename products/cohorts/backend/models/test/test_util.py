@@ -1887,7 +1887,7 @@ class TestAddDuringReplace(BaseTest):
             insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
 
         self.assertEqual(mock_sync_execute.call_count, attempts)
-        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(QUORUM_LOCK_RETRY_WAITS_SECONDS))
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [0.5, 1.5, 3, 4])
         mock_warning.assert_called_once_with(
             "static_cohort_quorum_lock_exhausted",
             cohort_id=1,

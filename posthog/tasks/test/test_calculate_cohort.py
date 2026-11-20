@@ -2547,7 +2547,7 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         def spy_insert_members(*args: Any, **kwargs: Any) -> None:
             observed_flags.append(Cohort.objects.values_list("population_copy_started", flat=True).get(pk=cohort.pk))
-            return real_insert_members(*args, **kwargs)
+            real_insert_members(*args, **kwargs)
 
         with (
             time_machine.travel(start + timedelta(seconds=10), tick=False),
@@ -2761,7 +2761,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             insert_in_clickhouse: bool,
             *,
             team_id: int,
-            before_write=None,
+            before_write: Any = None,
         ) -> set[str]:
             nonlocal batch_calls
             batch_calls += 1
@@ -3080,7 +3080,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         mock_delete.assert_not_called()
-        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p1.uuid), REPLACE_ROW_OFFSET)])
+        self.assertEqual(
+            sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
+            sorted([(str(p1.uuid), 0), (str(p1.uuid), REPLACE_ROW_OFFSET)]),
+        )
 
     def test_resync_stopped_when_replace_claims_cohort_between_read_and_lock(self) -> None:
         # A concurrent PATCH claim arriving after the task starts must fence out an append_only resync before it
