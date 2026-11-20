@@ -31,11 +31,12 @@ NO_RUN_DESCRIPTION = "No visual run for this commit"
 
 
 def gate_context(run_type: str) -> str:
-    """The context the ruleset requires. Only this publisher posts it.
+    """The context the ruleset requires. Only this publisher posts it, and only with ledger verdicts.
 
     It differs from the context of the publisher for a repo with the gate off, which posts the
     baseline file's verdict. So a pass from that publisher, left on a commit from before the switch,
-    cannot satisfy the required check.
+    cannot satisfy the required check. A run the baseline file classified gets the ledger recheck
+    here in every mode, because the ruleset requires this context before `mode --set ledger`.
     """
     return f"Visual Review gate / {run_type}"
 
@@ -71,9 +72,9 @@ def guards_stale_approvals(repo: Repo) -> bool:
     return repo.baseline_mode == BaselineMode.LEDGER and publishes_by_commit(repo)
 
 
-def _guards_stale_approvals(run: Run, ledger_rules: bool) -> bool:
+def _guards_stale_approvals(run: Run, ledger_mode: bool) -> bool:
     """Whether a stale approval can fail the run. A queue run fails on drift by itself."""
-    return ledger_rules and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
+    return ledger_mode and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
 
 
 def stale_approval_count(run: Run) -> int:
@@ -106,7 +107,7 @@ class RunFacts:
     hidden_by_quarantine: int = 0
     # 0 also when the stale-approval rule does not apply to the run.
     stale_approvals: int = 0
-    # Set for a run the baseline file classified, when ledger rules decide its status.
+    # Set for a run the baseline file classified, which passes only when the ledger agrees.
     ledger_recheck: ledger_recheck.LedgerRecheck | None = None
 
 
@@ -193,12 +194,12 @@ def status_verdict(facts: RunFacts) -> StatusVerdict:
     return verdict
 
 
-def _run_facts(run: Run, repo: Repo, ledger_rules: bool) -> RunFacts:
+def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
     """Read what the verdict of the run needs, in the order the verdict reads it.
 
     Counts go to the writer, because a publish has to see the write that triggered it. With
-    `ledger_rules` the verdict is the one of `ledger` mode, also when the recheck command asks
-    how the status would read before the switch.
+    `ledger_mode` the stale-approval rule applies too, also when the recheck command asks how
+    the status would read before the switch.
     """
     tracking = run.purpose == RunPurpose.OBSERVE and baselines._run_is_on_default_branch(repo, run.branch)
     summary = gating._changes_summary(run)
@@ -217,9 +218,9 @@ def _run_facts(run: Run, repo: Repo, ledger_rules: bool) -> RunFacts:
             hidden = 0 if unresolved or awaiting else gating.count_hidden_by_quarantine(run, WRITER_DB)
         # A run that already fails on its review needs no stale count and no recheck.
         passes_review = unresolved == 0 and awaiting == 0 and not (run.purpose == RunPurpose.OBSERVE and summary)
-        if _guards_stale_approvals(run, ledger_rules) and passes_review:
+        if _guards_stale_approvals(run, ledger_mode) and passes_review:
             stale = len(baseline_approvals.stale_approvals(run))
-        if ledger_rules and passes_review and stale == 0:
+        if passes_review and stale == 0:
             recheck = ledger_recheck.recheck_run(run)
     return RunFacts(
         status=RunStatus(run.status),
@@ -237,8 +238,8 @@ def _run_facts(run: Run, repo: Repo, ledger_rules: bool) -> RunFacts:
     )
 
 
-def _status_of(run: Run, repo: Repo, ledger_rules: bool) -> _Status:
-    facts = _run_facts(run, repo, ledger_rules)
+def _status_of(run: Run, repo: Repo, ledger_mode: bool) -> _Status:
+    facts = _run_facts(run, repo, ledger_mode)
     context = gate_context(run.run_type)
     if facts.tracking:
         context = f"{context} (tracking)"
@@ -252,7 +253,7 @@ def _current_status(repo: Repo, commit_sha: str, run_type: str) -> _Status | Non
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
         return None
-    return _status_of(run, repo, ledger_rules=repo.baseline_mode == BaselineMode.LEDGER)
+    return _status_of(run, repo, ledger_mode=repo.baseline_mode == BaselineMode.LEDGER)
 
 
 def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
@@ -428,7 +429,7 @@ def ledger_verdict(repo: Repo, commit_sha: str, run_type: str) -> StatusVerdict:
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
         return StatusVerdict(state="success", description=NO_RUN_DESCRIPTION)
-    status = _status_of(run, repo, ledger_rules=True)
+    status = _status_of(run, repo, ledger_mode=True)
     return StatusVerdict(state=status.state, description=status.description)
 
 

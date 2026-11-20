@@ -427,34 +427,46 @@ class BranchHead:
     pr_number: int
 
 
-_PULL_REQUEST_PAGE_SIZE = 100
-_MAX_PULL_REQUEST_PAGES = 50
+_LIST_PAGE_SIZE = 100
+_MAX_LIST_PAGES = 50
 
 
-def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | None:
-    """The head commit of every open pull request that targets `base_branch`, or None when GitHub cannot say."""
-    heads: list[BranchHead] = []
-    for page in range(1, _MAX_PULL_REQUEST_PAGES + 1):
-        items = _read_json(
-            "visual_review.open_pull_requests_fetch_failed",
+def _read_all_pages(log_event: str, repo: Repo, path: str, params: dict[str, str | int]) -> list[dict] | None:
+    """Every item of a paged GitHub list, or None when GitHub cannot say or the list has more than the cap.
+
+    A cut list would leave heads without a status, so a caller must not act on one.
+    """
+    items: list[dict] = []
+    for page in range(1, _MAX_LIST_PAGES + 1):
+        page_items = _read_json(
+            log_event,
             partial(
                 _github_api_request,
                 "GET",
                 repo,
-                "pulls",
-                params={"state": "open", "base": base_branch, "per_page": _PULL_REQUEST_PAGE_SIZE, "page": page},
+                path,
+                params={**params, "per_page": _LIST_PAGE_SIZE, "page": page},
             ),
             repo_id=str(repo.id),
             page=page,
         )
-        if items is None:
+        if page_items is None:
             return None
-        heads.extend(BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"]) for item in items)
-        if len(items) < _PULL_REQUEST_PAGE_SIZE:
-            return heads
-    # A cut list would leave heads without a status, so the caller must not act on it.
-    logger.warning("visual_review.open_pull_requests_too_many", repo_id=str(repo.id))
+        items.extend(page_items)
+        if len(page_items) < _LIST_PAGE_SIZE:
+            return items
+    logger.warning(log_event, repo_id=str(repo.id), reason="too_many_pages")
     return None
+
+
+def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | None:
+    """The head commit of every open pull request that targets `base_branch`, or None when GitHub cannot say."""
+    items = _read_all_pages(
+        "visual_review.open_pull_requests_fetch_failed", repo, "pulls", {"state": "open", "base": base_branch}
+    )
+    if items is None:
+        return None
+    return [BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"]) for item in items]
 
 
 def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
@@ -462,10 +474,8 @@ def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
 
     The queue deletes a branch once its test is decided, so the branches that exist are the tests in progress.
     """
-    refs = _read_json(
-        "visual_review.merge_queue_branches_fetch_failed",
-        partial(_github_api_request, "GET", repo, "git/matching-refs/heads/trunk-merge"),
-        repo_id=str(repo.id),
+    refs = _read_all_pages(
+        "visual_review.merge_queue_branches_fetch_failed", repo, "git/matching-refs/heads/trunk-merge", {}
     )
     if refs is None:
         return None

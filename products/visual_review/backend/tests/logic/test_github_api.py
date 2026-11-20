@@ -181,19 +181,22 @@ def test_a_refused_ancestry_read_propagates_and_commit_contains_answers_false(re
         assert github_api.commit_contains(repo, "merge-base", "seed") is False
 
 
-def test_branch_heads_read_every_page_of_pull_requests_and_only_merge_queue_branches() -> None:
-    def respond(method, path, *, params=None, **kwargs):
+def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
+    def respond(method, path, *, params, **kwargs):
+        first = (params["page"] - 1) * params["per_page"]
+        count = max(0, min(params["per_page"], 101 - first))
         response = MagicMock(status_code=200)
         if path.endswith("/pulls"):
-            first = (params["page"] - 1) * params["per_page"]
-            count = max(0, min(params["per_page"], 101 - first))
             response.json.return_value = [
                 {"number": first + i, "head": {"sha": f"pr-head-{first + i}"}} for i in range(count)
             ]
         else:
+            # Every hundredth ref is a queue branch, so the last one is only on the second page.
             response.json.return_value = [
-                {"ref": "refs/heads/trunk-merge/pr-7/abc", "object": {"sha": "queue-head-7"}},
-                {"ref": "refs/heads/trunk-merge-notes", "object": {"sha": "other"}},
+                {"ref": f"refs/heads/trunk-merge/pr-{n}/abc", "object": {"sha": f"queue-head-{n}"}}
+                if n % 100 == 0
+                else {"ref": f"refs/heads/trunk-merge-notes-{n}", "object": {"sha": "other"}}
+                for n in range(first, first + count)
             ]
         return response
 
@@ -207,4 +210,7 @@ def test_branch_heads_read_every_page_of_pull_requests_and_only_merge_queue_bran
 
     assert pull_requests is not None and len(pull_requests) == 101
     assert pull_requests[-1] == github_api.BranchHead(commit_sha="pr-head-100", pr_number=100)
-    assert merge_queue == [github_api.BranchHead(commit_sha="queue-head-7", pr_number=7)]
+    assert merge_queue == [
+        github_api.BranchHead(commit_sha="queue-head-0", pr_number=0),
+        github_api.BranchHead(commit_sha="queue-head-100", pr_number=100),
+    ]

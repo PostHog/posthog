@@ -1,8 +1,9 @@
 """The ledger's view of a run that was classified against the baseline file, read from what the run stored.
 
-A run created before the switch to `ledger` mode compared its renders with the YAML file. After the
-switch every publisher recomputes the status from that stored classification, so without this check
-a YAML pass could post under the context the ruleset requires. Nothing here asks GitHub: the merge-base
+A run created before the switch to `ledger` mode compared its renders with the YAML file. With the
+commit status gate on, every publisher recomputes the status from that stored classification, so
+without this check a YAML pass could post under the context the ruleset requires. That holds in
+`shadow` mode too, because the ruleset requires the context before `mode --set ledger`. Nothing here asks GitHub: the merge-base
 position comes from the run's baseline record, and the overlay from approvals that are still open.
 """
 

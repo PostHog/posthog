@@ -88,9 +88,7 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--run-type", action="append", dest="run_types", help="Check only this run type. Repeat for more."
         )
-        recheck.add_argument(
-            "--apply", action="store_true", help="Post the statuses. Needs ledger mode and the commit status gate."
-        )
+        recheck.add_argument("--apply", action="store_true", help="Post the statuses. Needs the commit status gate.")
         recheck.add_argument(
             "--pause",
             type=float,
@@ -360,10 +358,10 @@ class Command(BaseCommand):
 
     def _recheck(self, repo: Repo, options: dict[str, Any]) -> None:
         apply = options["apply"]
-        if apply and not (repo.baseline_mode == BaselineMode.LEDGER and repo.commit_status_gate_enabled):
+        if apply and not repo.commit_status_gate_enabled:
             raise CommandError(
-                "--apply posts the statuses that ledger mode requires, so it needs ledger mode and the commit "
-                "status gate. Without --apply the command only shows them."
+                "--apply posts the gate's status, so it needs the commit status gate. "
+                "Without --apply the command only shows the statuses."
             )
         run_types = self._run_types(repo, options.get("run_types"))
         heads = self._heads(repo)

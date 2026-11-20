@@ -1294,10 +1294,12 @@ class TestLedgerRecheck:
 
         assert ledger_recheck.recheck_run(run) == expected
 
+    @pytest.mark.parametrize("mode", [BaselineMode.SHADOW, BaselineMode.LEDGER])
     @pytest.mark.parametrize("publish", [_recompute, _retry_task])
-    def test_after_the_switch_no_publisher_posts_a_pass_the_ledger_cannot_confirm(
-        self, repo, sender, django_capture_on_commit_callbacks, publish
+    def test_with_the_gate_on_no_publisher_posts_a_pass_the_ledger_cannot_confirm(
+        self, repo, sender, django_capture_on_commit_callbacks, mode, publish
     ) -> None:
+        set_baseline_mode(repo, mode, status_gate=True)
         run = _shadow_run(repo, "y0")
 
         with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
@@ -1369,7 +1371,7 @@ class TestLedgerRecheck:
             "storybook success (1) No visual run for this commit: #4",
         ]
         assert sender.call_count == 0
-        with pytest.raises(CommandError, match="needs ledger mode"):
+        with pytest.raises(CommandError, match="needs the commit status gate"):
             self._recheck_command(repo, "--apply")
 
     def test_the_recheck_posts_on_every_head(self, repo, sender, mocker) -> None:
