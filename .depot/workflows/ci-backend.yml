@@ -380,12 +380,9 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads the module graph for the dependent
-                        # cascade, and `tach check` validates it — a graph-only PR
-                        # must still dispatch both.
-                        - tach.toml
+                        # turbo-discover reads hoglint's import map for the dependent cascade, and
                         # repo-checks runs `hoglint compare`, which judges the policy, the ledger
-                        # and the exceptions, so a policy-only PR must still dispatch it.
+                        # and the exceptions, so a policy-only PR must still dispatch both.
                         - hoglint.toml
                         - hoglint.ledger
                         - hoglint.exceptions.toml
@@ -1856,18 +1853,6 @@ jobs:
                     run: python .github/scripts/check-dwh-source-agnostic.py
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
-                  - name: Check module boundaries (tach)
-                    # Two passes: tests are in the interface graph but not the dependency graph.
-                    # A branch that predates the command still excludes tests in tach.toml, so
-                    # the old single pass is the right check there.
-                    run: |
-                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
-                            ./bin/hogli lint:tach
-                        else
-                            tach check --dependencies --interfaces
-                        fi
-                  - name: Check product facade enforcement (import-linter)
-                    run: lint-imports
                   # These guards take the whole repo as input (import graph after
                   # django.setup(), signal registries, repo-wide AST scans), so diff-based
                   # test selection can't pick them and the Django matrix skips them on

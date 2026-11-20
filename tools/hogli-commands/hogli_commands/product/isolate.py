@@ -479,7 +479,7 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
 
 _PACKAGE_INIT_DOCSTRINGS = {
     "presentation": '"""HTTP presentation layer of the {name} product (DRF viewsets and serializers)."""\n',
-    "views": '"""DRF viewsets for {name} — submodule paths (`backend.presentation.views.*`) are part\nof the shared tach interface for isolated products.\n"""\n',
+    "views": '"""DRF viewsets for {name}, one module per resource."""\n',
 }
 
 
