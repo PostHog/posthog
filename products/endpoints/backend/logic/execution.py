@@ -49,6 +49,7 @@ from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     Feature,
     Product,
     get_query_tag_value,
@@ -104,6 +105,18 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
+
+
+def access_method_stamps_execution(access_method: AccessMethod | str | None) -> bool:
+    """Whether a run under this access method counts as the endpoint being used from code.
+
+    The stale-materialization cleanup reads the execution stamps to decide what nobody uses, so every
+    credential a caller can automate with has to stamp: API keys, OAuth tokens from agents, and the
+    ID-JAG and OIDC workload tokens. A session (no access method) is a person in the playground, and a
+    sharing token cannot run an endpoint; neither justifies keeping a materialization alive.
+    """
+    return access_method is not None and access_method != AccessMethod.SHARING_TOKEN
+
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
 
@@ -792,8 +805,8 @@ class EndpointExecutionService(PydanticModelMixin):
         )
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
-        """Record last execution time (30-minute granularity, API key calls only)."""
-        if not is_api_key_access_method(get_query_tag_value("access_method")):
+        """Record last execution time (30-minute granularity, programmatic calls only)."""
+        if not access_method_stamps_execution(get_query_tag_value("access_method")):
             return
         now = timezone.now()
         if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > LAST_EXECUTED_THROTTLE):
