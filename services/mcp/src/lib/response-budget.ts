@@ -3,6 +3,8 @@
  * JSON and TOON are re-serialized from a projection, so the output stays parseable.
  */
 
+import { decode } from '@toon-format/toon'
+
 import { formatResponse } from '@/lib/response'
 
 /** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
@@ -273,6 +275,37 @@ export function fitValue(
     return undefined
 }
 
+/** A string result keeps its serialization, so a JSON string stays one JSON string, notice included. */
+function fitString(
+    value: string,
+    serialize: (value: unknown) => string,
+    fullBytes: number,
+    maxBytes: number,
+    maxTokens: number
+): string | undefined {
+    let room = maxBytes - NOTICE_RESERVE_BYTES
+    for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS && room > MIN_STRING_KEEP_BYTES; attempt++) {
+        const clipped = clipLines(value, room)
+        const text = serialize(`${overflowNotice(fullBytes, maxTokens, [clipped.cut])}\n\n${clipped.text}`)
+        const bytes = byteLength(text)
+        if (bytes <= maxBytes) {
+            return text
+        }
+        room = Math.floor((room * maxBytes * 0.95) / bytes)
+    }
+    return undefined
+}
+
+/** Clipping TOON by lines would leave each array header declaring rows it no longer has. */
+function parseToonText(text: string): unknown {
+    try {
+        const value = decode(text)
+        return typeof value === 'object' && value !== null ? value : undefined
+    } catch {
+        return undefined
+    }
+}
+
 function parseJsonText(text: string): unknown {
     const first = text.trimStart()[0]
     if (first !== '{' && first !== '[') {
@@ -295,7 +328,12 @@ export function boundText(
     if (fullBytes <= maxBytes) {
         return text
     }
-    if (source && typeof source.value !== 'string') {
+    if (source && typeof source.value === 'string') {
+        const fitted = fitString(source.value, source.serialize, fullBytes, maxBytes, maxTokens)
+        if (fitted !== undefined) {
+            return fitted
+        }
+    } else if (source) {
         const fitted = fitValue(source.value, source.serialize, maxBytes, maxTokens)
         if (fitted) {
             return fitted.text
@@ -304,6 +342,13 @@ export function boundText(
     const json = parseJsonText(text)
     if (json !== undefined) {
         const fitted = fitValue(json, (value) => JSON.stringify(value), maxBytes, maxTokens)
+        if (fitted) {
+            return fitted.text
+        }
+    }
+    const toon = parseToonText(text)
+    if (toon !== undefined) {
+        const fitted = fitValue(toon, formatResponse, maxBytes, maxTokens)
         if (fitted) {
             return fitted.text
         }

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 
+import { toolResponsesShortenedTotal } from '@/hono/metrics'
 import { dedupeRepeatedDescriptions } from '@/hono/tool-catalog'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
@@ -2555,17 +2556,23 @@ export function createExecTool(
                     const budget = responseTokenBudget(options.toolResultTokenLimit, input)
                     if (budget === undefined || byteLength(fullText) <= maxResponseBytes(budget)) {
                         outputText = fullText
-                    } else if (chartFooter) {
+                    } else {
+                        // The executor's own cap then sees a text that fits, so it never counts this one.
+                        toolResponsesShortenedTotal.inc({
+                            tool: tool.name,
+                            budget: options.toolResultTokenLimit === undefined ? 'default' : 'client',
+                        })
                         // Reserve the chart's bytes before re-serializing the result body. The next-page
                         // hint is dropped because it offsets past the rows the bound cuts.
                         const bodyBudget = maxResponseBytes(budget) - byteLength(chartFooter)
-                        const body = bodyBudget > 0 ? boundText(outputText, budget, bodySource, bodyBudget) : undefined
+                        const body =
+                            chartFooter && bodyBudget > 0
+                                ? boundText(outputText, budget, bodySource, bodyBudget)
+                                : undefined
                         outputText =
                             body !== undefined && byteLength(body) <= bodyBudget
                                 ? body + chartFooter
                                 : boundText(outputText, budget, bodySource)
-                    } else {
-                        outputText = boundText(outputText, budget, bodySource)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

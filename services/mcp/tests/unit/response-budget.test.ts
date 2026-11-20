@@ -8,14 +8,17 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { formatResponse } from '@/lib/response'
 import {
     DEFAULT_MAX_RESPONSE_TOKENS,
     RESPONSE_BUDGET_KEY,
     boundText,
+    jsonResponseBody,
     maxResponseBytes,
     responseTokenBudget,
 } from '@/lib/response-budget'
 import { withAgentNote, withInformationalResponse } from '@/tools/tool-utils'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 const BUDGET = 10_000
 const MAX_BYTES = maxResponseBytes(BUDGET)
@@ -204,6 +207,7 @@ describe('capResponseToBudget', () => {
 
         expect(byteLength(text(capped))).toBeLessThanOrEqual(MAX_BYTES)
         expect(byteLength(JSON.stringify(capped.structuredContent))).toBeLessThanOrEqual(MAX_BYTES)
+        expect(capped._meta?.[APP_DATA_META_KEY]).toEqual(built.structuredContent)
     })
 })
 
@@ -213,6 +217,22 @@ describe('boundText', () => {
 
         expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
         expect(bounded).toContain('y'.repeat(30_000))
+    })
+
+    it('keeps a JSON string result a JSON string', () => {
+        const value = 'line of schema\n'.repeat(10_000)
+
+        const bounded = boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))
+
+        expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(JSON.parse(bounded)).toContain('line of schema\nline of schema')
+    })
+
+    it('re-serializes TOON text so each array header counts the rows it keeps', () => {
+        const bounded = boundText(formatResponse({ results: rows(1_000) }), BUDGET)
+
+        const declared = Number(/results\[(\d+)\]/.exec(bounded)![1])
+        expect(bounded.split('\n').filter((line) => /^ {2}\d+,row-\d+,x+$/.test(line))).toHaveLength(declared)
     })
 })
 
