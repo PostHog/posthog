@@ -654,6 +654,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("several_senders_and_no_default", [False, False], None, "function_email", None),
             ("a_stopped_default_and_one_that_delivers", [True, False], 0, "function_email", 1),
             ("only_stopped_senders", [True], None, "email_sandbox", None),
+            ("without_the_adoption_flag", [False], None, "function_email", None, False),
         ]
     )
     def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
@@ -663,12 +664,13 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         default_index: int | None,
         expected_type: str,
         expected_index: int | None,
+        enabled: bool = True,
     ) -> None:
         senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
         if default_index is not None:
             set_default_email_sender_if_unset(self.team.id, senders[default_index].id)
 
-        with _flag(True):
+        with _flag(enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
                 _flow(_own_email_step(None)),

@@ -1108,6 +1108,8 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     if not new_steps:
         return data
     team = get_team()
+    if not sandbox_adoption_enabled(team, user):
+        return data
     deliverable = deliverable_own_sender_ids(team.id)
     if deliverable:
         return _with_own_sender(data, actions, new_steps, pick_default_email_sender(team.id, deliverable))
