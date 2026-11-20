@@ -17,6 +17,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.id_jag import id_jag_access_token
 
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
@@ -306,6 +307,30 @@ class TestPostHogConnectionForward:
                     content_type="application/json",
                 )
         assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
+        assert mock_request.called == forwarded
+
+    @pytest.mark.parametrize(
+        "token_scope,forwarded",
+        [
+            ("integration:write query:read", True),
+            ("integration:write", False),
+        ],
+    )
+    def test_forward_accepts_id_jag_token(self, client: HttpClient, token_scope: str, forwarded: bool):
+        self.integration.config["granted_scopes"] = ["query:read"]
+        self.integration.save()
+        token = id_jag_access_token(self.user, self.organization, token_scope)
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(200, {"results": []})
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/insights/"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN), (
+            response.content
+        )
         assert mock_request.called == forwarded
 
     def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):

@@ -33,6 +33,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
     MCP_USER_AGENT_MARKER,
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -383,7 +384,14 @@ class PostHogConnectionTargetErrorSerializer(serializers.Serializer):
 class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Replay requests against another PostHog project via a `posthog` connection you created."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    # ID-JAG runs first, because PersonalAPIKeyAuthentication reads any bearer token without the OAuth
+    # prefix as a personal API key and rejects an ID-JAG token as an invalid key.
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
     # A connection replays requests with its creator's own grant, which a workload token must not borrow.
