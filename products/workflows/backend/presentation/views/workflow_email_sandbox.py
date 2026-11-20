@@ -19,27 +19,29 @@ from products.workflows.backend.facade.sandbox_email import (
 class WorkflowEmailSandboxStatusSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         allow_null=True,
-        help_text="ID of the project's sandbox sender, which an email step can use. Null until the sender is set up.",
+        help_text="ID of the project's PostHog test sender, which an email step can use. Null until the sender is set up.",
     )
     from_address = serializers.CharField(
         allow_blank=True,
-        help_text="The address sandbox emails come from. Blank when sandbox sending isn't configured.",
+        help_text="The address the PostHog test sender sends from. Blank when the PostHog test sender isn't configured.",
     )
-    display_name = serializers.CharField(help_text="The sender name sandbox emails show, such as 'Acme via PostHog'.")
+    display_name = serializers.CharField(
+        help_text="The sender name emails from the PostHog test sender show, such as 'Acme via PostHog'."
+    )
     organization_blocked = serializers.BooleanField(
-        help_text="Whether PostHog has stopped this organization from using the sandbox sender."
+        help_text="Whether PostHog has stopped this organization from using the PostHog test sender."
     )
     adoption_enabled = serializers.BooleanField(
-        help_text="Whether the project can add new sandbox email steps. Steps it already has keep working either way."
+        help_text="Whether the project can add new PostHog test sender steps. Steps it already has keep working either way."
     )
 
 
 class WorkflowEmailSandboxProvisionSerializer(serializers.Serializer):
-    integration_id = serializers.IntegerField(help_text="ID of the project's sandbox sender.")
+    integration_id = serializers.IntegerField(help_text="ID of the project's PostHog test sender.")
 
 
 class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """The sandbox sender, which sends workflow email to organization members before a domain is verified."""
+    """The PostHog test sender, which sends workflow email to organization members before a domain is verified."""
 
     scope_object = "hog_flow"
     requires_resource_level_access = True

@@ -1,15 +1,4 @@
-import {
-    type BreakPointFunction,
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog, { type CaptureOptions } from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
@@ -43,8 +32,6 @@ import { type ProductNumberKind, productNumberKind } from './todayPulseProductNu
 
 export const HIGHLIGHTS_FIRST_POLL_MS = 400
 export const HIGHLIGHTS_POLL_MS = 2_000
-export const TODAY_ACCESS_RETRY_MS = 5_000
-export const TODAY_ACCESS_RETRIES = 24
 const MAX_HIDDEN_PULSE_NUMBERS = 50
 const HIGHLIGHTS_WAIT_MS = 2_000
 const PULSE_SEARCH_DEBOUNCE_MS = 200
@@ -54,22 +41,6 @@ const PIN_SEARCH_RESULTS = 20
 const PINNABLE_DISPLAYS = 'ActionsLineGraph,ActionsBar,ActionsStackedBar,ActionsAreaGraph'
 export const PULSE_TILES = 4
 const PULSE_SLOW_MS = 30_000
-
-async function waitForTodayAccess<T>(request: () => Promise<T>, breakpoint: BreakPointFunction): Promise<T> {
-    for (let attempt = 0; ; attempt++) {
-        breakpoint()
-        try {
-            const result = await request()
-            breakpoint()
-            return result
-        } catch (error) {
-            if (!(error instanceof ApiError) || error.status !== 404 || attempt >= TODAY_ACCESS_RETRIES) {
-                throw error
-            }
-        }
-        await breakpoint(TODAY_ACCESS_RETRY_MS)
-    }
-}
 
 interface PulseLoad {
     id: string
@@ -583,10 +554,8 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                     const edits = cache.pinEdits ?? 0
                     const hiddenEdits = cache.hiddenEdits
                     const projectId = String(values.currentProjectId)
-                    const { pins, hidden = [] } = await waitForTodayAccess(
-                        () => todayPulsePinsRetrieve(projectId),
-                        breakpoint
-                    )
+                    const { pins, hidden = [] } = await todayPulsePinsRetrieve(projectId)
+                    breakpoint()
                     if (cache.hiddenEdits === hiddenEdits) {
                         actions.setPulseHidden([...hidden])
                     }
@@ -602,13 +571,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                         return null
                     }
                     const projectId = String(values.currentProjectId)
-                    return await waitForTodayAccess(
-                        () =>
-                            refresh
-                                ? todayHighlightsRetrieve(projectId, { refresh: true })
-                                : todayHighlightsRetrieve(projectId),
-                        breakpoint
-                    )
+                    const highlights = await todayHighlightsRetrieve(projectId, refresh ? { refresh: true } : undefined)
+                    breakpoint()
+                    return highlights
                 },
             },
         ],

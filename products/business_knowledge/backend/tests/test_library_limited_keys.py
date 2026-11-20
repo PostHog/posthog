@@ -27,6 +27,7 @@ READ_ROUTES = [
     ("window_unknown_document", "/documents/{unknown}/window/?around_ordinal=0"),
     ("library_list", "/libraries/"),
     ("library_retrieve", "/libraries/{library}/"),
+    ("access", "/access/"),
     ("repository_search", "/repositories/search/?query=billing"),
     ("repository_file", "/repositories/file/?repo=acme/billing&path=src/billing.py"),
 ]
@@ -78,6 +79,19 @@ class TestLibraryLimitedKeys(APIBaseTest):
         assert self._searched_documents() == {str(self.public_document.id)}
         assert self._searched_documents(f"&library_id={self.public.id}") == {str(self.public_document.id)}
 
+    @parameterized.expand([("limited", True), ("whole_project", False)])
+    def test_key_learns_its_project_and_library_without_naming_the_project(
+        self, _ff: Any, _embed: Any, _name: str, limited: bool
+    ) -> None:
+        self._use_key(self.public if limited else None)
+        response = self.client.get("/api/projects/@current/business_knowledge/access/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {
+            "project_id": self.team.id,
+            "is_limited": limited,
+            "library_id": str(self.public.id) if limited else None,
+        }
+
     def test_limited_key_lists_only_its_library(self, _ff: Any, _embed: Any) -> None:
         self._use_key(self.public)
         response = self.client.get(f"{self.base}/libraries/")
@@ -128,7 +142,9 @@ class TestLibraryLimitedKeys(APIBaseTest):
         assert not KnowledgeKeyLibrary.objects.unscoped().filter(key_id=key.pk).exists()
 
     def _create_key(self, library_id: Any, label: str = "Docs agent") -> Any:
-        return self.client.post(f"{self.base}/keys/", {"label": label, "library_id": str(library_id)}, format="json")
+        return self.client.post(
+            f"{self.base}/keys/", {"label": label, "library_id": library_id and str(library_id)}, format="json"
+        )
 
     def _become_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -145,6 +161,23 @@ class TestLibraryLimitedKeys(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {created['value']}")
         assert self._searched_documents() == {str(self.public_document.id)}
+
+    def test_key_created_without_a_library_reads_all_business_knowledge(self, _ff: Any, _embed: Any) -> None:
+        self._become_admin()
+        response = self._create_key(None)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        created = response.json()
+        assert (created["is_limited"], created["library_id"]) == (False, None)
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {created['value']}")
+        assert self._searched_documents() == {str(self.public_document.id), str(self.internal_document.id)}
+
+    def test_request_that_names_no_library_creates_no_key(self, _ff: Any, _embed: Any) -> None:
+        self._become_admin()
+        response = self.client.post(f"{self.base}/keys/", {"label": "Docs agent"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not ProjectSecretAPIKey.objects.filter(team=self.team).exists()
 
     def test_unknown_library_creates_no_key(self, _ff: Any, _embed: Any) -> None:
         self._become_admin()

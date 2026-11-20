@@ -18,7 +18,7 @@ from django.db import transaction
 import posthoganalytics
 
 from posthog.models.team.team import Team
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+from posthog.tasks.alerts.utils import PLATFORM_SHADOW, next_check_at_after_schedule_restriction_change
 
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -158,8 +158,11 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     insight. False when the alert stays with insight."""
     if not (platform_takes_new_alert(alert) and delivers_as_it_does_today(alert)):
         return False
-    # A week of its own per alert would keep the insight stack shadowing while the team adds alerts.
-    return hand_over(alert, at, shadow_from=team_cutover_at(alert.team_id, new_alert_id=alert.id))
+    # A week of its own per alert would keep the insight stack shadowing while the team adds alerts. A
+    # team's first alert has no insight history to compare against, so its shadow starts already over,
+    # and the team's later alerts inherit that.
+    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id) or at - PLATFORM_SHADOW
+    return hand_over(alert, at, shadow_from=shadow_from)
 
 
 def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
@@ -202,6 +205,7 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
         snooze_changed=snooze_changed,
         cadence=upsert,
         rescheduled=rescheduled,
+        created_by_id=alert.created_by_id,
     )
 
 

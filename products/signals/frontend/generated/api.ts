@@ -15,6 +15,8 @@ import type {
     AlertPatternPreviewRequestApi,
     AlertPatternPreviewResponseApi,
     AnomalyInsightResponseApi,
+    AnomalyPointsRequestApi,
+    AnomalyPointsResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
@@ -31,6 +33,7 @@ import type {
     InboxOnboardingDraftApi,
     InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
+    InboxStatusApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
@@ -101,6 +104,7 @@ import type {
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
     SelfDrivingTrialStatusApi,
+    SignalReportActionabilityUpdateApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -127,12 +131,14 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportRepositoryUpdateApi,
     SignalReportSearchResponseApi,
     SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportTagOptionsApi,
     SignalReportTaskActionListResponseApi,
     SignalReportTaskActionRunRequestApi,
     SignalReportTaskActionRunResponseApi,
@@ -193,6 +199,9 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceFilterCatalogListApi,
+    SourceFilterPreviewRequestApi,
+    SourceFilterPreviewResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -334,6 +343,27 @@ export const signalsAnomaliesInsightRetrieve = async (
     })
 }
 
+export const getSignalsAnomaliesPointsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/anomalies/points/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreate = async (
+    projectId: string,
+    anomalyPointsRequestApi: AnomalyPointsRequestApi,
+    options?: RequestInit
+): Promise<AnomalyPointsResponseApi> => {
+    return apiMutator<AnomalyPointsResponseApi>(getSignalsAnomaliesPointsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(anomalyPointsRequestApi),
+    })
+}
+
 export const getSignalsAnomaliesSearchRetrieveUrl = (
     projectId: string,
     params?: SignalsAnomaliesSearchRetrieveParams
@@ -404,6 +434,17 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxStatusListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_status/`
+}
+
+export const signalsInboxStatusList = async (projectId: string, options?: RequestInit): Promise<InboxStatusApi> => {
+    return apiMutator<InboxStatusApi>(getSignalsInboxStatusListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -654,12 +695,34 @@ export const signalsReportsDestroy = async (
     })
 }
 
+export const getSignalsReportsActionabilityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actionability/`
+}
+
+/**
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const signalsReportsActionabilityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportActionabilityUpdateApi?: SignalReportActionabilityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsActionabilityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportActionabilityUpdateApi),
+    })
+}
+
 export const getSignalsReportsActionsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/actions/`
 }
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `implement` is available only while the report is ready and actionable, or waiting on input, has no pull request, is not a plan, has no implementation run in progress, and nobody else holds its claim. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const signalsReportsActionsList = async (
@@ -678,7 +741,7 @@ export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreate = async (
@@ -1111,6 +1174,28 @@ export const signalsReportsReingestCreate = async (
     return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsReportsRepositoryUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/repository/`
+}
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportRepositoryUpdateApi: SignalReportRepositoryUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRepositoryUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportRepositoryUpdateApi),
     })
 }
 
@@ -1847,6 +1932,23 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReportsTagOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/tag_options/`
+}
+
+/**
+ * @summary List the team's most-used report tags
+ */
+export const signalsReportsTagOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportTagOptionsApi> => {
+    return apiMutator<SignalReportTagOptionsApi>(getSignalsReportsTagOptionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -3249,7 +3351,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
@@ -3268,7 +3370,7 @@ export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRemember = async (
@@ -3281,6 +3383,27 @@ export const signalsScoutScratchpadRemember = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadDiscardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/discard/`
+}
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscard = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDiscardUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 
@@ -3488,6 +3611,45 @@ export const signalsSourceConfigsAlertPatternPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterCatalogsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_catalogs/`
+}
+
+/**
+ * List the sources whose filter this project can set, each with the fields a filter expression can use and example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. It excludes records before any AI processing. Available before the source is connected or synced.
+ * @summary List source filter catalogs
+ */
+export const signalsSourceConfigsFilterCatalogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceFilterCatalogListApi> => {
+    return apiMutator<SourceFilterCatalogListApi>(getSignalsSourceConfigsFilterCatalogsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_preview/`
+}
+
+/**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreate = async (
+    projectId: string,
+    sourceFilterPreviewRequestApi: SourceFilterPreviewRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterPreviewResponseApi> => {
+    return apiMutator<SourceFilterPreviewResponseApi>(getSignalsSourceConfigsFilterPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterPreviewRequestApi),
     })
 }
 

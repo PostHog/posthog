@@ -33,6 +33,7 @@ from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.activity_summary.search import searchable_config
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
@@ -72,6 +73,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
+    MEMORY_UPKEEP_SCOUT,
     FirstReportScoutRunSummary,
     SignalScoutRunSummary,
     build_run_prompt,
@@ -91,6 +93,7 @@ from products.signals.backend.scout_harness.team_limits import (
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
+from products.signals.backend.scout_harness.tools.scratchpad import has_live_entry_created_by
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -99,6 +102,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.scout_report_actions import granted_report_actions_for_run
 from products.signals.backend.spend import record_task_spend
 from products.signals.backend.spend_billing import scout_skill_spend_exempt
 from products.signals.backend.task_profiles import scout_profile
@@ -418,6 +422,7 @@ async def _arun_signals_scout(
     else:
         config = await database_sync_to_async(_get_trial_config, thread_sensitive=False)(trial)
         config.write_scopes = []
+        config.report_actions = []
         skill = replace(skill, body=trial.skill_body)
 
     # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
@@ -495,6 +500,9 @@ async def _arun_signals_scout(
             extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
         )
         config.write_scopes = sorted(set(granted_write_scopes) & SCOUT_DEFAULT_WRITE_SCOPES)
+    if acting_user.is_team_fallback:
+        # Report actions start agents as the acting user, so a member who never approved them holds none.
+        config.report_actions = []
     user_id = acting_user.user_id
 
     started = time.monotonic()
@@ -941,6 +949,20 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
+def _memory_upkeep_has_written(team: Team) -> bool:
+    """Whether the run's prompt should describe the memory upkeep scout's entries.
+
+    True once that scout has a live scratchpad entry on the project, so an upkeep run that wrote
+    nothing leaves the section off. Every scout run reads the team's whole scratchpad, so there is
+    no per-user access to check. A failed read is False: the section is optional steering.
+    """
+    try:
+        return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
 ACTIVITY_SUMMARY_SEARCH_TOOL = "activity-summary-search"
 INBOX_REPORTS_SEARCH_TOOL = "inbox-reports-search"
 
@@ -1185,6 +1207,9 @@ async def _spawn_and_run(
     # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
     # team has no usable installation to mint from (the scout would burn budget on 401s before
     # falling back).
+    custom_image_id = await database_sync_to_async(resolve_custom_image_id, thread_sensitive=False)(
+        team.id, SignalAgentRole.SCOUT, config.custom_image_id
+    )
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,
@@ -1217,10 +1242,12 @@ async def _spawn_and_run(
         service_tier=service_tier,
         runtime=runtime,
         sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
+        custom_image_id=custom_image_id,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
     )
+    memory_upkeep_has_written = await database_sync_to_async(_memory_upkeep_has_written, thread_sensitive=False)(team)
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
@@ -1241,6 +1268,7 @@ async def _spawn_and_run(
         project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
+        memory_upkeep_has_written=memory_upkeep_has_written,
         activity_summary_search_available=activity_summary_search,
         inbox_reports_search_available=inbox_reports_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
@@ -1309,6 +1337,7 @@ async def _spawn_and_run(
             check_id=check_id,
             precheck_query_source=precheck_query_source,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            custom_image_id=custom_image_id,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1625,6 +1654,7 @@ def _create_run_row(
     check_id: str | None = None,
     precheck_query_source: str | None = None,
     mcp_tool_allowlist: list[str] | None = None,
+    custom_image_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1649,6 +1679,8 @@ def _create_run_row(
     # could actually reach.
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         metadata["network_access"] = config.network_access
+    if custom_image_id is not None:
+        metadata["custom_image_id"] = custom_image_id
     # The three dimensions that pin down which instructions this run actually got. All are
     # point-in-time facts that become unrecoverable later, which is why they are stamped rather
     # than resolved at read time: the harness prompt has no version history, a skill's
@@ -1696,6 +1728,10 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # Stamped for the report actions endpoint, which refuses a kind this stamp does not name, so a
+    # grant widened after dispatch never reaches a run already going.
+    if report_actions := granted_report_actions_for_run(config):
+        metadata["report_actions"] = report_actions
     # The tool list the run was narrowed to, stamped next to the write grant for the same reason.
     # Omitted when the run was not narrowed, so absence reads as "every tool the scopes allow".
     if mcp_tool_allowlist is not None:

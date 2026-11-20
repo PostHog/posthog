@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import StringIO
 from typing import Any
 from uuid import UUID
@@ -94,15 +95,19 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
                 team_id=self.team.id, public_id=UUID(alert_id), destination_ids=[row.id], hog_function_ids=()
             )
 
+        rows_before = [r.id for r in self._rows(alert_id)]
+
         dry_run = self._run()
 
-        assert "dry_run" in dry_run
+        assert f"{{'{'kept_row' if has_row else 'converted'}': 1}}" in dry_run
         assert self._live(hog_function_ids) == 4
-        assert len(self._rows(alert_id)) == (1 if has_row else 0)
+        assert len(rows_before) == (1 if has_row else 0)
 
         self._run("--apply")
 
         (row,) = self._rows(alert_id)
+        if has_row:
+            assert [row.id] == rows_before
         assert sorted(map(str, row.legacy_hog_function_ids)) == sorted(hog_function_ids)
         assert set(row.event_kinds) == {
             AlertEventKind.FIRING,
@@ -159,7 +164,9 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
             "webhook": False,
         }
 
-    def test_customized_groups_firing_alerts_and_alerts_the_logs_stack_owns_keep_their_hog_functions(self) -> None:
+    def test_customized_groups_firing_or_recently_emitting_alerts_and_logs_owned_alerts_keep_their_hog_functions(
+        self,
+    ) -> None:
         customized_alert, customized_ids = self._alert_with_slack()
         edited = self.client.patch(
             f"/api/projects/{self.team.pk}/hog_functions/{customized_ids[0]}/",
@@ -169,16 +176,28 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         logs_owned_alert, logs_owned_ids = self._alert_with_slack(platform_owned=False, name="Kept on logs")
         firing_alert, firing_ids = self._alert_with_slack(name="Firing")
+        emitting_alert, emitting_ids = self._alert_with_slack(name="Emitted lately")
+        quiet_alert, quiet_ids = self._alert_with_slack(name="Emitted long ago")
         with team_scope(self.team.id):
             platform_testing.start_firing(
                 platform_testing.copy_of(UUID(firing_alert)).id, team_id=self.team.id, at=timezone.now()
             )
+            for alert_id, emitted_at in (
+                (emitting_alert, timezone.now() - timedelta(minutes=1)),
+                (quiet_alert, timezone.now() - timedelta(hours=1)),
+            ):
+                platform_testing.record_legacy_emission(
+                    platform_testing.copy_of(UUID(alert_id)).id, team_id=self.team.id, at=emitted_at
+                )
 
         out = self._run("--apply")
 
         assert "outcome=customized" in out
         assert f"alert={firing_alert}" in out and "outcome=firing" in out
         assert self._live(firing_ids) == 4
+        assert f"alert={emitting_alert}" in out and "outcome=recently_emitted" in out
+        assert self._live(emitting_ids) == 4
+        assert self._live(quiet_ids) == 0
         assert self._live(customized_ids) == 4
         assert self._live(logs_owned_ids) == 4
         assert len(self._rows(customized_alert)) == 1

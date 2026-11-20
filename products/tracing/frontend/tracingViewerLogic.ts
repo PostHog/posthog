@@ -3,10 +3,22 @@ import posthog from 'posthog-js'
 
 import { inApiCase } from 'lib/components/ViewTraceButton/traceUrl'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import type {
+    SessionPlayerModalContext,
+    SessionPlayerModalRecordingList,
+} from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
+import type { SessionRecordingType, UniversalFiltersGroup } from '~/types'
+
+import type { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import type {
+    LogsViewerModalOrigin,
+    OpenLogsViewerModalOptions,
+} from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
 import { traceViewLogic } from './components/TraceView/traceViewLogic'
+import type { TraceViewSurface } from './components/TraceView/traceViewLogic'
 import type { ErrorScope } from './errorCorrelation'
 import {
     EMPTY_TRACE_IDENTITY,
@@ -47,7 +59,6 @@ export interface tracingViewerLogicValues {
     traceViewMode: TraceViewMode // tracingConfigLogic
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     spans: Span[] // tracingDataLogic
     traceLoadContext: {
@@ -83,55 +94,47 @@ export interface tracingViewerLogicActions {
     closeLogsViewerModal: () => {
         value: true
     } // logsViewerModalLogic
-    openLogsViewerModal: (
-        options?:
-            | import('products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic').OpenLogsViewerModalOptions
-            | undefined
-    ) => {
+    openLogsViewerModal: (options?: OpenLogsViewerModalOptions | undefined) => {
         fullScreen: boolean
         id: string
-        initialFilters: Partial<
-            import('products/logs/frontend/components/LogsViewer/config/types').LogsViewerFilters
-        > | null
-        openedFrom:
-            | null
-            | import('products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic').LogsViewerModalOrigin
+        initialFilters: Partial<LogsViewerFilters> | null
+        openedFrom: LogsViewerModalOrigin | null
         personId: string | null
-        pinnedFilters: null | import('~/types').UniversalFiltersGroup
+        pinnedFilters: UniversalFiltersGroup | null
         sessionId: string | null
     } // logsViewerModalLogic
     closeSessionPlayer: () => {
         value: true
     } // sessionPlayerModalLogic
     openSessionPlayer: (
-        sessionRecording: Pick<import('~/types').SessionRecordingType, 'id' | 'matching_events'>,
+        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
         initialTimestamp?: number | null | undefined,
-        modalContext?:
-            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
-            | undefined
+        modalContext?: SessionPlayerModalContext | undefined,
+        recordingList?: SessionPlayerModalRecordingList | null | undefined
     ) => {
         initialTimestamp: number | null
-        modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
-        sessionRecording: Pick<import('~/types').SessionRecordingType, 'id' | 'matching_events'>
+        modalContext: SessionPlayerModalContext
+        recordingList: SessionPlayerModalRecordingList | null
+        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
     enableSpanKeys: (
         containerSelector: string,
-        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     ) => {
         containerSelector: string
-        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     } // traceViewLogic
     selectViewSpan: (spanId: string | null) => {
         spanId: string | null
     } // traceViewLogic
     setInspectorTab: (
         tab: SpanInspectorTab,
-        surface?: import('./components/TraceView/traceViewLogic').TraceViewSurface | undefined
+        surface?: TraceViewSurface | undefined
     ) => {
-        surface: null | import('./components/TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface | null
         tab: SpanInspectorTab
     } // traceViewLogic
     showTrace: (
@@ -239,8 +242,7 @@ export interface tracingViewerLogicMeta {
             canLoadMoreTraceSpans: boolean,
             traceSpansLoading: boolean,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
             openTraceSpans: Span[],
@@ -282,12 +284,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
             tracingConfigLogic,
             ['traceViewMode'],
         ],
@@ -465,20 +462,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 s.traceSpansLoading,
                 s.configuredDistinctIdKeys,
                 s.configuredSessionIdKeys,
-                s.correlationLinksEnabled,
             ],
             (
                 openTraceSpans: Span[],
                 canLoadMoreTraceSpans: boolean,
                 traceSpansLoading: boolean,
                 configuredDistinctIdKeys: string[] | undefined,
-                configuredSessionIdKeys: string[] | undefined,
-                correlationLinksEnabled: boolean
+                configuredSessionIdKeys: string[] | undefined
             ): TraceIdentity => {
-                // The flag guard runs before the scan, which reads every attribute of every span.
-                if (!correlationLinksEnabled) {
-                    return EMPTY_TRACE_IDENTITY
-                }
                 // Nothing while more spans can arrive, because a second, conflicting identity may
                 // sit on a page that has not loaded, and the prefetch fallback shown during the
                 // first fetch may itself be truncated.

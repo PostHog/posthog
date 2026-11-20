@@ -1,11 +1,14 @@
+import re
 import time
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connections
-from django.db.models import Q
+from django.db import OperationalError, connections, transaction
+from django.db.models import F, Q, QuerySet, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -17,6 +20,7 @@ from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
@@ -29,6 +33,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
+from posthog.utils import UUID_REGEX
 
 from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
@@ -36,6 +41,7 @@ from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.claim_takeover_notification import (
     send_claim_takeover_notification as send_claim_takeover_notification,
 )
+from products.signals.backend.constants import REPORT_POINTER_SWEEP_IDENTITY, SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
@@ -48,6 +54,9 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
+from products.signals.backend.implementation_pr_notification_tasks import (
+    deliver_implementation_pr_notifications as deliver_implementation_pr_notifications,
+)
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
@@ -59,6 +68,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
 )
 from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
@@ -1410,6 +1420,8 @@ def pause_inactive_signal_scouts() -> None:
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+# Some keys are rewritten on every run, so revisions are capped per key as well as by age.
+SCRATCHPAD_REVISION_RETENTION_DAYS = 14
 
 
 def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
@@ -1427,6 +1439,31 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
     return deleted
 
 
+def prune_scratchpad_revisions(
+    retention_days: int = SCRATCHPAD_REVISION_RETENTION_DAYS, per_key: int = SCRATCHPAD_REVISIONS_PER_KEY
+) -> int:
+    """Hard-delete scratchpad revisions older than `retention_days`, and those past the newest `per_key` of a key.
+
+    Cross-team janitor sweep, like `prune_expired_scratchpad_entries`. Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    revisions = SignalScratchpadRevision.objects.unscoped()
+    past_cap = (
+        revisions.annotate(
+            position=Window(
+                RowNumber(),
+                partition_by=[F("team_id"), F("key")],
+                order_by=[F("changed_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(position__gt=per_key)
+        .values("id")
+    )
+    deleted, _ = revisions.filter(Q(changed_at__lt=cutoff) | Q(id__in=past_cap)).delete()
+    return deleted
+
+
 @shared_task(
     name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
     ignore_result=True,
@@ -1436,29 +1473,189 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
 )
 @skip_team_scope_audit
 def prune_expired_scratchpad_entries_task() -> None:
-    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+    """Daily janitor: hard-delete scratchpad entries long past their expiry, and old revisions.
 
     A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
     rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
     one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
     """
     deleted = 0
+    revisions_deleted = 0
     try:
         deleted = prune_expired_scratchpad_entries()
+        revisions_deleted = prune_scratchpad_revisions()
     except SoftTimeLimitExceeded:
         raise
-    except OperationalError as exc:
-        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
-        logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
     except Exception as exc:
-        if is_stale_connection_read_only_error(exc):
-            # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
-            connections.close_all()
-            logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
-        else:
-            capture_exception(exc)
-            logger.exception("signals_scout.scratchpad_prune_failed")
-    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
+        _report_scratchpad_janitor_error(exc, event_prefix="signals_scout.scratchpad_prune")
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted, revisions_deleted=revisions_deleted)
+
+
+def _report_scratchpad_janitor_error(exc: Exception, *, event_prefix: str) -> None:
+    if isinstance(exc, OperationalError):
+        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
+        logger.warning(f"{event_prefix}_transient_db_error", error=str(exc))
+    elif is_stale_connection_read_only_error(exc):
+        # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
+        connections.close_all()
+        logger.warning(f"{event_prefix}_transient_db_error", error=str(exc))
+    else:
+        capture_exception(exc)
+        logger.exception(f"{event_prefix}_failed")
+
+
+# A `report:` entry must go this long without a write before the sweep judges it. A scout that
+# rewrote its pointer recently still uses it, and a fresh pointer can name a report whose row
+# is not committed yet.
+REPORT_POINTER_MIN_AGE_DAYS = 30
+REPORT_POINTER_SWEEP_BATCH_SIZE = 500
+REPORT_POINTER_SWEEP_MAX_BATCHES = 20
+# The sweep reads at most one capped slice per day, so it continues from this cursor on the next
+# run. Without it, a store larger than the cap would scan the same head rows every day.
+REPORT_POINTER_SWEEP_CURSOR_KEY = "signals:scratchpad:report_pointer_sweep_cursor"
+_REPORT_POINTER_SWEEP_CURSOR_TTL_SECONDS = 7 * 24 * 60 * 60
+_REPORT_ID_PATTERN = re.compile(UUID_REGEX, re.IGNORECASE)
+
+
+@frozen
+class ReportPointerSweep:
+    scanned: int
+    matched: int
+    expired: int
+
+
+def single_report_id(content: str) -> str | None:
+    """The one report id a `report:` pointer names, or None when it names none or several.
+
+    Scouts often write the same id twice (in a link and in backticks), so repeats collapse first.
+    Several distinct ids make the pointer ambiguous, and the sweep must leave an ambiguous pointer alone.
+    """
+    ids = {match.lower() for match in _REPORT_ID_PATTERN.findall(content)}
+    return ids.pop() if len(ids) == 1 else None
+
+
+def _live_report_pointers(pointers: set[tuple[int, str]]) -> set[tuple[int, str]]:
+    if not pointers:
+        return set()
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; team_id__in plus the pair check below scope each id to its entry's team)
+    live = SignalReport.objects.filter(
+        team_id__in={team_id for team_id, _ in pointers},
+        id__in={report_id for _, report_id in pointers},
+    ).exclude(status=SignalReport.Status.DELETED)
+    # The pair check keeps the lookup inside the entry's own team: a report id that exists only
+    # in another team counts as missing.
+    return {(team_id, str(report_id)) for team_id, report_id in live.values_list("team_id", "id")}
+
+
+def expire_dangling_report_pointers(
+    *,
+    write: bool,
+    batch_size: int = REPORT_POINTER_SWEEP_BATCH_SIZE,
+    max_batches: int = REPORT_POINTER_SWEEP_MAX_BATCHES,
+) -> ReportPointerSweep:
+    """Expire durable `report:` scratchpad entries whose one report is missing or deleted.
+
+    Cross-team sweep over at most `max_batches * batch_size` entries, which continues from where the
+    previous run stopped. An entry qualifies only when it is older than `REPORT_POINTER_MIN_AGE_DAYS`
+    and names exactly one report id. A live, resolved, closed or suppressed report keeps its pointer,
+    because the pointer still tells the scout that the topic has history. With `write` off, the sweep
+    counts what it would expire and changes nothing.
+
+    The write sets `expires_at` through `QuerySet.update()`, so `content` and the `auto_now`
+    `updated_at` stay as they are. Search orders by `updated_at`, and a bump would move the retired
+    entries to the top. The expired entry then follows the normal path: hidden from search, readable
+    with `include_expired`, and deleted by `prune_expired_scratchpad_entries` after the grace.
+    Each expiry stores a revision under `REPORT_POINTER_SWEEP_IDENTITY`, as a `remember` would, so a
+    scout that reads the expired key sees that the sweep retired it rather than the last scout to write it.
+    """
+    now = timezone.now()
+    cutoff = now - timedelta(days=REPORT_POINTER_MIN_AGE_DAYS)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    eligible = SignalScratchpad.objects.unscoped().filter(
+        key__startswith="report:", expires_at__isnull=True, updated_at__lt=cutoff
+    )
+    after = cache.get(REPORT_POINTER_SWEEP_CURSOR_KEY)
+    scanned = matched = expired = 0
+    for _ in range(max_batches):
+        page = eligible.order_by("id")
+        if after is not None:
+            page = page.filter(id__gt=after)
+        rows = list(page.values_list("id", "team_id", "content")[:batch_size])
+        scanned += len(rows)
+
+        pointers = {
+            entry_id: (team_id, report_id)
+            for entry_id, team_id, content in rows
+            if (report_id := single_report_id(content)) is not None
+        }
+        live = _live_report_pointers(set(pointers.values()))
+        dangling = [entry_id for entry_id, pointer in pointers.items() if pointer not in live]
+        matched += len(dangling)
+        if write and dangling:
+            # Re-applies the eligibility filter, so an entry a scout rewrote since the read keeps its pointer.
+            expired += _expire_report_pointers(eligible.filter(id__in=dangling), now=now)
+
+        if len(rows) < batch_size:
+            cache.delete(REPORT_POINTER_SWEEP_CURSOR_KEY)
+            break
+        after = str(rows[-1][0])
+        cache.set(REPORT_POINTER_SWEEP_CURSOR_KEY, after, timeout=_REPORT_POINTER_SWEEP_CURSOR_TTL_SECONDS)
+    return ReportPointerSweep(scanned=scanned, matched=matched, expired=expired)
+
+
+def _expire_report_pointers(entries: QuerySet[SignalScratchpad], *, now: datetime) -> int:
+    with transaction.atomic():
+        # The row lock re-checks the filter against a concurrent `remember`, and keeps the revision and the
+        # expiry in step: a write that lands first takes the entry out of the filter, and one that lands
+        # after waits and then stores a revision of the expired state.
+        locked = list(entries.select_for_update().only("id", "team_id", "key", "content", "expires_at").order_by("id"))
+        if not locked:
+            return 0
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        SignalScratchpadRevision.objects.unscoped().bulk_create(
+            SignalScratchpadRevision(
+                team_id=entry.team_id,
+                key=entry.key,
+                content=entry.content,
+                expires_at=entry.expires_at,
+                change=SignalScratchpadRevision.Change.OVERWRITE,
+                changed_by_identity=REPORT_POINTER_SWEEP_IDENTITY,
+            )
+            for entry in locked
+        )
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        return SignalScratchpad.objects.unscoped().filter(id__in=[entry.id for entry in locked]).update(expires_at=now)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.expire_dangling_report_pointers",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=110,
+    time_limit=170,
+)
+@skip_team_scope_audit
+def expire_dangling_report_pointers_task() -> None:
+    """Daily sweep: retire `report:` scratchpad pointers whose report is gone.
+
+    A durable pointer is never swept by the expiry janitor, and a scout rarely `forget`s one, so a
+    pointer to a deleted report would stay in every wide scratchpad read forever.
+    """
+    write = settings.SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS
+    sweep = ReportPointerSweep(scanned=0, matched=0, expired=0)
+    try:
+        sweep = expire_dangling_report_pointers(write=write)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:
+        _report_scratchpad_janitor_error(exc, event_prefix="signals_scout.report_pointer_sweep")
+    logger.info(
+        "signals_scout report pointer sweep finished",
+        write_enabled=write,
+        scanned=sweep.scanned,
+        matched=sweep.matched,
+        expired=sweep.expired,
+    )
 
 
 @shared_task(

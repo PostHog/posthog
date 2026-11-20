@@ -29,7 +29,7 @@ case "$1 $2" in
 esac
 `
 
-const CLUSTER = '@scn.cluster.example.com:5432/cyclotron_node?sslmode=require'
+const CLUSTER_DATABASE = '@scn.cluster.example.com:5432/cyclotron_node'
 
 const LOCAL_SQLX = `#!/usr/bin/env bash
 args=()
@@ -40,7 +40,7 @@ exec "$REAL_SQLX" "\${args[@]}"
 `
 
 const LOCAL_PNPM = `#!/usr/bin/env bash
-export CYCLOTRON_NODE_DATABASE_URL="\${CYCLOTRON_NODE_DATABASE_URL/"$CLUSTER"/"@localhost:5432/$LOCAL_DATABASE?sslmode=disable"}"
+export CYCLOTRON_NODE_DATABASE_URL="\${CYCLOTRON_NODE_DATABASE_URL/"$CLUSTER_DATABASE"*/"@localhost:5432/$LOCAL_DATABASE?sslmode=disable"}"
 exec "$REAL_PNPM" "$@"
 `
 
@@ -99,7 +99,8 @@ describe('host-prepare.sh', () => {
                 FAKE_S3: path.join(dir, 's3'),
                 REAL_SQLX: realSqlx,
                 REAL_PNPM: realPnpm,
-                CLUSTER,
+                CLUSTER: `${CLUSTER_DATABASE}?sslmode=verify-full&sslrootcert=${path.join(dir, 'host', 'rds-ca.pem')}`,
+                CLUSTER_DATABASE,
                 LOCAL_DATABASE: database,
                 ...env,
             },

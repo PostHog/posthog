@@ -51,6 +51,21 @@ _MISSING_VENDOR_NUMBER = (
     "You can find it in App Store Connect under Payments and Financial Reports."
 )
 
+_APPLE_HOST_CONNECTION_ERROR = "HTTPSConnectionPool(host='api.appstoreconnect.apple.com'"
+
+APP_STORE_CONNECT_SERVER_ERROR_MESSAGE = (
+    "App Store Connect had an internal error, so this sync run did not finish. "
+    "This is on Apple's side, and the next sync runs on schedule."
+)
+APP_STORE_CONNECT_RATE_LIMITED_MESSAGE = (
+    "App Store Connect is rate limiting requests for this API key, so this sync run did not finish. "
+    "The next sync runs on schedule."
+)
+APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE = (
+    "App Store Connect kept failing PostHog's requests, so this sync run did not finish. "
+    "This is usually on Apple's side, and the next sync runs on schedule."
+)
+
 
 @SourceRegistry.register
 class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStoreConnectResumeConfig]):
@@ -188,9 +203,19 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         # Error" prefixes from the status code alone, not the vendor's reason text, so they're
         # stable to match on (see mailchimp/convex sources for the same pattern).
         return {
-            "HTTPSConnectionPool(host='api.appstoreconnect.apple.com'",
+            _APPLE_HOST_CONNECTION_ERROR,
             "Server Error",
             "429 Client Error",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a run that outlasts Temporal's retries stores the raw status line or urllib3
+        # pool dump, which names the request URL with the customer's app ID. The shared map already
+        # covers 502/503/504 but not 500, which is how Apple answers during its own outages.
+        return {
+            "500 Server Error": APP_STORE_CONNECT_SERVER_ERROR_MESSAGE,
+            "429 Client Error": APP_STORE_CONNECT_RATE_LIMITED_MESSAGE,
+            _APPLE_HOST_CONNECTION_ERROR: APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE,
         }
 
     def get_schemas(

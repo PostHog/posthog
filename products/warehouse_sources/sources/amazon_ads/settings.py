@@ -54,6 +54,14 @@ class AmazonAdsEndpointConfig:
     # The unified Ads API (`/adsApi/v1/query/...`) serves the Sponsored Brands and Sponsored
     # Display entities. It takes plain JSON, and it reads the client id from its own header.
     ads_api: bool = False
+    method: str = "POST"
+    page_size_key: str = "maxResults"
+    next_token_key: str = "nextToken"
+    next_token_response_key: Optional[str] = None
+    history: bool = False
+    # `/v2/profiles` query that finds the profiles this table can read. Without one, Amazon lists
+    # only the profiles with view-and-edit campaign permission.
+    profile_discovery_params: Optional[dict[str, str]] = None
 
 
 def ads_api_query(
@@ -135,6 +143,23 @@ SP_CAMPAIGN_REPORT = AmazonAdsReportConfig(
 # are only ascending by date within a profile.
 REPORT_LOOKBACK_SECONDS = 60 * 60 * 24 * (SP_CAMPAIGN_REPORT.max_window_days + 30)
 
+# Amazon keeps change history for 90 days. A day less keeps a first sync inside it.
+HISTORY_RETENTION_DAYS = 89
+HISTORY_PAGE_SIZE = 200
+# Amazon can record an event after a sync with a timestamp below that sync's cursor.
+HISTORY_LOOKBACK_MS = 24 * 60 * 60 * 1000
+# THEME needs the v1.1 response version, so it is left out.
+HISTORY_EVENT_TYPES = ("CAMPAIGN", "AD_GROUP", "AD", "KEYWORD", "NEGATIVE_KEYWORD", "PRODUCT_TARGETING")
+
+HISTORY_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.Integer,
+        "field": "timestamp",
+        "field_type": IncrementalFieldType.Integer,
+    }
+]
+
 REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "date",
@@ -211,6 +236,22 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         media_type="application/vnd.spCampaignNegativeKeyword.v3+json",
         data_key="campaignNegativeKeywords",
     ),
+    "sp_negative_targets": AmazonAdsEndpointConfig(
+        name="sp_negative_targets",
+        path="/sp/negativeTargets/list",
+        primary_keys=["_profile_id", "targetId"],
+        profile_scoped=True,
+        media_type="application/vnd.spNegativeTargetingClause.v3+json",
+        data_key="negativeTargetingClauses",
+    ),
+    "sp_campaign_negative_targets": AmazonAdsEndpointConfig(
+        name="sp_campaign_negative_targets",
+        path="/sp/campaignNegativeTargets/list",
+        primary_keys=["_profile_id", "targetId"],
+        profile_scoped=True,
+        media_type="application/vnd.spCampaignNegativeTargetingClause.v3+json",
+        data_key="campaignNegativeTargetingClauses",
+    ),
     # Portfolios sit above campaigns and resolve the portfolioId the campaign tables carry.
     # Their list request schema has no `maxResults`, so none is sent.
     "portfolios": AmazonAdsEndpointConfig(
@@ -233,6 +274,42 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
     "sd_ads": ads_api_query("sd_ads", "ads", SPONSORED_DISPLAY, "adId"),
     "sd_targets": ads_api_query(
         "sd_targets", "targets", SPONSORED_DISPLAY, "targetId", page_size=ADS_API_TARGET_PAGE_SIZE
+    ),
+    "ads_accounts": AmazonAdsEndpointConfig(
+        name="ads_accounts",
+        path="/adsAccounts/list",
+        primary_keys=["adsAccountId"],
+        media_type="application/vnd.listaccountsresource.v1+json",
+        data_key="adsAccounts",
+        page_size=ADS_API_PAGE_SIZE,
+    ),
+    # Invoices are billed per profile. Their status and remaining amounts change after they are
+    # issued, and the only filter is on the invoice date, so the table is a full refresh.
+    "invoices": AmazonAdsEndpointConfig(
+        name="invoices",
+        path="/invoices",
+        primary_keys=["_profile_id", "id"],
+        profile_scoped=True,
+        media_type="application/vnd.invoices.v1.1+json",
+        data_key="invoiceSummaries",
+        page_size=ADS_API_PAGE_SIZE,
+        method="GET",
+        page_size_key="count",
+        next_token_key="cursor",
+        next_token_response_key="nextCursor",
+        profile_discovery_params={"apiProgram": "billing", "accessLevel": "view"},
+    ),
+    # A history event has no id of its own, so `_event_id` is a hash of the event.
+    "change_history": AmazonAdsEndpointConfig(
+        name="change_history",
+        path="/history",
+        primary_keys=["_profile_id", "_event_id"],
+        profile_scoped=True,
+        data_key="events",
+        page_size=HISTORY_PAGE_SIZE,
+        page_size_key="count",
+        history=True,
+        profile_discovery_params={"apiProgram": "campaign", "accessLevel": "view"},
     ),
     "sp_campaign_reports": AmazonAdsEndpointConfig(
         name="sp_campaign_reports",

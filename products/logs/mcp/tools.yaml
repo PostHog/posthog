@@ -73,7 +73,8 @@ tools:
             destination an alert evaluates silently and never notifies. One HogFunction is created per event kind
             (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and
             incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each
-            incident it opens is resolved. The returned hog_function_ids identify the destination group.
+            incident it opens is resolved. The returned id identifies the destination; pass it to
+            logs-alerts-destinations-delete-create to remove it. When id is null, use hog_function_ids instead.
         param_overrides:
             type:
                 description: >
@@ -97,6 +98,7 @@ tools:
                 description: PagerDuty service region, us or eu. Defaults to us.
         response:
             include:
+                - id
                 - hog_function_ids
     logs-alerts-destinations-delete-create:
         operation: logs_alerts_destinations_delete_create
@@ -109,9 +111,10 @@ tools:
             idempotent: true
         title: Detach alert destination
         description: >
-            Remove a notification destination from a log alert by passing the hog_function_ids returned from
-            logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the
-            call.
+            Remove a notification destination from a log alert. Pass the id that logs-alerts-destinations-create
+            returned, or the destination's id from the alert's destinations list, in destination_ids. When that id is
+            null, pass the destination's hog_function_ids instead. A destination is deleted as one atomic group —
+            partial deletion fails the call.
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true

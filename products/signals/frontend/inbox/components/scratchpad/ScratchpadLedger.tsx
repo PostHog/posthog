@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -11,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
+import { useInboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { PIPELINE_WRITER_PREFIX, isPipelineWriter, stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, scratchpadKindOf, scratchpadReportIdOf } from '../../utils/scratchpadKeys'
 
@@ -140,12 +142,13 @@ function KeyCell({
     entry: ScratchpadEntryApi
     reportTitles: Record<string, string | null>
 }): JSX.Element {
+    const reportUrl = useInboxReportDetailUrl()
     const reportId = scratchpadReportIdOf(entry.key)
     if (reportId) {
         const title = reportTitles[reportId]
         return (
             <Tooltip title={entry.key}>
-                <Link to={urls.inboxReport('reports', reportId)} subtle className="truncate text-xs">
+                <Link to={reportUrl(reportId)} subtle className="truncate text-xs">
                     {/* Enough of the UUID to tell two apart while the title is loading, or gone. */}
                     Report: {title || reportId.slice(0, 8)}
                 </Link>
@@ -222,7 +225,8 @@ function StackedCell({
  * body arrives after the expand — until it lands the preview stays on screen under a skeleton.
  */
 function ExpandedEntry({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
-    const { fullContentByKey, loadingContentKeys } = useValues(scratchpadLogic)
+    const { fullContentByKey, loadingContentKeys, discardingKeys } = useValues(scratchpadLogic)
+    const { discardEntry } = useActions(scratchpadLogic)
 
     // `hasOwn` guards against a key like `constructor` resolving to an inherited prototype value.
     const content = Object.hasOwn(fullContentByKey, entry.key) ? fullContentByKey[entry.key] : entry.content
@@ -259,9 +263,37 @@ function ExpandedEntry({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
                         Open the run that created it
                     </Link>
                 )}
+                <LemonButton
+                    size="xsmall"
+                    status="danger"
+                    icon={<IconTrash />}
+                    loading={discardingKeys.includes(entry.key)}
+                    onClick={() => confirmDiscardEntry(entry.key, discardEntry)}
+                    data-attr="scout-memory-delete"
+                >
+                    Delete
+                </LemonButton>
             </div>
         </div>
     )
+}
+
+function confirmDiscardEntry(key: string, onDiscard: (key: string) => void): void {
+    LemonDialog.open({
+        title: 'Delete this memory?',
+        description: (
+            <span>
+                Scouts will no longer read <span className="font-mono text-[11px] break-all">{key}</span>. A scout can
+                write it again on a later run. This can't be undone.
+            </span>
+        ),
+        primaryButton: {
+            children: 'Delete',
+            status: 'danger',
+            onClick: () => onDiscard(key),
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
 }
 
 function carriedDays(entry: ScratchpadEntryApi): number | null {

@@ -54,6 +54,9 @@ fetchRetries: 3
 # Fix React versions across the monorepo.
 overrides:
     axios: ^1.15.0
+    # Clipboard parsing fix (GHSA-c8x8-7fp4-3x9w); the TipTap editors paste html.
+    prosemirror-view: '>=1.42.3'
+    prosemirror-model: '>=1.25.12'
     '@modelcontextprotocol/sdk': ^1.29.0
     '@types/react': 18.3.31
     '@types/react-dom': 18.3.7
@@ -67,7 +70,9 @@ overrides:
     react: 18.3.1
     react-dom: 18.3.1
     sha.js: '>=2.4.12'
-    typescript: 6.0.3
+    'typescript@<7': 6.0.3
+    'kea-typegen>typescript': 5.9.3
+    'kea-forms>typescript': 5.9.3
     ultimate-express>uWebSockets.js: '-'
     fast-xml-parser@^4: '>=4.5.4'
     fast-xml-parser@^5: '>=5.3.5'
@@ -122,7 +127,19 @@ overrides:
     '@tiptap/extension-text-style': 3.20.6
     '@tiptap/extension-underline': 3.20.6
 
+packageExtensions:
+    kea-forms@3.3.0:
+        dependencies:
+            typescript: 5.9.3
+
+# The compatibility package exposes the classic JavaScript API and tsc6.
+# The native compiler supplies tsc in the same workspace.
+catalogs:
+    compiler-api:
+        typescript: npm:@typescript/typescript6@6.0.2
+
 patchedDependencies:
+    '@orval/core@8.14.0': patches/@orval__core@8.14.0.patch
     # avsc reads a varint of any length. Past about 150 bytes its float path returns NaN, which passes
     # every length check and corrupts the buffer pool all decoders share. The patch rejects a varint
     # longer than 10 bytes, as the Avro spec requires. Remove it after an avsc release does the same.
@@ -150,6 +167,10 @@ patchedDependencies:
     # A fixed visually hidden element must sit outside the viewport, or Chrome gives each one its own GPU layer.
     # Upstream set margin 0 to fix RTL overflow (mui/base-ui#5661), which brought them back inside.
     '@base-ui/utils@0.5.0': patches/@base-ui__utils@0.5.0.patch
+    # Gives the 'error' event a failed decode emits a listener, so a request body that does not decode leaves no unhandled error.
+    fast-zlib@2.0.1: patches/fast-zlib@2.0.1.patch
+    # Answers a compressed request body that does not decode with 400 instead of an uncaught throw, caps its decoded size at the parser limit, and answers a body over that limit with 413. Drop both after upstream does.
+    ultimate-express@2.0.13: patches/ultimate-express@2.0.13.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 allowBuilds:
@@ -186,7 +207,7 @@ catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.6
     kea-disposables: ^1.0.0
-    kea-forms: ^3.2.0
+    kea-forms: ^3.3.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
     kea-router: ^3.4.2
@@ -202,7 +223,8 @@ catalog:
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
-    typescript: 6.0.3
+    typescript: 7.1.0-beta
+    typescript-native: npm:typescript@7.1.0-beta
     oxfmt: ^0.57.0
     vite: ^8.1.4
     '@vitejs/plugin-react': ^6.2.1
@@ -244,7 +266,6 @@ minimumReleaseAgeExclude:
     - '@posthog/*'
     - kea@4.0.0-pre.6
     - kea-router@3.4.2
-    - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox
     - chartjs-plugin-stacked100@1.7.1
@@ -254,15 +275,29 @@ minimumReleaseAgeExclude:
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
-    - kea-typegen
-    - '@typescript/native-preview'
-    - '@typescript/native-preview-darwin-arm64'
-    - '@typescript/native-preview-darwin-x64'
-    - '@typescript/native-preview-linux-arm'
-    - '@typescript/native-preview-linux-arm64'
-    - '@typescript/native-preview-linux-x64'
-    - '@typescript/native-preview-win32-arm64'
-    - '@typescript/native-preview-win32-x64'
+    - kea-typegen@4.1.0
+    - '@keajs/kea-typegen-aix-ppc64@4.1.0'
+    - '@keajs/kea-typegen-android-arm64@4.1.0'
+    - '@keajs/kea-typegen-darwin-arm64@4.1.0'
+    - '@keajs/kea-typegen-darwin-x64@4.1.0'
+    - '@keajs/kea-typegen-freebsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-freebsd-x64@4.1.0'
+    - '@keajs/kea-typegen-linux-arm@4.1.0'
+    - '@keajs/kea-typegen-linux-arm64@4.1.0'
+    - '@keajs/kea-typegen-linux-loong64@4.1.0'
+    - '@keajs/kea-typegen-linux-mips64el@4.1.0'
+    - '@keajs/kea-typegen-linux-ppc64@4.1.0'
+    - '@keajs/kea-typegen-linux-riscv64@4.1.0'
+    - '@keajs/kea-typegen-linux-s390x@4.1.0'
+    - '@keajs/kea-typegen-linux-x64@4.1.0'
+    - '@keajs/kea-typegen-netbsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-netbsd-x64@4.1.0'
+    - '@keajs/kea-typegen-openbsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-openbsd-x64@4.1.0'
+    - '@keajs/kea-typegen-sunos-x64@4.1.0'
+    - '@keajs/kea-typegen-win32-arm64@4.1.0'
+    - '@keajs/kea-typegen-win32-x64@4.1.0'
+    - kea-forms@3.3.0
     - shiki
     - shadcn
     - '@shikijs/*'

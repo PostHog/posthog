@@ -122,6 +122,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: insertBatchSize,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            CDP_SEALED_STATE_KEYS: '',
             ENCRYPTION_SALT_KEYS,
         })
         queues.push(queue)

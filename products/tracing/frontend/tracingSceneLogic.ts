@@ -25,8 +25,10 @@ import { tracingSqlEditorTrackingLogic } from './components/TracingSqlEditor/tra
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
 import type { ErrorScope } from './errorCorrelation'
+import type { HeatmapBrushSelection } from './heatmapBrush'
 import { spanErrorsLogic } from './spanErrorsLogic'
 import type { SpanErrorBadge } from './spanErrorsLogic'
+import type { TracingDateRangeSource } from './sparklineSelection'
 import type { TraceIdentity } from './traceIdentity'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
@@ -52,6 +54,7 @@ import type {
     TracingOrderDirection,
     TracingViewMode,
 } from './tracingFiltersLogic'
+import type { TracingChartType } from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
@@ -60,8 +63,8 @@ export type TracingDisplayMode = TracingViewMode | 'operations' | 'endpoints'
 
 export type TracingResultsTab = 'traces' | 'operations' | 'endpoints'
 
-function resultsTabFromView(view: unknown, operationsEnabled: boolean, endpointsEnabled: boolean): TracingResultsTab {
-    if (operationsEnabled && view === 'operations') {
+function resultsTabFromView(view: unknown, endpointsEnabled: boolean): TracingResultsTab {
+    if (view === 'operations') {
         return 'operations'
     }
     if (endpointsEnabled && view === 'endpoints') {
@@ -155,7 +158,6 @@ export interface tracingSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     displayMode: TracingDisplayMode
     endpointsViewEnabled: boolean
-    operationsViewEnabled: boolean
     sceneTab: TracingSceneTab
     sceneTabsEnabled: boolean
     todayRecent: TodayMonitorRecent | null
@@ -170,8 +172,8 @@ export interface tracingSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    applyHeatmapBrush: (selection: import('./heatmapBrush').HeatmapBrushSelection) => {
-        selection: import('./heatmapBrush').HeatmapBrushSelection
+    applyHeatmapBrush: (selection: HeatmapBrushSelection) => {
+        selection: HeatmapBrushSelection
     } // tracingDataLogic
     fetchAggregation: (
         options?:
@@ -221,18 +223,18 @@ export interface tracingSceneLogicActions {
         startIndex: number
         stopIndex: number
     } // tracingDataLogic
-    setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
-        chartType: import('./tracingFiltersLogic').TracingChartType
+    setChartType: (chartType: TracingChartType) => {
+        chartType: TracingChartType
     } // tracingFiltersLogic
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
     setDateRange: (
         dateRange: DateRange,
-        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source?: TracingDateRangeSource | undefined
     ) => {
         dateRange: DateRange
-        source: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source: TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -330,10 +332,8 @@ export interface tracingSceneLogicActions {
 export interface tracingSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         todayRecent: (selectedTraceId: string | null, openTraceSpans: Span[]) => TodayMonitorRecent | null
-        operationsViewEnabled: (featureFlags: FeatureFlagsSet) => boolean
         endpointsViewEnabled: (featureFlags: FeatureFlagsSet) => boolean
         displayMode: (
-            operationsViewEnabled: boolean,
             endpointsViewEnabled: boolean,
             activeTracingTab: TracingResultsTab,
             filters: TracingFilters
@@ -512,10 +512,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 },
             ],
         ],
-        operationsViewEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW],
-        ],
         endpointsViewEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW],
@@ -523,14 +519,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         // The one user-facing mode: what each result row represents. Spans two states —
         // traces/spans is the viewMode filter, operations/endpoints is the scene tab.
         displayMode: [
-            (s) => [s.operationsViewEnabled, s.endpointsViewEnabled, s.activeTracingTab, s.filters],
+            (s) => [s.endpointsViewEnabled, s.activeTracingTab, s.filters],
             (
-                operationsViewEnabled: boolean,
                 endpointsViewEnabled: boolean,
                 activeTracingTab: TracingResultsTab,
                 filters: TracingFilters
             ): TracingDisplayMode => {
-                const tab = resultsTabFromView(activeTracingTab, operationsViewEnabled, endpointsViewEnabled)
+                const tab = resultsTabFromView(activeTracingTab, endpointsViewEnabled)
                 return tab === 'traces' ? filters.viewMode : tab
             },
         ],
@@ -613,8 +608,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
         },
         // Flags resolve asynchronously, so one that arrives after the Operations fetch would show
-        // the Sessions and Users columns over rows fetched without them. Mirrors the heatmap's
-        // late-flag refetch in tracingDataLogic.
+        // the Sessions and Users columns over rows fetched without them.
         setFeatureFlags: () => {
             if (
                 values.activeTracingTab !== 'traces' &&
@@ -682,18 +676,14 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         // mid-session strands the tab on operations. Re-reconcile the tab against the current URL
         // whenever a flag flips, then write the URL back through the flag-aware displayMode.
         const reconcileTab = (): void => {
-            const tab = resultsTabFromView(
-                router.values.searchParams.view,
-                values.operationsViewEnabled,
-                values.endpointsViewEnabled
-            )
+            const tab = resultsTabFromView(router.values.searchParams.view, values.endpointsViewEnabled)
             if (tab === values.activeTracingTab) {
                 return
             }
             actions.setActiveTracingTab(tab)
             actions.syncUrl()
         }
-        return { operationsViewEnabled: reconcileTab, endpointsViewEnabled: reconcileTab }
+        return { endpointsViewEnabled: reconcileTab }
     }),
 
     urlToAction(({ actions, values, cache }) => ({
@@ -790,11 +780,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // Each aggregate leg is flag-gated on BOTH the read side (here) and the write
             // side (buildUrl, via the flag-aware displayMode selector): gating only one of them
             // would make them fight over the tab state.
-            const tabFromUrl = resultsTabFromView(
-                searchParams.view,
-                values.operationsViewEnabled,
-                values.endpointsViewEnabled
-            )
+            const tabFromUrl = resultsTabFromView(searchParams.view, values.endpointsViewEnabled)
             if (tabFromUrl !== values.activeTracingTab) {
                 actions.setActiveTracingTab(tabFromUrl)
             }
