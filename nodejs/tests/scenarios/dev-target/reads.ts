@@ -96,8 +96,8 @@ async function metricsRead(config: DevConfig, query: Record<string, string>): Pr
     return (name) => series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
 }
 
-// Every action counts a run as succeeded, and a failed action without `on_error: abort` goes on to the exit, so a
-// run of a workflow without aborting actions ends only at its exit or when dev quota limited it.
+// Every action counts a run as succeeded, and a quota limited run never counts as triggered, so a run of a workflow
+// that ends only at its one exit, which `exitActionOf` checks, is finished once that exit counts it.
 export async function workflowRuns(
     config: DevConfig,
     after: string,
@@ -111,20 +111,23 @@ export async function workflowRuns(
     return { triggered: runs('triggered'), exited: exits?.('succeeded') ?? 0, quota_limited: runs('quota_limited') }
 }
 
-export const unfinishedOf = (runs: WorkflowRuns): number =>
-    Math.max(0, runs.triggered - runs.exited - runs.quota_limited)
+export const unfinishedOf = (runs: WorkflowRuns): number => Math.max(0, runs.triggered - runs.exited)
 
 export async function exitActionOf(config: DevConfig): Promise<string> {
     const { teamId, workflowId } = config.offers
-    const { actions = [] } = (await devFetch(
+    const { actions = [], exit_condition } = (await devFetch(
         `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow read'
-    )) as { actions?: { id: string; type: string; on_error?: string | null }[] }
+    )) as { actions?: { id: string; type: string; on_error?: string | null }[]; exit_condition?: string }
     const exits = actions.filter(({ type }) => type === 'exit')
-    if (exits.length !== 1 || actions.some(({ on_error }) => on_error === 'abort')) {
+    if (
+        exits.length !== 1 ||
+        actions.some(({ on_error }) => on_error === 'abort') ||
+        exit_condition !== 'exit_only_at_end'
+    ) {
         throw new Error(
-            `the workflow needs one exit action and no action that aborts, so the runner can count its finished runs`
+            'the workflow needs one exit action, no action that aborts, and exit_only_at_end, so the runner can count its finished runs'
         )
     }
     return exits[0].id
@@ -132,12 +135,15 @@ export async function exitActionOf(config: DevConfig): Promise<string> {
 
 export async function checkOffersToken(config: DevConfig): Promise<void> {
     const { teamId, token } = config.offers
-    const { api_token } = (await devFetch(
+    const { api_token, timezone } = (await devFetch(
         `${config.host}/api/projects/${teamId}/`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'offers project read'
-    )) as { api_token?: string }
+    )) as { api_token?: string; timezone?: string }
     if (api_token !== token) {
         throw new Error(`DEV_TARGET_OFFERS_TOKEN is not the token of project ${teamId}, so offers would land elsewhere`)
+    }
+    if (timezone !== 'UTC') {
+        throw new Error(`project ${teamId} is not on UTC, so its workflow metrics would be read for the wrong hours`)
     }
 }

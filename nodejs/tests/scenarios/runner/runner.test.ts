@@ -333,6 +333,8 @@ describe('runner', () => {
                 projectToken = 'phc_test',
                 month = {},
                 actions = [{ id: 'exit-1', type: 'exit' }],
+                exitCondition = 'exit_only_at_end',
+                timezone = 'UTC',
                 ramp,
             }: {
                 metrics?: number
@@ -340,6 +342,8 @@ describe('runner', () => {
                 projectToken?: string
                 month?: Record<string, number>
                 actions?: { id: string; type: string }[]
+                exitCondition?: string
+                timezone?: string
                 ramp?: LoadedCard
             },
             interrupt = new AbortController()
@@ -366,7 +370,7 @@ describe('runner', () => {
                         return reply(401, { type: 'authentication_error' })
                     }
                     if (req.url === `/api/projects/1/hog_flows/${WORKFLOW}/`) {
-                        return reply(metrics, { id: WORKFLOW, actions })
+                        return reply(metrics, { id: WORKFLOW, actions, exit_condition: exitCondition })
                     }
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
                         const daily = req.url!.includes('interval=day')
@@ -380,7 +384,7 @@ describe('runner', () => {
                         return reply(metrics, { labels: ['2026-11-01'], series })
                     }
                     if (req.url === '/api/projects/1/') {
-                        return reply(project, { id: 1, api_token: projectToken })
+                        return reply(project, { id: 1, api_token: projectToken, timezone })
                     }
                     return reply(200, { results: receipts })
                 })
@@ -428,7 +432,17 @@ describe('runner', () => {
             [
                 'a workflow whose finished runs cannot be counted at one exit',
                 { actions: [{ id: 'webhook-1', type: 'function' }] },
-                'the workflow needs one exit action and no action that aborts',
+                'the workflow needs one exit action',
+            ],
+            [
+                'a workflow that can exit on a conversion, skipping its exit action',
+                { exitCondition: 'exit_on_conversion' },
+                'the workflow needs one exit action',
+            ],
+            [
+                'an offers project off UTC, whose metric hours would not line up',
+                { timezone: 'Asia/Kolkata' },
+                'project 1 is not on UTC',
             ],
             [
                 'a month whose runs leave less than a full run of room',

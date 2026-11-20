@@ -68,9 +68,9 @@ const monthStart = (): string => {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
 }
 
-const hourStart = (): string => {
+const lastHourStart = (): string => {
     const now = new Date()
-    now.setUTCMinutes(0, 0, 0)
+    now.setUTCHours(now.getUTCHours() - 1, 0, 0, 0)
     return now.toISOString()
 }
 
@@ -85,7 +85,8 @@ export function devTarget(config: DevConfig): RunTarget {
         name: 'dev',
         open(loaded, runId) {
             // The metrics table merges an hour's rows under one of their timestamps, so a window must start on the hour.
-            const since = hourStart()
+            // It starts an hour back, so the seed sees runs left unfinished just before it.
+            const since = lastHourStart()
             const { ratePerSecond } = captureWebhook.profile.parse(loaded.profile.traffic[captureWebhook.name])
             let before: Promise<{ exitId: string; base: WorkflowRuns }> | undefined
             const baseline = (): Promise<{ exitId: string; base: WorkflowRuns }> =>

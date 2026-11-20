@@ -114,7 +114,7 @@ describe('dev target', () => {
                 profilePath: path.join(__dirname, '..', 'profiles', 'dev.yaml'),
                 target: 'dev',
             })
-        const BEFORE: WorkflowRuns = { triggered: 50, exited: 48, quota_limited: 2 }
+        const BEFORE: WorkflowRuns = { triggered: 50, exited: 50, quota_limited: 2 }
 
         async function fakeWorkflow(hour: WorkflowRuns) {
             const server = http.createServer((req, res) => {
@@ -123,10 +123,14 @@ describe('dev target', () => {
                 }
                 const url = new URL(req.url!, 'http://dev')
                 if (url.pathname === '/api/projects/1/') {
-                    return reply({ id: 1, api_token: 'phc_test' })
+                    return reply({ id: 1, api_token: 'phc_test', timezone: 'UTC' })
                 }
                 if (url.pathname === '/api/projects/1/hog_flows/flow-1/') {
-                    return reply({ id: 'flow-1', actions: [{ id: 'exit-1', type: 'exit' }] })
+                    return reply({
+                        id: 'flow-1',
+                        actions: [{ id: 'exit-1', type: 'exit' }],
+                        exit_condition: 'exit_only_at_end',
+                    })
                 }
                 const daily = url.searchParams.get('interval') === 'day'
                 const exits = url.searchParams.get('instance_id') === 'exit-1'
