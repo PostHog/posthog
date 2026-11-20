@@ -6878,6 +6878,10 @@ snapshots:
         hash: v1.k794b7964.cdc29ede2fa4e728539fdcc7bb21680fd6c06c0a6f1b3036817f8607fa2a0f9e.3T00QIatyv361rcu4tHk8i94CR5fkiWHjBmYjbLwVSY
     products-apm-dependencies--all-services--light:
         hash: v1.k794b7964.e2c3b69b76fb94f64eef85b3e8badecac821f62a776563305e57d8a76ddda53b.A5x9tRV_uESKIT1tVwncHZr9RCBPA5kDcfrvP1H3G9o
+    products-apm-dependencies--all-services-capped--dark:
+        hash: v1.k794b7964.302e603639ffd4e62f7e4b5f39101c9644f49bbcdeae1b50389ebde7094a56ed.cObV8jFjm-x4BvbIjuyKiRS1MwZmONs-Q8Sl-syTP6w
+    products-apm-dependencies--all-services-capped--light:
+        hash: v1.k794b7964.64130dd8f57a379cebfa5c60b5ca1a5215b496b6b5612c643987dbccee839d87.oCBo-RXwTAe_stwgloUNkqLK3kqvsNQSqu343bWsuiU
     products-apm-dependencies--empty--dark:
         hash: v1.k794b7964.abef0efc5dca286eac5870549f75b62f40d226f5d93e2bb63f5a1b423f3170a9.vg16aGozPLPu0136cHgUkzE6_oRKSxtFKTaMZ7RQtG0
     products-apm-dependencies--empty--light:
