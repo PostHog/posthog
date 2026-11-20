@@ -8,6 +8,7 @@ import {
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,
     ownedTeams,
+    roleMembers,
     signalReport,
     teamPostsWithheld,
     teamReport,
@@ -184,9 +185,30 @@ describe('weekly MCP tool health report', () => {
         })
 
         it('routes the report to the owning team members, capped at the reviewer limit', () => {
-            const logins = Array.from({ length: MAX_SIGNAL_REVIEWERS + 2 }, (_, i) => `member${i}`)
-            assert.equal(signalReport(NOW, SURVEYS, logins).suggested_reviewers.length, MAX_SIGNAL_REVIEWERS)
+            const uuids = Array.from({ length: MAX_SIGNAL_REVIEWERS + 2 }, (_, i) => `uuid-${i}`)
+            assert.equal(signalReport(NOW, SURVEYS, uuids).suggested_reviewers.length, MAX_SIGNAL_REVIEWERS)
         })
+
+        it('names each reviewer by PostHog user so members without a linked GitHub account are reached', () => {
+            assert.equal(signalReport(NOW, SURVEYS, ['uuid-1']).suggested_reviewers[0].user_uuid, 'uuid-1')
+        })
+
+        const role = (name, ...uuids) => ({ name, members: uuids.map((uuid) => ({ user: { uuid } })) })
+        const ROLES = [
+            role('Team Feature Flags', 'flags-1'),
+            role('Team Conversations', 'conv-1'),
+            role('Team Developer Experience', 'devex-1'),
+        ]
+        for (const [owner, expected] of [
+            ['team-feature-flags', ['flags-1']],
+            ['conversations', ['conv-1']],
+            ['team-devex', ['devex-1']],
+            ['team-agent-infrastructure', []],
+        ]) {
+            it(`finds the role members for the ${owner} GitHub team`, () => {
+                assert.deepEqual(roleMembers(ROLES, owner), expected)
+            })
+        }
 
         it('tags the report with the owning team', () => {
             assert.deepEqual(signalReport(NOW, SURVEYS, []).tags, ['mcp-tool-health', 'team-surveys'])

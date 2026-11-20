@@ -4,8 +4,8 @@
 // server already captures, ranked by failed calls, with owner attribution through
 // packages/owners-yaml. Each tool maps to the YAML file that defines it, so the team that owns
 // the definition sees its own failing tools without the MCP team relaying them: each owning team
-// also gets one Signals inbox report, suggested to the members of its GitHub team. Unowned tools
-// stay in the Slack digest only.
+// also gets one Signals inbox report, suggested to the members of the PostHog role named after
+// its GitHub team. Unowned tools stay in the Slack digest only.
 //
 //   GHA cron ──> HogQL over $mcp_tool_call ──> owners.yaml ──> Slack digest
 //                                                         └──> Signals inbox report per team
@@ -38,13 +38,18 @@ const FEEDBACK_CHANNEL = '#team-context-and-mcp'
 // The name a team uses under `notifications:` in owners.yaml to redirect or silence this report.
 const OWNERS_PRODUCER = 'mcp_tool_health'
 
-// The inbox the team reports go to, and a personal API key with inbox:write for it. The key's owner
-// files every report, so they need the inbox-reports-create-mcp flag.
+// The inbox the team reports go to, and a personal API key with inbox:write, project:read and
+// organization:read, limited to the organization since roles are an organization endpoint. The
+// key's owner files every report, so they need the inbox-reports-create-mcp flag.
 const SIGNALS_PROJECT_ID = process.env.SIGNALS_PROJECT_ID || ''
 const SIGNALS_API_KEY = process.env.SIGNALS_API_KEY || ''
-// owners.yaml owners are GitHub team slugs; listing a team's members needs org Members read.
-const GITHUB_ORG_TOKEN = process.env.GITHUB_ORG_TOKEN || ''
-const GITHUB_ORG = GITHUB_REPOSITORY.split('/')[0]
+// owners.yaml names GitHub teams, and the organization's roles mostly carry the same names
+// ('team-feature-flags' is 'Team Feature Flags'). These are the owners whose role is named differently.
+const ROLE_FOR_TEAM = {
+    'team-devex': 'Team Developer Experience',
+    'team-managed-warehouse': 'Team Warehouse',
+    'team-warehouse-sources': 'Team Warehouse Pipelines',
+}
 // The inbox report API's cap on suggested reviewers.
 const MAX_SIGNAL_REVIEWERS = 10
 // Each report can spend about 8.5 minutes on retries, so no team starts past this budget and the
@@ -298,16 +303,16 @@ function toolLine(item) {
     return `\`${item.tool}\` failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. Top error: ${item.topError || 'no message captured'}`
 }
 
-function signalReport(now, { owner, items }, reviewerLogins) {
+function signalReport(now, { owner, items }, reviewerUuids) {
     // The Monday that starts the run's week, so a re-run later that week replays rather than duplicates.
     const monday = new Date(
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7))
     )
     const week = monday.toISOString().slice(0, 10)
     const count = items.length === 1 ? '1 MCP tool is' : `${items.length} MCP tools are`
-    const reviewers = reviewerLogins.slice(0, MAX_SIGNAL_REVIEWERS).map((login) => ({
-        github_login: login,
-        reason: `Member of ${owner}, which owns these tools in owners.yaml.`,
+    const reviewers = reviewerUuids.slice(0, MAX_SIGNAL_REVIEWERS).map((uuid) => ({
+        user_uuid: uuid,
+        reason: `Member of the role for ${owner}, which owns these tools in owners.yaml.`,
     }))
     return {
         title: `fix(mcp): ${count} failing for agents (${teamLabel(owner)})`,
@@ -331,21 +336,24 @@ function signalReport(now, { owner, items }, reviewerLogins) {
     }
 }
 
-async function githubTeamMembers(slug) {
-    if (!GITHUB_ORG_TOKEN) {
-        return []
-    }
-    const res = await fetch(
-        `https://api.github.com/orgs/${GITHUB_ORG}/teams/${encodeURIComponent(slug)}/members?per_page=100`,
-        {
-            headers: { Authorization: `Bearer ${GITHUB_ORG_TOKEN}`, Accept: 'application/vnd.github+json' },
-            signal: AbortSignal.timeout(30_000),
-        }
-    )
-    if (!res.ok) {
-        throw new Error(`GitHub team members for ${slug} -> ${res.status}`)
-    }
-    return (await res.json()).map((member) => member.login)
+const roleKey = (name) =>
+    name
+        .toLowerCase()
+        .replace(/^team\b/, '')
+        .replace(/[^a-z0-9]/g, '')
+
+function roleMembers(roles, owner) {
+    const key = roleKey(ROLE_FOR_TEAM[owner] ?? owner)
+    const role = roles.find((candidate) => roleKey(candidate.name) === key)
+    return (role?.members ?? []).map((member) => member.user?.uuid).filter(Boolean)
+}
+
+async function fetchRoles() {
+    const get = (path, label) =>
+        requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, label)
+    const project = await get(`/api/projects/${SIGNALS_PROJECT_ID}/`, 'signals project')
+    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`, 'organization roles')
+    return roles.results
 }
 
 function fileInboxReport(body) {
@@ -363,7 +371,7 @@ function fileInboxReport(body) {
 // One team's failure, at either step, must not keep the teams behind it from their reports.
 async function fileTeamSignals(
     teams,
-    { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf = githubTeamMembers, file = fileInboxReport }
+    { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf, file = fileInboxReport }
 ) {
     const filed = []
     for (const team of teams) {
@@ -371,12 +379,15 @@ async function fileTeamSignals(
             console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
             break
         }
-        const logins = await membersOf(team.owner).catch((err) => {
+        const uuids = await membersOf(team.owner).catch((err) => {
             console.warn(`members of ${team.owner} unreadable, filing without reviewers: ${err.message}`)
             return []
         })
+        if (uuids.length === 0) {
+            console.warn(`no role members found for ${team.owner}, filing without reviewers`)
+        }
         try {
-            const result = await file(signalReport(now, team, logins))
+            const result = await file(signalReport(now, team, uuids))
             console.info(
                 `${team.owner}: inbox report ${result.report_id} (${result.report_status ?? result.skipped_reason})`
             )
@@ -432,7 +443,11 @@ async function main() {
         console.warn('SIGNALS_PROJECT_ID / SIGNALS_API_KEY not set - skipping team signals reports.')
         return
     }
-    const filed = await fileTeamSignals(signalTeams, { now })
+    let roles
+    const filed = await fileTeamSignals(signalTeams, {
+        now,
+        membersOf: async (owner) => roleMembers(await (roles ??= fetchRoles()), owner),
+    })
     console.info(`Filed ${filed.length}/${signalTeams.length} team signals report(s).`)
     // Every team is still attempted, but any team left without a report fails the run. A re-run that
     // week replays the reports already filed and files the rest.
@@ -455,6 +470,7 @@ export {
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,
     ownedTeams,
+    roleMembers,
     signalReport,
     teamPostsWithheld,
     teamReport,

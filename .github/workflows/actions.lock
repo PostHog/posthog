@@ -273,7 +273,6 @@ workflows:
         - 'actions/setup-node@v6.2.0'
     '.github/workflows/weekly-mcp-tool-health-report.yml':
         - 'actions/checkout@v6.0.2'
-        - 'actions/create-github-app-token@v3.1.1'
         - 'actions/setup-node@v6.2.0'
     '.github/workflows/weekly-slow-tests-report.yml':
         - 'actions/checkout@v6.0.2'
