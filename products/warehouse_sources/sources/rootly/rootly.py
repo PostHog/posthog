@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    flatten_jsonapi,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -99,11 +100,7 @@ def _build_initial_params(
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten a JSON:API resource object's `attributes` into the root and keep `id`/`type`."""
-    flattened = {k: v for k, v in item.items() if k != "attributes"}
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        flattened.update(attributes)
-    return flattened
+    return flatten_jsonapi(item, relationships_as_ids=False, on_clash="nested")
 
 
 def probe_credentials(api_key: str, endpoint: str | None = None) -> int | None:

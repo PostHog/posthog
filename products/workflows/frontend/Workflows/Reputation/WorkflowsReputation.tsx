@@ -168,6 +168,7 @@ const ISP_DISPLAY_NAMES: Record<string, string> = {
     Aol: 'AOL',
     Gmx: 'GMX',
     Icloud: 'Apple iCloud',
+    MailRu: 'Mail.ru',
     __other__: 'Other providers',
 }
 

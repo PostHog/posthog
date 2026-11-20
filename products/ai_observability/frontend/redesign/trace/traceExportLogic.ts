@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import type { ExportStatusFetcher } from 'lib/components/ExportButton/exportsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -15,6 +16,7 @@ import {
     COPY_TRACE_MAX_MEGABYTES,
     TraceExportFailedError,
     TraceTooLargeToCopyError,
+    isNetworkFailure,
     readTraceExportText,
     writePendingTextToClipboard,
 } from './traceExportCopy'
@@ -54,10 +56,10 @@ export interface traceExportLogicActions {
     } // exportsLogic
     trackExport: (
         exportedAsset: ExportedAssetType,
-        fetchLatest?: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest?: ExportStatusFetcher | undefined
     ) => {
         exportedAsset: ExportedAssetType
-        fetchLatest: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest: ExportStatusFetcher | undefined
     } // exportsLogic
     copyTrace: () => {
         value: true
@@ -170,6 +172,9 @@ export const traceExportLogic = kea<traceExportLogicType>([
                 } else if (error instanceof TraceExportFailedError) {
                     lemonToast.error(error.message)
                     traceViewTracking.exportCopyFailed('export_failed')
+                } else if (isNetworkFailure(error)) {
+                    lemonToast.error("Couldn't copy this trace. Try again.")
+                    traceViewTracking.exportCopyFailed('network')
                 } else {
                     lemonToast.error("Couldn't copy this trace. Try again.")
                     traceViewTracking.exportCopyFailed('error')

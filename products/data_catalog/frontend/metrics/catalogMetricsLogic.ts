@@ -32,6 +32,7 @@ import {
 import { metricDisplayName } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { metricsLogic } from '../metricsLogic'
+import type { MetricsFilters } from '../metricsLogic'
 
 export type MetricsSortColumn = 'name' | 'status' | 'checks' | 'owner' | 'updated'
 export type MetricsSort = ColumnSort<MetricsSortColumn>
@@ -88,8 +89,8 @@ export interface catalogMetricsLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
-    setFilters: (filters: Partial<import('../metricsLogic').MetricsFilters>) => {
-        filters: Partial<import('../metricsLogic').MetricsFilters>
+    setFilters: (filters: Partial<MetricsFilters>) => {
+        filters: Partial<MetricsFilters>
     } // metricsLogic
     clearMetricSelection: () => {
         value: true

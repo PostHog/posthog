@@ -26,40 +26,30 @@ const MOCK_OVERVIEW: AchievementsListResponseApi = {
     user_progress: [
         { track_key: 'streak', current_stage: 2, progress_value: 4, last_computed_at: null, unlocked_at: {} },
     ],
-    team_progress: [],
     pending_celebrations: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
 }
 
 const mkStages = (thresholds: number[]): { stage: number; name: string; threshold: number }[] =>
     thresholds.map((threshold, index) => ({ stage: index + 1, name: `Stage ${index + 1}`, threshold }))
 
-const def = (
-    key: string,
-    scope: 'user' | 'team',
-    thresholds: number[]
-): AchievementsListResponseApi['definitions'][number] => ({
+const def = (key: string, thresholds: number[]): AchievementsListResponseApi['definitions'][number] => ({
     key,
     display_name: key,
     description: '',
-    scope,
     is_experiment_track: false,
     stages: mkStages(thresholds),
 })
 
 const DEFS_OVERVIEW: AchievementsListResponseApi = {
     definitions: [
-        def('explorer', 'user', [1, 15, 40, 100, 250]),
-        def('detective', 'user', [1, 10, 50, 150, 500]),
-        def('streak', 'user', [2, 4, 7, 14, 30]),
-        def('traffic', 'team', [10000, 100000, 1000000, 10000000, 100000000]),
+        def('explorer', [1, 15, 40, 100, 250]),
+        def('detective', [1, 10, 50, 150, 500]),
+        def('streak', [2, 4, 7, 14, 30]),
     ],
     user_progress: [
         { track_key: 'explorer', current_stage: 3, progress_value: 95, last_computed_at: 'x', unlocked_at: {} },
         { track_key: 'detective', current_stage: 1, progress_value: 5, last_computed_at: 'x', unlocked_at: {} },
         { track_key: 'streak', current_stage: 5, progress_value: 30, last_computed_at: 'x', unlocked_at: {} },
-    ],
-    team_progress: [
-        { track_key: 'traffic', current_stage: 1, progress_value: 50000, last_computed_at: 'x', unlocked_at: {} },
     ],
     pending_celebrations: [],
 }
@@ -130,7 +120,6 @@ describe('webAnalyticsAchievementsLogic', () => {
                     {
                         definitions: [],
                         user_progress: [],
-                        team_progress: [],
                         pending_celebrations: [
                             { track_key: 'streak', stage: 2, stage_name: 'Warming up' },
                             { track_key: 'explorer', stage: 1, stage_name: 'First look' },
@@ -220,7 +209,6 @@ describe('webAnalyticsAchievementsLogic', () => {
         }).toDispatchActions(['loadAchievementsSuccess'])
 
         expect(logic.values.sortedUserTracks.map((track) => track.key)).toEqual(['explorer', 'detective', 'streak'])
-        expect(logic.values.sortedTeamTracks.map((track) => track.key)).toEqual(['traffic'])
     })
 
     describe('interaction recording', () => {

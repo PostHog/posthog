@@ -636,6 +636,7 @@ def mock_code_based_verifier(request, mocker):
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=False,
     )
+    mocker.patch("posthog.api.authentication.social_require_idp_email_verification", return_value=None)
 
 
 class _JUnitTimingsPlugin:

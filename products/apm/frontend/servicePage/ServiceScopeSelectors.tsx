@@ -2,18 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+
 import { TIME_RANGE_LABELS, TimeRange } from '../applicationObservabilityLogic'
-import { environmentLabel, type ServiceScope } from './servicePage'
+import { environmentOptions } from '../environmentDisplay'
+import type { ServiceScope } from './servicePage'
 import { servicePageLogic } from './servicePageLogic'
 
-function scopeOptions(
-    values: string[],
-    selected: string | null,
-    label: (value: string) => string = (value) => value
-): { value: string | null; label: string }[] {
+function scopeOptions(values: string[], selected: string | null): LemonSelectOptionLeaf<string | null>[] {
     // Keep a value from the URL selectable even when this window has no spans for it.
     const all = selected && !values.includes(selected) ? [selected, ...values] : values
-    return [{ value: null, label: 'All' }, ...all.map((value) => ({ value, label: label(value) }))]
+    return [{ value: null, label: 'All' }, ...all.map((value) => ({ value, label: value }))]
 }
 
 export function ServiceScopeSelectors({ serviceName }: { serviceName: string }): JSX.Element {
@@ -25,22 +24,23 @@ export function ServiceScopeSelectors({ serviceName }: { serviceName: string }):
         servicesHealthLoading,
         scopeOptions: options,
         scopeOptionsLoading,
+        operationNames,
+        endpointsHealthLoading,
     } = useValues(logic)
     const { setScope, setTimeRange } = useActions(logic)
 
     const selector = (
         field: keyof ServiceScope,
         label: string,
-        values: string[],
-        loading: boolean,
-        valueLabel?: (value: string) => string
+        choices: LemonSelectOptionLeaf<string | null>[],
+        loading: boolean
     ): JSX.Element => (
         <div className="flex items-center gap-1">
             <span className="text-xs text-muted">{label}</span>
             <LemonSelect<string | null>
                 size="small"
                 value={scope[field]}
-                options={scopeOptions(values, scope[field], valueLabel)}
+                options={choices}
                 onChange={(value) => setScope({ [field]: value })}
                 loading={loading}
                 dropdownMatchSelectWidth={false}
@@ -61,8 +61,14 @@ export function ServiceScopeSelectors({ serviceName }: { serviceName: string }):
                 }))}
                 data-attr="apm-service-time-range"
             />
-            {selector('environment', 'Environment', environments, servicesHealthLoading, environmentLabel)}
-            {selector('version', 'Version', options.versions, scopeOptionsLoading)}
+            {selector(
+                'environment',
+                'Environment',
+                environmentOptions(environments, scope.environment),
+                servicesHealthLoading
+            )}
+            {selector('version', 'Version', scopeOptions(options.versions, scope.version), scopeOptionsLoading)}
+            {selector('operation', 'Operation', scopeOptions(operationNames, scope.operation), endpointsHealthLoading)}
         </div>
     )
 }

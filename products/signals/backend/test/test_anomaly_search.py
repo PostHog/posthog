@@ -13,13 +13,15 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
+from products.signals.backend.anomaly_scores.read import ChartShare, FlaggedPoint, SeriesSummary, rank_series, rollup
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
@@ -41,25 +43,24 @@ def _summary(
     *,
     scored: int,
     flagged: int,
-    baseline_scored: int = 0,
-    baseline_flagged: int = 0,
     last_flagged: datetime.datetime | None = None,
+    interval: IntervalType = IntervalType.DAY,
+    newest_bucket: datetime.datetime | None = None,
 ) -> SeriesSummary:
+    newest_bucket = newest_bucket or _day(22)
     return SeriesSummary(
         insight_id=1,
         series_key=key,
         series_label=key,
         breakdown_value=None,
-        interval=IntervalType.DAY,
+        interval=interval,
         detector="zscore",
         detector_version="v1",
         profile="default-v1",
-        newest_bucket=_day(22),
+        newest_bucket=newest_bucket,
         scored_buckets=scored,
         flagged_buckets=flagged,
-        baseline_scored_buckets=baseline_scored,
-        baseline_flagged_buckets=baseline_flagged,
-        scored_through=_day(22),
+        scored_through=newest_bucket,
         flagged_points=(FlaggedPoint(bucket_start=last_flagged, value=1.0, score=0.99),) if last_flagged else (),
     )
 
@@ -67,30 +68,35 @@ def _summary(
 class TestAnomalyRanking(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "more_evidence_beats_one_lucky_bucket",
-                _summary("three_of_ten", scored=10, flagged=3),
-                _summary("one_of_one", scored=1, flagged=1),
-            ),
-            (
-                "quiet_baseline_beats_always_noisy",
-                _summary("quiet_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
-                _summary("noisy_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=10),
-            ),
-            (
-                "real_jump_beats_unchanged_noisy",
-                _summary("jumped", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
-                _summary("unchanged", scored=10, flagged=5, baseline_scored=10, baseline_flagged=5),
-            ),
+            ("rarely_flagged_beats_often_flagged", ("rare", 30, 1), ("noisy", 30, 10)),
+            ("a_share_beats_too_few_chart_buckets", ("known", 30, 9), ("young", 9, 1)),
+            ("a_share_beats_no_chart_share", ("known", 30, 9), ("missing", 0, 0)),
         ]
     )
-    def test_ranks_series_by_comparable_rates(
-        self, _name: str, expected_first: SeriesSummary, other: SeriesSummary
+    def test_unusual_order_puts_the_lowest_chart_share_first(
+        self, _name: str, expected_first: tuple[str, int, int], other: tuple[str, int, int]
     ) -> None:
-        series = [other, expected_first]
-        ranked = rank_series(series, prior=prior_rate(series), importance={})
+        series = [_summary(key, scored=10, flagged=1) for key, _, _ in (other, expected_first)]
+        shares = {
+            (1, key): ChartShare(scored_buckets=scored, flagged_buckets=flagged)
+            for key, scored, flagged in (other, expected_first)
+            if scored
+        }
 
-        assert [summary.series_key for summary in ranked] == [expected_first.series_key, other.series_key]
+        ranked = rank_series(series, chart_shares=shares, importance={})
+
+        assert [summary.series_key for summary in ranked] == [expected_first[0], other[0]]
+
+    def test_unusual_order_puts_series_flagged_in_the_range_first(self) -> None:
+        series = [_summary("quiet", scored=10, flagged=0), _summary("flagged", scored=10, flagged=1)]
+        shares = {
+            (1, "quiet"): ChartShare(scored_buckets=30, flagged_buckets=0),
+            (1, "flagged"): ChartShare(scored_buckets=30, flagged_buckets=20),
+        }
+
+        ranked = rank_series(series, chart_shares=shares, importance={})
+
+        assert [summary.series_key for summary in ranked] == ["flagged", "quiet"]
 
     @parameterized.expand(
         [("unusual", False, ["burst", "blip", "quiet"]), ("recent", True, ["blip", "burst", "quiet"])]
@@ -104,7 +110,86 @@ class TestAnomalyRanking(SimpleTestCase):
             _summary("burst", scored=10, flagged=4, last_flagged=_day(15)),
         ]
 
-        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+        ranked = rank_series(series, chart_shares={}, importance={}, recent_first=recent_first)
+
+        assert [summary.series_key for summary in ranked] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "hourly_flag_hours_ago_beats_a_daily_flag_that_ended_earlier",
+                [
+                    _summary("daily_burst", scored=10, flagged=4, last_flagged=_day(22)),
+                    _summary(
+                        "hourly_blip",
+                        scored=24,
+                        flagged=1,
+                        last_flagged=NOW - datetime.timedelta(hours=4),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                ],
+                ["hourly_blip", "daily_burst"],
+            ),
+            (
+                "compares_bucket_ends_not_starts",
+                [
+                    _summary(
+                        "hourly_burst",
+                        scored=24,
+                        flagged=4,
+                        last_flagged=_day(22) + datetime.timedelta(hours=22),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                    _summary("daily_blip", scored=10, flagged=1, last_flagged=_day(22)),
+                ],
+                ["daily_blip", "hourly_burst"],
+            ),
+            (
+                "weekly_flag_that_ended_days_ago_sorts_below_flags_today",
+                [
+                    _summary(
+                        "weekly",
+                        scored=1,
+                        flagged=1,
+                        last_flagged=_day(12),
+                        interval=IntervalType.WEEK,
+                        newest_bucket=_day(12),
+                    ),
+                    _summary("daily", scored=10, flagged=1, last_flagged=_day(22)),
+                    _summary(
+                        "hourly",
+                        scored=24,
+                        flagged=1,
+                        last_flagged=NOW - datetime.timedelta(hours=2),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                ],
+                ["hourly", "daily", "weekly"],
+            ),
+            (
+                "same_end_falls_back_to_flagged_buckets",
+                [
+                    _summary("daily", scored=10, flagged=1, last_flagged=_day(22)),
+                    _summary(
+                        "weekly",
+                        scored=2,
+                        flagged=2,
+                        last_flagged=_day(16),
+                        interval=IntervalType.WEEK,
+                        newest_bucket=_day(16),
+                    ),
+                ],
+                ["weekly", "daily"],
+            ),
+        ]
+    )
+    def test_recent_order_sorts_by_when_the_newest_flag_ended(
+        self, _name: str, series: list[SeriesSummary], expected: list[str]
+    ) -> None:
+        ranked = rank_series(series, chart_shares={}, importance={}, recent_first=True)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -116,7 +201,7 @@ class TestAnomalyRanking(SimpleTestCase):
     ) -> None:
         series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
 
-        ranked = rank_series(series, prior=prior_rate(series), importance={}, rate_first=rate_first)
+        ranked = rank_series(series, chart_shares={}, importance={}, rate_first=rate_first)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -202,6 +287,18 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def _get(self, endpoint: str, **params: Any) -> Any:
         return self.client.get(f"/api/projects/{self.team.id}/signals/anomalies/{endpoint}/", params)
 
+    def _points(self, *series: tuple[Insight, str, str]) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/anomalies/points/",
+            {
+                "series": [
+                    {"insight_id": insight.id, "series_key": series_key, "interval": interval}
+                    for insight, series_key, interval in series
+                ]
+            },
+            format="json",
+        )
+
     def test_search_counts_the_latest_result_of_each_scored_bucket(self) -> None:
         self._score_history()
 
@@ -218,14 +315,14 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             "flagged_buckets": 1,
             "expected_buckets": 4,
         }
-        assert (row["anomaly_rate"], row["coverage"], row["baseline_rate"]) == (0.5, 0.5, None)
+        assert (row["anomaly_rate"], row["coverage"]) == (0.5, 0.5)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
         assert "points" not in row
 
     @parameterized.expand(
         [
-            ("every_scored_bucket", 400, ["2026-10-19", "2026-10-22"]),
+            ("every_scored_bucket", 400, ["2026-10-10", "2026-10-19", "2026-10-22"]),
             ("capped_to_the_newest", 1, ["2026-10-22"]),
         ]
     )
@@ -233,29 +330,62 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, cap: int, expected_days: list[str]
     ) -> None:
         self._score_history()
+        # Before the range but inside the 14-day daily chart window, then before the chart window.
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(_day(9), score=0.20, flag=0)
 
         with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
             body = self._get("search", date_from="2026-10-19", include_points=True).json()
 
         [row] = body["series"]
+        assert (row["scored_buckets"], row["flagged_buckets"]) == (2, 1)
         # The warm-up bucket on Oct 20 and the unscored Oct 21 have no point. The rescore of Oct 19 wins.
         assert [(point["bucket_start"][:10], point["flag"]) for point in row["points"]] == [
             (day, day == "2026-10-22") for day in expected_days
         ]
 
-    def test_search_returns_the_points_of_every_series_on_a_page_with_many_points(self) -> None:
-        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 61)]
+    def test_search_returns_the_hourly_chart_window_of_every_series_on_the_page(self) -> None:
+        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 201)]
         for series_key in ("signups", "logins", "upgrades"):
             for hour in hours:
                 self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
 
         body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
 
-        assert {row["series_key"]: len(row["points"]) for row in body["series"]} == {
-            "signups": 60,
-            "logins": 60,
-            "upgrades": 60,
+        assert {row["series_key"]: (row["scored_buckets"], len(row["points"])) for row in body["series"]} == {
+            "signups": (72, 7 * 24),
+            "logins": (72, 7 * 24),
+            "upgrades": (72, 7 * 24),
         }
+
+    def test_points_reads_the_chart_window_of_each_requested_series_the_user_can_read(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_insight = Insight.objects.create(team=other_team, name="Other", saved=True)
+        self._score(_day(22), score=0.98, flag=1)
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(NOW - datetime.timedelta(hours=1), score=0.97, flag=1, series_key="logins", interval="hour")
+        # Inside the daily window that the scan covers, but before the 7-day hourly window.
+        self._score(NOW - datetime.timedelta(days=10), score=0.10, flag=0, series_key="logins", interval="hour")
+        self._score(_day(22), score=0.98, flag=1, insight=other_insight, team=other_team)
+
+        response = self._points(
+            (self.insight, "signups", "day"), (self.insight, "logins", "hour"), (other_insight, "signups", "day")
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["date_to"] == "2026-10-23T12:00:00+00:00"
+        assert [
+            (row["series_key"], row["date_from"], [(point["bucket_start"], point["flag"]) for point in row["points"]])
+            for row in body["series"]
+        ] == [
+            (
+                "signups",
+                "2026-10-09T12:00:00+00:00",
+                [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
+            ),
+            ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
+        ]
 
     def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
         for day in (20, 22):
@@ -284,7 +414,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unusual", "unusual", ["burst", "steady", "blip"]),
+            ("unusual", "unusual", ["blip", "steady", "burst"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
             ("rate", "rate", ["burst", "steady", "blip"]),
         ]
@@ -292,9 +422,10 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def test_search_pages_through_rows_in_the_requested_order(
         self, _name: str, order: str, expected: list[str]
     ) -> None:
-        flagged_days = {"burst": {15, 16, 17}, "steady": {19, 20}, "blip": {22}}
+        # Before the range but inside the daily chart window, burst also flagged often, so it sorts last as unusual.
+        flagged_days = {"burst": {1, 2, 3, 4, 5, 6, 7, 15, 16, 17}, "steady": {19, 20}, "blip": {22}}
         for series_key, days in flagged_days.items():
-            for day in range(15, 23):
+            for day in range(1, 23):
                 self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
 
         pages = [
@@ -305,6 +436,25 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert [(page["order"], page["has_more"], page["message"]) for page in pages] == [
             (order, True, None),
             (order, False, None),
+        ]
+
+    def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
+        for hours_ago in range(1, 25):
+            hour = NOW - datetime.timedelta(hours=hours_ago)
+            self._score(hour, score=0.5, flag=int(hours_ago == 4), series_key="hourly", interval="hour")
+        for series_key, days in {"daily": {21, 22}, "older": {19}}.items():
+            for day in range(15, 23):
+                self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+        self._score(_day(15), score=0.5, flag=1, series_key="weekly", interval="week")
+
+        pages = [
+            self._get("search", date_from="2026-10-15", order="recent", limit=2, offset=offset).json()
+            for offset in (0, 2)
+        ]
+
+        assert [[(row["series_key"], row["interval"]) for row in page["series"]] for page in pages] == [
+            [("hourly", "hour"), ("daily", "day")],
+            [("weekly", "week"), ("older", "day")],
         ]
 
     @parameterized.expand(
@@ -357,6 +507,21 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         body = self._get("search").json()
 
         assert (body["scored_days"], body["scored_history_ready"]) == (13, False)
+
+    def test_search_reuses_the_cached_scored_days_of_the_team(self) -> None:
+        for day in range(18, 23):
+            self._score(_day(day), score=0.99, flag=1)
+        assert self._get("search", date_from="2026-10-19").json()["scored_days"] == 5
+        for day in range(9, 18):
+            self._score(_day(day), score=0.1, flag=0)
+
+        with patch(
+            "products.signals.backend.anomaly_scores.read.execute_hogql_query", wraps=execute_hogql_query
+        ) as query:
+            body = self._get("search", date_from="2026-10-19").json()
+
+        assert (len(body["series"]), body["scored_days"], body["scored_history_ready"]) == (1, 5, False)
+        assert "AnomalyScoresScoredDays" not in [call.kwargs["query_type"] for call in query.call_args_list]
 
     @parameterized.expand(
         [
@@ -461,8 +626,13 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert self._get("insight", insight_id=other_insight.id).status_code == 404
         assert self._get("search", date_from="2026-10-19").json()["series"] == []
 
-    @parameterized.expand([("search",), ("insight",)])
+    @parameterized.expand([("search",), ("insight",), ("points",)])
     def test_returns_404_when_the_flag_is_off(self, endpoint: str) -> None:
         self.flag.return_value = False
 
-        assert self._get(endpoint, insight_id=self.insight.id).status_code == 404
+        response = (
+            self._points((self.insight, "signups", "day"))
+            if endpoint == "points"
+            else self._get(endpoint, insight_id=self.insight.id)
+        )
+        assert response.status_code == 404

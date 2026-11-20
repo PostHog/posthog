@@ -17,7 +17,6 @@ const DEFAULT_IMPORT_TAB: ImportTabKey = 'zendesk'
 export function ImportsSection(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, hashParams, searchParams } = useValues(router)
-    const intercomEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_INTERCOM_IMPORT]
     const pylonEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_PYLON_IMPORT]
 
     const tabs: (LemonTab<ImportTabKey> | false)[] = [
@@ -26,7 +25,7 @@ export function ImportsSection(): JSX.Element {
             label: 'Zendesk',
             content: <ZendeskImportSection />,
         },
-        intercomEnabled && {
+        {
             key: 'intercom',
             label: (
                 <>

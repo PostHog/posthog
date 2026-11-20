@@ -50,6 +50,27 @@ function labelDivs(container: HTMLElement): HTMLDivElement[] {
 describe('ValueLabels', () => {
     afterEach(() => cleanup())
 
+    it.each([0, -45])('overrides label colors independently of the series at rotation %s', (rotation) => {
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
+        const { container } = renderInChart(
+            makeContext(series, { labels: ['Mon'] }),
+            <ValueLabels color="#0000ff" backgroundColor="#ffff00" rotation={rotation} />
+        )
+        const label = labelDivs(container)[0]
+        const text = label.querySelector('span')!
+        expect(text.style.color).toBe('rgb(0, 0, 255)')
+        expect((rotation === 0 ? label : text).style.backgroundColor).toBe('rgb(255, 255, 0)')
+    })
+
+    it('chooses contrasting text from the custom background', () => {
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#000', data: [50] }]
+        const { container } = renderInChart(
+            makeContext(series, { labels: ['Mon'] }),
+            <ValueLabels backgroundColor="#ffffff" />
+        )
+        expect(labelDivs(container)[0].querySelector('span')!.style.color).toBe('black')
+    })
+
     it('renders one label per non-zero data point in a single series', () => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
@@ -490,7 +511,10 @@ describe('ValueLabels', () => {
             scales: { x: xScale, y: (value) => 48 + value * 720, yTicks: () => [] },
             resolvePositionValue: (s) => tops[s.key],
         })
-        const { container } = renderInChart(ctx, <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />)
+        const { container } = renderInChart(
+            ctx,
+            <ValueLabels position="center" background={background} fontSize={16} rotation={-45} />
+        )
         expect(labelDivs(container).map((label) => label.style.left)).toEqual(['120px', '300px', '588px'])
         const text = labelDivs(container)[0].querySelector('span')!
         expect(text.style.fontSize).toBe('16px')

@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,9 +21,9 @@ from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
@@ -59,6 +60,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _ensure_subscription_allowed,
     _fetch_run_flags,
     _is_agent_shadow_enabled,
+    _is_baked_repo_clone_enabled,
     _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_desktop_workspace_warm_enabled,
@@ -215,18 +217,26 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
 
 
 @pytest.mark.parametrize(
-    "origin_product,model,expected",
+    "origin_product,gateway_ai_product,model,expected",
     [
-        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
-        ("posthog_ai", "zai-org/glm-5.3", None),
-        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
-        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
-        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-        ("posthog_ai", None, None),
+        ("posthog_ai", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("posthog_ai", "posthog_ai", None, None),
+        ("slack", "slack_app", "zai-org/glm-5.3", None),
+        ("feature_flags", "posthog_ai", "zai-org/glm-5.3-flash", None),
+        ("signal_report", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("user_created", "workflows", "zai-org/glm-5.2", None),
+        ("slack", "slack_app", "claude-opus-5-5", "claude-opus-5-5"),
+        # Outside posthog_code's own pin, so only the posthog_code exemption keeps it.
+        ("user_created", "posthog_code", "gpt-6.1-terra", "gpt-6.1-terra"),
+        ("posthog_ai", None, "zai-org/glm-5.3", None),
+        ("slack", None, "zai-org/glm-5.3", "zai-org/glm-5.3"),
     ],
 )
-def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
-    origin_product: str, model: str | None, expected: str | None
+def test_a_run_drops_a_model_outside_its_gateway_products_pin(
+    origin_product: str, gateway_ai_product: str | None, model: str | None, expected: str | None
 ):
     context = TaskProcessingContext(
         task_id="task-id",
@@ -239,19 +249,22 @@ def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
         distinct_id="distinct-id",
         origin_product=origin_product,
         state={"model": model},
+        gateway_ai_product=gateway_ai_product,
     )
 
     assert context.model == expected
 
 
+@pytest.mark.parametrize(
+    "flag_check,flag_key",
+    [
+        (_is_desktop_workspace_warm_enabled, DESKTOP_WORKSPACE_WARM_FEATURE_FLAG),
+        (_is_baked_repo_clone_enabled, BAKED_REPO_CLONE_FEATURE_FLAG),
+    ],
+)
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
-def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
-    assert (
-        _is_desktop_workspace_warm_enabled(
-            flags=_flags({DESKTOP_WORKSPACE_WARM_FEATURE_FLAG: flag_value}), run_id="run-id"
-        )
-        is expected
-    )
+def test_organization_rollout_flags_follow_the_flag_value(flag_check, flag_key, flag_value, expected):
+    assert flag_check(flags=_flags({flag_key: flag_value}), run_id="run-id") is expected
 
 
 def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
@@ -285,6 +298,7 @@ def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
     [
         (lambda flags: _is_agent_shadow_enabled(flags=flags), False),
         (lambda flags: _is_desktop_workspace_warm_enabled(flags=flags, run_id="run-id"), False),
+        (lambda flags: _is_baked_repo_clone_enabled(flags=flags, run_id="run-id"), False),
         (lambda flags: _is_rtk_enabled(flags=flags, run_id="run-id"), True),
         (
             lambda flags: _is_benjamin_enabled(
@@ -302,7 +316,15 @@ def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
         ),
         (lambda flags: _preview_gate(flags=flags), False),
     ],
-    ids=["agent_shadow", "desktop_workspace_warm", "rtk", "benjamin", "modal_vm_sandbox", "dev_stack_preview"],
+    ids=[
+        "agent_shadow",
+        "desktop_workspace_warm",
+        "baked_repo_clone",
+        "rtk",
+        "benjamin",
+        "modal_vm_sandbox",
+        "dev_stack_preview",
+    ],
 )
 def test_flags_fall_back_to_defaults_when_the_flags_request_fails(read_flag, expected):
     assert read_flag(_failed_flags()) is expected
@@ -595,6 +617,29 @@ class TestGetTaskProcessingContextActivity:
         )
 
         assert result.create_pr is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "stored_profile,expected_product,expected_model",
+        [
+            ("slack", "slack_app", None),
+            ("feature_flags.code", "posthog_ai", None),
+            ("workflow", "workflows", None),
+            (None, "posthog_code", "zai-org/glm-5.3"),
+        ],
+    )
+    def test_get_task_processing_context_drops_a_model_its_gateway_product_would_refuse(
+        self, activity_environment, test_task, stored_profile, expected_product, expected_model
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run(extra_state={"model": "zai-org/glm-5.3"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert (result.gateway_ai_product, result.model) == (expected_product, expected_model)
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -1190,7 +1235,7 @@ class TestGetTaskProcessingContextActivity:
 
     SUBSCRIPTION_CASES = [
         ("claude", CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "Claude plan", "Claude"),
-        ("codex", CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "ChatGPT plan", "Codex"),
+        ("codex", None, "ChatGPT plan", "Codex"),
     ]
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
@@ -1204,6 +1249,9 @@ class TestGetTaskProcessingContextActivity:
                 run_id="run-id",
             )
 
+        if adapter == "codex":
+            feature_enabled_mock.assert_not_called()
+            return
         feature_enabled_mock.assert_called_once_with(
             flag_key,
             distinct_id="distinct-id",
@@ -1216,15 +1264,20 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
     @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
     def test_subscription_model_access_never_changes_requested_billing(
-        self, adapter: str, flag_key: str, plan_name: str, runtime_name: str, flag_value: object
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str, flag_value: object
     ) -> None:
+        expected_error = (
+            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable")
+            if adapter == "claude"
+            else nullcontext()
+        )
         with (
             patch(
                 FEATURE_ENABLED_TARGET,
                 return_value=flag_value,
                 side_effect=flag_value if isinstance(flag_value, Exception) else None,
             ),
-            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable"),
+            expected_error,
         ):
             _ensure_subscription_allowed(
                 adapter=adapter,
@@ -1235,7 +1288,9 @@ class TestGetTaskProcessingContextActivity:
             )
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
-    def test_subscription_rejects_a_pi_task(self, adapter: str, flag_key: str, plan_name: str, runtime_name: str):
+    def test_subscription_rejects_a_pi_task(
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str
+    ):
         with pytest.raises(ProcessTaskFatalError, match=f"requires the {runtime_name} runtime"):
             _ensure_subscription_allowed(
                 adapter=adapter,

@@ -137,6 +137,15 @@ from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_pol
             ["tools/release/feature-product.yaml"],
             id="product-yaml-suffix-not-manifest",
         ),
+        pytest.param([".agents/skills/django-migrations/SKILL.md"], id="migrations-skill-markdown"),
+        pytest.param(
+            ["posthog/templates/admin_console/downloads/recording_deletion_certificate.html"],
+            id="deletion-certificate-template",
+        ),
+        pytest.param(
+            ["products/authorization/package.json", "products/authorization/tsconfig.json"],
+            id="authorization-product-config",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str]) -> None:
@@ -306,7 +315,7 @@ def test_no_false_positive(files: list[str]) -> None:
         ),
         pytest.param(
             ["posthog/ingress/verify/hmac.py"],
-            "devex_guardrails",
+            "request_boundaries",
             id="ingress-shared-verify",
         ),
         pytest.param(
@@ -319,6 +328,13 @@ def test_no_false_positive(files: list[str]) -> None:
             "devex_guardrails",
             id="isolation-lint",
         ),
+        pytest.param(["docker-compose.hobby.yml"], "infra_cicd", id="hobby-compose-stays-infra"),
+        pytest.param(["docker-compose.base.yml"], "infra_cicd", id="base-compose-extended-by-hobby"),
+        pytest.param(["docker-compose.dev.yml"], "infra_cicd", id="dev-compose-feeds-image-builds"),
+        pytest.param(["docker-compose.dev-full.yml"], "dev_stack", id="local-compose-owner-only"),
+        pytest.param(["posthog/temporal/owners.yaml"], "ownership_files", id="nested-owners-yaml"),
+        pytest.param(["products/authorization/backend/roles.py"], "auth", id="authorization-code-stays-auth"),
+        pytest.param([".agents/skills/django-migrations/migrations/0001.py"], "migrations", id="skill-migration-code"),
     ],
 )
 def test_true_positive(files: list[str], expected_category: str) -> None:
@@ -403,7 +419,7 @@ def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         pytest.param(["apps/billing/secret.yaml"], ["crypto_secrets"], id="secrets-stay-protected"),
         pytest.param(["apps/billing/openapi.yaml"], ["public_api"], id="api-stays-protected"),
         pytest.param(["apps/billing/migrations/change.yaml"], ["migrations"], id="migrations-stay-protected"),
-        pytest.param(["apps/billing/owners.yaml"], ["stamphog_policy"], id="policy-stays-protected"),
+        pytest.param(["apps/billing/owners.yaml"], ["ownership_files"], id="ownership-stays-protected"),
         pytest.param([".github/helm/check.py"], [], id="category-exception-without-extension"),
         pytest.param([".github/pr-deploy"], [], id="category-path-pattern"),
         pytest.param([".github-other/helm/check.py"], ["infra_cicd"], id="category-prefix-lookalike"),

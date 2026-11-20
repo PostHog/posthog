@@ -27,6 +27,7 @@ def source_inputs(
     history_start: datetime.datetime | None = None,
     logger: FilteringBoundLogger | None = None,
     source_cursor: SourceCursorManager[Any] | None = None,
+    webhook_history: bool = False,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -53,4 +54,5 @@ def source_inputs(
         api_version=api_version,
         source_cursor=source_cursor,
         history_start=history_start,
+        webhook_history=webhook_history,
     )

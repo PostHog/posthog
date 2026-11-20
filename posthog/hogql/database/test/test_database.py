@@ -69,6 +69,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.schema.traffic_type import (
+    create_is_bot_field,
+    create_traffic_type_field,
+    log_traffic_fields,
+)
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_MAX_ENTRY_WEIGHT,
     SOURCES_CACHE_TTL_SECONDS,
@@ -82,6 +87,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types_from_table
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
@@ -436,6 +442,26 @@ class TestUnknownTableSuggestions(TestCase):
         assert str(error.exception) == expected_message
 
 
+class TestResolveTypesFromTable(TestCase):
+    @parameterized.expand(
+        [
+            ("logs", log_traffic_fields()["$virt_traffic_type"], ast.StringType(nullable=True)),
+            ("events", create_traffic_type_field("$virt_traffic_type"), ast.StringType(nullable=False)),
+            ("events", create_is_bot_field("$virt_is_bot"), ast.BooleanType(nullable=True)),
+        ]
+    )
+    def test_traffic_field_resolves_to_its_declared_type_without_expanding(
+        self, table_name: str, field: ExpressionField, expected_type: ast.ConstantType
+    ):
+        context = HogQLContext(team_id=1, database=Database())
+
+        resolved = resolve_types_from_table(field.expr, [table_name], context, "hogql")
+
+        assert resolved.type is not None
+        assert resolved.type.resolve_constant_type(context) == expected_type
+        assert resolved.to_hogql() == field.expr.to_hogql()
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
     allow_dual_schema_snapshots = True
@@ -515,6 +541,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     team=self.team,
                     pretty=False,
                 )
+
+    def test_survey_response_keeps_the_type_of_its_expansion(self):
+        context = HogQLContext(team_id=self.team.pk, team=self.team, database=Database())
+
+        resolved = resolve_types_from_table(
+            parse_expr("getSurveyResponse(0, 'question-id', true)"), ["events"], context, "hogql"
+        )
+
+        assert resolved.type is not None
+        assert isinstance(resolved.type.resolve_constant_type(context), ast.ArrayType)
 
     def test_serialize_database_posthog_table(self):
         database = Database.create_for(team=self.team)
@@ -651,9 +687,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
         serialized = database.serialize(context, include_hidden_posthog_tables=True)
 
-        for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
-            assert hidden_table not in serialized
-            assert database.has_table(hidden_table)
+        assert "posthog.error_tracking_recent_issue_state" not in serialized
+        assert database.has_table("posthog.error_tracking_recent_issue_state")
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -4589,7 +4624,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "session_replay_events",
             "cohort_people",
             "static_cohort_people",
-            "cohort_membership",
             "precalculated_events",
             "precalculated_person_properties",
             "log_entries",

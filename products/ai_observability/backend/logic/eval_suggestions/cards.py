@@ -147,10 +147,6 @@ JUDGES: dict[str, _JudgeWords] = {
         title="Frustrated users",
         summary="Labels the sentiment of the last user message in each generation, so you can find frustrated users.",
     ),
-    "prompt_injection": _JudgeWords(
-        title="Prompt injection attempts",
-        summary="Flags user messages and content the model reads that try to override the assistant's instructions.",
-    ),
 }
 
 

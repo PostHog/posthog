@@ -45,6 +45,7 @@ import {
     computeJobDuration,
     getMaterializationStatusMessage,
     jobLogsWindow,
+    jobsPageRowRange,
 } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
@@ -221,12 +222,16 @@ export function QuillMaterializationRunHistory({
         useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const managedWarehouseEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
-    const [expandedJobIds, setExpandedJobIds] = useState<string[]>([])
+    const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(() => new Set())
 
     const jobs = jobsPage > 1 && runHistoryError ? [] : (jobsPageResults?.results ?? [])
     const count = jobsPageResults?.count ?? 0
-    const firstRow = count === 0 ? 0 : (jobsPage - 1) * DEFAULT_JOBS_PAGE_SIZE + 1
-    const lastRow = Math.min(firstRow + jobs.length - 1, count)
+    const { firstRow, lastRow, countLabel } = jobsPageRowRange(
+        jobsPageResults,
+        jobsPage,
+        DEFAULT_JOBS_PAGE_SIZE,
+        jobs.length
+    )
     const showLoader = runHistoryLoading && (jobsPage > 1 || !jobsPageResults?.results?.length)
     const refreshRuns = (): void =>
         jobsPage > 1
@@ -235,9 +240,15 @@ export function QuillMaterializationRunHistory({
               ? loadDataModelingJobs()
               : loadRunHistoryJobs()
     const toggleJob = (jobId: string): void =>
-        setExpandedJobIds(
-            expandedJobIds.includes(jobId) ? expandedJobIds.filter((id) => id !== jobId) : [...expandedJobIds, jobId]
-        )
+        setExpandedJobIds((previous) => {
+            const next = new Set(previous)
+            if (next.has(jobId)) {
+                next.delete(jobId)
+            } else {
+                next.add(jobId)
+            }
+            return next
+        })
 
     return (
         <section className="flex flex-col gap-2 border-t border-border pt-4">
@@ -314,7 +325,7 @@ export function QuillMaterializationRunHistory({
                 ) : (
                     <TableBody>
                         {jobs.map((job) => {
-                            const expanded = expandedJobIds.includes(job.id)
+                            const expanded = expandedJobIds.has(job.id)
                             return (
                                 <Fragment key={job.id}>
                                     <TableRow>
@@ -369,7 +380,7 @@ export function QuillMaterializationRunHistory({
             {(count > 0 || jobsPage > 1) && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <Text size="xs" variant="muted" render={<span className="tabular-nums" />}>
-                        {count > 0 ? `${firstRow}-${lastRow} of ${count} runs` : ''}
+                        {count > 0 ? `${firstRow}-${lastRow} of ${countLabel} runs` : ''}
                     </Text>
                     <div className="flex items-center gap-2">
                         <Button

@@ -34,8 +34,10 @@ from posthog.models.user import User
 
 from products.apm.backend.facade.api import (
     get_dependencies,
+    get_endpoint_time_spent,
     get_service_map,
     is_apm_enabled,
+    list_deployments,
     list_endpoints_health,
     list_service_usage,
     list_services_health,
@@ -43,8 +45,12 @@ from products.apm.backend.facade.api import (
 from products.apm.backend.presentation.serializers import (
     DependenciesRequestSerializer,
     DependenciesResponseSerializer,
+    DeploymentsRequestSerializer,
+    DeploymentsResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
+    EndpointTimeSpentRequestSerializer,
+    EndpointTimeSpentResponseSerializer,
     ServiceMapResponseSerializer,
     ServicesHealthRequestSerializer,
     ServicesHealthResponseSerializer,
@@ -56,7 +62,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_WINDOW = timedelta(hours=1)
 MAX_WINDOW = timedelta(days=7)
-DEFAULT_ENVIRONMENT = "default"
 
 
 def _check_flag(team: Team, user: User) -> None:
@@ -69,7 +74,8 @@ def _check_flag(team: Team, user: User) -> None:
 class HealthWindow:
     date_from: datetime
     date_to: datetime
-    environment: str
+    # None reads every environment. An empty string reads spans that set no environment.
+    environment: str | None
 
 
 def _window(params: WindowRequestSerializer) -> HealthWindow:
@@ -82,7 +88,7 @@ def _window(params: WindowRequestSerializer) -> HealthWindow:
     return HealthWindow(
         date_from=date_from,
         date_to=date_to,
-        environment=params.validated_data.get("environment") or DEFAULT_ENVIRONMENT,
+        environment=params.validated_data.get("environment"),
     )
 
 
@@ -186,6 +192,45 @@ class EndpointsHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(EndpointsHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
+class EndpointTimeSpentViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Where one endpoint's request time goes, by service and inferred dependency. Same gate and window as services."""
+
+    scope_object = "tracing"
+    # Loads up to TIME_SPENT_SPAN_LIMIT spans per request, and the UI reloads it on every poll.
+    slot_for_every_authenticator = True
+
+    @extend_schema(
+        parameters=[EndpointTimeSpentRequestSerializer], responses={200: EndpointTimeSpentResponseSerializer}
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = EndpointTimeSpentRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data["service"]
+        endpoint = params.validated_data["endpoint"]
+
+        result = get_endpoint_time_spent(
+            team=self.team,
+            date_from=window.date_from,
+            date_to=window.date_to,
+            environment=window.environment,
+            service=service,
+            endpoint=endpoint,
+        )
+        payload = {
+            "components": [{**asdict(row), "kind": row.kind.value} for row in result.components],
+            "request_count": result.request_count,
+            "avg_duration_ms": result.avg_duration_ms,
+            "service": service,
+            "endpoint": endpoint,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(EndpointTimeSpentResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
 class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Service-to-service call edges in an environment and window. Same gate and window as services."""
 
@@ -208,6 +253,40 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class DeploymentsViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """One service's versions in an environment and window, each compared with the one before. Same gate and window as services."""
+
+    scope_object = "tracing"
+
+    @extend_schema(parameters=[DeploymentsRequestSerializer], responses={200: DeploymentsResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = DeploymentsRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data["service"]
+
+        try:
+            result = list_deployments(
+                team=self.team,
+                date_from=window.date_from,
+                date_to=window.date_to,
+                environment=window.environment,
+                service=service,
+            )
+        except CHQueryErrorTooManyBytes:
+            raise ValidationError("This window reads too many spans. Pick a shorter window.")
+        payload = {
+            "results": [asdict(row) for row in result.versions],
+            "version_source": result.version_source,
+            "service": service,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(DeploymentsResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -238,6 +317,8 @@ class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewset
         payload = {
             "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
             "truncated": result.truncated,
+            "sampled": result.sampled,
+            "trace_count": result.trace_count,
             "environment": window.environment,
             "service": service,
             "date_from": window.date_from,

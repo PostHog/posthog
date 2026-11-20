@@ -46,8 +46,9 @@ from products.signals.backend.anomaly_scores.read import (
     SeriesPoint,
     SeriesSummary,
     bucket_starts,
+    chart_from,
+    chart_shares,
     latest_buckets,
-    prior_rate,
     rank_series,
     rollup,
     scored_days,
@@ -115,7 +116,7 @@ class AnomalySearchFilters:
     offset: int = 0
     # Part of an insight name, matched ignoring case.
     search: str | None = None
-    # Adds the scored buckets of each series row, at the cost of one more query.
+    # Adds the scored buckets of each series row in the chart window of its interval, at the cost of one more query.
     include_points: bool = False
 
 
@@ -127,7 +128,7 @@ class SeriesRow:
     expected_buckets: int
     # Newest first.
     flagged_points: tuple[FlaggedPoint, ...]
-    # Oldest first. None when the request leaves points out.
+    # Oldest first, over the chart window of the interval, not the range. None when the request leaves points out.
     points: tuple[SeriesPoint, ...] | None = None
     # The dashboards the insight sits on that the user may view, oldest tile first.
     dashboards: tuple[DashboardRef, ...] = ()
@@ -162,6 +163,22 @@ class AnomalySearchResult:
     @property
     def scored_history_ready(self) -> bool:
         return self.scored_days >= SCORED_HISTORY_READY_DAYS
+
+
+@frozen
+class AnomalySeriesRef:
+    insight_id: int
+    series_key: str
+    interval: IntervalType
+
+
+@frozen
+class AnomalySeriesPoints:
+    series: AnomalySeriesRef
+    # The start of the chart window. The window ends now.
+    date_from: datetime.datetime
+    # Oldest first.
+    points: tuple[SeriesPoint, ...]
 
 
 @frozen
@@ -314,7 +331,15 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     ]
     ranked = rank_series(
         in_range,
-        prior=prior_rate(readable),
+        chart_shares=chart_shares(
+            team,
+            date_to=filters.date_to,
+            series={
+                (summary.insight_id, summary.series_key): summary.interval
+                for summary in in_range
+                if summary.flagged_buckets
+            },
+        ),
         importance=_importance(team, {summary.insight_id for summary in in_range}, now),
         recent_first=filters.order == AnomalyOrder.RECENT,
         rate_first=filters.order == AnomalyOrder.RATE,
@@ -331,9 +356,8 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         points = (
             series_points(
                 team,
-                date_from=filters.date_from,
                 date_to=filters.date_to,
-                series=[(summary.insight_id, summary.series_key) for summary in page_series],
+                series={(summary.insight_id, summary.series_key): summary.interval for summary in page_series},
             )
             if filters.include_points
             else None
@@ -390,6 +414,22 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     )
 
 
+def chart_points(
+    team: Team, user: User, series: Sequence[AnomalySeriesRef], now: datetime.datetime
+) -> list[AnomalySeriesPoints]:
+    """The chart points of each requested series whose insight the user can read, in one query scoped to them."""
+    readable = {
+        insight.id
+        for insight in viewable_insights(team=team, user=user, insight_ids={ref.insight_id for ref in series})
+    }
+    by_key = {(ref.insight_id, ref.series_key): ref for ref in series if ref.insight_id in readable}
+    points = series_points(team, date_to=now, series={key: ref.interval for key, ref in by_key.items()})
+    return [
+        AnomalySeriesPoints(series=ref, date_from=chart_from(ref.interval, now), points=tuple(points[key]))
+        for key, ref in by_key.items()
+    ]
+
+
 def _series_buckets(
     series_key: str,
     starts: list[datetime.datetime],
@@ -427,9 +467,7 @@ def insight_history(
         insight_ids=[insight.id],
         series_key=filters.series_key,
     )
-    # A series with only baseline rows was not scored in the range at all.
-    in_range = [summary for summary in summaries.series if summary.newest_bucket >= filters.date_from]
-    ranked = rank_series(in_range, prior=prior_rate(summaries.series), importance={})
+    ranked = rank_series(summaries.series, chart_shares={}, importance={})
     truncated = summaries.truncated or len(ranked) > MAX_INSIGHT_SERIES
     ranked = ranked[:MAX_INSIGHT_SERIES]
 
@@ -469,7 +507,7 @@ def insight_history(
             buckets = buckets[-per_series:]
         series.append(SeriesHistory(summary=summary, expected_buckets=len(starts), buckets=buckets))
 
-    newest = max(in_range, key=lambda summary: summary.newest_bucket, default=None)
+    newest = max(summaries.series, key=lambda summary: summary.newest_bucket, default=None)
     message = None
     if newest is None:
         message = off_message or "No bucket of this insight was scored in this range."
@@ -481,7 +519,7 @@ def insight_history(
         profile=newest.profile if newest else None,
         detector=newest.detector if newest else None,
         detector_version=newest.detector_version if newest else None,
-        rollup=rollup(in_range),
+        rollup=rollup(summaries.series),
         series=series,
         truncated=truncated,
         message=message,
