@@ -35,6 +35,9 @@ const githubIntegration = (overrides: Partial<IntegrationType> = {}): Integratio
         ...overrides,
     }) as IntegrationType
 
+const emailRow = (verified: boolean): IntegrationType =>
+    ({ id: 50, kind: 'email', display_name: 'hello@example.com', config: { verified } }) as IntegrationType
+
 describe('integrationsLogic', () => {
     let logic: ReturnType<typeof integrationsLogic.build>
     let createSpy: jest.SpyInstance
@@ -352,8 +355,6 @@ describe('integrationsLogic', () => {
 
     describe('loadIntegrationsOfKind', () => {
         it('asks only for that kind and keeps every other row', async () => {
-            const emailRow = (verified: boolean): IntegrationType =>
-                ({ id: 50, kind: 'email', display_name: 'hello@example.com', config: { verified } }) as IntegrationType
             integrationsPayload = [githubIntegration(), emailRow(false)]
             await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
 
@@ -376,6 +377,34 @@ describe('integrationsLogic', () => {
             ).toEqual([
                 ['github', 'PostHog', githubIntegration().config],
                 ['email', 'hello@example.com', { verified: true }],
+            ])
+        })
+
+        it('drops its rows when a full load finished while it waited', async () => {
+            let releaseEmailRows!: () => void
+            const emailRowsHeld = new Promise<void>((resolve) => (releaseEmailRows = resolve))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('kind') === 'email') {
+                            await emailRowsHeld
+                            return [200, { results: [emailRow(false)] }]
+                        }
+                        return [200, { results: [githubIntegration(), emailRow(true)] }]
+                    },
+                },
+            })
+
+            logic.actions.loadIntegrationsOfKind('email')
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+            ])
+            releaseEmailRows()
+            await expectLogic(logic).toDispatchActions(['loadIntegrationsOfKindSuccess'])
+
+            expect(logic.values.integrations?.map(({ kind, config }) => [kind, config])).toEqual([
+                ['github', githubIntegration().config],
+                ['email', { verified: true }],
             ])
         })
     })

@@ -347,13 +347,27 @@ export interface integrationsLogicActions {
         value: true
     }
     loadIntegrations: (_?: any) => any
-    loadIntegrationsOfKind: (kind: IntegrationsListKind) => IntegrationsListKind
     loadIntegrationsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
+    }
+    loadIntegrationsOfKind: (kind: IntegrationsListKind) => IntegrationsListKind
+    loadIntegrationsOfKindFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIntegrationsOfKindSuccess: (
+        integrations: IntegrationType[] | null,
+        payload?: IntegrationsListKind
+    ) => {
+        integrations: IntegrationType[] | null
+        payload?: IntegrationsListKind
     }
     loadIntegrationsSuccess: (
         integrations: IntegrationType[],
@@ -874,11 +888,15 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 loadIntegrations: async (_ = undefined, breakpoint) =>
                     fetchIntegrations(String(values.currentProjectId), undefined, breakpoint),
                 loadIntegrationsOfKind: async (kind: IntegrationsListKind, breakpoint) => {
-                    if (!values.integrations) {
+                    const loaded = values.integrations
+                    if (!loaded) {
                         return fetchIntegrations(String(values.currentProjectId), undefined, breakpoint)
                     }
                     const rows = await fetchIntegrations(String(values.currentProjectId), kind, breakpoint)
-                    return [...(values.integrations ?? []).filter((integration) => integration.kind !== kind), ...rows]
+                    if (values.integrations !== loaded) {
+                        return values.integrations
+                    }
+                    return [...loaded.filter((integration) => integration.kind !== kind), ...rows]
                 },
                 newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {
