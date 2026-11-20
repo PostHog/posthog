@@ -194,7 +194,7 @@ export interface playerMetaLogicMeta {
         startTime: (sessionPlayerData: SessionPlayerData) => Dayjs | null
         endTime: (sessionPlayerData: SessionPlayerData) => Dayjs | null
         snapshotAt: (startTime: Dayjs | null) => any
-        currentWindowIndex: (currentSegment: null | import('@common/replay-shared/src').RecordingSegment) => number
+        currentWindowIndex: (currentSegment: null | RecordingSegment) => number
         lastPageviewEvent: (
             sessionEventsData: RecordingEventType[] | null,
             currentPlayerTime: number
