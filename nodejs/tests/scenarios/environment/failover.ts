@@ -4,6 +4,7 @@ import { Aws, AwsError } from '../cloud/aws'
 import type { RunManifest } from '../cloud/lease'
 import { RUN_TAG } from '../cloud/stack'
 import type { WriterSample } from '../probe/writer-probe'
+import { seriesOf } from './metric-data'
 import { SCENARIO_SESSION_PREFIX } from './roles'
 import { withPostgres } from './stack'
 
@@ -26,6 +27,7 @@ export type FailoverActuation = {
     observed(signal?: AbortSignal): Promise<boolean>
     release(): Promise<void>
     journal(): FailoverJournal
+    refused(): boolean
 }
 
 export type FailoverOptions = {
@@ -43,9 +45,8 @@ const POLL_MS = 1000
 const OBSERVE_WITHIN_MS = 5 * 60_000
 export const FAILOVER_RELEASE_WITHIN_MS = 2 * OBSERVE_WITHIN_MS
 const MINUTE_MS = 60_000
-const CAPACITY_MINUTES = 5
+export const CAPACITY_MINUTES = 5
 const CAPACITY_FRESH_WITHIN_MS = 3 * MINUTE_MS
-const IDLE_ACU = 1
 const IDENTITY_TIMEOUT_MS = 2000
 const OBSERVATIONS: ObservationName[] = ['cluster_writer', 'sql_writer', 'first_probe_commit']
 // A 5xx code means the service may have started the promotion before it failed, so its outcome is unknown.
@@ -56,8 +57,6 @@ type Cluster = {
     TagList?: { Key: string; Value: string }[]
     DBClusterMembers?: { DBInstanceIdentifier: string; IsClusterWriter: boolean }[]
 }
-
-type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[]; StatusCode?: string }[] }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -362,6 +361,8 @@ export async function failOver({
                 }
             })()),
 
+        refused: () => answered?.refused !== undefined,
+
         journal: () => ({
             ...journal,
             ...(journal.observations ? { observations: [...journal.observations] } : {}),
@@ -370,6 +371,11 @@ export async function failOver({
     }
 
     async function requireIdleReader(): Promise<void> {
+        const idleMax =
+            manifest.readerIdleMaxAcu ??
+            refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
+        const floor =
+            manifest.readerMinAcu ?? refuse(`the run manifest names no minimum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
@@ -384,23 +390,34 @@ export async function failOver({
                 Stat: 'Maximum',
             },
         }
-        const { MetricDataResults } = (await required(
+        const from = until - 2 * CAPACITY_MINUTES * MINUTE_MS
+        const answer = await required(
             aws.call([
                 'cloudwatch',
                 'get-metric-data',
                 '--metric-data-queries',
                 JSON.stringify([query]),
                 '--start-time',
-                new Date(until - 2 * CAPACITY_MINUTES * MINUTE_MS).toISOString(),
+                new Date(from).toISOString(),
                 '--end-time',
                 new Date(until).toISOString(),
+                '--scan-by',
+                'TimestampAscending',
             ])
-        )) as CapacityData
-        const [{ Timestamps, Values, StatusCode }] = MetricDataResults
-        if (StatusCode !== undefined && StatusCode !== 'Complete') {
-            refuse(`${reader}'s capacity read came back ${StatusCode}, not Complete`)
+        )
+        let sorted: { at: number; max: number }[] = []
+        try {
+            sorted = seriesOf(answer, {
+                ids: ['acu'],
+                from,
+                to: until,
+                periodMs: MINUTE_MS,
+                floor,
+                subject: () => `${reader}'s capacity read`,
+            }).acu.map(({ at, value }) => ({ at, max: value }))
+        } catch (error) {
+            refuse(messageOf(error))
         }
-        const sorted = Timestamps.map((at, i) => ({ at: Date.parse(at), max: Values[i] })).sort((a, b) => a.at - b.at)
         let consecutive = sorted.length > 0 ? 1 : 0
         while (
             consecutive < Math.min(sorted.length, CAPACITY_MINUTES) &&
@@ -418,10 +435,10 @@ export async function failOver({
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
-        const busy = minutes.filter(({ max }) => max > IDLE_ACU)
+        const busy = minutes.filter(({ max }) => max > idleMax)
         if (busy.length > 0) {
             refuse(
-                `${reader} was above ${IDLE_ACU} ACU in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, max }) => `${max} at ${new Date(at).toISOString()}`).join(', ')}`
+                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, max }) => `${max} at ${new Date(at).toISOString()}`).join(', ')}`
             )
         }
     }

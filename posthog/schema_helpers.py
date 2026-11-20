@@ -1,4 +1,4 @@
-from typing import Literal, assert_never, get_origin
+from typing import Any, Literal, assert_never, get_origin
 
 from pydantic import BaseModel, ValidationError
 
@@ -32,6 +32,26 @@ def strip_version_recursive(d):
             d[key] = [strip_version_recursive(item) if isinstance(item, dict) else item for item in value]
 
     return d
+
+
+def strip_null_modifiers(value: Any) -> Any:
+    """The serialized query without modifiers that are set to None, at every depth.
+
+    HogQLQueryModifiers forbids unknown keys and every field defaults to None, so a null key carries no data. During a
+    rolling deploy, a worker on an older schema rejects the whole query when it sees a null modifier it does not know.
+    """
+    if isinstance(value, dict):
+        return {
+            key: (
+                {k: v for k, v in item.items() if v is not None}
+                if key == "modifiers" and isinstance(item, dict)
+                else strip_null_modifiers(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [strip_null_modifiers(item) for item in value]
+    return value
 
 
 def to_dict(query: BaseModel) -> dict:
@@ -85,6 +105,7 @@ def to_dict(query: BaseModel) -> dict:
                     if key
                     not in [
                         "showLegend",
+                        "showSummaryOnDashboards",
                         "showPercentStackView",
                         "stackBreakdownValues",
                         "showValuesOnSeries",

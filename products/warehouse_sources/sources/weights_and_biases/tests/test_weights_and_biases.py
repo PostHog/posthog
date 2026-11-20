@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.weights_and_biases.weights_and_biases im
     _format_timestamp,
     _graphql_url,
     _history_row,
+    _system_metrics_row,
     get_rows,
     validate_credentials,
     validate_host,
@@ -275,6 +276,21 @@ class TestArtifactLookupEndpoints:
         assert len(result.requests) == 1
         assert "apiKey" not in result.requests[0].json()["query"]
 
+    @pytest.mark.parametrize(
+        "entity, expected_ids",
+        [
+            ({"id": "ent-1", "name": "acme", "isTeam": True, "storageBytes": 2048}, ["ent-1"]),
+            # The API answers null for an entity the key cannot see, instead of an error.
+            (None, []),
+        ],
+    )
+    def test_entity_row(self, entity, expected_ids):
+        result = _driver().run("entities", [_ok_response({"data": {"entity": entity}})])
+
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.requests[0].json()["variables"] == {"entity": "acme"}
+        assert "photoUrl" not in result.requests[0].json()["query"]
+
 
 def _lineage_run(name: str, inputs: list[str], outputs: list[str], outputs_next: str | None = None) -> dict[str, Any]:
     def connection(ids: list[str], next_cursor: str | None = None) -> dict[str, Any]:
@@ -339,6 +355,148 @@ class TestRunArtifactsEndpoint:
             WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur"),
             WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur", run="r3"),
         ]
+
+
+def _files_run(name: str, files: list[str], next_cursor: str | None = None) -> dict[str, Any]:
+    return {
+        "node": {
+            "id": f"id-{name}",
+            "name": name,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "heartbeatAt": "2024-01-02T00:00:00Z",
+            "files": {
+                "edges": [{"node": {"id": f"file-{f}", "name": f, "sizeBytes": 10}} for f in files],
+                "pageInfo": {"endCursor": next_cursor, "hasNextPage": next_cursor is not None},
+            },
+        }
+    }
+
+
+class TestRunFilesEndpoint:
+    def test_nested_file_pages_are_followed_per_run(self):
+        result = _driver().run(
+            "run_files",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_files_run("r1", ["config.yaml"], next_cursor="files-cur"), _files_run("r2", [])],
+                ),
+                _connection_response(
+                    ("project", "run", "files"),
+                    [{"node": {"id": "file-model.pt", "name": "model.pt", "sizeBytes": 99}}, {"node": {"id": "x"}}],
+                ),
+            ],
+        )
+
+        assert [(r["runId"], r["name"], r["sizeBytes"]) for r in result.rows] == [
+            ("id-r1", "config.yaml", 10),
+            ("id-r1", "model.pt", 99),
+        ]
+        follow_up = _variables(result.requests)[2]
+        assert (follow_up["run"], follow_up["after"]) == ("r1", "files-cur")
+        # Signed download URLs expire, so they are never requested.
+        assert all("url" not in request.json()["query"].lower() for request in result.requests[1:])
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r1"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r2"),
+        ]
+
+
+def _events_run(name: str, line_count: int | None) -> dict[str, Any]:
+    return {
+        "node": {
+            "id": f"id-{name}",
+            "name": name,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "heartbeatAt": "2024-01-02T00:00:00Z",
+            "eventsLineCount": line_count,
+        }
+    }
+
+
+def _events_response(timestamps: list[float]) -> ScriptedResponse:
+    lines = [json.dumps({"_timestamp": ts, "_runtime": 30, "_wandb": True, "system.cpu": 50.0}) for ts in timestamps]
+    return _ok_response({"data": {"project": {"run": {"events": lines}}}})
+
+
+class TestRunSystemMetricsEndpoint:
+    def test_runs_without_samples_are_not_fetched_and_each_run_commits(self):
+        result = _driver().run(
+            "run_system_metrics",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_events_run("r1", 2), _events_run("r2", 0), _events_run("r3", None)],
+                ),
+                _events_response([1704067200, 1704067230]),
+                _events_response([1704067260]),
+            ],
+        )
+
+        event_calls = [v for v in _variables(result.requests) if "samples" in v]
+        assert [v["run"] for v in event_calls] == ["r1", "r3"]
+        assert [(row["runName"], row["timestamp"]) for row in result.rows] == [
+            ("r1", "2024-01-01T00:00:00+00:00"),
+            ("r1", "2024-01-01T00:00:30+00:00"),
+            ("r3", "2024-01-01T00:01:00+00:00"),
+        ]
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r3"),
+        ]
+
+    def test_pages_of_runs_with_empty_samples_reach_a_safe_point(self):
+        result = _driver().run(
+            "run_system_metrics",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"), [_events_run("r1", 3), _events_run("r2", 3), _events_run("r3", 3)]
+                ),
+                _events_response([]),
+                _events_response([]),
+                _ok_response({"data": {"project": {"run": None}}}),
+            ],
+        )
+
+        assert result.rows == []
+        assert result.raised is None
+        # Each run is one request, so a run with no samples must commit its bookmark on its own.
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r3"),
+        ]
+
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            (
+                json.dumps({"_timestamp": 1704067200.5, "_runtime": 12, "_wandb": True, "system.gpu.0.gpu": 80}),
+                {"timestamp": "2024-01-01T00:00:00.500000+00:00", "runtime": 12.0, "metrics": {"system.gpu.0.gpu": 80}},
+            ),
+            (
+                {"_timestamp": 1704067200, "system.cpu": 1},
+                {"timestamp": "2024-01-01T00:00:00+00:00", "runtime": None, "metrics": {"system.cpu": 1}},
+            ),
+            # The timestamp is part of the primary key, so a sample without a usable one is dropped.
+            (json.dumps({"_runtime": 1, "system.cpu": 1}), None),
+            (json.dumps({"_timestamp": "bad"}), None),
+            (json.dumps({"_timestamp": True}), None),
+            (json.dumps([1, 2]), None),
+        ],
+    )
+    def test_system_metrics_row_shaping(self, line, expected):
+        row = _system_metrics_row({"runId": "id-r1"}, line)
+
+        if expected is None:
+            assert row is None
+            return
+        assert row is not None
+        assert row["runId"] == "id-r1"
+        assert (row["timestamp"], row["runtime"]) == (expected["timestamp"], expected["runtime"])
+        assert json.loads(row["metrics"]) == expected["metrics"]
 
 
 def _history_run(name: str, last_step: int, line_count: int) -> dict[str, Any]:

@@ -21,8 +21,8 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -116,15 +116,15 @@ class HogQLTableNotSupportedError(Exception):
 class CustomSchemaWithoutQueryError(Exception):
     """A custom schema stored without its HogQL query, so a run on the native events table cannot recompile it.
 
-    A schema is stored without its query when the user who saved it had restricted properties. Its stored fields
-    read the legacy String `properties`, so they cannot run on the native table either.
+    Older saves by a user with restricted properties stored the schema without its query. Its stored fields read the
+    legacy String `properties`, so they cannot run on the native table either. Saving the export again stores the
+    query and the restrictions it needs.
     """
 
     def __init__(self) -> None:
         super().__init__(
             "This export can't read the new events table because its fields were saved without their query. "
-            "This happens when the person who saved the export has restricted properties. "
-            "Ask someone without restricted properties to save the export again, or contact support."
+            "Save the export again to fix this, or contact support."
         )
 
 
@@ -666,10 +666,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template in (
-            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
-            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-        ) and await database_sync_to_async(use_new_events_schema)(team_id)
+        native_source = (
+            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
+            and batch_exports_read_new_events_table()
+        )
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and

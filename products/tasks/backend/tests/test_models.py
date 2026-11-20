@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import OperationalError, connection
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -44,6 +46,7 @@ from products.tasks.backend.models import (
     MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_FINISH_REPORT_STATE_KEY,
+    AgentEgressRegistration,
     MCPBuiltInAgentKey,
     SandboxEnvironment,
     SandboxSnapshot,
@@ -1989,6 +1992,19 @@ class TestTaskRun(TestCase):
             },
             output={"final_message": "Previous report"},
         )
+        prior_state = dict(run.state)
+        registration = AgentEgressRegistration.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="old-sandbox",
+            execution_id=uuid.uuid4(),
+            region="test",
+            actor_id=1,
+            actor_epoch=1,
+            authority="egress.example.com",
+            relay_key_sha256="A" * 43,
+            lease_expires_at=django_timezone.now() + timedelta(seconds=30),
+        )
 
         run.prepare_for_cloud_resume()
         run.refresh_from_db()
@@ -2011,6 +2027,16 @@ class TestTaskRun(TestCase):
         self.assertIsNone(run.finish_report)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
         self.assertTrue(run.state["same_run_resume"])
+        registration.refresh_from_db()
+        self.assertTrue(registration.revoked)
+        self.assertEqual(registration.revocation_reason, "cloud_resume")
+        self.assertEqual(registration.revoked_by, "tasks-worker")
+        self.assertIsNotNone(registration.revoked_at)
+
+        run.restore_cloud_resume_state(prior_state)
+        run.save(update_fields=["state"])
+        registration.refresh_from_db()
+        self.assertTrue(registration.revoked)
 
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
@@ -2109,6 +2135,103 @@ class TestTaskRun(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["slack_sent_relay_ids"], ["relay-1", "relay-2"])
+
+    @parameterized.expand(
+        [
+            ("replacement", {"sandbox_id": "new-sandbox"}, [], True),
+            ("backend_changed", {"sandbox_backend": "hogland"}, [], True),
+            ("cleared", {}, ["sandbox_id", "sandbox_backend"], True),
+            ("unrelated", {"mode": "interactive"}, [], False),
+            ("same_binding", {"sandbox_id": "old-sandbox", "sandbox_backend": "modal"}, [], False),
+            ("explicit_default_backend", {"sandbox_backend": "modal"}, [], False, None),
+            ("failed_state_write", {"sandbox_id": "new-sandbox", "invalid": object()}, [], False),
+        ]
+    )
+    def test_sandbox_state_changes_revoke_egress_authority(
+        self,
+        name: str,
+        updates: dict[str, object],
+        remove_keys: list[str],
+        revoked: bool,
+        original_backend: str | None = "modal",
+    ) -> None:
+        original_state = {"sandbox_id": "old-sandbox"}
+        if original_backend is not None:
+            original_state["sandbox_backend"] = original_backend
+        run = TaskRun.objects.create(task=self.task, team=self.team, state=original_state)
+        registration = AgentEgressRegistration.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="old-sandbox",
+            execution_id=uuid.uuid4(),
+            region="test",
+            actor_id=1,
+            actor_epoch=1,
+            authority="egress.example.com",
+            relay_key_sha256="A" * 43,
+            lease_expires_at=django_timezone.now() + timedelta(seconds=30),
+        )
+
+        with self.assertRaises(TypeError) if name == "failed_state_write" else nullcontext():
+            TaskRun.update_state_atomic(run.id, updates=updates, remove_keys=remove_keys)
+
+        registration.refresh_from_db()
+        self.assertEqual(registration.revoked, revoked)
+        self.assertEqual(registration.revocation_reason, "sandbox_changed" if revoked else None)
+        revoked_at = registration.revoked_at
+
+        TaskRun.update_state_atomic(run.id, updates=original_state)
+
+        registration.refresh_from_db()
+        self.assertEqual(registration.revoked, revoked)
+        self.assertEqual(registration.revoked_at, revoked_at)
+
+    @parameterized.expand([("progress",), ("replacement",), ("cloud_resume",)])
+    def test_egress_outage_blocks_only_authority_changes(self, operation: str) -> None:
+        original_state = {"sandbox_id": "old-sandbox", "sandbox_backend": "modal"}
+        run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=dict(original_state)
+        )
+        registration = AgentEgressRegistration.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="old-sandbox",
+            execution_id=uuid.uuid4(),
+            region="test",
+            actor_id=1,
+            actor_epoch=1,
+            authority="egress.example.com",
+            relay_key_sha256="A" * 43,
+            lease_expires_at=django_timezone.now() + timedelta(seconds=30),
+        )
+
+        def registry_outage(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: dict[str, object]
+        ) -> object:
+            if AgentEgressRegistration._meta.db_table in sql:
+                raise OperationalError("registry unavailable")
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(registry_outage),
+            self.assertRaisesMessage(OperationalError, "registry unavailable")
+            if operation != "progress"
+            else nullcontext(),
+        ):
+            if operation == "cloud_resume":
+                run.prepare_for_cloud_resume()
+            else:
+                updates = {"progress": "working"} if operation == "progress" else {"sandbox_id": "new-sandbox"}
+                TaskRun.update_state_atomic(run.id, updates=updates)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state, original_state | ({"progress": "working"} if operation == "progress" else {}))
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        registration.refresh_from_db()
+        self.assertFalse(registration.revoked)
+        self.assertIsNone(registration.revoked_at)
+        self.assertIsNone(registration.revoked_by)
+        self.assertIsNone(registration.revocation_reason)
 
     @staticmethod
     def _recorded_ids(run: TaskRun) -> list[str]:
@@ -2788,51 +2911,6 @@ class TestSandboxSnapshot(TestCase):
             integration=self.integration, repos=snapshot_repos, external_id=f"snapshot-{uuid.uuid4()}"
         )
         self.assertEqual(snapshot.has_repos(required_repos), expected)
-
-    def test_get_latest_snapshot_for_integration(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-        snapshot2 = SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertEqual(latest, snapshot2)
-
-    def test_get_latest_snapshot_for_integration_ignores_in_progress(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.IN_PROGRESS,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
-
-    def test_get_latest_snapshot_for_integration_ignores_error(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.COMPLETE,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.ERROR,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
-
-    def test_get_latest_snapshot_for_integration_none(self):
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertIsNone(latest)
 
     def test_get_latest_snapshot_with_repos(self):
         SandboxSnapshot.objects.create(

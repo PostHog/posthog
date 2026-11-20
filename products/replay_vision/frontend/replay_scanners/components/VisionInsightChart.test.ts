@@ -23,18 +23,19 @@ const TRENDS_VIZ: InsightVizNode = {
 describe('VisionInsightChart', () => {
     describe('chartOverlayState', () => {
         // `insightData` is always a truthy object from the selector, so the decision must hinge on `result`, not the object.
-        const cases: [string, { result?: unknown } | null | undefined, boolean, ChartOverlayState][] = [
-            ['null insightData while loading', null, true, 'loading'],
-            ['null insightData settled (cancelled/never-loaded)', null, false, 'error'],
-            ['truthy object with no result while loading', { result: undefined }, true, 'loading'],
-            ['truthy object with no result settled', { result: undefined }, false, 'error'],
-            ['loaded with rows', { result: [{ x: 1 }] }, false, 'none'],
-            ['loaded but empty result', { result: [] }, false, 'none'],
-            ['loaded, ignores a stale loading flag during refresh', { result: [{ x: 1 }] }, true, 'none'],
+        const cases: [string, { result?: unknown } | null | undefined, boolean, boolean, ChartOverlayState][] = [
+            ['before the lazy renderer starts a query', { result: undefined }, false, false, 'loading'],
+            ['null insightData while loading', null, true, true, 'loading'],
+            ['null insightData settled (cancelled)', null, false, true, 'error'],
+            ['truthy object with no result while loading', { result: undefined }, true, true, 'loading'],
+            ['truthy object with no result settled', { result: undefined }, false, true, 'error'],
+            ['loaded with rows', { result: [{ x: 1 }] }, false, true, 'none'],
+            ['loaded but empty result', { result: [] }, false, true, 'none'],
+            ['loaded, ignores a stale loading flag during refresh', { result: [{ x: 1 }] }, true, true, 'none'],
         ]
 
-        it.each(cases)('%s', (_label, insightData, loading, expected) => {
-            expect(chartOverlayState(insightData, loading)).toEqual(expected)
+        it.each(cases)('%s', (_label, insightData, loading, queryStarted, expected) => {
+            expect(chartOverlayState(insightData, loading, queryStarted)).toEqual(expected)
         })
     })
 

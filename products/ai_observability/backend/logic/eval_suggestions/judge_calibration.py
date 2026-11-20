@@ -420,7 +420,7 @@ def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
 class CodeCheck:
     source: str
     calibration: Calibration
-    # The code's fails on every rendered call of the card's call types, out of the calls it passed or failed.
+    # The code's fails on the calls it was counted on, out of the calls it passed or failed.
     failed: int
     of: int
     # Calls whose data the code could not handle. Each one counts against the code in `calibration`.
@@ -579,3 +579,29 @@ def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -
         of=len(decided),
         errors=sum(1 for verdict in verdicts.values() if verdict is None),
     )
+
+
+def counted_on_day(
+    card: ReviewCard, code: CodeCheck, rendering: Rendering, day: Sequence[ReviewCallRow], deadline: float | None
+) -> CodeCheck | None:
+    """`code`, which check_code kept, with the calls of `day` that the review did not read added to its counts, or
+    None when one of them hits an error the runtime would disable the check over. Running out of time before
+    `deadline` only stops the count."""
+    keys = {call_type.key for call_type in card.call_types}
+    read = {call.row.event_uuid for call in rendering.calls.values()}
+    extra = [row for row in day if row.call_type in keys and row.event_uuid not in read]
+    if not extra:
+        return code
+    bytecode = compile_ai_observability_hog(code.source, "destination")
+    failed, of = code.failed, code.of
+    for row in extra:
+        if deadline is not None and time.monotonic() + HOG_EVAL_TIMEOUT.total_seconds() > deadline:
+            break
+        try:
+            verdict = _code_verdict(bytecode, row)
+        except _TerminalHogError:
+            return None
+        if verdict in ("pass", "fail"):
+            of += 1
+            failed += verdict == "fail"
+    return replace(code, failed=failed, of=of)

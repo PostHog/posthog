@@ -128,7 +128,7 @@ from products.signals.dags.inbox_ranking.training.side_inputs import (
     load_side_inputs,
     rows_as_of,
 )
-from products.signals.dags.inbox_ranking.training.telemetry import experiment_comparison_events
+from products.signals.dags.inbox_ranking.training.telemetry import FAMILY_SKIPPED_EVENT, experiment_comparison_events
 
 PARTITION = "2026-10-20"
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -168,9 +168,24 @@ def _pair_experiment(
     )
 
 
+def _record_skips(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    skips: list[tuple[str, str]] = []
+
+    def capture(context, partition_key, events, **kwargs):
+        skips.extend(
+            (event.properties["model_name"], event.properties["reason"])
+            for event in events
+            if event.event == FAMILY_SKIPPED_EVENT
+        )
+
+    monkeypatch.setattr(nn_dag, "capture_training_events", capture)
+    return skips
+
+
 @pytest.mark.parametrize("examples_present", [True, False])
 def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypatch, examples_present):
     trained: list[str] = []
+    skips = _record_skips(monkeypatch)
 
     def train_candidate(context, client, bucket, partition_key, family):
         trained.append(family.name)
@@ -196,6 +211,10 @@ def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypa
     assert trained == (["last_day", "pair in the pair lane"] if examples_present else [])
     assert metadata["expired_skipped"].value == "expired on 2026-10-19"
     assert ("skipped" in metadata) is not examples_present
+    # A family that trains reports no skip, so each family is in one series or the other.
+    assert skips == [("expired", "expired")] + (
+        [] if examples_present else [("last_day", "missing_examples"), ("pair", "missing_examples")]
+    )
 
 
 def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
@@ -1116,6 +1135,7 @@ def _backfill_objects(examples: NNExamples, batch_id: str) -> dict[str, bytes]:
 
 
 def test_a_backfill_family_skips_a_partition_its_batch_holds_no_birth_day_of(monkeypatch):
+    skips = _record_skips(monkeypatch)
     family = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME)
     _, objects, day = _report_facts_objects()
     client = _S3(objects)
@@ -1123,7 +1143,11 @@ def test_a_backfill_family_skips_a_partition_its_batch_holds_no_birth_day_of(mon
     with dagster.build_asset_context(partition_key=day) as context:
         metadata = nn_dag.train_candidate(context, client, "bucket", day, family)
 
-    assert metadata == {"skipped": dagster.MetadataValue.bool(True)}
+    assert metadata == {
+        "skipped": dagster.MetadataValue.bool(True),
+        "skip_reason": dagster.MetadataValue.text("backfill_batch_empty"),
+    }
+    assert skips == [(family.name, "backfill_batch_empty")]
     assert not [key for key in client.objects if f"/{family.name}/" in key]
 
 

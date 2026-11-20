@@ -1742,7 +1742,7 @@ export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
 }
 
 /**
- * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
  */
 export const workflowEmailSandboxProvision = async (
     projectId: string,
@@ -1759,7 +1759,7 @@ export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
 }
 
 /**
- * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
  */
 export const workflowEmailSandboxStatus = async (
     projectId: string,

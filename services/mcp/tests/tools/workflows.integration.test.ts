@@ -14,7 +14,7 @@ import {
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from '@/tools/workflows/batch'
-import { workflowsArchive, workflowsDisable, workflowsEnable } from '@/tools/workflows/lifecycle'
+import { workflowsArchive, workflowsDisable } from '@/tools/workflows/lifecycle'
 
 describe('Workflows', { concurrent: false }, () => {
     let context: Context
@@ -28,7 +28,7 @@ describe('Workflows', { concurrent: false }, () => {
     const globalStatsTool = GENERATED_TOOLS['workflows-global-stats']!()
     const listInvocationsTool = GENERATED_TOOLS['workflows-list-invocations']!()
     const getInvocationTool = GENERATED_TOOLS['workflows-get-invocation']!()
-    const enableTool = workflowsEnable()
+    const enableTool = GENERATED_TOOLS['workflows-enable']!()
     const disableTool = workflowsDisable()
     const archiveTool = workflowsArchive()
     const blastRadiusTool = workflowsBlastRadius()

@@ -56,6 +56,18 @@ ENDPOINTS: dict[str, RevolutMerchantEndpoint] = {
             "paginator": {"type": "cursor", "cursor_path": "next_page_token", "cursor_param": "page_token"},
         },
     ),
+    "customer_payment_methods": RevolutMerchantEndpoint(
+        endpoint={
+            "path": "/customers/{customer_id}/payment-methods",
+            "params": {"customer_id": {"type": "resolve", "resource": "customers", "field": "id"}},
+            "data_selector": "payment_methods",
+            "data_selector_required": True,
+            "paginator": "single_page",
+        },
+        primary_keys=["customer_id", "id"],
+        parent="customers",
+        parent_id_column="customer_id",
+    ),
     "subscriptions": RevolutMerchantEndpoint(
         endpoint={
             "path": "/subscriptions",

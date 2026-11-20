@@ -120,10 +120,13 @@ from products.signals.dags.inbox_ranking.training.families import (
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    FamilySkipReason,
     candidate_events,
     capture_training_events,
     experiment_comparison_events,
+    family_skipped_event,
     holdout_calibration_events,
+    run_times,
 )
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 
@@ -241,6 +244,16 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+def skip_family(
+    context: dagster.AssetExecutionContext, partition_key: str, family: ModelFamily, reason: FamilySkipReason
+) -> dict[str, dagster.MetadataValue]:
+    """Capture `family`'s skip event and return the asset metadata of the skip. The caller logs why."""
+    capture_training_events(
+        context, partition_key, [family_skipped_event(model_name=family.name, run_id=context.run_id, reason=reason)]
+    )
+    return {"skipped": dagster.MetadataValue.bool(True), "skip_reason": dagster.MetadataValue.text(reason.value)}
+
+
 def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str]:
     """The required state columns of `family`'s set that the examples rows lack. An examples object
     written before a column existed lacks it, and building the set from it would raise. A set builds
@@ -337,9 +350,9 @@ def _experiment_inputs(
     family: ModelFamily,
     table: ExampleTable,
     day: DayInputs,
-) -> _ExperimentInputs | None:
+) -> _ExperimentInputs | FamilySkipReason:
     """The side inputs an experiment reads beside the report vectors, and its baseline's report
-    input, or None when either cannot be built and the experiment keeps the partition as it stands."""
+    input, or the reason the experiment keeps the partition as it stands when either cannot be built."""
     baseline = next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
     missing_columns = _missing_state_columns(baseline, table)
     if missing_columns:
@@ -347,10 +360,10 @@ def _experiment_inputs(
             f"the nn examples for dt={partition_key} have no {', '.join(missing_columns)} column for baseline "
             f"{baseline.name}; {family.name} keeps this partition as it stands"
         )
-        return None
+        return FamilySkipReason.MISSING_STATE_COLUMN
     extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
     if extras is None:
-        return None
+        return FamilySkipReason.MISSING_SIDE_INPUT
     baseline_context = None
     if baseline.project_vector_kinds != family.project_vector_kinds:
         baseline_context = project_context(table.rows, day.labels, day.embeddings, baseline.project_vector_kinds)
@@ -366,18 +379,20 @@ def train_candidate(
 ) -> dict[str, dagster.MetadataValue]:
     """Fit the day's network for `family`, write its graphs and `metadata.json` under
     `<model_name>/dt=D/`, and return the asset metadata. A partition without examples or snapshots
-    keeps the objects it already holds, because the served pointer can name them."""
+    keeps the objects it already holds, because the served pointer can name them, and captures a
+    skip event."""
+    started_at = datetime.datetime.now(datetime.UTC)
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
     if arrow is None:
         context.log.warning(f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands")
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_EXAMPLES)
     examples = examples_from_arrow(arrow)
     late = None
     if family.feature_set.late_feature_groups:
         late = _late_group_inputs(context, client, bucket, prefix, partition_key, family, examples)
         if late is None:
-            return {"skipped": dagster.MetadataValue.bool(True)}
+            return skip_family(context, partition_key, family, FamilySkipReason.BACKFILL_BATCH_EMPTY)
         examples = late.examples
     missing = _missing_state_columns(family, examples.table)
     if missing:
@@ -386,21 +401,21 @@ def train_candidate(
             f"the nn examples for dt={partition_key} have no {', '.join(missing)} column; {family.name} keeps this "
             f"partition as it stands. Re-run the {NN_EXAMPLES_TABLE} asset for dt={partition_key}"
         )
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_STATE_COLUMN)
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SNAPSHOT)
     baseline_reports = baseline_context = None
     if family.experiment:
         experiment = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
-        if experiment is None:
-            return {"skipped": dagster.MetadataValue.bool(True)}
+        if isinstance(experiment, FamilySkipReason):
+            return skip_family(context, partition_key, family, experiment)
         extras, baseline_reports = experiment.extras, experiment.baseline_reports
         baseline_context = experiment.baseline_context
     else:
         family_extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
         if family_extras is None:
-            return {"skipped": dagster.MetadataValue.bool(True)}
+            return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SIDE_INPUT)
         extras = family_extras
     facts_sources = None
     if late is not None and isinstance(family.feature_set, ReportEmbeddingsPriorityScoredFactsFeatureSet):
@@ -484,6 +499,7 @@ def train_candidate(
         windows=examples.windows,
         vs_baseline=vs_baseline,
         readiness=readiness,
+        started_at=started_at,
     )
     return {**metadata, **history_shares(inputs), **readiness_metadata(readiness)}
 
@@ -530,12 +546,13 @@ def write_candidate(
     *,
     windows: Mapping[str, Mapping[str, object]],
     vs_baseline: Mapping[str, Any] | None,
+    started_at: datetime.datetime,
     pair_settings: Mapping[str, Any] | None = None,
     readiness: Mapping[str, Any] | None = None,
 ) -> dict[str, dagster.MetadataValue]:
     """Write a fitted `family` network's graphs and `metadata.json` under `<model_name>/dt=D/`,
     replacing what a previous run of the partition left, capture its events, and return the asset
-    metadata."""
+    metadata. `started_at` is when the family's training started."""
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     for head in trained.heads:
         context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
@@ -582,7 +599,7 @@ def write_candidate(
         context,
         partition_key,
         [
-            *candidate_events(metadata),
+            *candidate_events(metadata, run_times(started_at)),
             *experiment_comparison_events(metadata),
             *holdout_calibration_events(
                 partition_key=partition_key,

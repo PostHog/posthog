@@ -217,6 +217,10 @@
                                     ],
                                     "type": "object"
                                 },
+                                "colorBarsByCategory": {
+                                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                                    "type": "boolean"
+                                },
                                 "goalLines": {
                                     "description": "Horizontal goal lines drawn across the chart.",
                                     "items": {

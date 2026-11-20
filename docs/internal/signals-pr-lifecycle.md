@@ -1,10 +1,14 @@
 # Report completion and late PR attachments
 
+Implementations started in the app send each pull request link to the report's saved Slack notification threads when task output or an opened GitHub webhook records the PR. Each output callback queues one batch of at most 50 valid PR URLs. A new report thread or report merge also queues existing implementation PRs after commit. Delivery follows implementation associations after report merges and excludes deleted reports. Delivery runs on a worker after commit, with bounded Slack timeouts and retries with backoff for transient failures. Rate-limit retries honor Slack's Retry-After header. Tasks with a Slack conversation mapping for the PR's run keep their existing notification path for that destination. Saved-thread delivery reserves only that run's primary PR for the mapped sender. Secondary PR links also reach the mapped destination. Both senders record successful delivery by Slack destination and PR URL, so a follow-up run does not cause an older batch to repeat a message. A mapping from an earlier run does not suppress an app rerun's notification. Mapped PR cards accept HTTPS GitHub PR URLs from the task's repositories or HTTPS GitLab merge request URLs from its connected project. GitLab repository comparisons ignore case. When a task starts without a repository, the sender verifies its PR through the run's authenticated GitHub connection. Each report thread records the PR URLs it receives, so retries skip successful sends. Personal channels require a saved reviewer with current project and Inbox access. Shared personal channels remain eligible while at least one saved reviewer has access. Direct messages require a saved PostHog recipient or linked Slack account with that access, plus Slack eligibility. Legacy channel threads without saved recipient scope receive updates only when they match the configured project channel or identify a scout report. The assignment side-effect gate applies to enrolled reports. Saved integrations can belong to another environment in the report's project. Disconnected workspaces do not receive updates. Report messages without a saved destination or an identifiable DM recipient cannot receive these updates.
+
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
 Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.
 
 Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. The report list API's `view=monitoring` returns the same reports. Review and merge continues to show reports with an open implementation PR.
+
+A move from Monitoring to Resolved or Closed sets `monitoring_ended_at`, including resolving an archived Monitoring report. Archiving only pauses Monitoring and leaves it unset, and reopening clears it with `monitoring_started_at`. The list API's `view=monitoring_recent` returns the Monitoring reports plus the resolved and closed reports whose Monitoring ended in the last 14 days. Each of those carries a `monitoring_outcome`: `resolved` when every check passed, `resolved_by_assessment` when a report-level assessment decided, `resolved_manually` when a person resolved it, `resolved_unverified` when every check was cancelled, or `closed`. `follow_up` is the report grouping placed that attempt's `monitoring_unresolved` signal in. Their `monitoring_summary.checks` lists each check's final state. The `connected` list parameter keeps the reports the user claimed (`assigned`) or is a suggested reviewer on (`suggested_reviewer`), whichever matches.
 
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
@@ -277,6 +281,22 @@ A confirmed public source does not restrict destination visibility, so an unavai
 The restricted candidate list governs both the prompt and validation of the agent's result.
 A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
 
+A person can change the report's repository with `PUT /api/projects/:id/signals/reports/:report_id/repository/`.
+The repository must be one the project's own GitHub installation reaches and that is not archived.
+The change appends an attributed `repo_selection` artefact, so the work log keeps the earlier selection.
+The new row keeps the earlier row's `research_context`.
+It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
+Selecting the current repository adds no row.
+
+A person can change the report's actionability, its already-addressed value, or both with `PUT /api/projects/:id/signals/reports/:report_id/actionability/`.
+The change appends an attributed `actionability_judgment` artefact that keeps the value the request omits, and later research runs keep it.
+A new actionability moves a `ready` or `pending_input` report: `requires_human_input` to `pending_input`, and `immediately_actionable` or `not_actionable` to `ready`.
+A report in any other status keeps its status, and a change to already addressed alone moves no report.
+The change does not re-evaluate autostart, so it does not open a pull request by itself.
+Setting the current values adds no row.
+
+The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
+
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
@@ -450,6 +470,20 @@ A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
 ### Write contract
+
+Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
+Each reviewer version carries separate, server-owned implementation authorization.
+Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
+Stack layers inherit the parent reviewer version, authorization, and reviewer corrections.
+After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
+Reports filed by a person and their stack layers require an explicit implementation request.
+Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+Sandbox API writes do not grant permission to start implementation.
+An ineligible caller never falls back to a named reviewer or another member.
+Startup reads the authorization and reviewer content from the same version, including on deferred retries.
+Unchanged automatic proposals preserve the current version's authorization.
+Research and scout proposals that retain an existing reviewer also preserve that authorization when they add reviewers or update their evidence.
+Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.

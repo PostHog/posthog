@@ -162,6 +162,16 @@ TIKTOK_MISSING_SCOPE_MESSAGE = (
     "your TikTok Ads integration and approve every permission TikTok asks for."
 )
 
+# TikTok normally answers an auth failure with HTTP 200 and a body `code` (see TIKTOK_AUTH_ERROR_CODES
+# above), which the paginator classifies. A real HTTP 401 means the gateway rejected the access token
+# before the request ever reached that per-endpoint check, so no body-code branch sees it — it would
+# otherwise retry forever. Match the stable status text and host, not the per-request query string.
+TIKTOK_UNAUTHORIZED_HTTP_ERROR_FRAGMENT = "401 Client Error: Unauthorized for url: https://business-api.tiktok.com"
+
+TIKTOK_UNAUTHORIZED_HTTP_ERROR_MESSAGE = (
+    "TikTok rejected your access token. Please reconnect your TikTok Ads integration."
+)
+
 
 class TikTokAdsAPIError(Exception):
     """A TikTok API failure, carrying the body `code` as `api_code` so callers can branch on it: the
