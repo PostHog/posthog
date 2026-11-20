@@ -403,6 +403,11 @@ class TestDatabricksSource:
                 " for more information.. ",
                 "entitlement",
             ),
+            (
+                "Error during request to server. access_denied: Scopes 'all-apis' are not assigned to"
+                " the client 0f135951-a5ea-46ae-a92c-136dff6b38bb",
+                "all-apis",
+            ),
             ("something totally unexpected", "Could not connect to Databricks"),
         ],
     )
@@ -454,6 +459,16 @@ class TestDatabricksSource:
             "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE] The SQL query of view `main`.`posthog`.`alert` has an "
             "incompatible schema change and column alert_severity cannot be resolved. Expected 1 "
             "columns named alert_severity but got []."
+        )
+        assert any(key in observed_error for key in source.get_non_retryable_errors())
+
+    def test_get_non_retryable_errors_matches_oauth_scope_not_assigned(self, source):
+        # The service principal's OAuth client is missing the "all-apis" scope Databricks always
+        # requests for this flow — a customer-side account config that every retry fails identically
+        # until an admin grants the scope, so the volatile client id around it must not be required.
+        observed_error = (
+            "Error during request to server. access_denied: Scopes 'all-apis' are not assigned to"
+            " the client 0f135951-a5ea-46ae-a92c-136dff6b38bb"
         )
         assert any(key in observed_error for key in source.get_non_retryable_errors())
 

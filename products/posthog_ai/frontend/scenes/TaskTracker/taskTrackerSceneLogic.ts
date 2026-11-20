@@ -40,6 +40,7 @@ import {
     type WarmTaskRequestApi,
     WarmTaskRequestOriginProductEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type { TasksUserConfigResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { IntegrationType } from '../../../../../frontend/src/types'
 import { runStreamLogic } from '../../api/logics'
@@ -65,6 +66,7 @@ import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
+import type { TaskWarmRequest } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
@@ -313,10 +315,10 @@ export interface taskTrackerSceneLogicActions {
         previous: string | null
     } // taskDefaultsLogic
     loadMyConfigSuccess: (
-        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi,
+        myConfig: TasksUserConfigResponseApi | null,
         payload?: any
     ) => {
-        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi
+        myConfig: TasksUserConfigResponseApi | null
         payload?: any
     } // taskRunDefaultsLogic
     consumeWarm: (
@@ -328,12 +330,12 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest,
+        request: TaskWarmRequest,
         eligible?: boolean | undefined
     ) => {
         eligible: boolean
         hasText: boolean
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+        request: TaskWarmRequest
     } // taskWarmLogic
     prepareSubmit: (submission: WarmSubmission) => {
         submission: WarmSubmission

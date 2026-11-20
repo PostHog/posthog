@@ -5,7 +5,7 @@ Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
 in this package at module load time.
 """
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.slack_app.backend.temporal.activities import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
@@ -31,6 +31,7 @@ from products.slack_app.backend.temporal.activities import (
     find_slack_app_work_focus_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_slack_mention_command_activity,
+    index_slack_app_daily_summary_activity,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     offer_slack_app_tool_connections_activity,
@@ -72,7 +73,10 @@ from products.slack_app.backend.temporal.types import (
     SlackRepoSelectionOutcome,
 )
 
-SLACK_APP_ACTIVITIES: list[Callable[..., object]] = [
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+SLACK_APP_ACTIVITIES: list[ActivityDefinition] = [
     prepare_slack_report_implementation_activity,
     finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,
@@ -104,6 +108,7 @@ SLACK_APP_ACTIVITIES: list[Callable[..., object]] = [
     edit_slack_app_onboarding_message_activity,
     find_slack_app_work_focus_activity,
     claim_due_slack_app_daily_focus_activity,
+    index_slack_app_daily_summary_activity,
     offer_slack_app_tool_connections_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
@@ -164,6 +169,7 @@ __all__ = [
     "edit_slack_app_onboarding_message_activity",
     "find_slack_app_work_focus_activity",
     "claim_due_slack_app_daily_focus_activity",
+    "index_slack_app_daily_summary_activity",
     "offer_slack_app_tool_connections_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
