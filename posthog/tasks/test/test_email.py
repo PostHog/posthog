@@ -19,6 +19,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.invite_analytics import invite_analytics_id, invite_distinct_id
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import override_instance_config, set_instance_setting
@@ -137,6 +138,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+        message = mocked_email_messages[0]
+        assert message.campaign_key == f"invite_email_{invite_analytics_id(invite.id)}"
+        assert message.to[0]["distinct_id"] == invite_distinct_id(invite.id)
+        assert str(invite.id) not in message.campaign_key + message.to[0]["distinct_id"]
 
     def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
         """Delegation invites route to the delegation_invite template with a custom subject."""

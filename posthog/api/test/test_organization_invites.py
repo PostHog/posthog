@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.invite_analytics import invite_distinct_id
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
@@ -241,7 +242,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Assert capture call for invitee
         mock_capture.assert_any_call(
             event="user invited",
-            distinct_id=f"invite_{invite_id}",
+            distinct_id=invite_distinct_id(invite_id),
             properties=capture_props,
             groups={"instance": ANY, "organization": str(self.team.organization_id)},
         )
@@ -741,7 +742,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Assert capture call for invitee
         mock_capture.assert_any_call(
             event="user invited",
-            distinct_id=f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
+            distinct_id=invite_distinct_id(OrganizationInvite.objects.last().id),  # type: ignore
             properties={
                 "name_provided": True,
                 "current_invite_count": 7,

@@ -15,6 +15,7 @@ from opentelemetry import trace
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
+from posthog.invite_analytics import invite_distinct_id
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -122,7 +123,7 @@ def alias_invite_id(user: User, invite_id: str) -> None:
     if not user.distinct_id:
         return
 
-    posthoganalytics.alias(user.distinct_id, f"invite_{invite_id}")
+    posthoganalytics.alias(user.distinct_id, invite_distinct_id(invite_id))
 
 
 def report_user_joined_organization(organization: Organization, current_user: User) -> None:
@@ -277,7 +278,7 @@ def report_team_member_invited(
 
     # Report for invitee
     posthoganalytics.capture(
-        distinct_id=f"invite_{invite_id}",  # see `alias_invite_id` too
+        distinct_id=invite_distinct_id(invite_id),  # see `alias_invite_id` too
         event="user invited",
         properties=properties,
         groups=groups(inviting_user.current_organization, None),

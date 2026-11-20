@@ -326,4 +326,6 @@ rules:
       owners: team-surfaces
     - match:
           - '/frontend/src/lib/utils/sensitiveUrlRedaction.*'
+          - '/posthog/invite_analytics.py'
+          - '/posthog/test/test_invite_analytics.py'
       owners: team-security
