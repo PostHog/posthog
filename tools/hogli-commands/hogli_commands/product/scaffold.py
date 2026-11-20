@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
+from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, load_structure
 
 
 def flatten_structure(files: dict, prefix: str = "", result: dict | None = None) -> dict[str, dict]:
@@ -73,31 +73,6 @@ def _register_in_file(
     if result is not None:
         file_path.write_text(result)
         click.echo(f"\n  Added to {label}: {needle}")
-
-
-def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
-    module_path = f"products.{product_name}"
-    block = (
-        f"\n[[modules]]\n"
-        f'path = "{module_path}"\n'
-        f'depends_on = ["posthog"]\n'
-        f'layer = "modules"\n'
-        f"\n[[interfaces]]\n"
-        f"expose = [\n"
-        f'    "backend\\\\.facade.*",\n'
-        f'    "backend\\\\.presentation\\\\.views.*",\n'
-        f"]\n"
-        f"from = [\n"
-        f'    "{module_path}",\n'
-        f"]\n"
-    )
-    _register_in_file(
-        TACH_TOML,
-        "tach.toml",
-        f'path = "{module_path}"',
-        lambda content: content.rstrip() + "\n" + block,
-        dry_run=dry_run,
-    )
 
 
 def _add_to_frontend_package_json(product_name: str, *, dry_run: bool) -> None:
@@ -317,7 +292,6 @@ def bootstrap_product(
         if not owner:
             click.secho("  ⚠ Set the real team slug in product.yaml before merging.", fg="yellow")
 
-    _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
 
