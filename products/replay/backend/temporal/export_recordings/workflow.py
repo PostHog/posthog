@@ -111,7 +111,6 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                 shard=shard,
                 shards_per_day=input.shards_per_day,
                 session_ids_prefix=input.session_ids_prefix,
-                quoted_at=input.quoted_at,
             ),
             start_to_close_timeout=timedelta(hours=12),
             heartbeat_timeout=timedelta(minutes=5),

@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from products.replay.backend.management.commands.export_recordings_to_s3 import _shard_list
-from products.replay.backend.temporal.export_recordings.quote import SelectionError, check_day_selection
+from products.replay.backend.temporal.export_recordings.quote import SelectionError, check_shard_selection
 
 
 @pytest.mark.parametrize(
@@ -34,7 +34,7 @@ def test_shard_list_rejects_malformed_names(value: str) -> None:
 )
 def test_a_day_of_selected_sessions_must_fit_in_one_query(session_ids: list[str], accepted: bool) -> None:
     if accepted:
-        check_day_selection(date(2026, 8, 1), session_ids)
+        check_shard_selection(date(2026, 8, 1), 0, session_ids)
     else:
         with pytest.raises(SelectionError):
-            check_day_selection(date(2026, 8, 1), session_ids)
+            check_shard_selection(date(2026, 8, 1), 0, session_ids)

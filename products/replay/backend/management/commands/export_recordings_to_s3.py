@@ -39,7 +39,6 @@ from products.replay.backend.temporal.export_recordings.quote import (
     Quote,
     SelectionError,
     create_quote,
-    current_cost,
     load_quote,
     playlist_session_ids,
 )
@@ -75,13 +74,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--kms-key-id", help="Encrypt with this KMS key: a key ID in the role's account, or a key ARN."
         )
-        parser.add_argument("--shards-per-day", type=_positive_int, default=16)
+        parser.add_argument(
+            "--shards-per-day", type=_positive_int, default=16, help="Quote only. Raise it when a shard is too big."
+        )
         parser.add_argument("--max-parallel-shards", type=_positive_int, default=32)
         parser.add_argument(
             "--shards",
             type=_shard_list,
-            help="Run only these shards, as YYYY-MM-DD:N,..., for example the failed shards an earlier run lists. "
-            "Pass the same --shards-per-day as that run.",
+            help="Run only these shards, as YYYY-MM-DD:N,..., for example the failed shards an earlier run lists.",
         )
         parser.add_argument("--yes", action="store_true", help="Start without asking for confirmation.")
 
@@ -100,19 +100,20 @@ class Command(BaseCommand):
             raise CommandError("--date-to is before --date-from")
         if date_to >= datetime.now(UTC).date():
             raise CommandError(
-                "--date-to must be before today (UTC), so no new sessions join the range after the quote"
+                "--date-to must be before today (UTC), so every session in the range has finished recording"
             )
         team = Team.objects.get(id=team_id)
         cross_region = _cross_region(region, options["allow_cross_region"])
         try:
-            session_ids = None
+            session_ids, selection = None, "every session in the range"
             if options["session_ids_file"]:
                 lines = options["session_ids_file"].read_text().splitlines()
-                session_ids = sorted({line.strip() for line in lines} - {""})
+                session_ids, selection = sorted({line.strip() for line in lines} - {""}), "a list of session IDs"
             elif options["playlist"]:
                 session_ids = playlist_session_ids(
                     team, options["playlist"], date_from.isoformat(), date_to.isoformat()
                 )
+                selection = f"saved recordings filter {options['playlist']}"
             quote = create_quote(
                 team_id=team_id,
                 date_from=date_from.isoformat(),
@@ -120,8 +121,9 @@ class Command(BaseCommand):
                 session_ids=session_ids,
                 region=region,
                 cross_region=cross_region,
+                shards_per_day=options["shards_per_day"],
                 max_parallel_shards=options["max_parallel_shards"],
-                playlist_short_id=options["playlist"],
+                selection=selection,
             )
         except SelectionError as e:
             raise CommandError(str(e)) from e
@@ -136,14 +138,6 @@ class Command(BaseCommand):
         region = _required(options, "region")
         if region != quote.region:
             raise CommandError(f"The quote priced region {quote.region}, not {region}")
-        # Only full runs: a run of failed shards repeats part of a selection the customer already paid for.
-        if not options["shards"]:
-            cost = current_cost(quote)
-            if cost.total_usd > quote.cost.total_usd:
-                raise CommandError(
-                    f"The selection now costs ${cost.total_usd:,.2f}, more than the quoted ${quote.cost.total_usd:,.2f}. "
-                    "Create a new quote."
-                )
         integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]
@@ -153,8 +147,8 @@ class Command(BaseCommand):
                 day, shard = name.split(":")
                 if not quoted_days[0] <= date.fromisoformat(day) <= quoted_days[1]:
                     raise CommandError(f"Shard {name} is outside the quoted range {quote.date_from} to {quote.date_to}")
-                if int(shard) >= options["shards_per_day"]:
-                    raise CommandError(f"Shard {name} is not below --shards-per-day")
+                if int(shard) >= quote.shards_per_day:
+                    raise CommandError(f"Shard {name} is not below the quote's {quote.shards_per_day} shards per day")
         try:
             integration = IntegrationManager.any.get(quote.team_id, integration_id)
         except IntegrationNotFound as e:
@@ -176,8 +170,7 @@ class Command(BaseCommand):
             date_from=quote.date_from,
             date_to=quote.date_to,
             session_ids_prefix=quote.session_ids_prefix,
-            quoted_at=quote.created_at,
-            shards_per_day=options["shards_per_day"],
+            shards_per_day=quote.shards_per_day,
             max_parallel_shards=options["max_parallel_shards"],
             only_shards=only_shards,
         )
@@ -242,18 +235,12 @@ def _cross_region(region: str, allowed: bool) -> bool:
     return cross_region
 
 
-def _selection_label(quote: Quote) -> str:
-    if quote.playlist_short_id:
-        return f" (saved filter {quote.playlist_short_id})"
-    return " (session list)" if quote.session_ids_prefix else ""
-
-
 def format_quote(quote: Quote) -> str:
     usage, cost = quote.usage, quote.cost
     return "\n".join(
         [
             f"Quote {quote.quote_id} for team {quote.team_id}, {quote.date_from} to {quote.date_to}"
-            + _selection_label(quote),
+            + f", {quote.selection}",
             f"  Sessions:           {usage.sessions:,}",
             f"  Blocks:             {usage.blocks:,} ({usage.glacier_blocks:,} in Glacier IR)",
             f"  Stored data:        {usage.bytes / 1e9:,.1f} GB ({usage.glacier_bytes / 1e9:,.1f} GB in Glacier IR)",

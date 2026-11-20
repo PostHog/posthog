@@ -14,18 +14,17 @@ It plays one session at a time, with no event timeline and no search.
    It stores the quote in our object storage under `session_recording_exports/quotes/<quote_id>.json`.
    A quote is valid for 7 days.
 2. `export_recordings_to_s3 --quote-id` starts the `export-recordings` workflow on the session replay task queue.
-   The date range and any session list come from the quote, so the run exports what the quote priced.
-   A session list comes from `--session-ids-file` or from a saved recordings filter (`--playlist`), resolved once at quote time.
-   The quote stores it as one file per start day under `session_recording_exports/session_ids/<quote_id>/`, so each shard reads only its own day.
-3. The workflow splits each day into `--shards-per-day` shards by session ID hash.
-   It runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
-4. Each shard lists its sessions in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
+   The quote saves the sessions it priced, and the run exports only those, so sessions that arrive later are left out.
+   It selects every session in the range, the sessions in `--session-ids-file`, or the sessions a saved recordings filter (`--playlist`) matches.
+3. The quote splits each day into `--shards-per-day` shards by session ID hash, and stores one list per shard under `session_recording_exports/session_ids/<quote_id>/<day>/<shard>.txt`.
+   The workflow runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
+4. Each shard reads its list, looks the sessions up in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
    A shard checkpoints through its heartbeat every 500 sessions, so a retry resumes there.
    Only a 404 from recording-api marks a session `missing`. Any other recording-api error fails the shard, and Temporal retries it from the checkpoint.
 5. A last activity writes `quote.json` (the selection and usage, without our cost) and `summary.json` next to the manifests.
    `summary.json` exists only when the run finished.
    A shard that fails after all its retries does not stop the others. The summary lists it under `failed_shards` as `YYYY-MM-DD:N`, and the run then ends as failed.
-   Start the quote again with `--shards <that list>` and the same `--shards-per-day` to export only those shards, as a new run.
+   Start the quote again with `--shards <that list>` to export only those shards, as a new run.
 
 A quote starts one workflow, `export-recordings-<team_id>-<quote_id>`.
 Temporal refuses a second start while it runs or after it completes, and allows one after a failed run.

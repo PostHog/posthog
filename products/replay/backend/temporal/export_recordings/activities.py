@@ -1,5 +1,6 @@
 import re
 import json
+import bisect
 import asyncio
 import hashlib
 import functools
@@ -87,8 +88,6 @@ SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce
 
 # A session that crosses midnight has rows on two days. Reading the day before finds its true start,
 # and reading the day after finds its later rows.
-# One page of a shard's sessions after a session ID, so a shard never holds all its block references at once.
-# The inner query picks the page from per-session aggregates only, so block arrays are read for that page alone.
 SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
@@ -102,30 +101,11 @@ FROM session_replay_events
 PREWHERE team_id = %(team_id)s
     AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
     AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
-WHERE session_id IN (
-    SELECT session_id
-    FROM (
-        SELECT
-            session_id,
-            min(min_first_timestamp) AS start_time,
-            {SESSION_EXPIRY_TIME_SQL} AS expiry_time
-        FROM session_replay_events
-        PREWHERE team_id = %(team_id)s
-            AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
-            AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
-        WHERE cityHash64(session_id) %% %(shards_per_day)s = %(shard)s
-            AND session_id > %(after)s
-            {{session_filter}}
-        GROUP BY session_id
-        HAVING max(is_deleted) = 0
-            AND start_time >= %(day_start)s
-            AND start_time < %(day_start)s + INTERVAL 1 DAY
-            AND expiry_time >= %(quoted_at)s
-        ORDER BY session_id
-        LIMIT %(limit)s
-    )
-)
+WHERE session_id IN %(session_ids)s
 GROUP BY session_id
+HAVING max(is_deleted) = 0
+    AND start_time >= %(day_start)s
+    AND start_time < %(day_start)s + INTERVAL 1 DAY
 ORDER BY session_id
 """
 
@@ -235,52 +215,47 @@ def frame_block(block: bytes) -> bytes:
     return len(block).to_bytes(4, "big") + block
 
 
-def session_ids_day_key(prefix: str, day: str) -> str:
-    return f"{prefix}/{day}.txt"
+def session_ids_shard_key(prefix: str, day: str, shard: int) -> str:
+    return f"{prefix}/{day}/{shard:04d}.txt"
 
 
 def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
-    # The quote caps each day's list by count and by bytes, which keeps it inside ClickHouse's query size limit.
-    selected = None
-    if input.session_ids_prefix:
-        selected = sorted(load_session_ids(session_ids_day_key(input.session_ids_prefix, input.day)))
-        if not selected:
-            return []
-    session_filter = "AND session_id IN %(session_ids)s" if selected is not None else ""
-    rows = sync_execute(
-        SHARD_SESSIONS_QUERY.replace("{session_filter}", session_filter),
-        {
-            "team_id": input.team_id,
-            "day_start": datetime.fromisoformat(input.day).replace(tzinfo=UTC),
-            "shards_per_day": input.shards_per_day,
-            "shard": input.shard,
-            "quoted_at": datetime.fromisoformat(input.quoted_at),
-            "after": after,
-            "limit": SESSIONS_PER_CHECKPOINT,
-            "session_ids": selected,
-        },
-        workload=Workload.OFFLINE,
-    )
-    return [
-        SessionRow(
-            session_id=session_id,
-            distinct_id=distinct_id,
-            start_time=start_time.replace(tzinfo=UTC),
-            end_time=end_time.replace(tzinfo=UTC),
-            blocks=parse_blocks(first_timestamps, urls),
-            expiry_time=expiry_time.replace(tzinfo=UTC),
+    """Return the next page of the shard's listed sessions after a session ID, skipping deleted ones."""
+    listed = load_session_ids(session_ids_shard_key(input.session_ids_prefix, input.day, input.shard))
+    remaining = listed[bisect.bisect_right(listed, after) :]
+    # A page can come back empty when all its sessions were deleted, so keep going until one has rows.
+    for start in range(0, len(remaining), SESSIONS_PER_CHECKPOINT):
+        rows = sync_execute(
+            SHARD_SESSIONS_QUERY,
+            {
+                "team_id": input.team_id,
+                "day_start": datetime.fromisoformat(input.day).replace(tzinfo=UTC),
+                "session_ids": remaining[start : start + SESSIONS_PER_CHECKPOINT],
+            },
+            workload=Workload.OFFLINE,
         )
-        for session_id, distinct_id, start_time, end_time, first_timestamps, urls, expiry_time in rows
-    ]
+        if rows:
+            return [
+                SessionRow(
+                    session_id=session_id,
+                    distinct_id=distinct_id,
+                    start_time=start_time.replace(tzinfo=UTC),
+                    end_time=end_time.replace(tzinfo=UTC),
+                    blocks=parse_blocks(first_timestamps, urls),
+                    expiry_time=expiry_time.replace(tzinfo=UTC),
+                )
+                for session_id, distinct_id, start_time, end_time, first_timestamps, urls, expiry_time in rows
+            ]
+    return []
 
 
 @functools.lru_cache(maxsize=8)
-def load_session_ids(key: str) -> frozenset[str]:
-    # read() returns None for an empty file too, and a day without selected sessions has one.
+def load_session_ids(key: str) -> tuple[str, ...]:
+    # read() returns None for an empty file too, and a shard without sessions has one.
     content = object_storage.read_bytes(key)
     if content is None:
         raise ApplicationError(f"Session ID list {key} does not exist", non_retryable=True)
-    return frozenset(line.strip() for line in content.decode().splitlines() if line.strip())
+    return tuple(sorted({line.strip() for line in content.decode().splitlines() if line.strip()}))
 
 
 SessionMetadata = tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]

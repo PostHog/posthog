@@ -48,7 +48,8 @@ To export only some sessions in the range, you also need one of:
 - a file of session IDs (`--session-ids-file`).
 
 Filters on event properties, such as country, scan events over the whole range and can take minutes on a large team.
-Each day can select at most 100,000 sessions. The quote names the day that goes over; split the range or narrow the filter.
+The quote saves the list of sessions it priced, and the run exports exactly that list. Sessions that arrive after the quote are not exported.
+Each day is split into `--shards-per-day` shards (default 16), and a shard holds at most 100,000 sessions. When the quote names a shard that goes over, quote again with a higher `--shards-per-day`.
 A session belongs to the day it started on.
 The range must end before today (UTC). The command refuses a range that includes today.
 Recordings past their retention are gone and cannot be exported.
@@ -99,7 +100,7 @@ A failure on credentials or a missing integration is permanent: the customer mus
 Other shard failures retry on their own and resume from their last checkpoint.
 
 A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.
-Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>` and the same `--shards-per-day`.
+Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>`.
 A quote can start again only after a failed run, so a second start of a running or finished export is refused.
 
 ### 6. Hand over
