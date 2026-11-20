@@ -58468,6 +58468,11 @@ export namespace Schemas {
      */
     export type HealthIssueCountsByKind = {[key: string]: number};
 
+    /**
+     * The most severe severity among the issues of each check kind in this group, keyed by kind.
+     */
+    export type HealthIssueCountsWorstSeverityByKind = {[key: string]: string};
+
     export interface HealthIssueCounts {
       /** Total number of issues in this group. */
       total: number;
@@ -58475,6 +58480,8 @@ export namespace Schemas {
       by_severity: HealthIssueCountsBySeverity;
       /** Count of issues in this group keyed by check kind (e.g. 'sdk_outdated'). */
       by_kind: HealthIssueCountsByKind;
+      /** The most severe severity among the issues of each check kind in this group, keyed by kind. */
+      worst_severity_by_kind: HealthIssueCountsWorstSeverityByKind;
     }
 
     /**
@@ -76755,6 +76762,155 @@ export namespace Schemas {
       value?: unknown;
     }
 
+    export interface NotebookAppTab {
+      /**
+         * Stable tab identifier.
+         * @maxLength 80
+         */
+      id: string;
+      /**
+         * Tab label.
+         * @maxLength 80
+         */
+      title: string;
+    }
+
+    /**
+     * * `cell` - Notebook cell
+     * * `text` - Text
+     * * `input` - Input
+     * * `divider` - Divider
+     */
+    export type NotebookAppBlockKindEnum = typeof NotebookAppBlockKindEnum[keyof typeof NotebookAppBlockKindEnum];
+
+
+    export const NotebookAppBlockKindEnum = {
+      Cell: 'cell',
+      Text: 'text',
+      Input: 'input',
+      Divider: 'divider',
+    } as const;
+
+    /**
+     * * `auto` - Automatic
+     * * `select` - Dropdown
+     * * `slider` - Slider
+     */
+    export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
+
+
+    export const NotebookAppInputKindEnum = {
+      Auto: 'auto',
+      Select: 'select',
+      Slider: 'slider',
+    } as const;
+
+    /**
+     * * `output` - Output
+     * * `source` - Source
+     * * `both` - Source and output
+     */
+    export type NotebookAppCellDisplayEnum = typeof NotebookAppCellDisplayEnum[keyof typeof NotebookAppCellDisplayEnum];
+
+
+    export const NotebookAppCellDisplayEnum = {
+      Output: 'output',
+      Source: 'source',
+      Both: 'both',
+    } as const;
+
+    export interface NotebookAppBlock {
+      /**
+         * Stable component identifier within the app.
+         * @maxLength 80
+         */
+      id: string;
+      /** Type of app component.
+       *
+       * * `cell` - Notebook cell
+       * * `text` - Text
+       * * `input` - Input
+       * * `divider` - Divider */
+      kind: NotebookAppBlockKindEnum;
+      /**
+         * Tab containing this component.
+         * @maxLength 80
+         */
+      tab_id: string;
+      /**
+         * Optional component title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Width in a twelve-column grid.
+         * @minimum 1
+         * @maximum 12
+         */
+      width?: number;
+      /**
+         * Source notebook cell ID.
+         * @maxLength 160
+         */
+      node_id?: string;
+      /**
+         * Markdown for a text component.
+         * @maxLength 20000
+         */
+      text?: string;
+      /**
+         * Notebook variable controlled by an input.
+         * @maxLength 80
+         */
+      variable?: string;
+      /** Control used for an input.
+       *
+       * * `auto` - Automatic
+       * * `select` - Dropdown
+       * * `slider` - Slider */
+      input_kind?: NotebookAppInputKindEnum;
+      /**
+         * Allowed values for a dropdown.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      options?: string[];
+      /** Slider minimum. */
+      min?: number;
+      /** Slider maximum. */
+      max?: number;
+      /**
+         * Slider increment.
+         * @minimum 0.000001
+         */
+      step?: number;
+      /** Whether to display cell source, output, or both.
+       *
+       * * `output` - Output
+       * * `source` - Source
+       * * `both` - Source and output */
+      display?: NotebookAppCellDisplayEnum;
+    }
+
+    export interface NotebookAppLayout {
+      /**
+         * App title, falling back to the notebook title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Description displayed below the app title.
+         * @maxLength 2000
+         */
+      description?: string;
+      /** Use all available width instead of a centered page. */
+      full_width?: boolean;
+      /** Ordered app tabs. */
+      tabs: NotebookAppTab[];
+      /** Ordered components, arranged in rows within each tab. */
+      blocks: NotebookAppBlock[];
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -76797,6 +76953,15 @@ export namespace Schemas {
       readonly parent_resource: NotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -94826,6 +94991,15 @@ export namespace Schemas {
       readonly parent_resource?: PatchedNotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -148871,7 +149045,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
