@@ -9,12 +9,23 @@ import hesoyamSfx from 'public/hesoyam.mp3'
 
 import { billingCouponsClaimCreate } from 'products/billing/frontend/generated/api'
 
+import { CheatCodeClaimOutcome, cheatCodeLogic } from './cheatCodeLogic'
 import { HesoyamClaimedToast } from './HesoyamClaimedToast'
 
-export type CheatCodeClaimOutcome = 'claimed' | 'already_claimed' | 'needs_billing' | 'failed'
+// pinned: substrings of the billing service's claim error messages. Rewording one there drops it to 'failed'.
+const ERROR_OUTCOMES: [string, CheatCodeClaimOutcome][] = [
+    ['already claimed', 'already_claimed'],
+    ['active subscription', 'needs_billing'],
+    ['card on file', 'needs_billing'],
+    ['payment method', 'needs_billing'],
+    ['maximum number of claims', 'campaign_full'],
+    ['card has already been used', 'card_already_used'],
+]
 
-// pinned: substrings of the billing service's claim errors for an organization without a subscription or a card.
-const BILLING_SETUP_ERRORS = ['active subscription', 'card on file', 'payment method']
+export function cheatCodeOutcomeFromError(detail: string): CheatCodeClaimOutcome {
+    const lowered = detail.toLowerCase()
+    return ERROR_OUTCOMES.find(([text]) => lowered.includes(text))?.[1] ?? 'failed'
+}
 
 const RECENT_ATTEMPT_WINDOW_MS = 60_000
 
@@ -34,7 +45,10 @@ export function cheatCodeTypedRecently(): boolean {
     return Date.now() - lastAttemptAt < RECENT_ATTEMPT_WINDOW_MS
 }
 
-/** Other errors stay silent, so typing the letters by chance doesn't reveal the code. */
+/**
+ * Toasts only the outcomes someone can act on. The rest stay silent, so typing the letters by chance doesn't
+ * reveal the code; the cheat code page reads every outcome from cheatCodeLogic instead.
+ */
 export async function claimCheatCode(campaignSlug: string): Promise<CheatCodeClaimOutcome | null> {
     if (claimInFlight) {
         return null
@@ -48,12 +62,10 @@ export async function claimCheatCode(campaignSlug: string): Promise<CheatCodeCla
         playRewardSound()
         lemonToast.success(<HesoyamClaimedToast />)
     } catch (error: any) {
-        const detail: string = (error?.detail ?? error?.data?.detail ?? '').toString()
-        if (detail.toLowerCase().includes('already claimed')) {
-            outcome = 'already_claimed'
+        outcome = cheatCodeOutcomeFromError((error?.detail ?? error?.data?.detail ?? '').toString())
+        if (outcome === 'already_claimed') {
             lemonToast.info('Nice try. You already used this cheat code.')
-        } else if (BILLING_SETUP_ERRORS.some((text) => detail.toLowerCase().includes(text))) {
-            outcome = 'needs_billing'
+        } else if (outcome === 'needs_billing') {
             lemonToast.error('Almost! Cheat codes need billing set up with a card on file. Pay-as-you-go counts.', {
                 button: {
                     label: 'Go to billing',
@@ -61,13 +73,12 @@ export async function claimCheatCode(campaignSlug: string): Promise<CheatCodeCla
                     dataAttr: 'cheat-code-go-to-billing',
                 },
             })
-        } else {
-            outcome = 'failed'
         }
     } finally {
         claimInFlight = false
     }
     // pinned: analytics event name and properties, used by the HESOYAM dashboard. $current_url shows where it was typed.
     posthog.capture('billing cheat code entered', { campaign_slug: campaignSlug, outcome })
+    cheatCodeLogic.findMounted()?.actions.setClaimOutcome(campaignSlug, outcome)
     return outcome
 }
