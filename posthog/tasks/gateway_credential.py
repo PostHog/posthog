@@ -99,11 +99,8 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
-def reproject_organization_gateway_credentials_task(
-    organization_id: str, time_budget_seconds: float | None = None
-) -> None:
-    deadline = None if time_budget_seconds is None else time.monotonic() + time_budget_seconds
-    reproject_organization_gateway_credentials(organization_id, deadline)
+def reproject_organization_gateway_credentials_task(organization_id: str) -> None:
+    reproject_organization_gateway_credentials(organization_id)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

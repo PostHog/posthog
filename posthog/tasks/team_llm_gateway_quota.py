@@ -19,16 +19,15 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def project_org_llm_gateway_quota_task(organization_id: str, time_budget_seconds: float | None = None) -> None:
+def project_org_llm_gateway_quota_task(organization_id: str) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
-    deadline = None if time_budget_seconds is None else time.monotonic() + time_budget_seconds
     try:
         organization = Organization.objects.get(id=organization_id)  # nosemgrep: celery-task-team-scope-audit
     except Organization.DoesNotExist:
         logger.debug("Organization does not exist for llm-gateway quota projection", organization_id=organization_id)
         return
-    written = project_org_quota(organization, deadline)
+    written = project_org_quota(organization)
     logger.info(
         "Projected llm-gateway quota for organization",
         organization_id=organization_id,
