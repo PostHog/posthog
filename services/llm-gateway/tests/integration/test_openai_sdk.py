@@ -15,7 +15,10 @@ from openai import BadRequestError, OpenAI
 from openai.types import Model
 from openai.types.chat import ChatCompletionToolChoiceOptionParam, ChatCompletionToolParam
 
+from .conftest import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, CLOUDFLARE_SMOKE_MODELS
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+CLOUDFLARE_CONFIGURED = bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID)
 
 skip_without_openai_key = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
 xfail_provider_unavailable = pytest.mark.xfail(
@@ -23,6 +26,17 @@ xfail_provider_unavailable = pytest.mark.xfail(
 )
 
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
+
+
+def _skip_cloudflare_full_matrix(provider: str) -> None:
+    """Smoke-test the Cloudflare routing path, don't run the whole behavioural matrix against it.
+
+    CF Workers AI calls are slow and high-variance, so running every SDK behaviour against them
+    blows the CI time budget. The core adapter paths (non-streaming, streaming) are smoke-tested
+    elsewhere in this file; the rest of the matrix is covered by the OpenAI provider.
+    """
+    if provider == "cloudflare":
+        pytest.skip("Cloudflare routing covered by smoke tests; skipping full matrix to bound CI time")
 
 
 @dataclass
@@ -39,11 +53,20 @@ class OpenAISDKTestConfig:
             id="openai",
             marks=[pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set"), xfail_provider_unavailable],
         ),
+        pytest.param(
+            "cloudflare",
+            id="cloudflare",
+            marks=pytest.mark.skipif(not CLOUDFLARE_CONFIGURED, reason="CLOUDFLARE_API_KEY/ACCOUNT_ID not set"),
+        ),
     ]
 )
 def oai_sdk_config(request) -> OpenAISDKTestConfig:
-    client = request.getfixturevalue("openai_client")
-    return OpenAISDKTestConfig(client=client, model="gpt-4o-mini", provider="openai")
+    if request.param == "openai":
+        client = request.getfixturevalue("openai_client")
+        return OpenAISDKTestConfig(client=client, model="gpt-4o-mini", provider="openai")
+    else:
+        client = request.getfixturevalue("cloudflare_openai_client")
+        return OpenAISDKTestConfig(client=client, model="@cf/zai-org/glm-5.3", provider="cloudflare")
 
 
 class TestOpenAIModelsEndpoint:
@@ -108,6 +131,7 @@ class TestChatCompletions:
         assert len(content_chunks) > 0
 
     def test_with_system_message(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[
@@ -121,6 +145,7 @@ class TestChatCompletions:
         assert response.choices[0].message.content is not None
 
     def test_with_temperature(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'test'"}],
@@ -131,9 +156,24 @@ class TestChatCompletions:
         assert response is not None
         assert response.choices[0].message.content is not None
 
+    @pytest.mark.skipif(not CLOUDFLARE_CONFIGURED, reason="CLOUDFLARE_API_KEY/ACCOUNT_ID not set")
+    @pytest.mark.parametrize("model", CLOUDFLARE_SMOKE_MODELS)
+    def test_each_cloudflare_model_routes_and_bills(self, cloudflare_openai_client: OpenAI, model: str):
+        response = cloudflare_openai_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            max_tokens=300,
+        )
+
+        assert response.choices[0].message.content is not None
+        assert response.usage is not None
+        assert response.usage.prompt_tokens > 0
+        assert response.usage.completion_tokens > 0
+
 
 class TestMultipleModels:
     def test_basic_request(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'A'"}],
@@ -144,6 +184,7 @@ class TestMultipleModels:
         assert response.choices[0].message.content is not None
 
     def test_sequential_requests_same_model(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response1 = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say '1'"}],
@@ -160,6 +201,7 @@ class TestMultipleModels:
         assert response2.choices[0].message.content is not None
 
     def test_streaming_then_non_streaming(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         stream = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'stream'"}],
@@ -179,6 +221,7 @@ class TestMultipleModels:
 
 class TestToolCalling:
     def test_tool_definition_and_response(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         tools: list[ChatCompletionToolParam] = [
             {
                 "type": "function",
@@ -217,6 +260,9 @@ class TestToolCalling:
             assert "location" in args
 
     def test_tool_choice_required(self, oai_sdk_config: OpenAISDKTestConfig):
+        if oai_sdk_config.provider == "cloudflare":
+            pytest.skip("Cloudflare Workers AI does not support tool_choice with specific function")
+
         tools: list[ChatCompletionToolParam] = [
             {
                 "type": "function",
@@ -253,6 +299,7 @@ class TestToolCalling:
 
 class TestMultiTurnParametrized:
     def test_conversation_history(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[

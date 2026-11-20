@@ -1,6 +1,7 @@
 """Smoke test: call GLM-5.2 on a Modal vLLM endpoint through the gateway's own Modal
 anthropic-messages adapter — the exact code path a cloud-task agent on the claude runtime
-uses. Proves Modal proxy-token auth + routing + Anthropic<->OpenAI tool translation.
+uses. Proves Modal proxy-token auth + routing + Anthropic<->OpenAI tool translation, the
+Modal analogue of glm_cf_smoke.py.
 
 Run from services/llm-gateway:
     .venv/bin/python scripts/glm_modal_smoke.py

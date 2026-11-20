@@ -69,8 +69,9 @@ def test_allowlist_derived_from_cost_aliases() -> None:
     assert "@cf/zai-org/glm-5.2" in CLOUDFLARE_ALLOWED_MODELS
 
 
-def test_ensure_cloudflare_model_allowed_accepts_priced_model() -> None:
-    ensure_cloudflare_model_allowed("@cf/zai-org/glm-5.2")
+@pytest.mark.parametrize("model", ["@cf/zai-org/glm-5.2", "@cf/zai-org/glm-5.3"])
+def test_ensure_cloudflare_model_allowed_accepts_priced_model(model: str) -> None:
+    ensure_cloudflare_model_allowed(model)
 
 
 @pytest.mark.parametrize(
