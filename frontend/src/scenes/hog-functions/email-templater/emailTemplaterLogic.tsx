@@ -1236,6 +1236,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             while (readCanvas || cache.pendingDesignEdit) {
                 readCanvas = false
                 const editsBeforeExport = cache.designEdits
+                const templateBeforeExport = values.emailTemplate
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
                 try {
@@ -1257,25 +1258,28 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     actions.setLatestEditUnsaved(true)
                     return
                 }
-                // The editor closed while it was read. Its earlier edits are already in the form.
-                if (!isMounted()) {
-                    return
-                }
-                if (cache.designEdits !== editsBeforeExport) {
+                // An editor that closed while it was read can't be read again, but its last edit still goes to the form.
+                const closed = !isMounted()
+                if (!closed && cache.designEdits !== editsBeforeExport) {
                     continue
                 }
                 cache.pendingDesignEdit = false
-                actions.setLatestEditUnsaved(false)
+                if (!closed) {
+                    actions.setLatestEditUnsaved(false)
+                }
                 cache.baselineConfirmedBy = editor
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
                     props.onChange({
-                        ...values.emailTemplate,
+                        ...(closed ? templateBeforeExport : values.emailTemplate),
                         html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
                         text: textData.text,
                         design: htmlData.design,
                     })
+                }
+                if (closed) {
+                    return
                 }
             }
         },

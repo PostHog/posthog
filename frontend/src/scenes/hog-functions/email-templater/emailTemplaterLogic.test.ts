@@ -972,6 +972,7 @@ describe('emailTemplaterLogic', () => {
             releaseHeldExport?.()
 
             await expect(saved).resolves.toBe(true)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
         it('lets a save through once the editor that held a failed edit is gone', async () => {
