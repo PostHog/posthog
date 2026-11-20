@@ -2,10 +2,9 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.logic.notebook_table_dag_sync import (
-    delete_notebook_table_node,
-    sync_notebook_table_to_dag,
-)
+from posthog.notebook_warehouse_tables import sync_notebook_table_to_dag
+
+from products.data_modeling.backend.logic.notebook_table_dag_sync import delete_notebook_table_node
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery

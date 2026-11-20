@@ -21,8 +21,8 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
+from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
 
-from products.data_warehouse.backend.facade.api import NotebookTableError, validate_notebook_table_name
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -456,7 +456,9 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
         if request.node_type != "python":
             raise NodeRunInvalid("Only Python cells can save their dataframe as a warehouse table.")
         try:
-            validate_notebook_table_name(team.id, request.warehouse_table_name, user.id if user is not None else None)
+            get_notebook_table_writer().validate_notebook_table_name(
+                team.id, request.warehouse_table_name, user.id if user is not None else None
+            )
         except NotebookTableError as e:
             raise NodeRunInvalid(str(e)) from e
 

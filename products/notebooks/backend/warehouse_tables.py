@@ -12,10 +12,9 @@ from django.db import transaction
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer, sync_notebook_table_to_dag
 from posthog.ph_client import ph_scoped_capture
 
-from products.data_modeling.backend.facade.api import sync_notebook_table_to_dag
-from products.data_warehouse.backend.facade.api import NotebookTableError, save_notebook_table
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.sql_v2_state import upstream_hogql_queries
 
@@ -90,7 +89,7 @@ def finish_warehouse_table_save(team_id: int, run_id: str) -> None:
     table_id: str | None = None
     outcome: WarehouseTableOutcome
     try:
-        table_id = save_notebook_table(team_id, name, run.user_id, str(run.id))
+        table_id = get_notebook_table_writer().save_notebook_table(team_id, name, run.user_id, str(run.id))
         outcome = {"name": name, "error": None}
         result = "saved"
     except NotebookTableError as e:

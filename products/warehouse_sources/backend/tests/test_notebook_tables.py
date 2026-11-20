@@ -13,19 +13,18 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_warehouse.backend.logic.notebook_tables import (
-    NotebookTableError,
+from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_SIZE_BYTES
+from products.warehouse_sources.backend.logic.notebook_tables import (
     _object_url,
     build_notebook_table_s3_key,
     build_notebook_table_staging_s3_key,
-    presign_notebook_table_upload,
     save_notebook_table,
     validate_notebook_table_name,
 )
-from products.warehouse_sources.backend.facade.api import MAX_FILE_UPLOAD_SIZE_BYTES
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 COLUMNS = {"score": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "valid": True}}
 
@@ -37,12 +36,12 @@ class TestPresignNotebookTableUpload(SimpleTestCase):
     )
     def test_signs_a_size_limited_post_for_the_host_the_kernel_dials(self, _name: str, debug: bool, host: str) -> None:
         with override_settings(DEBUG=debug):
-            upload = presign_notebook_table_upload(1, "scores", "run-1")
+            upload = get_notebook_table_writer().presign_notebook_table_upload(1, "scores", "run-1")
 
-        self.assertEqual(urlparse(upload["url"]).netloc, host)
-        conditions = json.loads(base64.b64decode(upload["fields"]["policy"]))["conditions"]
+        self.assertEqual(urlparse(upload.url).netloc, host)
+        conditions = json.loads(base64.b64decode(upload.fields["policy"]))["conditions"]
         self.assertIn({"key": "notebook_tables/team_1/scores/staging/run-1.parquet"}, conditions)
-        self.assertIn(["content-length-range", 1, MAX_FILE_UPLOAD_SIZE_BYTES], conditions)
+        self.assertIn(["content-length-range", 1, MAX_UPLOAD_SIZE_BYTES], conditions)
 
 
 class TestValidateNotebookTableName(BaseTest):
@@ -111,14 +110,14 @@ class TestSaveNotebookTable(BaseTest):
     def _save(self, run_id: str, s3: MagicMock, columns: dict | Exception = COLUMNS) -> str:
         s3.head_object.return_value = {"ContentLength": 128, "ETag": '"example"'}
         with (
-            patch("products.data_warehouse.backend.logic.notebook_tables._s3_client", return_value=s3),
+            patch("products.warehouse_sources.backend.logic.notebook_tables._s3_client", return_value=s3),
             patch.object(
                 DataWarehouseTable,
                 "get_columns",
                 side_effect=columns if isinstance(columns, Exception) else None,
                 return_value=columns,
             ),
-            patch("products.data_warehouse.backend.logic.notebook_tables.validate_data_warehouse_table_columns"),
+            patch("products.warehouse_sources.backend.logic.notebook_tables.validate_data_warehouse_table_columns"),
         ):
             return save_notebook_table(self.team.id, "scores", self.user.id, run_id)
 
@@ -143,7 +142,7 @@ class TestSaveNotebookTable(BaseTest):
         DataWarehouseTable.objects.filter(id=table_id).update(name="archived_scores")
 
         with (
-            patch("products.data_warehouse.backend.logic.notebook_tables.validate_notebook_table_name"),
+            patch("products.warehouse_sources.backend.logic.notebook_tables.validate_notebook_table_name"),
             self.assertRaisesRegex(NotebookTableError, "Another table"),
         ):
             self._save("run-2", s3)

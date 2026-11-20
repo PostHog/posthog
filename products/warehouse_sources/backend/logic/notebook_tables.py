@@ -1,7 +1,7 @@
 """Publish notebook dataframes as hosted warehouse tables."""
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -16,14 +16,14 @@ from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, Databa
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.notebook_warehouse_tables import NotebookTableError, NotebookTableUpload
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_warehouse.backend.facade.contracts import NotebookTableError
-from products.warehouse_sources.backend.facade.api import MAX_FILE_UPLOAD_SIZE_BYTES
-from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
+from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_SIZE_BYTES
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.tasks.tasks import validate_data_warehouse_table_columns
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client as Boto3StubsS3Client
@@ -157,13 +157,14 @@ def _sandbox_object_storage_endpoint() -> str | None:
     return parsed._replace(netloc=f"host.docker.internal:{parsed.port or 80}").geturl()
 
 
-def presign_notebook_table_upload(team_id: int, table_name: str, run_id: str) -> dict[str, Any]:
-    return _s3_client(_sandbox_object_storage_endpoint()).generate_presigned_post(
+def presign_notebook_table_upload(team_id: int, table_name: str, run_id: str) -> NotebookTableUpload:
+    upload = _s3_client(_sandbox_object_storage_endpoint()).generate_presigned_post(
         Bucket=settings.DATAWAREHOUSE_BUCKET,
         Key=build_notebook_table_staging_s3_key(team_id, table_name, run_id),
-        Conditions=[["content-length-range", 1, MAX_FILE_UPLOAD_SIZE_BYTES]],
+        Conditions=[["content-length-range", 1, MAX_UPLOAD_SIZE_BYTES]],
         ExpiresIn=UPLOAD_URL_EXPIRY_SECONDS,
     )
+    return NotebookTableUpload(url=upload["url"], fields=upload["fields"])
 
 
 def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_id: str) -> str:
@@ -211,7 +212,7 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
             if previous.startswith(prefix) and previous > url_pattern:
                 raise NotebookTableError("A newer run already saved this table.")
             staged_object = s3.head_object(Bucket=bucket, Key=staging_key)
-            if staged_object["ContentLength"] > MAX_FILE_UPLOAD_SIZE_BYTES:
+            if staged_object["ContentLength"] > MAX_UPLOAD_SIZE_BYTES:
                 raise NotebookTableError("The dataframe exceeds the warehouse upload size limit.")
             s3.copy_object(
                 Bucket=bucket,

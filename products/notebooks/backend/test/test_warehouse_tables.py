@@ -4,8 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
 
-from products.data_warehouse.backend.facade.api import NotebookTableError
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.warehouse_tables import finish_warehouse_table_save
 
@@ -36,8 +36,9 @@ class TestFinishWarehouseTableSave(BaseTest):
                 envelope={"status": "ok", "warehouse_table": {"name": "scores", "error": None, "pending": True}},
             )
         with (
-            patch(
-                "products.notebooks.backend.warehouse_tables.save_notebook_table",
+            patch.object(
+                get_notebook_table_writer(),
+                "save_notebook_table",
                 side_effect=save_error,
                 return_value="table-id",
             ) as save,

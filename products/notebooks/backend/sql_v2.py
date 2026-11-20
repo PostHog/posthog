@@ -26,8 +26,8 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models.user import User
+from posthog.notebook_warehouse_tables import get_notebook_table_writer
 
-from products.data_warehouse.backend.facade.api import presign_notebook_table_upload
 from products.notebooks.backend.kernel_package import (
     BAKED_PACKAGE_ROOT,
     BAKED_VERSION_PATH,
@@ -456,9 +456,10 @@ def dispatch_sql_v2_run(
             "variables": variables or {},
         }
         if run.warehouse_table_name:
-            payload["node"]["warehouse_upload"] = presign_notebook_table_upload(
+            upload = get_notebook_table_writer().presign_notebook_table_upload(
                 notebook.team_id, run.warehouse_table_name, str(run.id)
             )
+            payload["node"]["warehouse_upload"] = {"url": upload.url, "fields": upload.fields}
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code
