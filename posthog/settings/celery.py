@@ -32,6 +32,7 @@ CELERY_IMPORTS: list[str] = [
     "posthog.models.scoping",
     "posthog.query_cache.tasks",
     "posthog.scoping_audit",
+    "posthog.tasks.quota_migration",
     # Not a `<app>/tasks.py`, so autodiscovery walks past it — the app package holds a `tasks/`
     # namespace package instead, and importing that doesn't reach the module inside.
     "products.tasks.backend.tasks.tasks",
@@ -81,6 +82,12 @@ _broker_visibility_timeout_seconds = get_from_env(
 )
 if _broker_visibility_timeout_seconds is not None:
     CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": _broker_visibility_timeout_seconds}
+
+# 0 turns kombu's connection pool off, so every publish opens and closes its own broker connection.
+# That keeps the open connection count low on a shared Redis with a small client limit. On a TLS
+# broker each of those connections costs a handshake and an AUTH on the server, so deployments with a
+# dedicated broker can set a pool size per process instead (Celery's own default is 10).
+CELERY_BROKER_POOL_LIMIT = get_from_env("CELERY_BROKER_POOL_LIMIT", 0, type_cast=int)
 
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = _celery_redis_url("CELERY_RESULT_BACKEND_REDIS_URL", REDIS_URL)

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { IconExpand } from '@posthog/icons'
 
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type { HogFlow } from '../../types'
+import { CanvasPreviewPersonContext } from './CanvasPreviewPersonContext'
 import { StackCoverIcon } from './StackCoverIcon'
 import { StackPeek } from './StackPeek'
 import { pathSummary } from './stepFacts'
@@ -31,6 +32,7 @@ export function TileStackNode({
     interactive?: boolean
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
+    const previewPerson = useContext(CanvasPreviewPersonContext)
     const [peek, setPeek] = useState(false)
     const closeTimer = useRef<number>()
     useEffect(() => () => window.clearTimeout(closeTimer.current), [])
@@ -86,7 +88,7 @@ export function TileStackNode({
                     {group.label}
                 </div>
                 <div className="ph-no-capture break-words text-xs leading-snug">
-                    {pathSummary(workflow, group, templateNameOf)}
+                    {pathSummary(workflow, group, templateNameOf, previewPerson)}
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-secondary">
                     {members.length} steps

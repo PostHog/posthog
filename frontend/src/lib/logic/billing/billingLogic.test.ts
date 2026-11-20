@@ -7,6 +7,8 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import {
     BillingAPIErrorCodes,
     GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY,
@@ -819,6 +821,31 @@ describe('billingLogic', () => {
             expect(billingLogic.values.billingError).toBeNull()
         }
     )
+
+    it('hides the open invoice banner quietly when the user has no billing access', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            get: {
+                '/api/billing/get_invoices': [
+                    403,
+                    { type: 'authentication_error', code: 'permission_denied', detail: 'No billing access.' },
+                ],
+            },
+        })
+        apiStatusLogic.mount()
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => billingLogic.actions.loadInvoices())
+            .toDispatchActions([billingLogic.actionCreators.loadInvoicesSuccess(null)])
+            .toNotHaveDispatchedActions(['loadInvoicesFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.openInvoices).toBeNull()
+        expect(billingLogic.values.billingError).toBeNull()
+        expect(toastError).not.toHaveBeenCalled()
+        toastError.mockRestore()
+    })
 
     it.each<{
         name: string

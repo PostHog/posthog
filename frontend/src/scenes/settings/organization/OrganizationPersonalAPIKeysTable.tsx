@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { fullName } from 'lib/utils/strings'
@@ -19,6 +20,7 @@ import {
     openRollKeyDialog,
 } from './organizationPersonalAPIKeyDialogs'
 import { ALL_KEYS, KeyAction, organizationPersonalAPIKeysLogic } from './organizationPersonalAPIKeysLogic'
+import { QuillOrganizationPersonalAPIKeysTable } from './QuillOrganizationPersonalAPIKeysTable'
 
 function AccessScope({ accessScope }: { accessScope: OrganizationPersonalAPIKeyApi['access_scope'] }): JSX.Element {
     if (accessScope.type === 'all') {
@@ -42,6 +44,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
     // The in-flight marker names the target ('all' for a bulk action) but not the action, so this records the bulk
     // action to put the spinner on the right button. It never needs a reset, because a spinner also needs the marker.
     const [confirmedBulkAction, setConfirmedBulkAction] = useState<KeyAction | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const runBulkAction = (action: KeyAction, dispatch: () => void): void => {
         setConfirmedBulkAction(action)
@@ -56,6 +59,30 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
     const bulkDisabledReason =
         actionDisabledReason ??
         (bulkSummary.total === 0 ? 'No personal API keys have access to this organization' : null)
+
+    const confirmRollKey = (key: OrganizationPersonalAPIKeyApi): void =>
+        openRollKeyDialog(key, ownerLabel(key.owner), () => rollKey(key.id))
+    const confirmRevokeKey = (key: OrganizationPersonalAPIKeyApi): void =>
+        openRevokeKeyDialog(key, ownerLabel(key.owner), () => revokeKey(key.id))
+    const confirmRollAll = (): void =>
+        openRollAllKeysDialog(bulkSummary, search, rollAllRetrySince, () => runBulkAction('roll', rollAllKeys))
+    const confirmRevokeAll = (): void =>
+        openRevokeAllKeysDialog(bulkSummary, search, () => runBulkAction('revoke', revokeAllKeys))
+
+    if (todayRailNav) {
+        return (
+            <QuillOrganizationPersonalAPIKeysTable
+                ownerLabel={ownerLabel}
+                isBulkRunning={isBulkRunning}
+                actionDisabledReason={actionDisabledReason}
+                bulkDisabledReason={bulkDisabledReason}
+                onRollKey={confirmRollKey}
+                onRevokeKey={confirmRevokeKey}
+                onRollAll={confirmRollAll}
+                onRevokeAll={confirmRevokeAll}
+            />
+        )
+    }
 
     const columns: LemonTableColumns<OrganizationPersonalAPIKeyApi> = [
         {
@@ -113,7 +140,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                             <>
                                 <LemonButton
                                     fullWidth
-                                    onClick={() => openRollKeyDialog(key, ownerLabel(key.owner), () => rollKey(key.id))}
+                                    onClick={() => confirmRollKey(key)}
                                     data-attr="organization-personal-api-key-roll"
                                 >
                                     Roll key
@@ -121,9 +148,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                                 <LemonButton
                                     fullWidth
                                     status="danger"
-                                    onClick={() =>
-                                        openRevokeKeyDialog(key, ownerLabel(key.owner), () => revokeKey(key.id))
-                                    }
+                                    onClick={() => confirmRevokeKey(key)}
                                     data-attr="organization-personal-api-key-revoke"
                                 >
                                     Revoke key
@@ -151,11 +176,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                         type="secondary"
                         loading={isBulkRunning('roll')}
                         disabledReason={isBulkRunning('roll') ? null : bulkDisabledReason}
-                        onClick={() =>
-                            openRollAllKeysDialog(bulkSummary, search, rollAllRetrySince, () =>
-                                runBulkAction('roll', rollAllKeys)
-                            )
-                        }
+                        onClick={confirmRollAll}
                         data-attr="organization-personal-api-keys-roll-all"
                     >
                         Roll all keys
@@ -164,9 +185,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                         type="secondary"
                         loading={isBulkRunning('revoke')}
                         disabledReason={isBulkRunning('revoke') ? null : bulkDisabledReason}
-                        onClick={() =>
-                            openRevokeAllKeysDialog(bulkSummary, search, () => runBulkAction('revoke', revokeAllKeys))
-                        }
+                        onClick={confirmRevokeAll}
                         data-attr="organization-personal-api-keys-revoke-all"
                     >
                         Revoke all keys

@@ -7,6 +7,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import type { DataWarehouseSavedQueryIncremental } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 
@@ -48,13 +49,13 @@ export interface metricsSqlEditorTrackingLogicActions {
         folderId?: string | null | undefined,
         isTest?: any,
         queryOverride?: string | undefined,
-        incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined,
+        incremental?: DataWarehouseSavedQueryIncremental | undefined,
         description?: string | undefined
     ) => {
         description: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
-        incremental: import('~/types').DataWarehouseSavedQueryIncremental | undefined
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string

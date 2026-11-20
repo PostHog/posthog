@@ -25,7 +25,7 @@ export const llmSkillsEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'Write a skill once, load it in any agent',
-                lead: 'Skills are versioned instructions your coding agents can discover and use. Publish them here and any MCP-connected agent can load them directly, or install them into Claude Code and Codex with automatic updates. Import and export skills as .zip files to share them across teams.',
+                lead: 'Skills are versioned instructions your coding agents can discover and use. Publish them here and any MCP-connected agent can load them directly, or install them into Claude Code and Codex. Import and export skills as .zip files to share them across teams.',
             },
         },
         primaryAction: {

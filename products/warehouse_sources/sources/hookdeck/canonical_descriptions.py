@@ -2,6 +2,24 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _API_DOCS = "https://hookdeck.com/docs/api"
 
+_BULK_OPERATION_COLUMNS = {
+    "id": "ID of the bulk operation.",
+    "team_id": "ID of the Hookdeck project.",
+    "type": "Type of the bulk operation.",
+    "query": "Filter that selected the records the operation acts on.",
+    "created_at": "Date the operation was created.",
+    "updated_at": "Last time the operation was updated.",
+    "cancelled_at": "Date the operation was cancelled.",
+    "completed_at": "Date the operation completed.",
+    "estimated_batch": "Number of batches needed to complete the operation.",
+    "estimated_count": "Estimated number of records the operation acts on.",
+    "processed_batch": "Number of batches processed so far.",
+    "completed_count": "Number of records the operation processed successfully.",
+    "failed_count": "Number of records the operation failed to process.",
+    "in_progress": "Whether the operation is still running.",
+    "progress": "Progress of the operation, from 0 to 1.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "events": {
         "description": "A delivery record: one row per event Hookdeck queued for a connection, tracking its status, attempt count and retry schedule. Rows are restated as retries land.",
@@ -234,5 +252,81 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "destination_id": "ID of the destination.",
             "count": "Number of events pending delivery in the bucket.",
         },
+    },
+    "request_metrics": {
+        "description": "Hourly inbound request volume per source, from the request metrics endpoint.",
+        "docs_url": f"{_API_DOCS}/inspect#queryrequestmetrics",
+        "columns": {
+            "time_bucket": "Start of the hourly bucket.",
+            "source_id": "ID of the source.",
+            "count": "Number of requests received in the bucket.",
+            "accepted_count": "Number of requests accepted.",
+            "rejected_count": "Number of requests rejected.",
+            "discarded_count": "Number of requests discarded.",
+            "avg_events_per_request": "Average number of events created per request.",
+            "avg_ignored_per_request": "Average number of ignored events per request.",
+        },
+    },
+    "event_metrics": {
+        "description": "Hourly delivery outcomes per connection, from the event metrics endpoint.",
+        "docs_url": f"{_API_DOCS}/inspect#queryeventmetrics",
+        "columns": {
+            "time_bucket": "Start of the hourly bucket.",
+            "source_id": "ID of the source.",
+            "webhook_id": "ID of the connection (webhook).",
+            "destination_id": "ID of the destination.",
+            "count": "Number of events in the bucket.",
+            "successful_count": "Number of events delivered successfully.",
+            "failed_count": "Number of events that failed.",
+            "scheduled_count": "Number of events scheduled for delivery.",
+            "paused_count": "Number of events paused.",
+            "error_rate": "Percentage of events that failed.",
+            "avg_attempts": "Average number of delivery attempts per event.",
+            "scheduled_retry_count": "Number of events with a retry scheduled.",
+            "max_count_per_second": "Highest number of events in one second of the bucket.",
+        },
+    },
+    "attempt_metrics": {
+        "description": "Hourly delivery attempts per destination, from the attempt metrics endpoint.",
+        "docs_url": f"{_API_DOCS}/inspect#queryattemptmetrics",
+        "columns": {
+            "time_bucket": "Start of the hourly bucket.",
+            "destination_id": "ID of the destination.",
+            "count": "Number of delivery attempts in the bucket.",
+            "successful_count": "Number of successful attempts.",
+            "failed_count": "Number of failed attempts.",
+            "delivered_count": "Number of attempts delivered.",
+            "error_rate": "Percentage of attempts that failed.",
+            "response_latency_avg": "Average destination response latency.",
+            "response_latency_max": "Largest destination response latency.",
+            "response_latency_p95": "95th percentile of destination response latency.",
+            "response_latency_p99": "99th percentile of destination response latency.",
+            "delivery_latency_avg": "Average delivery latency.",
+        },
+    },
+    "bulk_event_retries": {
+        "description": "A bulk retry of the events that matched a filter, with its progress and result counts.",
+        "docs_url": f"{_API_DOCS}/bulk#geteventbulkretries",
+        "columns": _BULK_OPERATION_COLUMNS,
+    },
+    "bulk_event_cancels": {
+        "description": "A bulk cancellation of the pending events that matched a filter, with its progress.",
+        "docs_url": f"{_API_DOCS}/bulk#geteventbulkcancels",
+        "columns": _BULK_OPERATION_COLUMNS,
+    },
+    "bulk_ignored_event_retries": {
+        "description": "A bulk retry of the ignored events that matched a filter, with its progress.",
+        "docs_url": f"{_API_DOCS}/bulk#getignoredeventbulkretries",
+        "columns": _BULK_OPERATION_COLUMNS,
+    },
+    "bulk_request_retries": {
+        "description": "A bulk retry of the inbound requests that matched a filter, with its progress.",
+        "docs_url": f"{_API_DOCS}/bulk#getrequestbulkretries",
+        "columns": _BULK_OPERATION_COLUMNS,
+    },
+    "bulk_request_replays": {
+        "description": "A bulk replay of the inbound requests that matched a filter, with its progress.",
+        "docs_url": f"{_API_DOCS}/bulk#getrequestbulkreplays",
+        "columns": _BULK_OPERATION_COLUMNS,
     },
 }

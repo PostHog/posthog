@@ -62,9 +62,15 @@ def _response(items: list[dict[str, Any]], *, extra: dict[str, Any] | None = Non
 
 
 class TestHitpaySourcePageNumberEndpoint:
-    def test_paginates_until_last_page(self) -> None:
+    @parameterized.expand(
+        [
+            ("subscription_plans", "SubscriptionPlans", "/v1/subscription-plan"),
+            ("products", "Products", "/v1/products"),
+        ]
+    )
+    def test_paginates_until_last_page(self, _name: str, endpoint: str, expected_path: str) -> None:
         result = _driver().run(
-            "SubscriptionPlans",
+            endpoint,
             [
                 _response([{"id": "1"}, {"id": "2"}], extra={"meta": {"last_page": 2}}),
                 _response([{"id": "3"}], extra={"meta": {"last_page": 2}}),
@@ -73,7 +79,7 @@ class TestHitpaySourcePageNumberEndpoint:
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
-        assert result.paths == ["/v1/subscription-plan", "/v1/subscription-plan"]
+        assert result.paths == [expected_path, expected_path]
         assert result.params("page") == ["1", "2"]
 
     def test_resumes_from_saved_page(self) -> None:
@@ -89,9 +95,15 @@ class TestHitpaySourcePageNumberEndpoint:
 
 
 class TestHitpaySourceCursorEndpoint:
-    def test_paginates_via_cursor(self) -> None:
+    @parameterized.expand(
+        [
+            ("charges", "Charges", "/v1/charges"),
+            ("transfers", "Transfers", "/v1/transfers"),
+        ]
+    )
+    def test_paginates_via_cursor(self, _name: str, endpoint: str, expected_path: str) -> None:
         result = _driver().run(
-            "Charges",
+            endpoint,
             [
                 _response([{"id": "1"}], extra={"meta": {"next_cursor": "abc"}}),
                 _response([{"id": "2"}], extra={"meta": {"next_cursor": None}}),
@@ -100,7 +112,20 @@ class TestHitpaySourceCursorEndpoint:
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2"]
-        assert result.paths == ["/v1/charges", "/v1/charges"]
+        assert result.paths == [expected_path, expected_path]
+        assert result.params("cursor") == [None, "abc"]
+
+    def test_repeated_cursor_raises_instead_of_looping(self) -> None:
+        result = _driver().run(
+            "Transfers",
+            [
+                _response([{"id": "1"}], extra={"meta": {"next_cursor": "abc"}}),
+                _response([{"id": "1"}], extra={"meta": {"next_cursor": "abc"}}),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "repeated cursor" in str(result.raised)
         assert result.params("cursor") == [None, "abc"]
 
     @parameterized.expand(

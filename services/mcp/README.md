@@ -323,6 +323,15 @@ Individual `learn` responses stay below 44,000 characters; large references retu
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
 `consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
 
+### Skills in tools mode
+
+Tools mode lists a `learn` tool when skill discovery is enabled for the connection.
+The rules match cli mode: the `mcp-exec-skills` flag is on and the consumer is not `plugin` or `posthog-code`.
+Connections through the MCP store do not get the tool.
+The `features` and `tools` filters do not hide it, as with the tools marked `always_available`.
+Its `command` takes the skill commands above, with or without the leading `learn`, and serves them from the same catalog.
+The tools-mode `instructions` then tell the agent to search with `learn` before non-trivial PostHog work.
+
 Other clients keep the full inline command reference.
 
 ### Tool filtering
@@ -342,6 +351,33 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 ```
 
 The example above exposes all flag tools plus `dashboard-get`.
+
+### Resource filtering
+
+The server advertises its skills, docs, and UI apps as MCP resources, and some clients add every resource to their `@` file picker.
+Pass `resources` to choose which ones `resources/list` returns, or `none` to return none:
+
+```text
+https://mcp.posthog.com/mcp?resources=none
+https://mcp.posthog.com/mcp?resources=feature-flags,docs
+```
+
+```http
+x-posthog-mcp-resources: none
+```
+
+| Value              | Lists                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `none`             | No resources.                                                                               |
+| `skills`           | Every skill (`posthog://skills/…`).                                                         |
+| `<skill category>` | The skills in one category, such as `feature-flags` for `posthog://skills/feature-flags/…`. |
+| `docs`             | The docs resources (`posthog://docs/…`).                                                    |
+| `apps`             | The UI apps that render tool results (`ui://posthog/…`).                                    |
+
+Values are comma-separated and combined as a union, like `features`.
+Hyphens and underscores are equivalent, and a value that matches no resource adds nothing.
+The header wins when both the header and the query parameter are set.
+The filter changes only what the server lists: `resources/read` still serves every resource, so tools that render UI apps keep working.
 
 ### Server mode (tools vs cli)
 
@@ -370,6 +406,34 @@ x-posthog-mcp-mode: tools
 
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
+
+### Separate read and write tools in cli mode
+
+By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
+In cli mode, send `split_writes=true` to list two tools in its place:
+
+| Tool         | Runs                                                              | `readOnlyHint` | `destructiveHint` |
+| ------------ | ----------------------------------------------------------------- | -------------- | ----------------- |
+| `exec-read`  | Every discovery command and `call`s to read-only tools.           | `true`         | `false`           |
+| `exec-write` | `call`s to tools that change data, and anything `exec-read` runs. | `false`        | `true`            |
+
+```text
+https://mcp.posthog.com/mcp?split_writes=true
+```
+
+```http
+x-posthog-split-writes: true
+```
+
+The header wins when both are set.
+A client can then always allow `exec-read` and keep asking about `exec-write`.
+Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by default, and Claude Code, Codex and Cursor take an allow rule for each tool name.
+Clients that honor `destructiveHint`, such as Claude, ask about every `exec-write` call even when it is set to always allow.
+
+- `exec-read` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
+- `exec-read` refuses writes on every request and every connection, so a client that cached it as read-only never has it run a write, whatever later requests send.
+- `exec-write` answers only on a request that asks for the split. A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never gets it, because those wrappers gate writes on the `exec` name.
+- `exec` keeps working on every connection that doesn't ask for the split. A split connection answers it as not found, so allow rules written for `exec` don't carry over.
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.

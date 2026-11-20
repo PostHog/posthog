@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import type { PaginationManual } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
+import type { DeviceType } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -677,8 +678,8 @@ export interface agentAnalyticsLogicActions {
         dateTo: string | null
         interval: IntervalType
     } // webAnalyticsLogic
-    setWebAnalyticsDeviceTypeFilter: (deviceType: null | import('scenes/web-analytics/common').DeviceType) => {
-        deviceType: null | import('scenes/web-analytics/common').DeviceType
+    setWebAnalyticsDeviceTypeFilter: (deviceType: DeviceType | null) => {
+        deviceType: DeviceType | null
     } // webAnalyticsLogic
     setWebAnalyticsDomainFilter: (domain: string | null) => {
         domain: string | null

@@ -3,19 +3,19 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
+import { Button, Text } from '@posthog/quill'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { UnexpectedNeverError } from 'lib/utils/guards'
-import { genericOperatorMap } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,86 +26,19 @@ import {
     CustomChannelRule,
     DefaultChannelTypes,
 } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType } from '~/types'
 
-const combinerOptions = [
-    { label: 'All', value: FilterLogicalOperator.And },
-    { label: 'Any', value: FilterLogicalOperator.Or },
-]
-
-const keyOptions = [
-    {
-        label: 'Referring domain',
-        value: CustomChannelField.ReferringDomain,
-    },
-    {
-        label: 'UTM Source',
-        value: CustomChannelField.UTMSource,
-    },
-    {
-        label: 'UTM Medium',
-        value: CustomChannelField.UTMMedium,
-    },
-    {
-        label: 'UTM Campaign',
-        value: CustomChannelField.UTMCampaign,
-    },
-    {
-        label: 'URL',
-        value: CustomChannelField.URL,
-    },
-    {
-        label: 'Hostname',
-        value: CustomChannelField.Hostname,
-    },
-    {
-        label: 'Pathname',
-        value: CustomChannelField.Pathname,
-    },
-]
-
-const opOptions = Object.values(CustomChannelOperator).map((op) => {
-    return {
-        label: genericOperatorMap[op],
-        value: op,
-    }
-})
-
-const isNullary = (operator: CustomChannelOperator): boolean => {
-    return [CustomChannelOperator.IsSet, CustomChannelOperator.IsNotSet].includes(operator)
-}
-
-const opToPropertyOperator: Record<CustomChannelOperator, PropertyOperator> = {
-    [CustomChannelOperator.Exact]: PropertyOperator.Exact,
-    [CustomChannelOperator.IsNot]: PropertyOperator.IsNot,
-    [CustomChannelOperator.IsSet]: PropertyOperator.IsSet,
-    [CustomChannelOperator.IsNotSet]: PropertyOperator.IsNotSet,
-    [CustomChannelOperator.IContains]: PropertyOperator.IContains,
-    [CustomChannelOperator.NotIContains]: PropertyOperator.NotIContains,
-    [CustomChannelOperator.Regex]: PropertyOperator.Regex,
-    [CustomChannelOperator.NotRegex]: PropertyOperator.NotRegex,
-}
-
-function keyToSessionProperty(key: CustomChannelField): string {
-    switch (key) {
-        case CustomChannelField.ReferringDomain:
-            return '$entry_referring_domain'
-        case CustomChannelField.UTMSource:
-            return '$entry_utm_source'
-        case CustomChannelField.UTMMedium:
-            return '$entry_utm_medium'
-        case CustomChannelField.UTMCampaign:
-            return '$entry_utm_campaign'
-        case CustomChannelField.URL:
-            return '$entry_url'
-        case CustomChannelField.Hostname:
-            return '$entry_hostname'
-        case CustomChannelField.Pathname:
-            return '$entry_pathname'
-        default:
-            throw new UnexpectedNeverError(key)
-    }
-}
+import {
+    combinerOptions,
+    createNewChannelTypeCondition,
+    createNewChannelTypeRule,
+    isNullary,
+    keyOptions,
+    keyToSessionProperty,
+    opOptions,
+    opToPropertyOperator,
+} from './customChannelTypesUtils'
+import { QuillChannelTypeEditor } from './QuillChannelTypeEditor'
 
 const sanitizeCustomChannelTypeRules = (rules?: CustomChannelRule[]): CustomChannelRule[] => {
     return (rules ?? [])
@@ -154,6 +87,62 @@ export function CustomChannelTypes(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleSave = (): void => {
+        updateCurrentTeam({
+            modifiers: {
+                ...currentTeam?.modifiers,
+                customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
+            },
+        })
+        reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
+        setSavedCustomChannelTypeRules(customChannelTypeRules)
+    }
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <Text size="xs" render={<p className="m-0" />}>
+                    You can create custom channel types by defining rules that match incoming events. The first matching
+                    rule is used, and if no rule matches (or if none are defined) then the{' '}
+                    <Button
+                        variant="link"
+                        size="inline"
+                        nativeButton={false}
+                        render={
+                            <LinkPrimitive
+                                to="https://posthog.com/docs/data/channel-type#channel-type-calculation"
+                                target="_blank"
+                            />
+                        }
+                    >
+                        default channel type
+                    </Button>{' '}
+                    is used.
+                </Text>
+                <Text size="xs" render={<p className="m-0" />}>
+                    To debug, try the{' '}
+                    <Button
+                        variant="link"
+                        size="inline"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={urls.sessionAttributionExplorer()} target="_blank" />}
+                    >
+                        session attribution explorer tool
+                    </Button>
+                </Text>
+                <QuillChannelTypeEditor
+                    handleChange={setCustomChannelTypeRules}
+                    initialCustomChannelTypeRules={customChannelTypeRules}
+                    channelTypeOptions={channelTypeOptions}
+                    onSave={handleSave}
+                    isSaveDisabled={equal(customChannelTypeRules, savedCustomChannelTypeRules)}
+                    canEdit={!restrictedReason}
+                />
+            </div>
+        )
+    }
 
     return (
         <div>
@@ -175,16 +164,7 @@ export function CustomChannelTypes(): JSX.Element {
                 handleChange={setCustomChannelTypeRules}
                 initialCustomChannelTypeRules={customChannelTypeRules}
                 channelTypeOptions={channelTypeOptions}
-                onSave={() => {
-                    updateCurrentTeam({
-                        modifiers: {
-                            ...currentTeam?.modifiers,
-                            customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules),
-                        },
-                    })
-                    reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
-                    setSavedCustomChannelTypeRules(customChannelTypeRules)
-                }}
+                onSave={handleSave}
                 isSaveDisabled={equal(customChannelTypeRules, savedCustomChannelTypeRules)}
                 canEdit={!restrictedReason}
             />
@@ -318,29 +298,8 @@ export function ChannelTypeEditor({
                     </LemonButton>
                 ) : null
             }}
-            createNewContainerItem={() => {
-                return {
-                    id: uuid(),
-                    items: [
-                        {
-                            id: uuid(),
-                            key: CustomChannelField.ReferringDomain,
-                            op: CustomChannelOperator.Exact,
-                            value: [],
-                        },
-                    ],
-                    channel_type: '',
-                    combiner: FilterLogicalOperator.And,
-                }
-            }}
-            createNewChildItem={() => {
-                return {
-                    id: uuid(),
-                    key: CustomChannelField.ReferringDomain,
-                    op: CustomChannelOperator.Exact,
-                    value: [],
-                }
-            }}
+            createNewContainerItem={createNewChannelTypeRule}
+            createNewChildItem={createNewChannelTypeCondition}
             onChange={handleChange}
         />
     )

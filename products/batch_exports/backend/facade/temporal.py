@@ -24,6 +24,8 @@ _LAZY = {
     "ACTIVITIES": "workflows",
     "WORKFLOWS": "workflows",
     "BatchExportsMetricsInterceptor": "metrics",
+    # Only core's Temporal loaders read TEMPORAL, so it stays out of __all__.
+    "TEMPORAL": "registration",
 }
 
 __all__ = [

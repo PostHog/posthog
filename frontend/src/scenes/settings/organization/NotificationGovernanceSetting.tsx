@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -11,6 +12,7 @@ import { AvailableFeature } from '~/types'
 import { NOTIFICATION_CONCEPTS } from '../shared/notificationSettingDescriptors'
 import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
+import { QuillMemberNotifications } from './QuillMemberNotifications'
 
 export function NotificationGovernanceSetting(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
@@ -31,6 +33,23 @@ function MemberNotifications(): JSX.Element {
         useValues(notificationGovernanceLogic)
     const { discardChanges, saveChanges, loadMembers } = useActions(notificationGovernanceLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmSave = (): void => {
+        LemonDialog.open({
+            title: 'Save these notification settings?',
+            description: `This changes email notifications for ${pluralize(
+                affectedMemberCount,
+                'member'
+            )}. Everyone affected gets a notification in the app.`,
+            primaryButton: { children: 'Save', onClick: saveChanges },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    if (todayRailNav) {
+        return <QuillMemberNotifications onDiscard={discardChanges} onSave={confirmSave} onRetry={loadMembers} />
+    }
 
     if (loadFailed) {
         return (
@@ -55,18 +74,6 @@ function MemberNotifications(): JSX.Element {
 
     if (members.length === 0) {
         return <p className="text-muted text-sm">This organization has no members yet.</p>
-    }
-
-    const confirmSave = (): void => {
-        LemonDialog.open({
-            title: 'Save these notification settings?',
-            description: `This changes email notifications for ${pluralize(
-                affectedMemberCount,
-                'member'
-            )}. Everyone affected gets a notification in the app.`,
-            primaryButton: { children: 'Save', onClick: saveChanges },
-            secondaryButton: { children: 'Cancel' },
-        })
     }
 
     return (

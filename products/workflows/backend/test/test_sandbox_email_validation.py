@@ -177,7 +177,7 @@ class TestSandboxEmailActionValidation(SimpleTestCase):
         if rejected:
             with pytest.raises(ValidationError) as error:
                 _validate(_action(), stored=stored, adoption_enabled=adoption_enabled)
-            assert "sandbox sender isn't available" in _detail(error)
+            assert "PostHog test sender isn't available" in _detail(error)
         else:
             _validate(_action(), stored=stored, adoption_enabled=adoption_enabled)
 

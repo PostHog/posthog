@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.g2.settings import G2_BASE_URL, G2_ENDPO
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     validate_via_probe,
@@ -35,9 +36,7 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     `rest_source`'s declarative `data_selector` can pull the `data` array out of the envelope, but
     can't reshape each item, so G2's `{id, type, attributes: {...}}` resources are flattened here.
     """
-    row = dict(item.get("attributes") or {})
-    row["id"] = item.get("id")
-    return row
+    return flatten_jsonapi({"id": item.get("id"), "attributes": item.get("attributes")})
 
 
 def _extract_error_detail(response: requests.Response) -> str | None:

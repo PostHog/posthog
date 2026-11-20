@@ -1,5 +1,6 @@
 import './tooltip.css'
 
+import { useDirection } from '@base-ui/react/direction-provider'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import * as React from 'react'
 
@@ -61,9 +62,13 @@ const TooltipContent = React.forwardRef<
 ) {
     const glide = React.useContext(TooltipGlideContext)
     const tracksCursor = React.useContext(TooltipTracksCursorContext)
+    const direction = useDirection()
     return (
         <TooltipPrimitive.Portal>
+            {/* The popup is portaled out of the app's `dir`, so it restates the DirectionProvider's. Its
+                text and the logical inset of a start-aligned arrow (tooltip.css) both follow it. */}
             <TooltipPrimitive.Positioner
+                dir={direction}
                 data-quill
                 data-quill-portal="tooltip"
                 align={align}

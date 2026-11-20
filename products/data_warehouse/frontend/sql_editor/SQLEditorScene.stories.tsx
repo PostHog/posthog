@@ -61,6 +61,11 @@ export const TopToolsPerServer: Story = {}
 
 export const CustomerImages: Story = {
     tags: ['hogqlx-images'],
+    beforeEach: () => {
+        // Keep capture within the viewport so Playwright does not resize Monaco and change query wrapping.
+        document.body.classList.add('storybook-viewport-layout')
+        return () => document.body.classList.remove('storybook-viewport-layout')
+    },
     parameters: {
         pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
         testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
@@ -587,4 +592,70 @@ export const JevEarlySelection: Story = {
     tags: ['test-skip'],
     parameters: chartExperimentParameters(true, 100, 3000),
     decorators: [withAIConsent(true)],
+}
+
+const sidebarKindSchemaView = (name: string, isMaterialized: boolean): Record<string, unknown> => ({
+    type: isMaterialized ? 'materialized_view' : 'view',
+    id: name,
+    name,
+    fields: {},
+    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+})
+
+const sidebarKindView = (
+    name: string,
+    isMaterialized: boolean,
+    syncFrequency?: string,
+    description?: string
+): Partial<DataWarehouseSavedQuery> => ({
+    id: name,
+    name,
+    description,
+    is_materialized: isMaterialized,
+    sync_frequency: syncFrequency,
+    status: 'Completed',
+    latest_error: null,
+    columns: [],
+    managed_viewset_kind: null,
+    user_access_level: AccessControlLevel.Editor,
+})
+
+const SIDEBAR_KIND_VIEWS = [
+    sidebarKindView('orders_by_day', false),
+    sidebarKindView('shop_fulfilment_queue_cost', false, undefined, 'Cost of each fulfilment queue'),
+    sidebarKindView('shop_returns_unit_economics_monthly', false),
+    sidebarKindView('shop_fulfilment_queue_share_monthly', true, '6hour'),
+    sidebarKindView('shop_dash_region_monthly_orders', true, '24hour', 'Orders per region, one row per month'),
+    sidebarKindView('shop_dash_storefront_weekly_active_sessions', true, '1hour'),
+    sidebarKindView('carts', true, '24hour'),
+]
+
+export const SidebarViewKinds: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-carts"]'],
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': [
+                        200,
+                        {
+                            tables: Object.fromEntries(
+                                SIDEBAR_KIND_VIEWS.map((view) => [
+                                    view.name,
+                                    sidebarKindSchemaView(view.name!, !!view.is_materialized),
+                                ])
+                            ),
+                        },
+                    ],
+                },
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+                    '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: SIDEBAR_KIND_VIEWS }],
+                },
+            },
+        },
+    },
 }

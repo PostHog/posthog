@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
+import { MetricValueWithName, register } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutput } from '~/common/outputs/ingestion-output'
@@ -28,6 +29,7 @@ import { keyedRunId } from './run-intake'
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const FLOW_ID = '0193a7b2-0000-7000-8000-000000000001'
 const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
+const CDP_SEALED_STATE_KEYS = '00feed0000feed0000feed0000feed00'
 const OPTIONS = { kind: 'transactional-email', claimRetry: { initialDelayMs: 0, maxElapsedMs: 0 } } as const
 
 type Recorded = { output: string; message: IngestionOutputMessage }
@@ -161,7 +163,7 @@ describe('insertIntakeBatch', () => {
                 { HOG_INVOCATION_RESULTS_ENABLED: true }
             ),
             emailStatus: new EmailStatusService(outputs, { EMAIL_STATUS_ENABLED: true }),
-            stateOpener: new EncryptedFields(ENCRYPTION_SALT_KEYS),
+            stateOpener: new EncryptedFields(CDP_SEALED_STATE_KEYS),
         }
     })
 
@@ -197,6 +199,7 @@ describe('insertIntakeBatch', () => {
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+            CDP_SEALED_STATE_KEYS,
             ENCRYPTION_SALT_KEYS,
         })
         let produced: Buffer | undefined
@@ -278,6 +281,28 @@ describe('insertIntakeBatch', () => {
         await insertIntakeBatch([run.message], services, OPTIONS)
 
         expect(await storedJobs([run.id])).toHaveLength(jobs)
+    })
+
+    it('records how long an async run waited before its first claim, and nothing for a redelivery or a shadow copy', async () => {
+        const claimDelay = async (): Promise<{ count: number; sum: number }> => {
+            const values = (await register.getSingleMetric('cdp_intake_claim_delay_ms')!.get())
+                .values as MetricValueWithName<string>[]
+            const of = (name: string): number =>
+                values.find((v) => v.metricName === name && v.labels.kind === 'transactional-email')?.value ?? 0
+            return { count: of('cdp_intake_claim_delay_ms_count'), sum: of('cdp_intake_claim_delay_ms_sum') }
+        }
+        const before = await claimDelay()
+        const run = send({ producedAt: Date.now() - 2_000 })
+
+        await insertIntakeBatch([run.message], services, OPTIONS)
+        await insertIntakeBatch([run.message], services, OPTIONS)
+        const shadow = send({ shadow: true, producedAt: Date.now() - 2_000 })
+        await insertIntakeBatch([shadow.message], services, OPTIONS)
+        await insertIntakeBatch([shadow.message], services, OPTIONS)
+
+        const after = await claimDelay()
+        expect(after.count - before.count).toBe(1)
+        expect(after.sum - before.sum).toBeGreaterThanOrEqual(2_000)
     })
 
     it('leaves the first request untouched when its key comes back with a different request', async () => {

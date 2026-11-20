@@ -44,8 +44,13 @@ def record_delivery_failure(destination: ExternalDataDestination, error: BaseExc
         logger.warning("destination_health_failure_not_recorded", destination_id=str(destination.id), error=str(e))
 
 
-def record_delivery_success(destination: ExternalDataDestination) -> None:
+def record_delivery_success(destination: ExternalDataDestination, *, wrote_rows: bool = True) -> None:
     """Mark a failing destination healthy again. A paused one stays paused until a user turns it back on.
+
+    A delivery that wrote no rows sent no load to the destination, so it does not show that the
+    destination's settings work. It leaves the configuration failure count as it is. Otherwise
+    the empty schemas of a source reset the count between the failures of its other schemas, and
+    the destination does not pause.
 
     Reads the instance the delivery already loaded, so a destination that is already healthy costs
     no query.
@@ -54,6 +59,8 @@ def record_delivery_success(destination: ExternalDataDestination) -> None:
         destination.status == ExternalDataDestination.Status.HEALTHY
         and not destination.consecutive_configuration_failures
     ):
+        return
+    if not wrote_rows and destination.consecutive_configuration_failures:
         return
     try:
         updated = (

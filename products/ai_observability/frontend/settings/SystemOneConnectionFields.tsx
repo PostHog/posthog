@@ -2,15 +2,32 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { llmProviderKeysLogic } from './llmProviderKeysLogic'
+import { QuillSystemOneConnectionFields } from './QuillSystemOneConnectionFields'
 
 export function SystemOneConnectionFields(): JSX.Element {
     const { systemOneBaseUrl, systemOneModel, providerKeysLoading, keyFieldError } = useValues(llmProviderKeysLogic)
     const { setSystemOneBaseUrl, setSystemOneModel } = useActions(llmProviderKeysLogic)
     const baseUrlError = keyFieldError?.field === 'base_url' ? keyFieldError.message : null
     const modelError = keyFieldError?.field === 'system_one_model' ? keyFieldError.message : null
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillSystemOneConnectionFields
+                baseUrl={systemOneBaseUrl}
+                model={systemOneModel}
+                loading={providerKeysLoading}
+                baseUrlError={baseUrlError}
+                modelError={modelError}
+                onBaseUrlChange={setSystemOneBaseUrl}
+                onModelChange={setSystemOneModel}
+            />
+        )
+    }
 
     return (
         <div className="space-y-3">

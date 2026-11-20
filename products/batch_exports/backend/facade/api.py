@@ -322,7 +322,7 @@ def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) 
     """Sum the rows each team exported through billable runs that finished in the period."""
     completed_runs = BatchExportRun.objects.filter(
         finished_at__gte=begin,
-        finished_at__lte=end,
+        finished_at__lt=end,
         status=BatchExportRun.Status.COMPLETED,
     )
     rows = (

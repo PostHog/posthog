@@ -382,6 +382,14 @@ def feature_group_columns(feature_set: FeatureSet) -> dict[str, list[int]]:
     return _group_columns(feature_set, feature_set.feature_groups)
 
 
+def zero_groups(reports: np.ndarray, feature_set: FeatureSet, groups: Sequence[str]) -> None:
+    """Zero, on every row of `reports` in place, the columns of each of the set's late feature groups
+    named in `groups`."""
+    late = feature_set.late_feature_groups
+    for columns in _group_columns(feature_set, {group: late[group] for group in groups}).values():
+        reports[:, columns] = 0.0
+
+
 def zero_unfitted_groups(reports: np.ndarray, train_rows: np.ndarray, feature_set: FeatureSet) -> list[str]:
     """Zero, on every row of `reports` in place, each of the set's `late_feature_groups` that fewer
     than `MIN_TRAINED_GROUP_SHARE` of `train_rows` carry, and return those groups' names.

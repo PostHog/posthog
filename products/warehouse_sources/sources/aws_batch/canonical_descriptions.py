@@ -126,4 +126,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "region": "AWS region selected for this source.",
         },
     },
+    "job_queue_snapshots": {
+        "description": "Current state of each AWS Batch job queue, with the first runnable jobs in dispatch order and the capacity in use. Each sync replaces the previous snapshot.",
+        "docs_url": "https://docs.aws.amazon.com/batch/latest/APIReference/API_GetJobQueueSnapshot.html",
+        "columns": {
+            "job_queue_arn": "ARN of the job queue that the snapshot describes.",
+            "front_of_queue_jobs": "First 100 RUNNABLE jobs in dispatch order, each with its job ARN and the time in milliseconds when it moved to its current position.",
+            "last_updated_at": "Time when AWS Batch last updated the list of first runnable jobs, converted to UTC.",
+            "front_of_quota_shares": "First RUNNABLE job of each quota share, for queues with a quota-share policy.",
+            "queue_utilization": "Capacity that dispatched jobs use in the queue, in total and per share.",
+            "region": "AWS region selected for this source.",
+        },
+    },
 }

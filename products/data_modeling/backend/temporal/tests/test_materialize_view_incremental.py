@@ -6,6 +6,7 @@ would assert our idea of deltalite rather than deltalite.
 """
 
 import asyncio
+import threading
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -43,6 +44,8 @@ CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
 DAY1 = datetime(2026, 8, 1, tzinfo=UTC)
 DAY2 = datetime(2026, 8, 2, tzinfo=UTC)
 DAY3 = datetime(2026, 8, 3, tzinfo=UTC)
+
+EVENT_LOOP_TURN_TIMEOUT_SECONDS = 5
 
 
 def _batch(days: list[datetime | None], counts: list[int], *, value_column: str = "c") -> pa.RecordBatch:
@@ -190,6 +193,32 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "incremental"
         assert ajob.full_refresh_reason is None
+
+    async def test_opening_the_delta_table_leaves_the_event_loop_free(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        event_loop = asyncio.get_running_loop()
+        event_loop_ran_during_open: list[bool] = []
+
+        class TableOpenedWhileTheEventLoopRuns(deltalake.DeltaTable):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                event_loop_turned = threading.Event()
+                event_loop.call_soon_threadsafe(event_loop_turned.set)
+                event_loop_ran_during_open.append(event_loop_turned.wait(timeout=EVENT_LOOP_TURN_TIMEOUT_SECONDS))
+                super().__init__(*args, **kwargs)
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake, "DeltaTable", TableOpenedWhileTheEventLoopRuns),
+        ):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+            opens_in_full_refresh = len(event_loop_ran_during_open)
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2, DAY3], [99, 30]))
+
+        assert opens_in_full_refresh > 0
+        assert len(event_loop_ran_during_open) > opens_in_full_refresh
+        assert all(event_loop_ran_during_open)
 
     async def test_replaying_a_run_does_not_duplicate_rows(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

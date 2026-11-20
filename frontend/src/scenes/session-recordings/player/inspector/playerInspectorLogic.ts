@@ -666,25 +666,25 @@ export interface playerInspectorLogicMeta {
         }
         notebookCommentItems: (
             sessionNotebookComments: any,
-            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowIdForTimestamp: (timestamp: number) => number | undefined,
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemNotebookComment[]
         commentItems: (
             sessionComments: CommentType[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowIdForTimestamp: (timestamp: number) => number | undefined,
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemComment[]
         experimentVariantItems: (
             experimentItems: ExperimentSessionContextItemApi[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowIdForTimestamp: (timestamp: number) => number | undefined,
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemExperimentVariant[]
         metricEventItems: (
             experimentItems: ExperimentSessionContextItemApi[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowIdForTimestamp: (timestamp: number) => number | undefined,
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemMetricEvent[]
@@ -705,7 +705,7 @@ export interface playerInspectorLogicMeta {
             },
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             sessionPlayerMetaData: SessionRecordingType | null,
-            segments: import('@common/replay-shared/src').RecordingSegment[],
+            segments: RecordingSegment[],
             runtimeDoctorEvents: InspectorListItemDoctor[],
             experimentVariantItems: InspectorListItemExperimentVariant[],
             metricEventItems: InspectorListItemMetricEvent[]

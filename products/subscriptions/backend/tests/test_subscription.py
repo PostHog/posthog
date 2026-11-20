@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -18,6 +19,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -44,8 +46,13 @@ from products.subscriptions.backend.facade.api import (
     MAX_INSIGHTS,
     TEAMS_WEBHOOK_URL_ERROR,
     TEAMS_WEBHOOK_URL_MASKED_ERROR,
+    take_subscription_ownership,
 )
-from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
+from products.subscriptions.backend.facade.contracts import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionRequestInvalidError,
+    SubscriptionTriggerType,
+)
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
 from products.subscriptions.backend.logic.visibility import viewable_deliveries, viewable_subscriptions
 from products.subscriptions.backend.models.subscription import (
@@ -1182,23 +1189,184 @@ class TestSubscriptionTemporal(APILicensedTest):
             "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
         )
 
-    def test_take_ownership_enables_the_subscription_as_the_requester(self):
+    def test_take_ownership_rejects_subscription_without_content(self) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
+        Subscription.objects.filter(pk=subscription.pk).update(insight=None)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/")
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/", {})
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         subscription.refresh_from_db()
-        assert subscription.created_by == self.user
+        assert subscription.created_by != self.user
+        assert subscription.enabled is False
+
+    @parameterized.expand(["recipients", "contexts", "scheduler", "content"])
+    def test_take_ownership_preserves_concurrent_changes(self, change: str) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        changed = False
+        next_delivery = timezone.now() + timedelta(days=7)
+
+        def edit_before_lock(execute, sql, params, many, context):
+            nonlocal changed
+            if not changed and 'FROM "posthog_subscription"' in sql and "FOR UPDATE" in sql:
+                changed = True
+                if change == "recipients":
+                    Subscription.objects.filter(pk=subscription.pk).update(target_value="changed@example.com")
+                elif change == "contexts":
+                    SubscriptionContext.objects.for_team(self.team.id).create(
+                        team=self.team, subscription=subscription, insight=self.insight
+                    )
+                elif change == "scheduler":
+                    Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=next_delivery)
+                else:
+                    Subscription.objects.filter(pk=subscription.pk).update(insight=None)
+            return execute(sql, params, many, context)
+
+        if change == "scheduler":
+            subscription.enabled = True
+            subscription.save()
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            connection.execute_wrapper(edit_before_lock),
+            pytest.raises(SubscriptionRequestInvalidError) if change == "content" else nullcontext(),
+        ):
+            take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                actor=self.user,
+                owner=self.user,
+                viewer=UserAccessControl(user=self.user, team=self.team),
+                subscription_id=subscription.id,
+                analytics_props={"source": EventSource.WEB},
+            )
+
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
+        assert changed
+        subscription.refresh_from_db()
+        if change == "content":
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            if change == "scheduler":
+                assert subscription.next_delivery_date == next_delivery
+            elif change == "recipients":
+                assert subscription.target_value == "changed@example.com"
+            else:
+                assert (
+                    SubscriptionContext.objects.for_team(self.team.id)
+                    .filter(subscription=subscription, insight=self.insight)
+                    .exists()
+                )
+        if change in ("recipients", "contexts"):
+            delivery = self.mock_temporal_client.start_workflow.call_args.args[1]
+            assert delivery.subscription_id == subscription.id
+            assert delivery.previous_target_value == subscription.target_value
+
+    @parameterized.expand(
+        [
+            (True, OrganizationMembership.Level.MEMBER, False, False),
+            (False, OrganizationMembership.Level.MEMBER, False),
+            (False, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.MEMBER, False),
+            (True, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.ADMIN, False),
+            (True, OrganizationMembership.Level.ADMIN, True),
+        ]
+    )
+    def test_take_ownership_permissions(
+        self, another_member: bool, requester_level: int, ai_prompt: bool, member_exists: bool = True
+    ) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        if ai_prompt:
+            subscription.insight = None
+            subscription.prompt = "Summarize weekly signups"
+            subscription.save()
+        previous_owner = subscription.created_by
+        owner = self.user
+        if another_member:
+            owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+            if member_exists:
+                OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = requester_level
+        self.organization_membership.save()
+
+        with patch("products.subscriptions.backend.logic.subscription_writes.posthoganalytics.capture") as capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)} if another_member else {},
+            )
+
+        subscription.refresh_from_db()
+        if another_member and requester_level == OrganizationMembership.Level.MEMBER:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+            assert "organization admin" in response.json()["detail"]
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+            return
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert subscription.created_by == owner
         assert subscription.enabled is True
-        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["created_by"]["id"] == owner.id
+        delivery_events = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "subscription_update_delivery_intent"
+        ]
+        assert len(delivery_events) == 1
+        assert delivery_events[0]["distinct_id"] == str(self.user.distinct_id)
         # created_by is excluded from the save diff, so the takeover logs its own activity.
         takeover = ActivityLog.objects.get(
-            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            scope="Subscription",
+            item_id=str(subscription.id),
+            activity="transferred_ownership" if another_member else "took_ownership",
         )
         assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
+
+    @parameterized.expand(["non_member", "inactive", "no_project_access"])
+    def test_transfer_ownership_rejects_ineligible_owner(self, reason: str) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        owner = User.objects.create_user(
+            email="new-owner@example.com", first_name="New owner", password=None, is_active=reason != "inactive"
+        )
+        if reason != "non_member":
+            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        if reason == "no_project_access":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(owner.uuid)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by == previous_owner
+        assert subscription.enabled is False
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
@@ -4835,6 +5003,82 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
         )
 
+    @parameterized.expand(
+        [
+            (restricted, kind)
+            for restricted in (False, True)
+            for kind in ("selection", "insight_context", "dashboard_context")
+        ]
+    )
+    def test_transfer_checks_the_new_owners_content(self, restricted_content: bool, kind: str) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        selected_insight = self.restricted_insight if restricted_content else self.open_insight
+        if kind == "selection":
+            dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+            subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=False)
+            subscription.dashboard_export_insights.set([selected_insight])
+        else:
+            context = selected_insight if kind == "insight_context" else self._dashboard_with_tiles(selected_insight)
+            subscription = self._ai_sub_with_contexts(context)
+            subscription.created_by = admin
+            subscription.enabled = False
+            subscription.save()
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        subscription.refresh_from_db()
+        if kind == "selection":
+            assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
+        if restricted_content:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "access" in response.json()["detail"]
+            assert subscription.created_by == admin
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            self.client.force_login(self.user)
+            assert self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/").status_code == 200
+
+    def test_transfer_rejects_an_ai_owner_without_query_access(self) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        subscription = self._sub_on_an_ai_prompt()
+        subscription.created_by = admin
+        subscription.enabled = False
+        subscription.save()
+        self._rule("query")
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == "The new owner needs query access for AI prompt subscriptions."
+        subscription.refresh_from_db()
+        assert subscription.created_by == admin
+        assert subscription.enabled is False
+        assert not ActivityLog.objects.filter(
+            scope="Subscription", item_id=str(subscription.id), activity__in=["took_ownership", "transferred_ownership"]
+        ).exists()
+
     def _create_on_a_restricted_dashboard(self):
         return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
@@ -5021,6 +5265,43 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     def _deny_warehouse_tables(self) -> None:
         self._rule("warehouse_objects", for_member=False)
+
+    @parameterized.expand([(False, "owner"), (True, "owner"), (False, None), (True, None)])
+    def test_transfer_checks_the_owners_table_access(self, enabled: bool, denied_user: str | None) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+        owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), enabled=enabled)
+        if denied_user:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_objects",
+                organization_member=owner_membership,
+                access_level="none",
+            )
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)},
+            )
+
+        subscription.refresh_from_db()
+        if denied_user:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "the new owner doesn't have access to `governed_view`" in response.json()["detail"]
+            assert subscription.created_by == self.user
+            assert subscription.enabled is enabled
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == owner
+            assert subscription.enabled is True
 
     def _insight_target(self, insight: Insight) -> dict:
         return {"insight": insight.id}

@@ -14,13 +14,19 @@ from django.conf import settings
 from django.test import override_settings
 
 import httpx
+import aiohttp
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -35,6 +41,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManySimultaneousQueriesError,
 )
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.open_telemetry import CachingReplaySafeTracerProvider
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
@@ -78,6 +85,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     LOGGER,
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
+    IncrementalWindow,
     InvalidNodeTypeException,
     _adaptive_retry_delay,
     _describe_columns,
@@ -1000,7 +1008,13 @@ class TestNodeSuspension:
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: this query was cancelled because the Trino instance running it was being replaced; please run it again\", query_id=20261119_000000_00000_abcde)",
+            "Trino restarted while it was building this model, and all 3 attempts failed. The model's query did not cause this. "
+            "The model builds again on its next scheduled run, or you can run it now. Trino query ID: 20261119_000000_00000_abcde",
             "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
+            "error 502: bad gateway",
+            "error 503: service unavailable",
+            "error 504: gateway timeout",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1052,7 +1066,10 @@ class TestNodeSuspension:
                     "error 403: b'This tenant is not admitted to the pool yet",
                     "name=CLUSTER_OUT_OF_MEMORY,",
                     "name=TOO_MANY_REQUESTS_FAILED,",
+                    "the Trino instance running it was being replaced",
+                    "Trino restarted while it was building this model",
                     "name=PAGE_TRANSPORT_TIMEOUT,",
+                    "error 503: service unavailable",
                 ]
             ),
         ],
@@ -1097,6 +1114,7 @@ class TestNodeSuspension:
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
             "ClickHouseError: Code: 32. DB::Exception: Cannot parse Int64 from String, because value is too short. "
             "(ATTEMPT_TO_READ_AFTER_EOF)",
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: runaway query\", query_id=20261119_000000_00000_abcde)",
         ],
     )
     async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
@@ -1375,6 +1393,9 @@ class TestNodeSuspension:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
 
+ENRICHABLE_VIEW_COLUMNS = {"amount": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+
+
 class TestSucceedMaterializationActivity:
     async def test_marks_job_as_completed(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(
@@ -1471,8 +1492,12 @@ class TestSucceedMaterializationActivity:
         expected = DataWarehouseSavedQuery.Status.MODIFIED if edited_after_the_run_started else None
         assert asaved_query.status == expected
 
-    async def test_flags_enrichment_needed_when_hash_missing(self, activity_environment, ateam, anode, ajob, adag):
+    @pytest.mark.parametrize("columns", [ENRICHABLE_VIEW_COLUMNS, {}])
+    async def test_flags_enrichment_for_a_never_enriched_view_only_when_it_has_columns(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, columns
+    ):
         # A view with no stored enrichment hash (never enriched) must signal the workflow to enrich.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(columns=columns)
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -1482,13 +1507,14 @@ class TestSucceedMaterializationActivity:
             duration_seconds=1.0,
         )
         result = await activity_environment.run(succeed_materialization_activity, inputs)
-        assert result.enrichment_needed is True
+        assert result.enrichment_needed is bool(columns)
         assert result.saved_query_id == str(anode.saved_query_id)
 
     async def test_no_enrichment_when_hash_matches(self, activity_environment, ateam, anode, ajob, adag, asaved_query):
         # A steady-state re-materialization (stored hash still current) must not spawn an enrichment child.
+        asaved_query.columns = ENRICHABLE_VIEW_COLUMNS
         await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
-            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+            columns=ENRICHABLE_VIEW_COLUMNS, semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
         )
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
@@ -1506,8 +1532,9 @@ class TestSucceedMaterializationActivity:
     ):
         # The definition-only pass stored an unsampled hash. The first run links the table before this
         # activity runs, while its own job is still Running, and that alone must flip the hash.
+        asaved_query.columns = ENRICHABLE_VIEW_COLUMNS
         await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
-            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+            columns=ENRICHABLE_VIEW_COLUMNS, semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
         )
         table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam, name="test_model", format="Delta"
@@ -2103,6 +2130,24 @@ class TestMaterializeViewActivity:
                 (dt.timedelta(seconds=20), dt.timedelta(seconds=40)),
             ),
             (
+                aiohttp.ClientConnectorError(
+                    unittest.mock.MagicMock(host="clickhouse", port=8443, ssl=True),
+                    OSError(111, "Connect call failed"),
+                ),
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                aiohttp.ClientOSError(104, "Connection reset by peer"),
+                1,
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
+            ),
+            (
+                aiohttp.ServerDisconnectedError("Server disconnected"),
+                1,
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
+            ),
+            (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
                 1,
                 None,
@@ -2405,6 +2450,38 @@ class TestHogqlTableModifiers:
             assert "max_threads" not in client.arrow_query
         else:
             assert f"max_threads={expected_max_threads}" in client.arrow_query
+
+    async def test_a_failed_clickhouse_stream_marks_its_span_as_an_error(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+        client.arrow_error = ClickHouseError("Code: 241. Memory limit exceeded")
+        exporter = InMemorySpanExporter()
+        provider = CachingReplaySafeTracerProvider.create(Resource.create(attributes={"service.name": "test"}))
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.tracer",
+                provider.get_tracer(__name__),
+            ),
+            pytest.raises(ClickHouseError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1 AS id", ateam, LOGGER.bind())]
+
+        (stream_span,) = [
+            span for span in exporter.get_finished_spans() if span.name == "materialize_view.clickhouse_stream"
+        ]
+        assert stream_span.status.status_code == StatusCode.ERROR
+        assert [event.attributes["exception.type"] for event in stream_span.events if event.attributes] == [
+            f"{ClickHouseError.__module__}.{ClickHouseError.__qualname__}"
+        ]
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [
@@ -2738,6 +2815,119 @@ class TestHogqlTableDuplicateOutputColumns:
         assert client.arrow_query_calls == 0
         # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
         assert isinstance(error.value, NonReportableError)
+
+    # ClickHouse keeps the qualifier on the bare column because its plain name is taken, while HogQL
+    # names both columns `event`
+    @pytest.mark.parametrize(
+        ("query", "expected_columns"),
+        [
+            pytest.param(
+                "SELECT a.event, a.timestamp, a.event AS event FROM events AS a",
+                ["a.event", "timestamp", "event"],
+                id="type-the-wrapper-converts",
+            ),
+            pytest.param(
+                "SELECT a.event, a.distinct_id, a.event AS event FROM events AS a",
+                ["a.event", "distinct_id", "event"],
+                id="type-the-wrapper-leaves-alone",
+            ),
+        ],
+    )
+    # an incremental run re-selects the model's output through its guard, which must keep every column
+    @pytest.mark.parametrize(
+        "window",
+        [
+            pytest.param(None, id="full-run"),
+            pytest.param(IncrementalWindow(incremental_key="event", since=""), id="incremental-run"),
+        ],
+    )
+    async def test_a_qualified_column_repeated_under_its_own_name_materializes_as_described(
+        self,
+        ateam: Team,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        expected_columns: list[str],
+        window: IncrementalWindow | None,
+    ) -> None:
+        events, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=2,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), window=window)]
+
+        assert [name for name, _ in batches[0][1]] == expected_columns
+        assert all(table.schema.names == expected_columns for table, _ in batches)
+        rows = [row for table, _ in batches for row in table.to_pylist()]
+        assert len(rows) == len(events)
+        assert all(row["a.event"] == row["event"] for row in rows)
+
+    @pytest.mark.parametrize(
+        ("query", "expected_columns", "expected_row_count"),
+        [
+            # the pinned aliases sit next to the filter and the sort, so a wrong name would redirect them
+            pytest.param(
+                "SELECT a.event, b.event, a.timestamp FROM events AS a JOIN events AS b ON a.team_id = b.team_id "
+                "WHERE b.event = 'test-1' ORDER BY a.timestamp, a.event",
+                ["a.event", "event", "timestamp"],
+                4,
+                id="join-filtered-on-a-pinned-column",
+            ),
+            # the array join already defines `n`, so pinning must not alias it a second time
+            pytest.param(
+                "SELECT n, timestamp FROM events ARRAY JOIN [1, 2] AS n ORDER BY timestamp, n",
+                ["n", "timestamp"],
+                8,
+                id="array-join-alias-selected-by-name",
+            ),
+        ],
+    )
+    async def test_materializes_the_rows_the_sql_editor_returns(
+        self,
+        ateam: Team,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        expected_columns: list[str],
+        expected_row_count: int,
+    ) -> None:
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=4,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+        editor = await database_sync_to_async(execute_hogql_query)(query, ateam)
+
+        assert [name for name, _ in batches[0][1]] == expected_columns
+        materialized = [tuple(row.values()) for table, _ in batches for row in table.to_pylist()]
+        assert materialized == [tuple(row) for row in editor.results]
+        assert len(materialized) == expected_row_count
 
 
 class _SlowDescribeClient(_EmptyArrowClient):

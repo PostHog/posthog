@@ -720,6 +720,22 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
+    if throttle.num_requests is None or throttle.duration is None:
+        return None
+    throttle.key = throttle.get_cache_key(request, view)
+    throttle.now = throttle.timer()
+    try:
+        cached_history = throttle.cache.get(throttle.key, [])
+    except Exception as e:
+        capture_exception(e)
+        return None
+    throttle.history = [hit for hit in cached_history if hit > throttle.now - throttle.duration]
+    if len(throttle.history) < throttle.num_requests:
+        return None
+    return throttle.wait()
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -733,6 +749,21 @@ class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
 class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "heatmap_preflight_sustained"
     rate = "300/hour"
+
+
+class DataQualityRunBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_burst"
+    rate = "20/minute"
+
+
+class DataQualityRunSustainedRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_sustained"
+    rate = "60/hour"
+
+
+class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_project"
+    rate = "180/hour"
 
 
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
@@ -1337,33 +1368,21 @@ class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the pending login's user id (from the session), not on request data. The base class
-        # would fall back to a request-body "email" field, which the code-verification request never
-        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
-        # it. The session is the source of truth for who is being verified.
+        # An unproven IdP subject must not spend another subject's or a password login's budget.
+        # Session state also prevents request-body email changes from minting fresh buckets per guess.
         from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+        identity = code_based_verifier.get_pending_budget_identity(request)
+        if identity:
+            ident = hashlib.sha256(identity.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
 
 
-class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+class CodeBasedVerificationResendThrottle(CodeBasedVerificationThrottle):
     scope = "code_based_verification_resend"
     rate = "1/minute"
-
-    def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import code_based_verifier
-
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
 
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):

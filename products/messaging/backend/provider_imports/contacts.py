@@ -1,0 +1,299 @@
+"""Contact steps every provider import shares: each list of contacts becomes people and fills a cohort."""
+
+import re
+import json
+from collections.abc import Iterable, Mapping
+from typing import Any
+
+from posthog.dataclasses import frozen
+
+from products.messaging.backend.provider_imports.base import (
+    ImportContext,
+    ImportItem,
+    ImportStepError,
+    ImportStepSpec,
+    ImportTooLarge,
+    PeopleImportPlan,
+    SavedPage,
+)
+from products.messaging.backend.provider_imports.emails import exact_email
+from products.messaging.backend.services.imported_data import carry_opt_outs
+from products.workflows.backend.facade.contracts import ProviderContactsResult
+from products.workflows.backend.facade.people_import import (
+    MAX_PEOPLE_IMPORT_ROW_BYTES,
+    send_provider_contact_properties,
+    stage_provider_contacts,
+)
+
+NEW_PEOPLE_STEP = "new_people"
+# Person properties hold short values, so a provider's longer custom field is left out rather than cut.
+MAX_PROPERTY_VALUE_LENGTH = 1000
+# Contacts plus list memberships one step reads. Every list's contacts stay in memory until the step saves.
+MAX_CONTACT_MEMBERSHIPS = 250_000
+MAX_CONTACT_BYTES = 200 * 1024 * 1024
+MAX_PROPERTY_NAME_LENGTH = 200
+TOO_MANY_CONTACTS_MESSAGE = (
+    "This account has more contacts, list memberships or contact data than one import takes. Upload your people as "
+    "a CSV file instead."
+)
+# The people import reads these names as the person to write to, so a provider field can't use them.
+_IDENTITY_NAMES = frozenset({"email", "id", "distinct_id"})
+_NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
+
+CONTACT_COUNT_LABELS = (
+    ("people", "Contacts sent to PostHog"),
+    ("new_people", "New people"),
+    ("skipped_new_people", "No matching person, left out"),
+    ("dropped", "Skipped because the address isn't valid or repeats"),
+)
+
+
+@frozen
+class ContactList:
+    """One list or segment of contacts, and the cohort its contacts go into."""
+
+    cohort_name: str
+    # Finds the cohort again on a rerun, so it must stay the same for the same list.
+    cohort_description: str
+    # Names the list in a note, such as 'the Resend segment "VIPs"'.
+    source: str
+    rows: tuple[dict[str, str], ...]
+    # Said instead when the list has no contacts to import.
+    empty_note: str = "No contacts to import."
+    # Lowercased addresses whose people stay out of the cohort, such as contacts who unsubscribed.
+    non_members: frozenset[str] = frozenset()
+
+
+def new_people_step(provider_label: str) -> ImportStepSpec:
+    return ImportStepSpec(
+        key=NEW_PEOPLE_STEP,
+        label="New people from contacts",
+        description=(
+            f"Creates a person for each {provider_label} contact whose email matches no one in PostHog, with the "
+            "email as their ID. Needs Contacts selected too. Each new person counts as one event. If your app "
+            "identifies people by another ID, it should also set their email, or PostHog keeps two people for them."
+        ),
+        needs=("contacts",),
+    )
+
+
+class ContactCollector:
+    """Keeps each contact once, by email, so a contact on several lists is one row that every list shares.
+
+    A repeat adds the properties the first entry lacked. The total stops at MAX_CONTACT_MEMBERSHIPS and
+    MAX_CONTACT_BYTES, so one large account can't fill the worker's memory.
+    """
+
+    def __init__(self) -> None:
+        self._rows: dict[str, dict[str, str]] = {}
+        # Addresses the provider spelled more than one way, by lowercased address.
+        self._spellings: dict[str, set[str]] = {}
+        self._memberships = 0
+        self._bytes = 0
+
+    def add(self, email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
+        address = exact_email(email)
+        if address is None:
+            return None
+        self._memberships += 1
+        if self._memberships > MAX_CONTACT_MEMBERSHIPS:
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
+        row = self._rows.get(address.lower())
+        if row is None:
+            row = self._rows[address.lower()] = {"email": address}
+            self._bytes += _row_bytes(row)
+        elif address != row["email"]:
+            spellings = self._spellings.setdefault(address.lower(), {row["email"]})
+            if address not in spellings:
+                spellings.add(address)
+                self._bytes += len(address.encode())
+        self._bytes += _add_properties(row, properties)
+        if self._bytes > MAX_CONTACT_BYTES:
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
+        return row
+
+    @property
+    def everyone(self) -> tuple[dict[str, str], ...]:
+        return tuple(self._rows.values())
+
+    @property
+    def other_spellings(self) -> tuple[str, ...]:
+        """Every spelling of each address the provider spelled more than one way."""
+        return tuple(sorted(spelling for spellings in self._spellings.values() for spelling in spellings))
+
+
+def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
+    """Adds the properties the row lacks while it stays within the people import's row limit, and returns the bytes
+    added."""
+    before = _row_bytes(row)
+    size = before
+    for key, value in properties.items():
+        name = str(key).strip()
+        text = _property_text(value)
+        if (
+            not text
+            or name in row
+            or len(name) > MAX_PROPERTY_NAME_LENGTH
+            or name.startswith("$")
+            or _loose_name(name) in _IDENTITY_NAMES
+        ):
+            continue
+        row[name] = text
+        grown = _row_bytes(row)
+        if grown > MAX_PEOPLE_IMPORT_ROW_BYTES:
+            del row[name]
+        else:
+            size = grown
+    return size - before
+
+
+def _row_bytes(row: Mapping[str, str]) -> int:
+    # Measured the way the people import measures a row, so an accented value counts the bytes its escapes take.
+    return len(json.dumps(row).encode())
+
+
+def save_contact_lists(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Iterable[ContactList],
+    other_spellings: Iterable[str] = (),
+) -> SavedPage:
+    """Import `everyone` as people, then fill a cohort for each of `lists`, whose contacts are all in `everyone`.
+
+    Only `everyone` sends the events that create and update people, so a contact in several lists counts once.
+    `other_spellings` holds each address the provider spelled more than one way, as from
+    `ContactCollector.other_spellings`.
+    """
+    create_people = NEW_PEOPLE_STEP in context.steps
+    result = _import(context, everyone, 0, create_people=create_people, send_events=True)
+    # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
+    carry_opt_outs(
+        context.team_id,
+        [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
+        context.created_by_id,
+    )
+    notes = _notes(everyone, result)
+    if result.people:
+        notes.append(
+            f"{_contacts(result.people)} sent, {result.new_people:,} of them new people. This cohort and the ones "
+            "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
+            "Anyone no longer on a list leaves its cohort."
+        )
+    if result.skipped_new_people:
+        notes.append(
+            f"{_match_no_one(result.skipped_new_people)}, so no cohort has them. Import again "
+            "with New people from contacts selected to add them."
+        )
+    items = [_item(everyone, result, tuple(notes))]
+    plans = [_plan(result, send_events=True)]
+    for index, contact_list in enumerate(lists, start=1):
+        if result.status == "failed":
+            # The list's contacts never became people, so filling it would leave them out without saying so.
+            items.append(
+                ImportItem(
+                    label=contact_list.cohort_name,
+                    status="skipped",
+                    notes=(f"Not filled, because {everyone.cohort_name} couldn't be imported.",),
+                )
+            )
+            continue
+        # A list waits on people the import above creates, so it can't have people that import left out.
+        list_result = _import(context, contact_list, index, create_people=create_people, send_events=False)
+        plans.append(_plan(list_result, send_events=False))
+        list_notes = _notes(contact_list, list_result)
+        if list_result.people:
+            list_notes.append(f"{_contacts(list_result.people)}.")
+        if list_result.skipped_new_people:
+            list_notes.append(f"{_match_no_one(list_result.skipped_new_people)}, so they aren't here.")
+        items.append(_item(contact_list, list_result, tuple(list_notes)))
+    return SavedPage(
+        imported=result.people,
+        counts={
+            "people": result.people,
+            "new_people": result.new_people,
+            "skipped_new_people": result.skipped_new_people,
+            "dropped": result.dropped,
+        },
+        items=tuple(items),
+        people_imports=tuple(plan for plan in plans if plan is not None),
+    )
+
+
+def _import(
+    context: ImportContext, contact_list: ContactList, index: int, *, create_people: bool, send_events: bool
+) -> ProviderContactsResult:
+    return stage_provider_contacts(
+        context.team_id,
+        context.created_by_id,
+        contact_list.rows,
+        import_key=f"{context.run_id}/list-{index}",
+        create_people=create_people,
+        send_events=send_events,
+        cohort_name=contact_list.cohort_name,
+        cohort_description=contact_list.cohort_description,
+        source=contact_list.source,
+        non_members=contact_list.non_members,
+    )
+
+
+def _plan(result: ProviderContactsResult, *, send_events: bool) -> PeopleImportPlan | None:
+    # A list with no people left still empties its cohort, unless staging failed.
+    if result.status == "failed" or result.cohort_id is None:
+        return None
+    return PeopleImportPlan(
+        cohort_id=result.cohort_id, storage_prefix=result.storage_prefix, chunks=result.chunks, send_events=send_events
+    )
+
+
+def _notes(contact_list: ContactList, result: ProviderContactsResult) -> list[str]:
+    return [contact_list.empty_note] if not contact_list.rows else list(result.notes)
+
+
+def _contacts(count: int) -> str:
+    return f"{count:,} contact" if count == 1 else f"{count:,} contacts"
+
+
+def _match_no_one(count: int) -> str:
+    return f"{_contacts(count)} {'matches' if count == 1 else 'match'} no one in PostHog"
+
+
+def _item(contact_list: ContactList, result: ProviderContactsResult, notes: tuple[str, ...]) -> ImportItem:
+    return ImportItem(
+        label=result.cohort_name or contact_list.cohort_name,
+        status=result.status,
+        url=f"/cohorts/{result.cohort_id}" if result.cohort_id else None,
+        notes=notes,
+    )
+
+
+def save_contact_properties(context: ImportContext, everyone: ContactList, contacts_checked: int) -> SavedPage:
+    """Fill in the properties each person in `everyone` lacks. The contacts step of the same run sets
+    `everyone`'s cohort, so this leaves the cohort as it is."""
+    result = send_provider_contact_properties(
+        context.team_id,
+        context.created_by_id,
+        everyone.rows,
+        import_key=f"{context.run_id}/properties",
+        create_people=NEW_PEOPLE_STEP in context.steps,
+    )
+    if result.status == "failed":
+        raise ImportStepError(" ".join(result.notes))
+    return SavedPage(imported=result.people, counts={"people": result.people, "contacts": contacts_checked})
+
+
+def new_people_page() -> SavedPage:
+    """The new people step has nothing of its own to save: it changes what the contacts step does."""
+    return SavedPage(imported=0)
+
+
+def _property_text(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float | str):
+        text = str(value).strip()
+        return text if len(text) <= MAX_PROPERTY_VALUE_LENGTH else ""
+    return ""
+
+
+def _loose_name(name: str) -> str:
+    return _NAME_SEPARATORS.sub("_", name.lower()).strip("_")

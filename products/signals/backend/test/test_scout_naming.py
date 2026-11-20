@@ -11,6 +11,8 @@ from products.signals.backend.scout_harness.scout_naming import (
     _slug_candidates,
     allocate_scout_slug,
     fallback_scout_slug,
+    prettify_scout_skill_name,
+    scout_display_name,
     slugify_scout_name,
 )
 from products.skills.backend.api.skill_serializers import validate_skill_name_value
@@ -49,6 +51,32 @@ class TestSlugifyScoutName(SimpleTestCase):
 
     def test_fallback_slug_is_a_usable_skill_name(self) -> None:
         validate_skill_name_value(fallback_scout_slug())
+
+
+class TestScoutDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("single acronym", "signals-scout-apm", "APM"),
+            ("acronym first", "signals-scout-mcp-tool-calls", "MCP tool calls"),
+            ("acronym later", "signals-scout-web-csp-violations", "Web CSP violations"),
+            ("brand casing", "signals-scout-posthog-sdk-health", "PostHog SDK health"),
+            ("plain words", "signals-scout-error-tracking", "Error tracking"),
+            ("custom slug without the prefix", "custom_thing", "Custom thing"),
+            ("bare prefix", "signals-scout", "Scout"),
+        ]
+    )
+    def test_prettified_skill_name(self, _name: str, skill_name: str, expected: str) -> None:
+        assert prettify_scout_skill_name(skill_name) == expected
+
+    @parameterized.expand(
+        [
+            ("set name wins", "  Checkout watch ", "Checkout watch"),
+            ("blank name falls back", "   ", "APM"),
+            ("missing name falls back", None, "APM"),
+        ]
+    )
+    def test_display_name(self, _name: str, display_name: str | None, expected: str) -> None:
+        assert scout_display_name(skill_name="signals-scout-apm", display_name=display_name) == expected
 
 
 class TestAllocateScoutSlug(BaseTest):

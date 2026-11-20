@@ -10,12 +10,12 @@ import {
     validateDistinctIdPersonIdExclusive,
 } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import hooks_createFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_deleteFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagGetDefinition from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagRollOutToEveryone from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagSetReleaseConditionRollout from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagsMyFlagsRetrieve from '@/tools/featureFlags/conditionIdHooks'
+import hooks_createFeatureFlag from '@/tools/featureFlags/createFeatureFlagHooks'
 import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'

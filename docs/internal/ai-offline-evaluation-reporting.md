@@ -95,6 +95,13 @@ from the setup screen; filtered lists keep their filters and results table.
 Dataset setup appears only when there are no active or archived datasets, so projects with only archived
 datasets can still browse and restore them from the list.
 
+Hosted datasets default to 100 per project, including archived datasets until they expire. Each dataset can hold
+2,000 items, including archived items. Each item can have 40 retained versions, and all datasets in a project
+share 25,000 retained item versions. Creating, editing, archiving, or restoring an item can add a version.
+Retention frees slots when it deletes version rows. An item payload can contain up to 406,666 bytes of compact
+UTF-8 JSON across its input, expected output, source output, and metadata. JSONL exports have a separate 250 MB limit,
+so a dataset with large items can exceed the size of a single export.
+
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
@@ -316,7 +323,7 @@ Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
-The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
+The project API accepts offline experiment results.
 The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
@@ -370,7 +377,7 @@ For example, this upload declares one item and its boolean result:
 
 The version UUID above is a placeholder for a pre-existing boolean scorer version.
 An additional scorer result can reference the same `item_id` without repeating its item declaration or payload.
-Each item declaration is complete and immutable.
+Each upload carries the complete original item declaration. Use the update endpoints below to change an accepted item.
 Missing payload properties and explicitly supplied JSON nulls remain distinct.
 
 Responses acknowledge committed writes and return stable item/result IDs, original acceptance times, and `created` flags.
@@ -446,7 +453,7 @@ Missing inputs reject the whole request. Non-success input statuses propagate in
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
 
-The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
+The server computes during ingestion and saves the result with `input_result_ids` in composition input order.
 Exact retries return the stored acknowledgment, including after closure. Composite requests and retries require current access to the composite scorer and every pinned input scorer, even when all input results are included in the upload.
 Reported-score retries remain available after reference-access changes. New requests require an uploading experiment.
 Results and formulas are never recalculated on read. Formula/input changes create a new composite version; old results keep their original configuration.
@@ -503,6 +510,8 @@ Experiment lifecycle events include dataset source, run source, status, and expe
 Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Quota rejections emit `llma dataset limit reached`. Its `resource`, `current_count`, and `limit` properties
+identify the count or byte limit that blocked the write. Project groups identify affected projects.
 Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.
@@ -514,7 +523,7 @@ Existing `llma` event names and attributes remain unchanged so saved actions and
 Newly accepted reported Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
 Each upload transaction that inserts reported results writes one entry with a quantity equal to the number of new reported results, including error, skipped, and not-applicable outcomes. Computed composite results add no ledger quantity.
 Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
-Exact retries add no usage, including retries split or regrouped into different requests.
+Retries of retained results add no usage, including retries split or regrouped into different requests.
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
@@ -528,8 +537,45 @@ Independent scalar identifiers prevent product deletion cascades from deleting u
 `editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
 
 Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
-There is no result/experiment deletion endpoint. Privileged deletion of a result followed by reupload while its experiment is still open creates a new result and another usage unit; the ledger cannot identify the old metric after deletion.
-Operators must not delete durable result identities and then replay uploads as a billing-neutral operation. Any future identity cleanup needs an explicit replay policy before deployment.
+While an experiment is uploading, submitting a deleted item or result again creates it anew, even when the submission is an exact retry.
+Each recreated reported result counts as another usage unit. Computed composites add no usage. Once the experiment closes, it rejects uploads that would recreate deleted data.
+
+### Updating and deleting offline evaluation data
+
+Use these paths below `offline_experiments/{experiment_id}/` in the project's AI observability API.
+They work on uploading, completed, and failed experiments.
+
+| Path                           | PATCH                                                                                                                                                            | DELETE                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `items/{item_id}/`             | Change the case key, trial, model version, or application trace ID.                                                                                              | Remove the item, its results, and their payloads.                                                        |
+| `results/{result_id}/`         | Change a reported status, score value, or error code. The server recomputes requested dependent composites in the same transaction, using their pinned formulas. | Remove the result, its payload, and its dependent composites. Deleting a composite preserves its inputs. |
+| `items/{item_id}/payload/`     | Set one or more top-level item payload fields.                                                                                                                   | Remove the stored item payload.                                                                          |
+| `results/{result_id}/payload/` | Set one or more top-level result payload fields.                                                                                                                 | Remove the stored result payload.                                                                        |
+
+Read the item's, result's, or payload's `revision` first. Include it in the PATCH body or the DELETE query string.
+A successful PATCH returns the current revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
+If a reported score already has the requested status, value, and error code, its revision and score timestamp stay the same. This also preserves the timestamps of its dependent composites.
+Correcting only the error code advances the result revision and preserves the score timestamp. Its dependent composites keep their scores, revisions, and timestamps.
+For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
+For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
+An item and its payload share a revision, as do a result and its payload.
+Adding, editing, or deleting a result on an existing item also advances the item revision, as does editing or deleting a result payload. If another writer makes one of these changes after you read the item, read it again before deleting it.
+Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
+
+These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
+MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
+An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
+Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
+
+The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later. Recreating a hard-deleted item or result starts a new window for that record.
+An edit cannot extend the deadline or restore a deleted or expired payload.
+Only a stored payload can be deleted. If it was never provided, already deleted, or removed by retention, DELETE returns HTTP 409 (`payload_unavailable`) and preserves the revision. A first payload can still be added within the original window.
+Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
+Changing an item's input, output, or expected output leaves its reported scores in place. Item results and result cells expose `is_stale`, which the inspector uses to identify scores that predate the change.
+The API compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
+
+Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
+Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.
 
 ### Usage reporting and shared AIO meter
 
@@ -631,7 +677,6 @@ Opening scorer history from an experiment clears remembered tag filters so they 
 
 ## Postgres experiment reads
 
-Read endpoints use the same feature flag as ingestion.
 The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
@@ -734,8 +779,7 @@ Numeric increases do not imply better quality unless that meaning is established
 ### MCP access
 
 The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
-these reads and the create/upload/complete/fail lifecycle behind the same
-`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+these reads and the create/upload/complete/fail lifecycle. Lifecycle tools record externally
 computed results; they do not execute evaluators. Scorer configuration remains on
 the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
 for immutable version discovery. Version tools use the existing scorer permissions.
@@ -769,14 +813,23 @@ Passing the deadline makes a payload eligible for cleanup. It remains available 
 The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
+The event also reports `item_payload_bytes_deleted`, `result_payload_bytes_deleted`, and their sum, `payload_bytes_deleted`.
+The dataset cleanup event, `dataset retention run`, reports `payload_bytes_deleted` for removed item versions, summing their input, expected output, source output, and metadata fields.
+Both measure the byte length of PostgreSQL's JSON text representation immediately before deletion and count only committed deletions.
+SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
+These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
+Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
+Both cleanup events send aggregate run metrics to the US analytics project, retaining the deployment region in the `region` property.
+The events contain no customer payloads or customer identifiers. Filter by `region` for separate US and EU monitoring.
+EU history in the US project starts when centralized reporting is deployed; earlier EU events remain in the EU project.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 
 ## Inspecting offline results
 
-Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
-When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
-with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Open **Evaluations → Offline evals**. The **Experiments** tab opens by default and shows the newest experiments and chosen score trends.
+**Datasets** opens the dataset list on the same page with `tab=datasets` in the query string.
+MCP-generated dataset-list links retain this tab selector.
 Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
 links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
 `/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
@@ -786,8 +839,6 @@ directly in the detail view; **Details** opens the dataset metadata without repl
 The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
 Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
 experiment search and filters and restores the saved dataset tag selection.
-Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
-including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
 your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
@@ -836,13 +887,14 @@ Upload completion is separate from score quality. **Mark as completed** checks d
 
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
-Scorer management remains available for manual reviews when offline evaluations are disabled.
 Scorer names open the full-page editor at `/ai-evals/evaluations/scorers/{scorer_id}`; `/ai-evals/evaluations/scorers/new` creates a scorer.
-The editor combines metadata and score configuration in one form. Passing settings are shown only when offline evaluations are enabled; hiding those controls preserves existing rules. **Save** patches metadata when configuration is unchanged; configuration changes save metadata and a new immutable version together. Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
+The editor shows metadata, score configuration, and the passing rule in one form.
+**Save** updates only the metadata when the configuration is unchanged. When the configuration changes, **Save** updates the metadata and creates a new immutable version.
+Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
 Saving a new configuration checks the version observed when editing started. A concurrent version change returns 409 without saving either the draft metadata or configuration.
 The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
 The **Offline evals history** button in the editor opens a scorer's experiment timeline.
-With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+The timeline offers upload state, source, date range, comparison, and exact version filters.
 The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
@@ -860,6 +912,3 @@ Its experiment table keeps names and coverage on one line, shows execution time 
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-
-The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
-The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.

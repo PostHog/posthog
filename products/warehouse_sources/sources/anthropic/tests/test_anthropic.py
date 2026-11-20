@@ -7,27 +7,38 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.anthropic._config import AnthropicSourceConfig
 from products.warehouse_sources.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
+    ANALYTICS_USAGE_COST_ACCESS_MISSING,
     ANTHROPIC_VERSION_2023_06_01,
     ANTHROPIC_VERSION_2026_10_21,
     INVALID_ADMIN_KEY_MESSAGE,
+    SPEND_LIMIT_ACCESS_MISSING,
     STANDARD_KEY_MESSAGE,
     VALIDATION_UNREACHABLE_MESSAGE,
     AnthropicResumeConfig,
     _analytics_windows,
     _claude_code_start_day,
+    _flatten_analytics_artifact_activity,
+    _flatten_analytics_chat_project,
     _flatten_analytics_entity_usage,
     _flatten_analytics_user_activity,
     _flatten_rbac_role_permission,
     check_analytics_access,
+    check_analytics_usage_cost_access,
+    check_spend_limit_access,
     validate_credentials,
 )
 from products.warehouse_sources.sources.anthropic.settings import (
+    ANALYTICS_COST_PATH,
     ANALYTICS_ENGAGEMENT_LAG_DAYS,
     ANALYTICS_PATH_PREFIX,
+    ANALYTICS_USAGE_COST_BETA,
+    ANALYTICS_USAGE_PATH,
     ANTHROPIC_ENDPOINTS,
     COST_REPORT_PAGE_BUCKETS,
     RBAC_GROUPS_PATH,
     RBAC_ROLES_PATH,
+    SPEND_LIMIT_READS_BETA,
+    SPEND_LIMITS_PATH,
     USAGE_GROUP_BY_FALLBACKS,
 )
 from products.warehouse_sources.sources.anthropic.source import AnthropicSource
@@ -140,6 +151,16 @@ class TestReportPagination:
 
 
 class TestEntityPagination:
+    def test_organization_object_body_becomes_one_row(self) -> None:
+        org = {"id": "12345678-1234-5678-1234-567812345678", "name": "Example Org", "type": "organization"}
+        result = _driver().run("organization", [ScriptedResponse(json=org)])
+
+        assert result.raised is None
+        assert result.rows == [org]
+        assert len(result.requests) == 1
+        # The endpoint takes no list parameters.
+        assert result.requests[0].query == {}
+
     def test_resumes_from_saved_after_id(self) -> None:
         result = _driver().run(
             "users",
@@ -609,9 +630,49 @@ class TestFlattenAnalyticsRows:
         assert "user" not in row
 
 
+def _dimension_row(starting_at: str, **group: Any) -> dict[str, Any]:
+    # The report sends every dimension key and leaves the ones not requested null.
+    return {
+        "starting_at": starting_at,
+        "ending_at": "2026-03-05T00:00:00Z",
+        "group": {"speed": None, "session_id": None, **group},
+        "cost": {"amount": "120.5", "list_amount": "150", "currency": "USD", "requests": None},
+        "usage": {
+            "uncached_input_tokens": 10,
+            "cache_read_input_tokens": 20,
+            "cache_creation": {"ephemeral_1h_input_tokens": 1, "ephemeral_5m_input_tokens": 2},
+            "output_tokens": 30,
+            "requests": 4,
+            "server_tool_use": {"web_search_requests": 5},
+            "total_tokens": 63,
+        },
+    }
+
+
 class TestAnalyticsFanOut:
-    @parameterized.expand([("analytics_user_cost",), ("analytics_user_usage",)])
-    def test_report_requests_carry_a_single_day_range_and_daily_buckets(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("analytics_user_cost", "bucket_width", (), None),
+            ("analytics_user_usage", "bucket_width", (), None),
+            # The dimensional reports name the bucket param differently, take a group_by, and reject a
+            # request without their beta header.
+            (
+                "analytics_cost",
+                "time_bucket_width",
+                ("actor_type", "api_key_id", "workspace_id", "model", "product", "cost_type", "token_type"),
+                ANALYTICS_USAGE_COST_BETA,
+            ),
+            (
+                "analytics_usage",
+                "time_bucket_width",
+                ("actor_type", "api_key_id", "workspace_id", "model", "product"),
+                ANALYTICS_USAGE_COST_BETA,
+            ),
+        ]
+    )
+    def test_report_requests_carry_a_single_day_range_and_daily_buckets(
+        self, endpoint: str, bucket_param: str, group_by: tuple[str, ...], beta: str | None
+    ) -> None:
         today = datetime.now(UTC).date()
         result = _driver().run(
             endpoint,
@@ -624,7 +685,41 @@ class TestAnalyticsFanOut:
         # one day wide so a row's day is unambiguous and rows arrive in ascending day order.
         assert result.params("starting_at") == [f"{today.isoformat()}T00:00:00Z"]
         assert result.params("ending_at") == [f"{(today + timedelta(days=1)).isoformat()}T00:00:00Z"]
-        assert result.params("bucket_width") == ["1d"]
+        assert result.params(bucket_param) == ["1d"]
+        assert result.requests[0].query.get("group_by[]", ()) == group_by
+        assert result.requests[0].headers.get("anthropic-beta") == beta
+
+    @parameterized.expand(
+        [
+            ("analytics_cost", {"token_type": "output_tokens"}, {"token_type": "uncached_input_tokens"}),
+            ("analytics_usage", {"model": "claude-opus-5-5"}, {"model": "claude-sonnet-5-5"}),
+        ]
+    )
+    def test_dimension_rows_on_one_day_get_distinct_keys(
+        self, endpoint: str, first_group: dict[str, Any], second_group: dict[str, Any]
+    ) -> None:
+        today = datetime.now(UTC).date()
+        day = f"{today.isoformat()}T00:00:00Z"
+        rows = [
+            _dimension_row(day, product="claude_code", **first_group),
+            _dimension_row(day, product="claude_code", **second_group),
+        ]
+        result = _driver().run(
+            endpoint,
+            [_report_page(rows, has_more=False, next_page=None)],
+            incremental_field="starting_at",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
+        assert len({row["id"] for row in result.rows}) == 2
+        row = result.rows[0]
+        assert row["product"] == "claude_code"
+        # Only the requested dimensions become columns.
+        assert "speed" not in row and "group" not in row
+        if endpoint == "analytics_cost":
+            assert (row["amount"], row["list_amount"]) == ("120.5", "150")
+        else:
+            assert (row["total_tokens"], row["cache_creation_ephemeral_1h_input_tokens"]) == (63, 1)
 
     def test_resumes_from_the_saved_day(self) -> None:
         today = datetime.now(UTC).date()
@@ -657,6 +752,85 @@ class TestAnalyticsAccessProbe:
         with scripted_network([ScriptedResponse(status=status, json={})]) as network:
             assert check_analytics_access("sk-ant-admin-test", ANTHROPIC_VERSION_2026_10_21) == expected
         assert network.requests_log[0].path == f"{ANALYTICS_PATH_PREFIX}users"
+
+
+class TestSpendLimitAndUsageCostAccessProbes:
+    @parameterized.expand(
+        [
+            ("spend_limits_granted", check_spend_limit_access, 200, None),
+            ("spend_limits_scope_missing", check_spend_limit_access, 403, SPEND_LIMIT_ACCESS_MISSING),
+            # A Claude Console organization answers 400 organization_type_not_supported.
+            ("spend_limits_console_org", check_spend_limit_access, 400, SPEND_LIMIT_ACCESS_MISSING),
+            ("usage_cost_granted", check_analytics_usage_cost_access, 200, None),
+            ("usage_cost_denied", check_analytics_usage_cost_access, 403, ANALYTICS_USAGE_COST_ACCESS_MISSING),
+            ("usage_cost_throttled", check_analytics_usage_cost_access, 429, None),
+        ]
+    )
+    def test_status_mapping(self, _name: str, probe: Any, status: int, expected: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={})]) as network:
+            assert probe("sk-ant-admin-test", ANTHROPIC_VERSION_2026_10_21) == expected
+        request = network.requests_log[0]
+        if probe is check_spend_limit_access:
+            assert request.path == f"{SPEND_LIMITS_PATH}/effective"
+        else:
+            # Without the beta header the report answers 400 for every key, which would read as granted.
+            assert request.path == ANALYTICS_USAGE_PATH
+            assert request.headers.get("anthropic-beta") == ANALYTICS_USAGE_COST_BETA
+            assert request.param("starting_at") is not None
+
+
+class TestSpendLimitTables:
+    def test_spend_limits_send_the_beta_header_and_flatten_the_scope(self) -> None:
+        limit = {
+            "id": "spl_1",
+            "type": "spend_limit",
+            "amount": "50000",
+            "currency": "USD",
+            "is_enabled": True,
+            "period": "monthly",
+            "scope": {"type": "rbac_group", "rbac_group_id": "rbac_group_1"},
+            "created_at": "2026-09-01T00:00:00Z",
+            "updated_at": "2026-09-02T00:00:00Z",
+        }
+        result = _driver().run(
+            "spend_limits",
+            [_token_page([limit], has_more=True, next_page="p2"), _token_page([], has_more=False, next_page=None)],
+        )
+        assert result.raised is None
+        assert result.params("page") == [None, "p2"]
+        assert {r.headers.get("anthropic-beta") for r in result.requests} == {SPEND_LIMIT_READS_BETA}
+        row = result.rows[0]
+        assert (row["scope_type"], row["scope_rbac_group_id"]) == ("rbac_group", "rbac_group_1")
+        assert "scope" not in row
+
+    def test_effective_rows_are_keyed_per_member_and_period(self) -> None:
+        def effective(user_id: str, period: str) -> dict[str, Any]:
+            return {
+                "actor": {
+                    "type": "user_actor",
+                    "user_id": user_id,
+                    "email_address": "dev@example.com",
+                    "deleted": False,
+                },
+                "amount": "50000",
+                "currency": "USD",
+                "period": period,
+                "period_to_date_spend": "12050.5",
+                "scope": {"type": "user", "user_id": user_id},
+                "source": {"type": "organization"},
+                "spend_limit_id": "spl_org",
+            }
+
+        rows = [effective("user_1", "monthly"), effective("user_1", "daily"), effective("user_2", "monthly")]
+        # The effective report sends no `has_more`: a null `next_page` is the last page.
+        result = _driver().run("spend_limits_effective", [ScriptedResponse(json={"data": rows, "next_page": None})])
+        assert result.raised is None
+        # Members inherit the same spend limit, so its id cannot be the key.
+        assert len({row["id"] for row in result.rows}) == 3
+        row = result.rows[0]
+        assert (row["actor_user_id"], row["scope_type"], row["source_type"]) == ("user_1", "user", "organization")
+        assert row["period_to_date_spend"] == "12050.5"
+        assert result.requests[0].headers.get("anthropic-beta") is None
 
 
 class TestAnalyticsNonRetryableError:
@@ -773,12 +947,41 @@ class TestFlattenAnalyticsEntityUsage:
         assert len({same_day["id"], next_day["id"], other_skill["id"]}) == 3
 
 
+class TestFlattenAnalyticsProjectAndArtifact:
+    @parameterized.expand(
+        [
+            ("creator_known", {"id": "user_1", "type": "user", "email_address": "dev@example.com"}),
+            ("creator_gone", None),
+        ]
+    )
+    def test_chat_project_keeps_creator_columns(self, _name: str, created_by: dict[str, Any] | None) -> None:
+        row = _flatten_analytics_chat_project(
+            date(2026, 3, 4), {"project_id": "claude_proj_1", "message_count": 3, "created_by": created_by}
+        )
+        assert "created_by" not in row
+        assert row["created_by_id"] == (created_by or {}).get("id")
+        assert row["created_by_email_address"] == (created_by or {}).get("email_address")
+
+    def test_artifact_id_differs_by_shared_flag_and_type(self) -> None:
+        base = {"artifact_type": "text/markdown", "is_shared": False, "artifacts_created_count": 2}
+        day = date(2026, 3, 4)
+        ids = {
+            _flatten_analytics_artifact_activity(day, base)["id"],
+            _flatten_analytics_artifact_activity(day, {**base, "is_shared": True})["id"],
+            _flatten_analytics_artifact_activity(day, {**base, "artifact_type": "image/svg+xml"})["id"],
+            _flatten_analytics_artifact_activity(date(2026, 3, 5), base)["id"],
+        }
+        assert len(ids) == 4
+
+
 class TestAnalyticsBreakdownFanOut:
     @parameterized.expand(
         [
             ("analytics_connector_usage", "connector_name", "atlassian"),
             ("analytics_plugin_usage", "plugin_name", "serena"),
             ("analytics_skill_usage", "skill_name", "writing-tests"),
+            ("analytics_chat_project_usage", "project_id", "claude_proj_1"),
+            ("analytics_artifact_activity", "artifact_type", "text/markdown"),
         ]
     )
     def test_fans_out_one_dated_request_per_day(self, endpoint: str, name_field: str, name: str) -> None:
@@ -808,6 +1011,19 @@ class TestRbacNonRetryableErrors:
             ("groups_absent", 404, "Not Found", f"{RBAC_GROUPS_PATH}/rbac_group_1/members", "read:rbac_groups"),
             ("roles_forbidden", 403, "Forbidden", RBAC_ROLES_PATH, "read:members"),
             ("roles_absent", 404, "Not Found", f"{RBAC_ROLES_PATH}/rbac_role_1/permissions", "read:members"),
+            # A Claude Console organization answers 400 organization_type_not_supported.
+            (
+                "spend_limits_console_org",
+                400,
+                "Bad Request",
+                f"{SPEND_LIMITS_PATH}/effective?limit=1000",
+                "read:spend_limits",
+            ),
+            ("spend_limits_forbidden", 403, "Forbidden", f"{SPEND_LIMITS_PATH}?limit=1000", "read:spend_limits"),
+            # The analytics prefix also matches, and its message names the per-seat key, which these
+            # reports do not need.
+            ("usage_cost_forbidden", 403, "Forbidden", f"{ANALYTICS_COST_PATH}?limit=1000", "Admin API key or"),
+            ("usage_forbidden", 403, "Forbidden", f"{ANALYTICS_USAGE_PATH}?limit=1000", "Admin API key or"),
         ]
     )
     def test_denial_names_the_scope_not_admin_access(

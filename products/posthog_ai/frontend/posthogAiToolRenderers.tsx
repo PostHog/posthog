@@ -71,6 +71,8 @@ const DATA_TOOLS = [
             'notebook-edit',
             'notebooks-create-markdown',
             'notebooks-get',
+            'notebooks-app-get',
+            'notebooks-app-update',
         ],
         displayName: 'Notebook',
         icon: <IconNotebook />,

@@ -1,4 +1,4 @@
-import type { ErrorsWindow, IssueStatusApi } from '@/api/errorTracking'
+import type { ErrorsWindow, IssueSort, IssueStatusApi } from '@/api/errorTracking'
 import { track } from '@/lib/analytics'
 
 import type { IssueFilter } from './issueModel'
@@ -17,16 +17,24 @@ export function issueOpenSourceParam(value: string | string[] | undefined): Issu
     return OPEN_SOURCES.find((source) => source === first) ?? 'other'
 }
 
-export function trackErrorsOpened(props: { chrome: ErrorsChrome; window: ErrorsWindow }): void {
-    track('mobile_errors_opened', { chrome: props.chrome, window: props.window })
+export function trackErrorsOpened(props: { chrome: ErrorsChrome; window: ErrorsWindow; sort: IssueSort }): void {
+    track('mobile_errors_opened', { chrome: props.chrome, window: props.window, sort: props.sort })
 }
 
-export function trackErrorsRefreshed(props: { window: ErrorsWindow }): void {
-    track('mobile_errors_refreshed', { window: props.window })
+export function trackErrorsRefreshed(props: { window: ErrorsWindow; sort: IssueSort }): void {
+    track('mobile_errors_refreshed', { window: props.window, sort: props.sort })
 }
 
-export function trackErrorsWindowChanged(props: { window: ErrorsWindow }): void {
-    track('mobile_errors_window_changed', { window: props.window })
+export function trackErrorsWindowChanged(props: { window: ErrorsWindow; sort: IssueSort }): void {
+    track('mobile_errors_window_changed', { window: props.window, sort: props.sort })
+}
+
+export function trackErrorsSortOpened(props: { sort: IssueSort }): void {
+    track('mobile_errors_sort_opened', { sort: props.sort })
+}
+
+export function trackErrorsSortChanged(props: { sort: IssueSort; previous: IssueSort; window: ErrorsWindow }): void {
+    track('mobile_errors_sort_changed', { sort: props.sort, previous: props.previous, window: props.window })
 }
 
 export function trackErrorsFilterChanged(props: { filter: IssueFilter }): void {

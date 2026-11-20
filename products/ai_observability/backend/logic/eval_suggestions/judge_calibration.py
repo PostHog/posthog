@@ -4,6 +4,9 @@ The review labels every call it read for each card. The card's judge prompt then
 passes on the team's runtime judge model, one call per request, with the runtime judge's own prompts. A small
 model can miss most of the failures a strong model finds, so a card is kept only when its judge catches most of
 the review's fails without flagging many of its passes.
+
+A card can also carry a Hog code check from the review. That code runs on the review's calls for free, and when it
+meets the same bar as a judge, the card becomes a code check and its judge is not calibrated.
 """
 
 import json
@@ -24,6 +27,12 @@ from google.genai import (
     types as genai_types,
 )
 from pydantic import ValidationError
+from rest_framework import serializers
+
+from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_program
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
@@ -33,8 +42,14 @@ from posthog.llm.gateway_client import (
     team_distinct_id,
 )
 
+from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
+from products.ai_observability.backend.logic.evaluations.hog_runtime import (
+    HOG_EVAL_TIMEOUT,
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+)
 from products.ai_observability.backend.logic.evaluations.judge_prompts import (
     BooleanWithNAEvalResult,
     build_system_prompt,
@@ -42,8 +57,12 @@ from products.ai_observability.backend.logic.evaluations.judge_prompts import (
 )
 from products.ai_observability.backend.logic.message_utils import format_tool_definitions
 
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
 from . import call_review
 from .call_review import Rendering, ReviewCard, Verdict
+from .call_review_queries import ReviewCallRow
 from .config import AI_PRODUCT
 from .prices import MODEL_PRICES
 
@@ -395,3 +414,194 @@ def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
     projected = _project(card, calibration)
     failed = round(projected.caught + projected.false_alarms)
     return replace(card, failed=failed, of=max(failed, round(len(card.labels) - projected.na)))
+
+
+@frozen
+class CodeCheck:
+    source: str
+    calibration: Calibration
+    # The code's fails on the calls it was counted on, out of the calls it passed or failed.
+    failed: int
+    of: int
+    # Calls whose data the code could not handle. Each one counts against the code in `calibration`.
+    errors: int
+
+
+# The functions the review prompt names. In one step the Python Hog VM can build a value far past its memory limit
+# before checking it, through `*`, `%` on a string and some functions, so a generated check runs only when it stays
+# inside this set.
+_CODE_CHECK_FUNCTIONS = frozenset(
+    {
+        "length",
+        "trim",
+        "lower",
+        "upper",
+        "substring",
+        "startsWith",
+        "endsWith",
+        "splitByString",
+        "match",
+        "isValidJSON",
+        "jsonParse",
+        "typeof",
+        "keys",
+        "has",
+        "toString",
+        "empty",
+        "notEmpty",
+        # A `for … in` loop compiles to a call to it.
+        "values",
+    }
+)
+
+
+_HOG_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
+# The VM refuses these at dispatch too, which covers every way a call can reach a function.
+_BLOCKED_FUNCTIONS = _HOG_FUNCTIONS - _CODE_CHECK_FUNCTIONS
+
+
+class _OutsideCodeCheckSet(TraversingVisitor):
+    found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.found = self.found or node.name not in _CODE_CHECK_FUNCTIONS
+        super().visit_call(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A function read as a value could be called under an allowed name, as in `let match := replaceAll`.
+        name = node.chain[0]
+        self.found = self.found or (name in _HOG_FUNCTIONS and name not in _CODE_CHECK_FUNCTIONS)
+        super().visit_field(node)
+
+    # A variable under an allowed name could hold any function, such as one forged in data jsonParse returns, and a
+    # call by that name would reach it. With none of these names bound, a call by name reaches the function itself.
+    def binds(self, *names: str | int | None) -> None:
+        self.found = self.found or any(name in _CODE_CHECK_FUNCTIONS for name in names)
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        self.binds(node.name)
+        super().visit_variable_declaration(node)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        self.binds(*(node.left.chain[:1] if isinstance(node.left, ast.Field) else []))
+        super().visit_variable_assignment(node)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        self.binds(node.keyVar, node.valueVar)
+        super().visit_for_in_statement(node)
+
+    def visit_function(self, node: ast.Function) -> None:
+        self.binds(node.name, *node.params)
+        super().visit_function(node)
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
+        self.binds(*(name for name, _, _ in node.catches))
+        super().visit_try_catch_statement(node)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.binds(*node.args)
+        super().visit_lambda(node)
+
+    def visit_expr_call(self, node: ast.ExprCall) -> None:
+        self.found = True
+        super().visit_expr_call(node)
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> None:
+        self.found = self.found or node.op in (ast.ArithmeticOperationOp.Mult, ast.ArithmeticOperationOp.Mod)
+        super().visit_arithmetic_operation(node)
+
+
+class _TerminalHogError(Exception):
+    """An error the evaluation runtime disables a Hog evaluation over, so a check that hits one is never published."""
+
+
+def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
+    """The code's verdict on one stored call, with the globals a generation evaluation gets, or None when this call's
+    data defeated the code. Raises _TerminalHogError on any other error."""
+    properties = {"$ai_input": _parsed(row.input), "$ai_output_choices": _parsed(row.output)}
+    event = build_hog_event_global("$ai_generation", properties, event_uuid=row.event_uuid, timestamp=None)
+    globals_dict = {
+        "input": event["input"],
+        "output": event["output"],
+        "properties": properties,
+        "event": {"uuid": row.event_uuid, "event": "$ai_generation", "distinct_id": ""},
+        "evaluation_events": [event],
+    }
+    result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True, disallowed_functions=_BLOCKED_FUNCTIONS)
+    if result["error"]:
+        if result.get("user_input_error"):
+            return None
+        raise _TerminalHogError(result["error"])
+    if result.get("applicable") is False:
+        return "na"
+    return "pass" if result["verdict"] else "fail"
+
+
+def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
+    """The card's code check run on every rendered call of its call types and compared with the review's labels, or
+    None when it does not compile, steps outside the allowed functions and operators, hits an error the runtime
+    would disable it over, or could run past `deadline`, a time.monotonic() value. An error on a call's data counts
+    as the opposite of the label."""
+    source = call_review.code_check_source(card.code_check)
+    try:
+        # compile_hog logs a syntax error as an error in our code. The parse catches the review's syntax errors first,
+        # so they stay out of the error logs.
+        program = parse_program(card.code_check)
+        parse_program(source)
+        bytecode = compile_ai_observability_hog(source, "destination")
+    except (ExposedHogQLError, serializers.ValidationError):
+        return None
+    outside = _OutsideCodeCheckSet()
+    outside.visit(program)
+    if outside.found:
+        return None
+    keys = {call_type.key for call_type in card.call_types}
+    verdicts: dict[int, Verdict | None] = {}
+    for number, call in rendering.calls.items():
+        if call.call_type not in keys:
+            continue
+        # Each call can run up to the Hog time limit, so one that starts later could eat into the judge fallback.
+        if deadline is not None and time.monotonic() + HOG_EVAL_TIMEOUT.total_seconds() > deadline:
+            return None
+        try:
+            verdicts[number] = _code_verdict(bytecode, call.row)
+        except _TerminalHogError:
+            return None
+    numbers = sorted(card.labels)
+    labelled: list[Verdict | None] = [
+        verdicts.get(number) or ("pass" if card.labels[number] == "fail" else "fail") for number in numbers
+    ]
+    decided = [verdict for verdict in verdicts.values() if verdict in ("pass", "fail")]
+    return CodeCheck(
+        source=source,
+        calibration=calibrate(card, numbers, labelled),
+        failed=decided.count("fail"),
+        of=len(decided),
+        errors=sum(1 for verdict in verdicts.values() if verdict is None),
+    )
+
+
+def counted_on_day(
+    card: ReviewCard, code: CodeCheck, rendering: Rendering, day: Sequence[ReviewCallRow], deadline: float | None
+) -> CodeCheck | None:
+    """`code`, which check_code kept, with the calls of `day` that the review did not read added to its counts, or
+    None when one of them hits an error the runtime would disable the check over. Running out of time before
+    `deadline` only stops the count."""
+    keys = {call_type.key for call_type in card.call_types}
+    read = {call.row.event_uuid for call in rendering.calls.values()}
+    extra = [row for row in day if row.call_type in keys and row.event_uuid not in read]
+    if not extra:
+        return code
+    bytecode = compile_ai_observability_hog(code.source, "destination")
+    failed, of = code.failed, code.of
+    for row in extra:
+        if deadline is not None and time.monotonic() + HOG_EVAL_TIMEOUT.total_seconds() > deadline:
+            break
+        try:
+            verdict = _code_verdict(bytecode, row)
+        except _TerminalHogError:
+            return None
+        if verdict in ("pass", "fail"):
+            of += 1
+            failed += verdict == "fail"
+    return replace(code, failed=failed, of=of)

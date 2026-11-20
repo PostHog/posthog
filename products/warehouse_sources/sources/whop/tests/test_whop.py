@@ -15,7 +15,13 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.whop._config import WhopSourceConfig
-from products.warehouse_sources.sources.whop.settings import BASE_URL, ENDPOINTS, PAGE_SIZE, WHOP_ENDPOINTS
+from products.warehouse_sources.sources.whop.settings import (
+    BASE_URL,
+    ENDPOINTS,
+    PAGE_SIZE,
+    RETIRED_ENDPOINTS,
+    WHOP_ENDPOINTS,
+)
 from products.warehouse_sources.sources.whop.source import WhopSource
 from products.warehouse_sources.sources.whop.whop import (
     WhopCursorPaginator,
@@ -133,6 +139,25 @@ class TestApiVersion:
 
         assert isinstance(result.raised, ValueError)
         assert "not available on API version" in str(result.raised)
+        assert result.requests == []
+
+
+class TestRetiredEndpoints:
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    @pytest.mark.parametrize("pinned", [LEGACY, PREVIOUS, LATEST])
+    def test_retired_table_is_off_the_catalog(self, endpoint, pinned):
+        schemas = WhopSource().get_schemas(
+            WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
+        )
+        assert endpoint not in {schema.name for schema in schemas}
+
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    def test_existing_schema_fails_with_a_non_retryable_reason_before_any_request(self, endpoint):
+        result = _driver().run(endpoint, [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == RETIRED_ENDPOINTS[endpoint]
+        assert RETIRED_ENDPOINTS[endpoint] in WhopSource().get_non_retryable_errors()
         assert result.requests == []
 
 
