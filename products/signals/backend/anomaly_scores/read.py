@@ -236,8 +236,8 @@ class SeriesImportance:
 class _RankKey:
     """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
 
-    # 0 for every series unless the newest flag sorts first. Not negated, because fewer buckets ago is newer.
-    flag_buckets_ago: float
+    # 0 for every series unless the newest flag sorts first.
+    negative_flag_end: float
     # 0 for every series unless the anomaly rate sorts first.
     negative_rate: float
     negative_lift: float
@@ -580,17 +580,6 @@ def rate_lift(summary: SeriesSummary, prior: float) -> float:
     return rate - smoothed_baseline
 
 
-def _buckets_between(older: datetime.datetime, newer: datetime.datetime, interval: IntervalType) -> int:
-    """Whole buckets from one bucket start to a later one of the same interval, in the project's timezone."""
-    if interval == IntervalType.HOUR:
-        # Aware datetimes with the same timezone subtract as wall-clock times, so step in UTC across DST changes.
-        return round((newer.astimezone(datetime.UTC) - older.astimezone(datetime.UTC)).total_seconds() / 3600)
-    if interval == IntervalType.MONTH:
-        return (newer.year - older.year) * 12 + newer.month - older.month
-    days = (newer.date() - older.date()).days
-    return days // 7 if interval == IntervalType.WEEK else days
-
-
 def rank_series(
     series: Sequence[SeriesSummary],
     *,
@@ -602,25 +591,20 @@ def rank_series(
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
-    With ``recent_first``, the fewest buckets since the newest flag sorts first, and a series without a flag sorts
-    last. Buckets count back from the newest bucket of any series of the same interval, so the latest hour ties the
-    latest day, and a series that stopped being scored does not keep its last flag current.
+    With ``recent_first``, the newest flagged bucket that ended last sorts first, and a series without a flag sorts
+    last. It compares bucket ends, not starts, so a day that ended at midnight is newer than an hour that ended
+    before it.
     With ``rate_first``, the anomaly rate in the range sorts first, as a person reads it off a row.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
-    newest: dict[IntervalType, datetime.datetime] = {}
-    for summary in series:
-        newest[summary.interval] = max(summary.newest_bucket, newest.get(summary.interval, summary.newest_bucket))
 
     def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
         negative_last_flagged = -last_flagged.timestamp() if last_flagged else math.inf
-        flag_buckets_ago = (
-            _buckets_between(last_flagged, newest[summary.interval], summary.interval) if last_flagged else math.inf
-        )
+        negative_flag_end = -bucket_end(last_flagged, summary.interval).timestamp() if last_flagged else math.inf
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
-            flag_buckets_ago=flag_buckets_ago if recent_first else 0.0,
+            negative_flag_end=negative_flag_end if recent_first else 0.0,
             negative_rate=-(summary.anomaly_rate or 0.0) if rate_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,
