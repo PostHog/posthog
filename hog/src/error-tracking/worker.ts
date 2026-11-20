@@ -126,7 +126,7 @@ const SourcePaths = z.object({
 })
 const Packed = z.object({
     unreadable: z.array(z.array(z.object({ path: z.string(), message: z.string() }))),
-    containers: z.array(Container.nullable()),
+    containers: z.array(z.union([Container, z.object({ failed: z.string() })]).nullable()),
 })
 
 export type InjectAction = z.output<typeof InjectAction>
@@ -146,7 +146,7 @@ export interface PackItem {
     id: number
     sources: number | null
     chunkId: string
-    dsym: boolean
+    bundle: number | null
 }
 
 interface DetectCandidate {

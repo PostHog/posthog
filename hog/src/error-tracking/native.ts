@@ -68,6 +68,7 @@ interface Packed {
     artifact: Artifact
     chunkId: string
     upload: SymbolSetFile | null
+    bundle: number | null
 }
 
 // `merge_uploads_prefer_dsym`: dSYM symbol sets that fit go first, so they win over a native file
@@ -174,6 +175,8 @@ interface Packable {
     chunkId: string
     // What the binary reads its sources from: itself, or the dSYM file it is a slice of.
     sourceKey: string
+    // The place of the dSYM bundle a slice comes from, which fails or uploads as a whole.
+    bundle: number | null
 }
 
 interface SourcePlan {
@@ -226,6 +229,7 @@ export async function packageNative(
         id: binary.id,
         chunkId: binary.debugId,
         sourceKey: `binary:${binary.id}`,
+        bundle: null,
     }))
 
     const bundles = await readBundles(
@@ -234,8 +238,14 @@ export async function packageNative(
         cwd,
         skipped
     )
-    const dsyms: Packable[] = bundles.flatMap(({ artifact, slices }) =>
-        slices.map((slice) => ({ artifact, id: slice.id, chunkId: slice.uuid, sourceKey: `member:${slice.member}` }))
+    const dsyms: Packable[] = bundles.flatMap(({ artifact, slices }, bundle) =>
+        slices.map((slice) => ({
+            artifact,
+            id: slice.id,
+            chunkId: slice.uuid,
+            sourceKey: `member:${slice.member}`,
+            bundle,
+        }))
     )
 
     const packables = [...natives, ...dsyms]
@@ -265,11 +275,11 @@ export async function packageNative(
         }
     }
 
-    const items: PackItem[] = packables.map(({ id, chunkId, sourceKey }, index) => ({
+    const items: PackItem[] = packables.map(({ id, chunkId, sourceKey, bundle }) => ({
         id,
         sources: listOf.get(sourceKey) ?? null,
         chunkId,
-        dsym: index >= natives.length,
+        bundle,
     }))
     const packed = await worker.packNative(sourceLists, items, folder, MAX_FILE_SIZE)
 
@@ -287,19 +297,31 @@ export async function packageNative(
         }
     }
 
-    const uploads: Packed[] = packables.map(({ artifact, chunkId }, index) => {
+    const failedBundles = new Map<number, { artifact: Artifact; message: string }>()
+    const uploads: Packed[] = []
+    for (const [index, { artifact, chunkId, bundle }] of packables.entries()) {
         const container = packed.containers[index]
-        if (!container) {
-            return { artifact, chunkId, upload: null }
+        if (container && 'failed' in container) {
+            failedBundles.set(bundle!, { artifact, message: container.failed })
+        } else if (!container) {
+            uploads.push({ artifact, chunkId, upload: null, bundle })
+        } else {
+            const { path, ...rest } = container
+            uploads.push({ artifact, chunkId, upload: { chunkId, releaseId: null, ...rest, file: path }, bundle })
         }
-        const { path, ...rest } = container
-        return { artifact, chunkId, upload: { chunkId, releaseId: null, ...rest, file: path } }
-    })
-    return mergePreferDsym(uploads.slice(natives.length), uploads.slice(0, natives.length), (dropped) =>
-        skipped.push({
-            path: dropped.artifact.display,
-            reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
-            intended: true,
-        })
+    }
+    for (const { artifact, message } of failedBundles.values()) {
+        skipped.push({ path: artifact.display, reason: `hog couldn't read the dSYM: ${message}` })
+    }
+    const isDsym = ({ bundle }: Packed): boolean => bundle !== null
+    return mergePreferDsym(
+        uploads.filter(isDsym),
+        uploads.filter((upload) => !isDsym(upload)),
+        (dropped) =>
+            skipped.push({
+                path: dropped.artifact.display,
+                reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
+                intended: true,
+            })
     )
 }
