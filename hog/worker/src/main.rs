@@ -1,60 +1,27 @@
-// hog-worker does the file work of `hog error-tracking`: it reads, rewrites and writes build
-// output, so hog keeps its flags, releases, uploads and output while the bytes come from the same
-// Rust code posthog-cli runs.
-//
-// hog starts one worker per command and talks to it in JSON lines over stdin and stdout. The
-// worker speaks first, then answers each request with one line, in order:
-//
-//   worker -> {"type":"hello","protocol":1,"version":"0.1.0"}
-//   hog    -> {"op":"detect","files":[{"path":"dist/a.js","bundle":true,"map":false,"mapping":false}],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"sourcemap":[0],"composed":[],"mapping":[]}}
-//   hog    -> {"op":"read_pairs","paths":["/abs/dist/a.js"],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"pairs":[{"id":0,"sourcePath":"/abs/dist/a.js", ...}]}}
-//   hog    -> {"op":"inject","ids":[0],"mode":"event","releaseId":null,"newChunkIds":[]}
-//   worker -> {"ok":true,"result":{"outcomes":[{"action":"injected","chunkId":"...","warnings":[],"pair":{...}}]}}
-//   hog    -> {"op":"save","ids":[0]}
-//   worker -> {"ok":true,"result":{}}
-//
-// An upload goes on with the same pairs:
-//
-//   hog    -> {"op":"fingerprint","ids":[0]}
-//   worker -> {"ok":true,"result":{"targets":[0]}}
-//   hog    -> {"op":"set_release","ids":[0],"releaseId":"..."}
-//   worker -> {"ok":true,"result":{}}
-//   hog    -> {"op":"prepare","ids":[0],"mode":"event","folder":"/tmp/hog-upload-1"}
-//   worker -> {"ok":true,"result":{"prepared":[{"chunkId":"...","releaseId":null,"contentHash":"...","size":812,"path":"/tmp/hog-upload-1/0.symbolset"}]}}
-//   hog    -> {"op":"css_candidates","files":["/abs/dist/a.css"],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"candidates":[{"id":0,"mapRealPath":"/abs/dist/a.css.map"}]}}
-//   hog    -> {"op":"clean_up","targets":[0],"css":[0],"roots":["/abs/dist"]}
-//   worker -> {"ok":true,"result":{"deletedMaps":["/abs/dist/a.js.map"],"warnings":[]}}
-//   hog    -> {"op":"proguard","path":"/abs/mapping.txt","out":"/tmp/hog-upload-1/mapping-0.symbolset"}
-//   worker -> {"ok":true,"result":{"contentHash":"...","size":640}}
-//
-// A React Native build with Hermes works on maps alone. `clone` copies the chunk id and the release
-// from Metro's packager map to the map Hermes composed, and an upload sends the composed maps:
-//
-//   hog    -> {"op":"load_maps","paths":["/abs/main.jsbundle.map","/abs/main.hbc.composed.map"]}
-//   worker -> {"ok":true,"result":{"maps":[{"id":0,"chunkId":"...","debugId":null,"releaseId":null,"empty":false},{"unreadable":"ENOENT: ..."}]}}
-//   hog    -> {"op":"set_map_release","ids":[0],"releaseId":"..."}
-//   worker -> {"ok":true,"result":{}}
-//   hog    -> {"op":"clone_metadata","from":0,"to":1}
-//   worker -> {"ok":true,"result":{"map":{"id":1,"chunkId":"...","debugId":null,"releaseId":"...","empty":false}}}
-//   hog    -> {"op":"write_maps","ids":[0,1]}
-//   worker -> {"ok":true,"result":{}}
-//   hog    -> {"op":"prepare_maps","ids":[1],"folder":"/tmp/hog-upload-1"}
-//   worker -> {"ok":true,"result":{"containers":[{"contentHash":"...","size":640,"path":"/tmp/hog-upload-1/map-1.symbolset"}]}}
-//
-// `fingerprint` records what a pair's files hold, so `clean_up` can tell later that nothing
-// touched them. `prepare` writes each pair's symbol set to a file for hog to send, and lets the
-// pairs go: nothing reads them after it. `prepare_maps` does the same for Hermes maps, which have
-// ids of their own. hog sends back to `clean_up` the stylesheets whose map no ignore pattern
-// matches.
-//
-// A request that fails answers {"ok":false,"error":{"code":"...","message":"..."}} and the worker
-// keeps running. The pairs a `read_pairs` returns stay in memory under their ids until hog closes
-// stdin, which ends the worker. hog owns every decision: which files to look at, which pairs an
-// ignore pattern drops, and the release. PROTOCOL changes whenever a request or an answer does,
-// because hog and the worker ship as two files and must refuse to work with a stranger.
+// hog-worker does the file work of `hog error-tracking` with the Rust code posthog-cli runs, so
+// both write the same bytes. hog starts one worker per command and talks to it in JSON lines over
+// stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
+// each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
+// and keeps running after a failure. R for each `op`:
+//   detect             {"sourcemap":[index],"composed":[index],"mapping":[index]}
+//   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
+//   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
+//   drop, save         {}
+//   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
+//   set_release        {}
+//   prepare            {"prepared":[{"chunkId","contentHash","size","path",...} | {"skipped"}]}
+//   css_candidates     {"candidates":[{"id":0,"mapRealPath":"..."} | null]}
+//   clean_up           {"deletedMaps":["..."],"warnings":["..."]}
+//   proguard           {"contentHash":"...","size":640} | {"invalid":"reason"}
+//   load_maps          {"maps":[{"id":0,"chunkId","debugId","releaseId","empty"} | {"unreadable"}]}
+//   clone_metadata     {"map":{"id":1,...}}, the `to` map with the chunk id and release of `from`
+//   set_map_release    {}
+//   write_maps         {}
+//   prepare_maps       {"containers":[{"contentHash","size","path"}]}
+// `prepare` writes each pair's symbol set to a file for hog to send and lets the pairs go, and
+// `prepare_maps` does the same for Hermes maps, which have ids of their own. Other pairs and maps
+// stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL changes
+// whenever a request or an answer does, because hog and the worker ship as two files.
 
 mod cleanup;
 mod constant;
