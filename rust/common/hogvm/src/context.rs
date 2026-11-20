@@ -8,6 +8,7 @@ use crate::{
     memory::HeapReference,
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
+    util::RegexCache,
     vm::{HogVM, MAX_JSON_SERDE_DEPTH},
     HogLiteral, HogValue, Num,
 };
@@ -63,6 +64,7 @@ pub struct ExecutionContext {
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
     pub(crate) boolean_text_equality: bool,
+    pub(crate) regex_cache: Option<Arc<RegexCache>>,
     // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
     // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
@@ -106,6 +108,7 @@ impl ExecutionContext {
             max_steps,
             coerce_comparisons: false,
             boolean_text_equality: false,
+            regex_cache: None,
             native_fns: Arc::new(native_fns),
             symbol_table: Arc::new(flatten_modules(&modules)),
             async_fns: HashSet::new(),
@@ -130,6 +133,7 @@ impl ExecutionContext {
             max_steps: 10_000,
             coerce_comparisons: false,
             boolean_text_equality: false,
+            regex_cache: None,
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
             async_fns: HashSet::new(),
@@ -197,6 +201,11 @@ impl ExecutionContext {
     /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
     /// compares a property it reads as text. Off by default because the Node shadow binding must
     /// match the TS VM, where `false == "variant"` is true.
+    pub fn with_regex_cache(mut self, cache: Arc<RegexCache>) -> Self {
+        self.regex_cache = Some(cache);
+        self
+    }
+
     pub fn with_boolean_text_equality(mut self) -> Self {
         self.boolean_text_equality = true;
         self

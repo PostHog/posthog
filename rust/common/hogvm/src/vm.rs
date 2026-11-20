@@ -16,7 +16,7 @@ use crate::{
         collect_cells, rebuild_cells, root_closure_json, value_from_json, value_to_json,
         CallFrameJson, CellRegistry, Resumable, ThrowFrameJson, UpvalueJson, VmSnapshot,
     },
-    util::{get_json_nested, get_ordered_nested, like, regex_match},
+    util::{get_json_nested, get_ordered_nested, RegexCache},
     values::{
         boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
         FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
@@ -143,6 +143,13 @@ impl<'a> HogVM<'a> {
             heap: VmHeap::new(context.max_heap_size),
             result: None,
         })
+    }
+
+    pub(crate) fn regexes(&self) -> &'a RegexCache {
+        match self.context.regex_cache.as_deref() {
+            Some(cache) => cache,
+            None => RegexCache::global(),
+        }
     }
 
     /// The finished program's value under `with_raw_result`. Its references point into this VM's heap.
@@ -394,19 +401,19 @@ impl<'a> HogVM<'a> {
             Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(like(val, pat, true)?)?;
+                self.push_stack(self.regexes().like(val, pat, true)?)?;
             }
             Operation::Ilike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(like(val, pat, false)?)?;
+                self.push_stack(self.regexes().like(val, pat, false)?)?;
             }
             Operation::NotLike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(!like(val, pat, true)?)?;
+                self.push_stack(!self.regexes().like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(!like(val, pat, false)?)?;
+                self.push_stack(!self.regexes().like(val, pat, false)?)?;
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
@@ -1075,7 +1082,7 @@ impl<'a> HogVM<'a> {
             if !val_lit.truthy() || !pat_lit.truthy() {
                 false
             } else {
-                regex_match(
+                self.regexes().regex_match(
                     &self.js_string_coerce(&val)?,
                     &self.js_string_coerce(&pat)?,
                     case_sensitive,

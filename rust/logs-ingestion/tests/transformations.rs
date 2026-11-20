@@ -9,7 +9,7 @@ use logs_ingestion::content_weights::StagedRecord;
 use logs_ingestion::js::{json_parse, JsValue};
 use logs_ingestion::pipeline::LogsTransformer;
 use logs_ingestion::rate_limiter::Clock;
-use logs_ingestion::transformations::exec::redact_sensitive_values;
+use logs_ingestion::transformations::exec::{redact_sensitive_values, transformation_regexes};
 use logs_ingestion::transformations::functions::{HogFunction, HogFunctionRow};
 use logs_ingestion::transformations::{
     HogFunctionMonitoring, HogFunctionSource, LogsTransformerConfig, LogsTransformerService,
@@ -639,4 +639,13 @@ async fn input_templates_share_one_size_limit_and_one_time_budget() {
         .await
         .unwrap();
     assert!(failed(&records[0]));
+}
+
+// match(record.body, 'zzq-17-[a-z]+'); return record
+const MATCH_BODY: &str = r#"["_H", 1, 32, "body", 32, "record", 1, 2, 32, "zzq-17-[a-z]+", 2, "match", 2, 35, 32, "record", 1, 1, 38]"#;
+
+#[tokio::test]
+async fn patterns_of_a_transformation_stay_in_the_bounded_regex_cache() {
+    run_one(function(MATCH_BODY, "{}", None), vec![record("api")]).await;
+    assert!(transformation_regexes().contains("zzq-17-[a-z]+", false));
 }

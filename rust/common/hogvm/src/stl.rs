@@ -26,7 +26,7 @@ use crate::{
     print::assert_repeats_fit,
     print_hog_string_output,
     program::Module,
-    util::{get_json_nested, regex_extract, regex_match},
+    util::get_json_nested,
     values::{compare_values, HogLiteral, HogValue, Num, NumOp},
     vm::{HogVM, MAX_JSON_SERDE_DEPTH},
     ExportedFunction,
@@ -354,7 +354,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 if !value.truthy() || !regex.truthy() {
                     return Ok(HogLiteral::Boolean(false).into());
                 }
-                Ok(HogLiteral::Boolean(regex_match(value.try_as::<str>()?, regex.try_as::<str>()?, true)?).into())
+                Ok(HogLiteral::Boolean(vm.regexes().regex_match(value.try_as::<str>()?, regex.try_as::<str>()?, true)?).into())
             }),
         ),
         (
@@ -385,7 +385,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let haystack = args[0].deref(&vm.heap)?.try_as::<str>()?;
                 let pattern = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                Ok(HogLiteral::from(regex_extract(haystack, pattern)?).into())
+                Ok(HogLiteral::from(vm.regexes().regex_extract(haystack, pattern)?).into())
             })),
         ),
         (
@@ -2175,7 +2175,9 @@ fn like_impl(
     let string: &str = args[0].deref(&vm.heap)?.try_as()?;
     let pattern: &str = args[1].deref(&vm.heap)?.try_as()?;
     let regex = like_to_regex(pattern);
-    let matched = regex_match(string, &regex, !case_insensitive)?;
+    let matched = vm
+        .regexes()
+        .regex_match(string, &regex, !case_insensitive)?;
     Ok(HogLiteral::Boolean(matched ^ negate).into())
 }
 

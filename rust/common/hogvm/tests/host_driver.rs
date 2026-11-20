@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use hogvm::{
-    ExecutionContext, HogLiteral, HogVM, HogValue, Num, OrderedJson, Program, StepOutcome,
+    ExecutionContext, HogLiteral, HogVM, HogValue, Num, OrderedJson, Program, RegexCache,
+    StepOutcome,
 };
 use serde_json::{json, Value};
 
@@ -176,4 +177,21 @@ fn a_run_frees_a_closure_that_captures_itself() {
     let held_before = Arc::strong_count(&text);
     hogvm::sync_execute(&context, false).unwrap();
     assert_eq!(Arc::strong_count(&text), held_before);
+}
+
+#[test]
+fn a_bounded_regex_cache_keeps_small_patterns_and_compiles_large_ones_per_call() {
+    // return [match('aaa', inputs.small), match('aaa', inputs.large)]
+    let cache = Arc::new(RegexCache::bounded(8, 4 * 1024));
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 32, "aaa", 32, "small", 32, "inputs", 1, 2, 2, "match", 2, 32, "aaa", 32, "large", 32, "inputs", 1, 2, 2, "match", 2, 43, 2, 38]"#,
+    ))
+    .with_globals(json!({"inputs": {"small": "a+", "large": "\\w{200}"}}))
+    .with_regex_cache(cache.clone());
+    assert_eq!(
+        hogvm::sync_execute(&context, false).unwrap(),
+        json!([true, false])
+    );
+    assert!(cache.contains("a+", false));
+    assert!(!cache.contains("\\w{200}", false));
 }

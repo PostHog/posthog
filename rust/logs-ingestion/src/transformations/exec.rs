@@ -1,10 +1,10 @@
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use hogvm::{
     assert_native_arguments_fit, ExecutionContext, HeapReference, HogLiteral, HogVM, HogValue, Num,
-    OrderedJson, Program, StepOutcome, VmError, MAX_JSON_SERDE_DEPTH,
+    OrderedJson, Program, RegexCache, StepOutcome, VmError, MAX_JSON_SERDE_DEPTH,
 };
 
 use crate::attribute_value::{decode_log_attribute_value, encode_log_attribute_value};
@@ -49,8 +49,7 @@ pub enum Applied {
     Invalid,
 }
 
-/// `String(error)` of what the Node VM throws: `UncaughtHogVMException` prints as `Type('message')`, any other
-/// `HogVMException` as `HogVMException: message`. The message texts of other VM errors differ between the VMs.
+/// `String(error)` of what the Node VM throws: `Type('message')` for `UncaughtHogVMException`, else `HogVMException: message`. Other message texts differ between the VMs.
 pub fn vm_error_text(error: &VmError) -> String {
     match error {
         VmError::UncaughtException(kind, message) => {
@@ -186,6 +185,14 @@ pub fn redact_string(value: &str, sensitive: &[String], scanned: &mut usize) -> 
         out = out.replace(s.as_str(), REDACTED);
     }
     Some(out)
+}
+
+/// A customer program builds patterns from record text, so its compiled patterns stay out of the cache that the process shares.
+static TRANSFORMATION_REGEXES: LazyLock<Arc<RegexCache>> =
+    LazyLock::new(|| Arc::new(RegexCache::bounded(256, 128 * 1024)));
+
+pub fn transformation_regexes() -> &'static RegexCache {
+    &TRANSFORMATION_REGEXES
 }
 
 const MAX_LOG_REDACTION_CHECKS: usize = 1 << 24;
@@ -477,7 +484,8 @@ pub fn run_program<T>(
         .with_ordered_globals(globals)
         .with_raw_result()
         .with_max_steps(usize::MAX)
-        .with_max_heap_size(LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES);
+        .with_max_heap_size(LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES)
+        .with_regex_cache(TRANSFORMATION_REGEXES.clone());
     let result = (|| {
         let mut vm = context.to_vm().map_err(|e| vm_error_text(&e))?;
         let mut ops: u64 = 0;

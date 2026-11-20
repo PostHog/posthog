@@ -19,6 +19,7 @@ mod vm;
 // Execution context
 pub use context::ExecutionContext;
 pub use context::OrderedJson;
+pub use util::RegexCache;
 
 // Programs and modules
 pub use program::ExportedFunction;
