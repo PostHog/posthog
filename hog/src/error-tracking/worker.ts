@@ -80,28 +80,20 @@ const CssCandidates = z.object({
 })
 const Cleaned = z.object({ deletedMaps: z.array(z.string()), warnings: z.array(z.string()) })
 const ProguardContainer = z.union([z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }), Container])
-const MapState = z.object({
-    id: z.number(),
-    chunkId: z.string().nullable(),
-    debugId: z.string().nullable(),
-    releaseId: z.string().nullable(),
-    empty: z.boolean(),
-})
+const MapState = z.object({ id: z.number(), chunkId: z.string().nullable(), releaseId: z.string().nullable() })
 export type MapState = z.output<typeof MapState>
 
 const Maps = z.object({ maps: z.array(z.union([MapState, z.object({ unreadable: z.string() })])) })
 const ClonedMap = z.object({ map: MapState })
-const MapContainers = z.object({ containers: z.array(Container) })
 
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 type PairAnswer = z.output<typeof Pairs>['pairs'][number]
-type PreparedPairs = z.output<typeof Prepared>
+type PreparedSymbolSets = z.output<typeof Prepared>
 type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
 type CleanupReport = z.output<typeof Cleaned>
 type ProguardContainer = z.output<typeof ProguardContainer>
 export type MapAnswer = z.output<typeof Maps>['maps'][number]
-type MapContainer = z.output<typeof MapContainers>['containers'][number]
 
 interface DetectCandidate {
     path: string
@@ -255,12 +247,15 @@ export class Worker {
         return (await this.call({ op: 'fingerprint', ids }, Targets, { targets: [] })).targets
     }
 
-    async setRelease(ids: number[], releaseId: string | null): Promise<void> {
-        await this.call({ op: 'set_release', ids, releaseId }, Done, {})
+    async setRelease(held: { pairs?: number[]; maps?: number[] }, releaseId: string | null): Promise<void> {
+        const { pairs = [], maps = [] } = held
+        if (pairs.length > 0 || maps.length > 0) {
+            await this.call({ op: 'set_release', pairs, maps, releaseId }, Done)
+        }
     }
 
     // The worker lets the pairs go, so this is the last request that names them.
-    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPairs> {
+    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedSymbolSets> {
         return this.call({ op: 'prepare', ids, mode, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
     }
 
@@ -289,16 +284,12 @@ export class Worker {
         return (await this.call({ op: 'clone_metadata', from, to }, ClonedMap)).map
     }
 
-    async setMapRelease(ids: number[], releaseId: string | null): Promise<void> {
-        await this.call({ op: 'set_map_release', ids, releaseId }, Done, {})
-    }
-
     async writeMaps(ids: number[]): Promise<void> {
         await this.call({ op: 'write_maps', ids }, Done, {})
     }
 
-    async prepareMaps(ids: number[], folder: string | null): Promise<MapContainer[]> {
-        return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers, { containers: [] })).containers
+    async prepareMaps(ids: number[], folder: string | null): Promise<PreparedSymbolSets> {
+        return this.call({ op: 'prepare_maps', ids, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
     }
 
     async close(): Promise<void> {

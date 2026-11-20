@@ -27,14 +27,6 @@ impl<T> Store<T> {
             .ok_or_else(|| unknown(self.kind, id))
     }
 
-    pub fn get_mut(&mut self, id: usize) -> Result<&mut T, Failure> {
-        let kind = self.kind;
-        self.items
-            .get_mut(id)
-            .and_then(Option::as_mut)
-            .ok_or_else(|| unknown(kind, id))
-    }
-
     pub fn take(&mut self, id: usize) -> Result<T, Failure> {
         let kind = self.kind;
         self.items

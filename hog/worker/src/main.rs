@@ -8,17 +8,16 @@
 //   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
 //   drop, save         {}
 //   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
-//   set_release        {}
+//   set_release        {}, for the `pairs` and `maps` it names
 //   prepare            {"skipped":[{"id","reason"}],"prepared":[{"id","chunkId","contentHash",...}],
 //                      "duplicates":["chunk id"]}, uploads in order and the first pair per chunk id
 //   css_candidates     {"candidates":[{"id":0,"mapRealPath":"..."} | null]}
 //   clean_up           {"deletedMaps":["..."],"warnings":["..."]}
 //   proguard           {"contentHash":"...","size":640,"path":"..."} | {"invalid":"reason"}
-//   load_maps          {"maps":[{"id":0,"chunkId","debugId","releaseId","empty"} | {"unreadable"}]}
+//   load_maps          {"maps":[{"id":0,"chunkId","releaseId"} | {"unreadable"}]}
 //   clone_metadata     {"map":{"id":1,...}}, the `to` map with the chunk id and release of `from`
-//   set_map_release    {}
-//   write_maps         {}
-//   prepare_maps       {"containers":[{"contentHash","size","path"}]}
+//   write_maps         {}, every map or none
+//   prepare_maps       the answer of `prepare`, with no duplicates
 // `prepare` writes each pair's symbol set to a file for hog to send and lets the pairs go, and
 // `prepare_maps` does the same for Hermes maps, which have ids of their own. Other pairs and maps
 // stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL changes
@@ -87,7 +86,10 @@ enum Request {
     },
     #[serde(rename_all = "camelCase")]
     SetRelease {
-        ids: Vec<usize>,
+        #[serde(default)]
+        pairs: Vec<usize>,
+        #[serde(default)]
+        maps: Vec<usize>,
         release_id: Option<String>,
     },
     Prepare {
@@ -115,11 +117,6 @@ enum Request {
     CloneMetadata {
         from: usize,
         to: usize,
-    },
-    #[serde(rename_all = "camelCase")]
-    SetMapRelease {
-        ids: Vec<usize>,
-        release_id: Option<String>,
     },
     WriteMaps {
         ids: Vec<usize>,
@@ -170,8 +167,8 @@ enum Answer {
         targets: Vec<usize>,
     },
     Prepared {
-        skipped: Vec<upload::SkippedPair>,
-        prepared: Vec<upload::PreparedPair>,
+        skipped: Vec<upload::Skipped>,
+        prepared: Vec<upload::Prepared>,
         duplicates: Vec<String>,
     },
     CssCandidates {
@@ -189,9 +186,6 @@ enum Answer {
     Map {
         map: MapState,
     },
-    Containers {
-        containers: Vec<upload::Container>,
-    },
     Done {},
 }
 
@@ -207,18 +201,14 @@ enum MapAnswer {
 struct MapState {
     id: usize,
     chunk_id: Option<String>,
-    debug_id: Option<String>,
     release_id: Option<String>,
-    empty: bool,
 }
 
 fn map_state(id: usize, map: &hermes::MapFile) -> MapState {
     MapState {
         id,
         chunk_id: map.content.chunk_id.clone(),
-        debug_id: map.content.debug_id.clone(),
         release_id: map.content.release_id.clone(),
-        empty: map.content.is_empty(),
     }
 }
 
@@ -349,7 +339,11 @@ impl Worker {
             } => self.inject(&ids, mode, release_id.as_deref(), now),
             Request::Save { ids } => self.save(&ids),
             Request::Fingerprint { ids } => self.fingerprint(&ids),
-            Request::SetRelease { ids, release_id } => self.set_release(&ids, release_id),
+            Request::SetRelease {
+                pairs,
+                maps,
+                release_id,
+            } => self.set_release(&pairs, &maps, release_id),
             Request::Prepare { ids, mode, folder } => self.prepare(&ids, mode, folder.as_deref()),
             Request::CssCandidates {
                 files,
@@ -367,9 +361,6 @@ impl Worker {
             }
             Request::LoadMaps { paths } => Ok(self.load_maps(&paths)),
             Request::CloneMetadata { from, to } => self.clone_metadata(from, to),
-            Request::SetMapRelease { ids, release_id } => {
-                self.set_map_release(&ids, release_id.as_deref())
-            }
             Request::WriteMaps { ids } => self.write_maps(&ids),
             Request::PrepareMaps { ids, folder } => self.prepare_maps(&ids, folder.as_deref()),
         }
@@ -545,15 +536,29 @@ impl Worker {
 
     fn set_release(
         &mut self,
-        ids: &[usize],
+        pairs: &[usize],
+        maps: &[usize],
         release_id: Option<String>,
     ) -> Result<Answer, Failure> {
-        let mut pairs = self.pairs.take_all(ids)?;
+        let mut held_maps = self.maps.take_all(maps)?;
+        let mut held_pairs = match self.pairs.take_all(pairs) {
+            Ok(held) => held,
+            Err(failure) => {
+                self.maps.put_back(maps, held_maps);
+                return Err(failure);
+            }
+        };
 
-        for pair in &mut pairs {
-            pair.map.release_id = release_id.clone();
+        let contents = held_pairs
+            .iter_mut()
+            .map(|pair| &mut pair.map)
+            .chain(held_maps.iter_mut().map(|map| &mut map.content));
+        for content in contents {
+            content.release_id = release_id.clone();
         }
-        self.pairs.put_back(ids, pairs);
+
+        self.pairs.put_back(pairs, held_pairs);
+        self.maps.put_back(maps, held_maps);
         Ok(Answer::Done {})
     }
 
@@ -567,7 +572,7 @@ impl Worker {
         let folder = folder.map(Path::new);
         let claimed = upload::claim(ids, pairs);
 
-        let prepared: Result<Vec<upload::PreparedPair>, String> = claimed
+        let prepared: Result<Vec<upload::Prepared>, String> = claimed
             .ready
             .into_par_iter()
             .map(|(id, chunk_id, pair)| {
@@ -678,23 +683,25 @@ impl Worker {
         cloned.map(|()| Answer::Map { map })
     }
 
-    fn set_map_release(
-        &mut self,
-        ids: &[usize],
-        release_id: Option<&str>,
-    ) -> Result<Answer, Failure> {
-        for id in ids {
-            self.maps.get_mut(*id)?.content.release_id = release_id.map(str::to_string);
-        }
-        Ok(Answer::Done {})
-    }
-
+    // Every map or none, like `save`, so the two maps of a clone never disagree on the release.
     fn write_maps(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
+        let mut staged = Vec::with_capacity(ids.len());
         for id in ids {
-            self.maps.get_mut(*id)?.write().map_err(Failure::failed)?;
+            match self.maps.get(*id).map(hermes::MapFile::stage) {
+                Ok(Ok(file)) => staged.push(file),
+                Ok(Err(message)) => {
+                    write::discard(&staged);
+                    return Err(Failure::failed(message));
+                }
+                Err(failure) => {
+                    write::discard(&staged);
+                    return Err(failure);
+                }
+            }
         }
-        self.trace.mark("write maps");
 
+        write::commit(staged, &self.trace).map_err(Failure::failed)?;
+        self.trace.mark("write maps");
         Ok(Answer::Done {})
     }
 
@@ -702,18 +709,30 @@ impl Worker {
         let maps = self.maps.take_all(ids)?;
         let folder = folder.map(Path::new);
 
-        let built: Result<Vec<upload::Container>, String> = maps
+        let mut skipped = Vec::new();
+        let mut ready = Vec::new();
+        for (id, map) in ids.iter().zip(maps) {
+            match hermes::upload_id(&map) {
+                Ok(chunk_id) => ready.push((*id, chunk_id, map)),
+                Err(reason) => skipped.push(upload::Skipped { id: *id, reason }),
+            }
+        }
+
+        let prepared: Result<Vec<upload::Prepared>, String> = ready
             .into_par_iter()
-            .map(|map| {
+            .map(|(id, chunk_id, map)| {
                 let path = map.path.clone();
-                hermes::build(map, folder).map_err(|error| format!("{}: {error:#}", path.display()))
+                hermes::prepare(id, chunk_id, map, folder)
+                    .map_err(|error| format!("{}: {error:#}", path.display()))
             })
             .collect();
         self.trace.mark("prepare maps");
 
-        built
-            .map(|containers| Answer::Containers { containers })
-            .map_err(Failure::failed)
+        Ok(Answer::Prepared {
+            skipped,
+            prepared: prepared.map_err(Failure::failed)?,
+            duplicates: Vec::new(),
+        })
     }
 }
 
