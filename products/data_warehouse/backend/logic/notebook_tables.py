@@ -26,7 +26,11 @@ from products.warehouse_sources.backend.facade.tasks import validate_data_wareho
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
 
 if TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3 import S3Client as Boto3StubsS3Client
+    from types_boto3_s3 import S3Client as TypesBoto3S3Client
+
+    # Both installed boto3 stub packages describe the same runtime client.
+    S3Client = Boto3StubsS3Client | TypesBoto3S3Client
 
 NOTEBOOK_TABLES_FOLDER = "notebook_tables"
 # A cell can run for six hours, and the sandbox writes the Parquet file only after the cell
