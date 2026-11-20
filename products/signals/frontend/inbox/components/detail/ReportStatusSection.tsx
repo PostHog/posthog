@@ -234,40 +234,40 @@ export function ReportStatusSection({
                                 saving={repositorySaving}
                             />
                         )}
-                            {report.actionability && (
-                                <ReportDecisionRow<SignalReportActionability>
-                                    label="Actionability"
-                                    value={report.actionability}
-                                    attribution={decisionAttributions?.actionability ?? null}
-                                    options={ACTIONABILITY_OPTIONS}
-                                    onChange={
-                                        onActionabilityChange
-                                            ? (actionability) => onActionabilityChange({ actionability })
-                                            : undefined
-                                    }
-                                    saving={actionabilitySaving}
-                                    formatValue={actionabilityLabel}
-                                    data-attr="report-actionability-select"
-                                />
-                            )}
-                            {typeof report.already_addressed === 'boolean' && (
-                                <ReportDecisionRow<AlreadyAddressedValue>
-                                    label="Already addressed"
-                                    value={report.already_addressed ? 'true' : 'false'}
-                                    attribution={decisionAttributions?.already_addressed ?? null}
-                                    options={ALREADY_ADDRESSED_OPTIONS}
-                                    onChange={
-                                        onActionabilityChange
-                                            ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
-                                            : undefined
-                                    }
-                                    saving={actionabilitySaving}
-                                    formatValue={alreadyAddressedLabel}
-                                    data-attr="report-already-addressed-select"
-                                />
-                            )}
-                        </ReportAgentDecisions>
-                    )}
+                        {report.actionability && (
+                            <ReportDecisionRow<SignalReportActionability>
+                                label="Actionability"
+                                value={report.actionability}
+                                attribution={decisionAttributions?.actionability ?? null}
+                                options={ACTIONABILITY_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (actionability) => onActionabilityChange({ actionability })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={actionabilityLabel}
+                                data-attr="report-actionability-select"
+                            />
+                        )}
+                        {typeof report.already_addressed === 'boolean' && (
+                            <ReportDecisionRow<AlreadyAddressedValue>
+                                label="Already addressed"
+                                value={report.already_addressed ? 'true' : 'false'}
+                                attribution={decisionAttributions?.already_addressed ?? null}
+                                options={ALREADY_ADDRESSED_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={alreadyAddressedLabel}
+                                data-attr="report-already-addressed-select"
+                            />
+                        )}
+                    </ReportAgentDecisions>
+                )}
             </div>
         </DetailSection>
     )
