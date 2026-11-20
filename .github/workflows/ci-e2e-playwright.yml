@@ -1139,6 +1139,9 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
+                  docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster container" > playwright/test-results/docker-valkey-cluster.log
+                  # Restarts, OOM kills, exit codes and health probes show why a container stopped answering.
+                  docker inspect --format '{{.Name}} restarts={{.RestartCount}} state={{json .State}}' posthog-valkey-cluster-1 posthog-plugins-1 > playwright/test-results/docker-container-state.log 2>&1 || echo "No valkey-cluster or plugins container" >> playwright/test-results/docker-container-state.log
 
             - name: Archive test artifacts
               if: always()
