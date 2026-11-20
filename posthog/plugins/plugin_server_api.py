@@ -324,6 +324,37 @@ def send_accepted_transactional_email(
     )
 
 
+def send_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="template_batch"),
+        payload,
+        timeout,
+    )
+
+
+def send_accepted_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="code_send_batch"),
+        payload,
+        timeout,
+    )
+
+
+def _post_transactional_email_batch(path: str, token: str, payload: dict, timeout: float) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + path,
+        data=json.dumps(payload, ensure_ascii=False).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
+
+
 def prepare_transactional_email_attachment_uploads(
     team_id: int, payload: dict, *, timeout: float = 10
 ) -> requests.Response:
