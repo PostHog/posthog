@@ -331,17 +331,25 @@ def _reproject_organization_on_active_change(
 
     organization_id = str(instance.pk)
 
-    def enqueue() -> None:
+    def reproject() -> None:
         try:
-            reproject_organization_gateway_credentials_task.delay(organization_id)
+            reproject_organization_gateway_credentials_task(organization_id)
         except Exception as e:
-            logger.warning(
-                "Failed to enqueue organization gateway credential reprojection",
+            logger.exception(
+                "Synchronous organization gateway credential reprojection failed",
                 organization_id=organization_id,
                 error=str(e),
             )
+            try:
+                reproject_organization_gateway_credentials_task.delay(organization_id)
+            except Exception as retry_error:
+                logger.warning(
+                    "Failed to enqueue organization gateway credential reprojection",
+                    organization_id=organization_id,
+                    error=str(retry_error),
+                )
 
-    transaction.on_commit(enqueue)
+    transaction.on_commit(reproject)
 
 
 def _capture_old_membership_level_if_deferred(
