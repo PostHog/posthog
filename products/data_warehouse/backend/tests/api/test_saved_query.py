@@ -30,7 +30,9 @@ from posthog.models import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.models import (
     CONNECTION_SAVE_REASON,
@@ -62,6 +64,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryResumeSchedulesRequestSerializer,
     SavedQueryRunSerializer,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -318,6 +321,40 @@ class TestSavedQuery(APIBaseTest):
         existing.refresh_from_db()
         self.assertEqual(existing.query, {"kind": "HogQLQuery", "query": "SELECT 1 AS x"})
         self.assertFalse(Node.objects.filter(team=self.team).exists())
+
+    @parameterized.expand([("team_rule", 200), ("own_rule", 403)])
+    def test_editing_a_materialized_view_checks_the_new_query(self, rule: str, expected: int) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=self.organization_membership,
+            access="restricted" if rule == "team_rule" else "granted",
+        )
+        if rule == "own_rule":
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="member_note", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_names",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS x"},
+            is_materialized=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT event FROM events"}, "soft_update": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected, response.content)
+        view.refresh_from_db()
+        self.assertEqual(view.query["query"] == "SELECT event FROM events", expected == 200)
 
     @parameterized.expand(
         [

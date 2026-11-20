@@ -732,9 +732,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
 
     def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
         # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
-        if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value:
+        # A malformed config is refused by the source's own validation later.
+        if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
             return
-        services = set((source_config.get("filters") or {}).get("serviceNames") or [])
+        filters = source_config.get("filters")
+        services = set((filters.get("serviceNames") or []) if isinstance(filters, dict) else [])
         if services and not services & PIPELINE_LOG_SERVICE_NAMES:
             return
         if access_control_api.get_restricted_properties_with_group_type_index_for_team(

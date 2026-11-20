@@ -718,10 +718,15 @@ class DataWarehouseSavedQuerySerializer(
         if sync_frequency not in (None, "never") and not engine.can_materialize.available:
             raise serializers.ValidationError(engine.can_materialize.reason)
 
-        if sync_frequency and sync_frequency != "never":
-            # Scheduling a view is the same grant as materializing it directly.
+        query_changed = "query" in validated_data and validated_data["query"] != instance.query
+        # Scheduling a view is the same grant as materializing it directly, and a materialized view's
+        # next refresh runs whatever query it holds then.
+        if (sync_frequency and sync_frequency != "never") or (query_changed and instance.is_materialized):
+            pending = copy.copy(instance)
+            if query_changed:
+                pending.query = validated_data["query"]
             modeling_api.assert_user_can_read_saved_query(
-                instance, cast(User, self.context["request"].user), database=self.context.get("database")
+                pending, cast(User, self.context["request"].user), database=self.context.get("database")
             )
 
         # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
