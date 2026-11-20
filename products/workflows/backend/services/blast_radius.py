@@ -12,6 +12,8 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
@@ -71,9 +73,12 @@ def _cached_count_audience(
     dedupe_key: str | None,
     user: User | None = None,
 ) -> BlastRadiusResult:
-    # The count depends on the user's property access rules, so each user gets their own cache entry.
+    # The count depends on the property restrictions that apply to the user, so the key holds their fingerprint.
+    restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        user=user, team_id=team.pk
+    )
     audience = json.dumps(
-        [filters, group_type_index, dedupe_key, user.pk if user else None], sort_keys=True, default=str
+        [filters, group_type_index, dedupe_key, restriction_fingerprint(restrictions)], sort_keys=True, default=str
     )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)

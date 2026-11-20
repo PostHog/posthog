@@ -1,5 +1,7 @@
 from typing import Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -11,6 +13,7 @@ from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
 from products.feature_flags.backend.person_sampling import (
     count_matching_persons,
     count_settings,
@@ -63,6 +66,11 @@ def get_dedupe_audience_count_v2(
     # supported key must be taught to this function too, instead of silently getting the email grouping.
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
+
+    restricted = access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    if "email" in access_control_api.split_restricted_property_names(restricted).person:
+        # A masked email makes every person their own dedupe group, so the count would be the person count.
+        raise ValidationError({"dedupe_key": "Sizing a deduplicated audience needs access to the email property."})
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)

@@ -12,6 +12,7 @@ from posthog.models import OrganizationMembership, User
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.facade.testing import create_property_access_control
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.person_sampling import bounded_memory_settings, build_person_count_query
@@ -357,13 +358,12 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         assert get_person_audience_count_v2(self.team, self.filters, user=self.restricted_member).affected == 0
         assert get_person_audience_count_v2(self.team, self.filters, user=self.other_member).affected == 1
 
-    def test_dedupe_count_skips_a_restricted_property(self):
-        restricted = get_dedupe_audience_count_v2(
-            self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.restricted_member
-        )
-        allowed = get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.other_member)
+    def test_dedupe_count_is_refused_when_the_email_property_is_restricted(self):
+        with pytest.raises(ValidationError):
+            get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.restricted_member)
 
-        assert (restricted.affected, allowed.affected) == (0, 1)
+        allowed = get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.other_member)
+        assert allowed.affected == 1
 
     def test_cached_counts_are_kept_per_user(self):
         def size(user: User) -> int:
@@ -379,3 +379,7 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
 
         assert size(self.other_member) == 1
         assert size(self.restricted_member) == 0
+
+        PropertyAccessControl.objects.all().delete()
+
+        assert size(self.restricted_member) == 1
