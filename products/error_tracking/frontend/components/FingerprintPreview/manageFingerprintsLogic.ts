@@ -93,9 +93,9 @@ export interface manageFingerprintsLogicActions {
         }[]
     ) => {
         fingerprints: {
-            description?: string | undefined
+            description?: string
             fingerprint: string
-            name?: string | undefined
+            name?: string
         }[]
         id: string
     } // issueActionsLogic

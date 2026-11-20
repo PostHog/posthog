@@ -1567,7 +1567,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "anomaly-insight-get": {
-        "description": "Get the full anomaly scoring history of one saved trends insight: every scored series with its anomaly rate, baseline rate and coverage, and each bucket of the range oldest first with its value, score, flag and detector `details`. A completed bucket that was not scored has `scored: false` and null value, score and flag; it is unknown, not zero. Seeing every series together tells a global cause (every breakdown value flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only. Values are as they were at scoring time, so they can differ from the live chart after late data arrives. The keys of `details` depend on the detector. `scoring_enabled: false` means the project is not scored now: scoring does not cover it, or the project turned scoring off in its self-driving settings. `message` says which when no bucket is returned. A 404 means the insight does not exist, you cannot read it, or anomaly search is not available for this project.",
+        "description": "Get the full anomaly scoring history of one saved trends insight: every scored series with its anomaly rate and coverage, and each bucket of the range oldest first with its value, score, flag and detector `details`. A completed bucket that was not scored has `scored: false` and null value, score and flag; it is unknown, not zero. Seeing every series together tells a global cause (every breakdown value flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only. Values are as they were at scoring time, so they can differ from the live chart after late data arrives. The keys of `details` depend on the detector. `scoring_enabled: false` means the project is not scored now: scoring does not cover it, or the project turned scoring off in its self-driving settings. `message` says which when no bucket is returned. A 404 means the insight does not exist, you cannot read it, or anomaly search is not available for this project.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the scored anomaly history of an insight",
@@ -1583,7 +1583,7 @@
         "feature_flag": "anomalies-search"
     },
     "anomaly-search": {
-        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order: recent` for the series flagged the fewest buckets ago first, so an hourly series flagged in the latest hour ties a daily series flagged in the latest day. Pass `search` to keep only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly search is not available for this project.",
+        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first: flagged series that rarely flag over the chart window of their interval come before series that flag often, because a series that is usually quiet and now flags matters more than one that always flags. Pass `order: recent` for the series whose newest flagged bucket ended last first, so an hourly series flagged a few hours ago sorts above a daily series flagged yesterday. Pass `search` to keep only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly search is not available for this project.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search anomalous insight series",
@@ -7459,7 +7459,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-schemas-list": {
@@ -7594,7 +7594,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-sources-connections-list": {
@@ -9354,7 +9354,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters. To find the reports about a topic, an error message or an entity name, use inbox-reports-search: the `search` filter here matches the exact text only.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to keep their personal order.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.\nA report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome. `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in inbox-report-checks-list.",
+        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters. To find the reports about a topic, an error message or an entity name, use inbox-reports-search: the `search` filter here matches the exact text only.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to keep their personal order.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.\nA report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome. `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in inbox-report-checks-list. `monitoring_summary.checks` gives every check's state at a glance.\n`view=monitoring_recent` also lists the resolved and closed reports whose Monitoring ended in the last 14 days. Each of those has `monitoring_ended_at` and a `monitoring_outcome` that says how it ended and, for a closed report, the follow-up report researching why. To list only the reports tied to the user, pass `connected=assigned,suggested_reviewer`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List inbox reports",
@@ -10818,6 +10818,23 @@
             "readOnlyHint": true
         }
     },
+    "llma-offline-experiment-item-payload-update": {
+        "description": "Update fields in an item's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item payload",
+        "title": "Update offline experiment item payload",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-offline-experiment-item-result-list": {
         "description": "List a single item's results with their exact immutable scorer configurations. Optionally filter by scorer definition or version UUIDs. Execution status ok can still be a failing score under the pinned passing rule. Reasoning is available separately through result-payload-get. Preserve count and next_cursor and keep filters unchanged when paging.",
         "category": "AI observability",
@@ -10833,6 +10850,23 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-item-update": {
+        "description": "Edit an offline item's case, trial, model, or trace reference.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item",
+        "title": "Update offline experiment item",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-list": {
@@ -10880,6 +10914,40 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-result-payload-update": {
+        "description": "Update fields in a result's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result payload",
+        "title": "Update offline experiment result payload",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-offline-experiment-result-update": {
+        "description": "Update a reported score. The server recalculates its existing composite results.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result",
+        "title": "Update offline experiment result",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-scorer-summary-list": {
@@ -12475,6 +12543,38 @@
         },
         "feature_flag": "metrics-dashboard-import"
     },
+    "notebooks-app-get": {
+        "description": "Read a notebook's app draft, published layout, and app_revision. Use notebooks-get to discover source cells, their stable component IDs, variables, dependencies, and results. An app arranges live notebook cells, text, variable inputs, and dividers into tabs and a 12-column layout. Before building or changing an app, read the building-notebook-apps skill. Save with notebooks-app-update using the returned revision.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook app",
+        "title": "Get notebook app",
+        "required_scopes": ["notebook:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-app-builder"
+    },
+    "notebooks-app-update": {
+        "description": "Create or update an app by replacing its complete app_draft layout. Read notebooks-app-get first and pass its app_revision; a stale revision returns 409, so re-read and reconcile rather than overwrite. Preserve existing tabs and blocks when making targeted edits. Cell blocks reference stable component node IDs returned by notebooks-get or notebooks-add-cell. Input blocks reference existing notebook variable names; use notebooks-set-variables to create or change those first. Never invent source IDs. To publish when the user asks, send the complete layout as app_published; null unpublishes it. Publishing snapshots the layout, not cell data or variable values. Omitted app fields stay unchanged. This tool does not edit notebook content or run cells. It works with collaborative notebooks.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update notebook app",
+        "title": "Update notebook app",
+        "required_scopes": ["notebook:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-app-builder"
+    },
     "notebooks-compute-options": {
         "description": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
         "category": "Notebooks",
@@ -12762,6 +12862,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "organization-create": {
+        "description": "Create an organization with the caller as its owner. PostHog also creates a default project in it. Use an organization to keep separate companies or billing accounts apart. To separate environments such as staging and production, use `project-create` in the current organization instead. Always confirm the name with the user before calling this. PostHog makes the new organization the user's current organization in the web app, so tell the user. This session stays in its current organization: call `switch-organization` with the returned ID to work in the new one. If `switch-organization` is unavailable, the connection is pinned to one organization, so ask the user to reconnect. If this call fails with a permission error, do not call it again: give the user the reason from the error.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Create organization",
+        "title": "Create organization",
+        "required_scopes": ["organization:write"],
+        "api_operations": ["POST /api/organizations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "organization-enforce-2fa-execute": {
@@ -13162,20 +13277,19 @@
         }
     },
     "provider-imports-create": {
-        "description": "Start a background import from another email tool, such as Resend or Postmark, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Check for an active run first, then ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Creates people only when the `new_people` step is selected, and each new person counts as one event, so ask the user before including it. Imported drafts never send on their own.",
+        "description": "Start a background import from another email tool, such as Resend, Postmark, SendGrid or Mailgun, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Check for an active run first, then ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and any `settings` it lists: ask the user for a setting whose `default` is null, such as Mailgun's region, and don't guess it, because PostHog sends the key to that region. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Creates people only when the `new_people` step is selected, and each new person counts as one event, so ask the user before including it. Imported drafts never send on their own.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Start an import from another email tool",
         "title": "Start an import from another email tool",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow:write", "person:read"],
         "api_operations": ["POST /api/projects/{project_id}/messaging_provider_imports/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-get": {
         "description": "Get one import run: each step's status and last error, a breakdown in `counts`, and in `items` each template, workflow or domain it handled with a link and notes on what to review. Show the user the notes and each step's failures. A step that is `running` with a `last_error` is retrying by itself.",
@@ -13183,15 +13297,14 @@
         "feature": "messaging",
         "summary": "Get an import's progress and results",
         "title": "Get an import's progress and results",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/messaging_provider_imports/{id}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-list": {
         "description": "List this project's most recent imports from other email tools, newest first. Use it to find a run that is already active before you start another.",
@@ -13199,18 +13312,17 @@
         "feature": "messaging",
         "summary": "List recent imports",
         "title": "List recent imports",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/messaging_provider_imports/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-providers": {
-        "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
+        "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`), and any choices to make first (`settings`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "List email tools PostHog can import from",
@@ -13222,8 +13334,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
@@ -14814,7 +14925,7 @@
         }
     },
     "scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather than creating a second one. The `key` is a short ID of at most 300 characters, such as `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what was stored. Any agent on this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not read. To make the write conditional, pass the entry's `updated_at` from that search as `if_updated_at`: the write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an entry.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather than creating a second one. The `key` is a short ID of at most 300 characters, such as `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what was stored. Any agent on this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not read. To make the write conditional, pass the entry's `updated_at` from that search as `if_updated_at`: the write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an entry. The version a write replaces is kept for two weeks: read it with `scout-scratchpad-search` passing `key` and `include_revisions=true`, and restore it by remembering its content. A write onto an expired entry succeeds, and the response's `revived_expiry` gives the expiry it replaced and, when known, who set it. Another writer may have retired that entry on purpose, so check why before you keep the rewrite.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
@@ -14829,7 +14940,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return scratchpad entries for this project, newest first. The keyspace is shared by every agent that runs here, the scouts and the report pipeline's research and implementation stages, so search the identity of the thing you care about (an error id, a flag key, a page path, a file path, an event name) and not only your own key prefix. Each result carries `created_by_skill`, naming the entry's original creator: a scout's skill name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`). An upsert keeps the creator, so the last writer can differ. Expired entries are hidden by default, and a daily janitor hard-deletes them once their expiry is more than two weeks in the past.",
+        "description": "Return scratchpad entries for this project, newest first. The keyspace is shared by every agent that runs here, the scouts and the report pipeline's research and implementation stages, so search the identity of the thing you care about (an error id, a flag key, a page path, a file path, an event name) and not only your own key prefix. Pass `key_prefix` to read one family of keys (`followup:<skill-name>:`, `report:`), and `text` to find an entity named anywhere in a key or body. Each result carries `created_by_skill`, naming the entry's original creator: a scout's skill name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`). An upsert keeps the creator, so the last writer can differ. Expired entries are hidden by default, and a daily janitor hard-deletes them once their expiry is more than two weeks in the past. A `key` search adds `last_changed_by_skill` and `last_changed_at`, naming the last writer after the creator. When the entry exists but has expired, a `key` search returns it with `expired=true`, a blank `content` and its `expires_at`, and the two fields name who set the expiry when known. That means another writer or a time limit retired the entry on purpose: read it with `include_expired=true` and weigh that before you rebuild it.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the fleet scratchpad",
@@ -14887,7 +14998,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         },
         "feature_flag": "scout-trials"
     },
@@ -15958,8 +16069,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-settings-update": {
         "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates replaces the whole mapping, so include every type to keep. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the setting-up-supabase-auth-emails skill before you set up or change the connection.",
@@ -15974,8 +16084,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-starter-templates-create": {
         "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up the connection.",
@@ -15990,8 +16099,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "suppressions-add": {
         "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. An address that already has an entry keeps it. A bounce also makes that entry block transactional email, unless someone removed it from the list. Repeating a call is safe.",
@@ -16203,7 +16311,7 @@
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "task-context-wiki-channel-resolve": {
@@ -17205,7 +17313,7 @@
         }
     },
     "vision-requests-create": {
-        "description": "Scan up to 200 session recordings with a saved scanner (`scanner_id`) or a one-off question (`inline`, with the same `prompt`, `scanner_type`, `scanner_config` and `model` fields as `vision-scanners-inline-scan`), and get back one request id that covers every session. Pass an `idempotency_key` when you might retry the call: the same key returns the first request instead of starting and charging for the scans again. Results are not inline. Poll `vision-requests-get` with the returned `id` until `status` is `completed`; each session then carries its `state` and, when it succeeded, its `scanner_result`. Sessions past a credit or concurrency limit come back as `skipped` with the reason in `scan_outcome`, rather than failing the call.",
+        "description": "Scan up to 200 session recordings with a saved scanner (`scanner_id`) or a one-off question (`inline`, with the same `prompt`, `scanner_type`, `scanner_config` and `model` fields as `vision-scanners-inline-scan`), and get back one request id that covers every session. Pass an `idempotency_key` when you might retry the call: the same key returns the first request instead of starting and charging for the scans again. Results are not inline. Poll `vision-requests-get` with the returned `id` until `status` is `completed`; each session then carries its `state` and, when it succeeded, its `scanner_result`. Sessions past a credit or concurrency limit come back as `skipped` with the reason in `scan_outcome`, rather than failing the call. After reporting results, offer to keep scanning new recordings (see the creating-replay-vision-scanners skill).",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Request session scans",
@@ -17497,7 +17605,7 @@
         }
     },
     "vision-scanners-inline-scan": {
-        "description": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and either a `prompt` or a `built_in` scan; no scheduled scanner is created, though the observations it produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. For \"summarize this recording\" and \"what happened in this session\", pass `built_in: \"summarize_recording\"` and no `prompt`, `scanner_type` or `scanner_config`: it runs the same AI summary as the Summarize button in the replay player and shares its results. Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until each session's observation leaves `pending`/`running`. `vision-observations-list` works too when you want one session's observations across every scanner, since it takes a `session_id` rather than a scanner. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.",
+        "description": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and either a `prompt` or a `built_in` scan; no scheduled scanner is created, though the observations it produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. For \"summarize this recording\" and \"what happened in this session\", pass `built_in: \"summarize_recording\"` and no `prompt`, `scanner_type` or `scanner_config`: it runs the same AI summary as the Summarize button in the replay player and shares its results. Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until each session's observation leaves `pending`/`running`. `vision-observations-list` works too when you want one session's observations across every scanner, since it takes a `session_id` rather than a scanner. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call. If the question would also apply to future recordings, offer a scanner after answering (see the creating-replay-vision-scanners skill).",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Scan sessions against a prompt",
@@ -17573,7 +17681,7 @@
         }
     },
     "vision-scanners-scan-session": {
-        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan. If the scanner has no schedule, offer to turn it on after reporting (see the creating-replay-vision-scanners skill).",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Run scanner against a session now",
@@ -17589,7 +17697,7 @@
         "requires_ai_consent": true
     },
     "vision-scanners-scan-sessions": {
-        "description": "Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the in-flight limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`, polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a one-off question without a scanner use `vision-scanners-inline-scan`.",
+        "description": "Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the in-flight limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`, polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a one-off question without a scanner use `vision-scanners-inline-scan`. If the scanner has no schedule, offer to turn it on after reporting (see the creating-replay-vision-scanners skill).",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Scan many sessions with scanner",
@@ -18814,6 +18922,21 @@
         },
         "feature_flag": "workflows-email-activity"
     },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/hog_flows/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",
@@ -19116,7 +19239,7 @@
         }
     },
     "workflows-publish": {
-        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. When the preview says moves_to_sandbox_sender, tell the user those email steps will send from the PostHog test sender. Send sandbox_sender_warned on every confirm: true when you told them, false otherwise. A 409 means the draft changed, was published or was discarded since the preview, or, with sandbox_sender_warned false, that a live change now moves steps onto the test sender. A 400 means the token expired or the draft is invalid. After a 409 or an expired token, preview again and re-confirm. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched: fix the draft before you preview again. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Publish workflow draft",

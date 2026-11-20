@@ -680,12 +680,14 @@ def update_owned_copy(
     rescheduled: bool = False,
     at: datetime | None = None,
     first_enabled_at: datetime | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
     next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
     it wrote any history row of its own, so the platform's row of the same change is no later.
     `first_enabled_at` is when the source row was first turned on, which the copy takes.
+    `created_by_id` is the row's creator, which the copy's checks run as.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -699,6 +701,7 @@ def update_owned_copy(
         rescheduled=rescheduled,
         at=at,
         first_enabled_at=first_enabled_at,
+        created_by_id=created_by_id,
     )
 
 
@@ -969,6 +972,32 @@ def restore_source_destination(
         enabled=enabled,
         retired_hog_function_ids=retired_hog_function_ids,
         hog_function_groups=hog_function_groups,
+    )
+
+
+def refresh_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool,
+    keeps_legacy_webhook_body: bool,
+) -> StoredAlertDestination | None:
+    """Rewrites the one row that copies `hog_function_ids` from their live settings, keeping its id, in the
+    caller's transaction. None when no row or more than one row copies them. Raises
+    `AlertDestinationValidationError` when the alert already sends there through another destination."""
+    return alert_destinations.refresh_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        hog_function_ids=hog_function_ids,
+        hog_function_groups=hog_function_groups,
+        enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
     )
 
 

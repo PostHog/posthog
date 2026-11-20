@@ -24,6 +24,7 @@ export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
     roleExitGraceMs?: number
+    restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
@@ -47,6 +48,7 @@ export interface Valves {
     start(entries: ValveEntry[], context: ValveContext): Promise<void>
     releaseAll(): Promise<void>
     timeline(): ValveTimelineEntry[]
+    refusal: AbortSignal
 }
 
 export const roleKill: ValveDefinition = {
@@ -128,6 +130,8 @@ export const pgFailover: ValveDefinition = {
     params: z.object({}).strict(),
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
+    restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
     apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
         manifest === undefined
@@ -153,6 +157,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
+    const refusals = new AbortController()
     let releasing: Promise<void> | undefined
 
     const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
@@ -221,6 +226,9 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             journal()
             if (!observed) {
                 record.error ??= 'applied but not observed'
+                if (actuation.refused?.()) {
+                    refusals.abort({ ...record })
+                }
             } else if (
                 entry.when &&
                 definition.strandsRunningJobs &&
@@ -267,5 +275,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })()),
 
         timeline: () => entries.map((entry) => ({ ...entry })),
+
+        refusal: refusals.signal,
     }
 }

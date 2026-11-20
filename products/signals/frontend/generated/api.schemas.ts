@@ -529,11 +529,6 @@ export interface AnomalyInsightSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
     /** Completed buckets in the range, scored or not. */
     expected_buckets: number
     /**
@@ -662,7 +657,7 @@ export interface AnomalySeriesPointsApi {
      * * `week` - Week
      * * `month` - Month */
     interval: AnomalyIntervalEnumApi
-    /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. */
+    /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. */
     date_from: string
     /** The scored buckets of the series in the chart window, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. */
     points: AnomalySeriesPointApi[]
@@ -775,11 +770,6 @@ export interface AnomalySeriesApi {
      */
     scored_through: string | null
     /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
-    /**
      * The oldest flagged bucket in the range, in the project timezone.
      * @nullable
      */
@@ -819,11 +809,6 @@ export interface AnomalyTopSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range.
-     * @nullable
-     */
-    baseline_rate: number | null
 }
 
 export interface AnomalyInsightRowApi {
@@ -3088,6 +3073,66 @@ export interface MonitoringLeadCheckApi {
     readings: MonitoringReadingApi[]
 }
 
+/**
+ * * `metric_threshold` - Metric Threshold
+ * * `agent` - Agent
+ */
+export type SignalReportCheckKindEnumApi =
+    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
+
+export const SignalReportCheckKindEnumApi = {
+    MetricThreshold: 'metric_threshold',
+    Agent: 'agent',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ * * `not_on_track` - Not on track
+ * * `on_track` - On track
+ * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
+ * * `final_check_only` - Final check only
+ */
+export type MonitoringCheckStateEnumApi = (typeof MonitoringCheckStateEnumApi)[keyof typeof MonitoringCheckStateEnumApi]
+
+export const MonitoringCheckStateEnumApi = {
+    Passed: 'passed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+    NotOnTrack: 'not_on_track',
+    OnTrack: 'on_track',
+    AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
+    FinalCheckOnly: 'final_check_only',
+} as const
+
+export interface MonitoringCheckSummaryApi {
+    /** The follow-up check. */
+    check_id: string
+    /** The check's short label. */
+    title: string
+    /** `metric_threshold` compares a query result with a target; `agent` runs a scout that judges the claim.
+     *
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
+    kind: SignalReportCheckKindEnumApi
+    /** Where this check stands. `passed` and `failed`: final verification recorded a verdict. `cancelled`: removed from verification. `on_track` and `not_on_track`: whether its latest interim reading meets its target. `awaiting_reading`: it takes interim readings and has none yet. `readings_hidden`: this viewer may not read its data. `final_check_only`: it takes no interim readings and is judged when its window ends.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only */
+    state: MonitoringCheckStateEnumApi
+    /** End of this check's observation window. */
+    ends_at: string
+}
+
 export interface ReportMonitoringSummaryApi {
     /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
      *
@@ -3104,6 +3149,215 @@ export interface ReportMonitoringSummaryApi {
     ends_at: string
     /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
     lead_check: MonitoringLeadCheckApi | null
+    /** Every check this Monitoring period is verified with, oldest first, including cancelled ones. */
+    checks: MonitoringCheckSummaryApi[]
+}
+
+/**
+ * * `resolved` - Resolved
+ * * `resolved_by_assessment` - Resolved by assessment
+ * * `resolved_manually` - Resolved manually
+ * * `resolved_unverified` - Resolved without verification
+ * * `closed` - Closed
+ */
+export type MonitoringOutcomeKindEnumApi =
+    (typeof MonitoringOutcomeKindEnumApi)[keyof typeof MonitoringOutcomeKindEnumApi]
+
+export const MonitoringOutcomeKindEnumApi = {
+    Resolved: 'resolved',
+    ResolvedByAssessment: 'resolved_by_assessment',
+    ResolvedManually: 'resolved_manually',
+    ResolvedUnverified: 'resolved_unverified',
+    Closed: 'closed',
+} as const
+
+export interface MonitoringFollowUpApi {
+    /** The follow-up report researching why the fix was not shown to work. */
+    report_id: string
+    /**
+     * The follow-up report's title. Null until research names it.
+     * @nullable
+     */
+    title: string | null
+    /** The follow-up report's current status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+}
+
+export interface ReportMonitoringOutcomeApi {
+    /** How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person resolved it; `dismissal_reason` says why. `resolved_unverified`: every check was cancelled, so nothing verified the fix. `closed`: the fix was not shown to work, and follow-up research was requested.
+     *
+     * * `resolved` - Resolved
+     * * `resolved_by_assessment` - Resolved by assessment
+     * * `resolved_manually` - Resolved manually
+     * * `resolved_unverified` - Resolved without verification
+     * * `closed` - Closed */
+    kind: MonitoringOutcomeKindEnumApi
+    /** When Monitoring ended. */
+    ended_at: string
+    /** The report researching why this Monitoring period did not establish the fix. Null until grouping places its research signal. */
+    follow_up: MonitoringFollowUpApi | null
+}
+
+/**
+ * * `part_of` - Part of
+ * * `plan` - Plan
+ * * `recurrence_of` - Recurrence of
+ * * `duplicate_of` - Duplicate of
+ * * `depends_on` - Depends on
+ * * `follow_up_of` - Follow-up of
+ */
+export type LinkStripKindEnumApi = (typeof LinkStripKindEnumApi)[keyof typeof LinkStripKindEnumApi]
+
+export const LinkStripKindEnumApi = {
+    PartOf: 'part_of',
+    Plan: 'plan',
+    RecurrenceOf: 'recurrence_of',
+    DuplicateOf: 'duplicate_of',
+    DependsOn: 'depends_on',
+    FollowUpOf: 'follow_up_of',
+} as const
+
+export interface LinkedReportRefApi {
+    /** The linked report's id. */
+    id: string
+    /**
+     * The linked report's title.
+     * @nullable
+     */
+    title: string | null
+    /** The linked report's status. Monitoring reads as resolved when its rollout is disabled.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /**
+     * The linked report's primary implementation pull request, if one is attached.
+     * @nullable
+     */
+    implementation_pr_url: string | null
+    /** Latest known state of that pull request: unknown, draft, open, closed, or merged.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+}
+
+/**
+ * * `merged` - Merged
+ * * `in_review` - In review
+ * * `waiting` - Waiting
+ * * `dismissed` - Dismissed
+ */
+export type PlanStepStateEnumApi = (typeof PlanStepStateEnumApi)[keyof typeof PlanStepStateEnumApi]
+
+export const PlanStepStateEnumApi = {
+    Merged: 'merged',
+    InReview: 'in_review',
+    Waiting: 'waiting',
+    Dismissed: 'dismissed',
+} as const
+
+export interface LinkPlanStepApi {
+    /** The step's report id. */
+    id: string
+    /**
+     * The step's report title.
+     * @nullable
+     */
+    title: string | null
+    /** `merged`: the step's pull request merged or the step resolved. `in_review`: the step has a pull request that is not closed. `waiting`: no work is in flight yet. `dismissed`: the step was archived.
+     *
+     * * `merged` - Merged
+     * * `in_review` - In review
+     * * `waiting` - Waiting
+     * * `dismissed` - Dismissed */
+    state: PlanStepStateEnumApi
+}
+
+export interface LinkPlanSummaryApi {
+    /** The plan's report id. */
+    id: string
+    /**
+     * The plan's report title.
+     * @nullable
+     */
+    title: string | null
+    /** The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out. */
+    steps: LinkPlanStepApi[]
+    /** The step to show for the whole plan: the first step in review, else the first waiting step, else the last step. */
+    lead_step_id: string
+}
+
+/**
+ * * `depends_on` - Depends on
+ * * `part_of` - Part of
+ * * `follow_up_of` - Follow-up of
+ * * `duplicate_of` - Duplicate of
+ * * `recurrence_of` - Recurrence of
+ */
+export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
+
+export const ReportLinkKindEnumApi = {
+    DependsOn: 'depends_on',
+    PartOf: 'part_of',
+    FollowUpOf: 'follow_up_of',
+    DuplicateOf: 'duplicate_of',
+    RecurrenceOf: 'recurrence_of',
+} as const
+
+export interface OtherReportLinkApi {
+    /** How this report relates to the other.
+     *
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of */
+    kind: ReportLinkKindEnumApi
+    /** The other report. */
+    report: LinkedReportRefApi
+}
+
+export interface ReportLinkSummaryApi {
+    /** The link the inbox row shows. `part_of`: this report is a step of `plan`. `plan`: this report is the plan, and `plan` lists its steps. Other values name an outgoing link to `report`. The order of preference is plan, `recurrence_of`, `duplicate_of`, `depends_on`, `follow_up_of`.
+     *
+     * * `part_of` - Part of
+     * * `plan` - Plan
+     * * `recurrence_of` - Recurrence of
+     * * `duplicate_of` - Duplicate of
+     * * `depends_on` - Depends on
+     * * `follow_up_of` - Follow-up of */
+    kind: LinkStripKindEnumApi
+    /** The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`. */
+    report: LinkedReportRefApi | null
+    /** The plan, when `kind` is `part_of` or `plan`. Null otherwise. */
+    plan: LinkPlanSummaryApi | null
+    /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out, and so is a `follow_up_of` to the report a `recurrence_of` strip names. */
+    other_links: OtherReportLinkApi[]
 }
 
 export interface SignalReportListApi {
@@ -3123,6 +3377,11 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly monitoring_started_at?: string | null
+    /**
+     * When this Monitoring period ended in resolved or closed. Null while Monitoring continues, when it was archived (archiving pauses it), and after the report is reopened. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_ended_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -3262,8 +3521,12 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly personal_reason: string | null
-    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with follow-up checks, or, with `view=monitoring_recent`, left Monitoring in the last 14 days. */
     readonly monitoring_summary: ReportMonitoringSummaryApi | null
+    /** How Monitoring ended, for a resolved or closed report that went through it. Null otherwise, and when Monitoring is disabled. */
+    readonly monitoring_outcome: ReportMonitoringOutcomeApi | null
+    /** The one link the inbox row shows, read for the whole page at once. Null when the report links to no live report, is no plan, or the inbox card links rollout is off for the organization. */
+    readonly link_summary: ReportLinkSummaryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -3430,23 +3693,6 @@ export interface ReportMetricWriteApi {
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
-
-/**
- * * `depends_on` - Depends on
- * * `part_of` - Part of
- * * `follow_up_of` - Follow-up of
- * * `duplicate_of` - Duplicate of
- * * `recurrence_of` - Recurrence of
- */
-export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
-
-export const ReportLinkKindEnumApi = {
-    DependsOn: 'depends_on',
-    PartOf: 'part_of',
-    FollowUpOf: 'follow_up_of',
-    DuplicateOf: 'duplicate_of',
-    RecurrenceOf: 'recurrence_of',
-} as const
 
 /**
  * One typed, directed link to write on the report being emitted or edited.
@@ -3768,6 +4014,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly monitoring_started_at?: string | null
+    /**
+     * When this Monitoring period ended in resolved or closed. Null while Monitoring continues, when it was archived (archiving pauses it), and after the report is reopened. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_ended_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -7369,18 +7620,6 @@ export interface CommitDiffResponseApi {
 }
 
 /**
- * * `metric_threshold` - Metric Threshold
- * * `agent` - Agent
- */
-export type SignalReportCheckKindEnumApi =
-    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
-
-export const SignalReportCheckKindEnumApi = {
-    MetricThreshold: 'metric_threshold',
-    Agent: 'agent',
-} as const
-
-/**
  * * `pending` - Pending
  * * `active` - Active
  * * `passed` - Passed
@@ -8563,8 +8802,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -8926,8 +9165,8 @@ export interface SignalScoutConfigApi {
      */
     readonly write_scopes: readonly string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     readonly report_actions: readonly string[]
     /**
@@ -9106,8 +9345,8 @@ export interface SignalScoutConfigCreateApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -9283,8 +9522,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -9948,6 +10187,71 @@ export interface ScoutTrialHistoryApi {
 }
 
 /**
+ * * `overwrite` - Overwrite
+ * * `forget` - Forget
+ */
+export type SignalScratchpadRevisionChangeEnumApi =
+    (typeof SignalScratchpadRevisionChangeEnumApi)[keyof typeof SignalScratchpadRevisionChangeEnumApi]
+
+export const SignalScratchpadRevisionChangeEnumApi = {
+    Overwrite: 'overwrite',
+    Forget: 'forget',
+} as const
+
+/**
+ * The state a scratchpad entry held before one write replaced or deleted it.
+ */
+export interface ScratchpadRevisionApi {
+    /** The entry's content before the change. */
+    content: string
+    /**
+     * The entry's ISO-8601 expiry before the change, or null if it was durable.
+     * @nullable
+     */
+    expires_at: string | null
+    /** `overwrite` when a `remember` or the daily report-pointer sweep replaced this state, `forget` when a delete removed it.
+     *
+     * * `overwrite` - Overwrite
+     * * `forget` - Forget */
+    change: SignalScratchpadRevisionChangeEnumApi
+    /** ISO-8601 time of the change. */
+    changed_at: string
+    /**
+     * Scout run that made the change, or null when a pipeline stage or a person did.
+     * @nullable
+     */
+    changed_by_run_id: string | null
+    /**
+     * Who made the change: the skill name of the scout run, the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry.
+     * @nullable
+     */
+    changed_by_skill: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that made the change, or null.
+     * @nullable
+     */
+    changed_by_run_url: string | null
+}
+
+/**
+ * The expiry a `remember` overruled when it wrote onto an expired entry.
+ */
+export interface ScratchpadRevivedExpiryApi {
+    /** ISO-8601 expiry the entry had before this write replaced it. */
+    expires_at: string
+    /**
+     * Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. Null when the entry was created with the expiry or no saved version shows who set it.
+     * @nullable
+     */
+    set_by_skill: string | null
+    /**
+     * ISO-8601 time the expiry was set, or null.
+     * @nullable
+     */
+    set_at: string | null
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -9985,6 +10289,25 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     created_by_run_url?: string | null
+    /**
+     * Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest revision is the deleted state.
+     * @nullable
+     */
+    revisions?: ScratchpadRevisionApi[] | null
+    /** True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry. */
+    expired?: boolean
+    /**
+     * Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the expiry. Null when no saved version shows a writer, and on every other search.
+     * @nullable
+     */
+    last_changed_by_skill?: string | null
+    /**
+     * Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when no saved version records one.
+     * @nullable
+     */
+    last_changed_at?: string | null
+    /** Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write succeeded and replaced that expiry. Null otherwise. */
+    revived_expiry?: ScratchpadRevivedExpiryApi | null
 }
 
 /**
@@ -13413,7 +13736,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy
     /**
-     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
+     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
      */
     include_points?: boolean
     /**
@@ -13447,7 +13770,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -13517,6 +13840,10 @@ export type SignalsReportsListParams = {
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
+    /**
+     * Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.
+     */
+    connected?: string
     /**
      * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
      */
@@ -13645,7 +13972,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
@@ -13844,6 +14171,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
+    /**
+     * Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.
+     */
+    connected?: string
     /**
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
@@ -14245,10 +14576,18 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     include_expired?: boolean
     /**
-     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content.
+     */
+    include_revisions?: boolean
+    /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`.
      * @minLength 1
      */
     key?: string
+    /**
+     * Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.
+     */
+    key_prefix?: string
     /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
