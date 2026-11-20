@@ -246,9 +246,12 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
   - PreviewCard: hover/focus preview of a link destination
-  - Dialog: focused task that blocks the page
+  - Credenza: the default for a focused task that blocks the page. A Dialog at 768px and wider, a bottom Drawer below that, from one set of parts
+    - Put the content in `CredenzaBody`, which scrolls between the header and the footer
+    - Footer: max 2 buttons; Cancel first, CTA last, variant `primary`, default size. The dialog puts the CTA on the right, and the drawer puts it on top
+    - Before handoff, check it at both viewports (see §9)
+  - Dialog: only when the surface must stay a dialog on a phone, such as `size="wide"` content or a nested dialog
     - Footer: max 2 buttons; CTA last (right on desktop), variant `primary`, default size; Cancel before it
-  - Credenza: a Dialog on a wide viewport and a bottom Drawer below 768px, from one set of parts. Use it for a dialog that phones must also use; the footer rule of Dialog applies
   - AlertDialog: confirm a destructive or irreversible action
     - Footer: max 2 buttons; CTA last, variant `destructive-outline` if destructive, else `primary`; default size
   - Drawer: <TODO: align purpose with primitives/AGENTS.md>
@@ -360,6 +363,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   | `disabledReason`, `tooltip`            | the same props on `Button`                                                                                   |
   | `sideAction` with a dropdown           | `ButtonGroup` (see §3 Buttons)                                                                               |
   | `LemonMenu`                            | `DropdownMenu`; nested items → `DropdownMenuSub`                                                             |
+  | `LemonModal`                           | `Credenza`                                                                                                   |
   | `LemonTag`                             | `Badge`                                                                                                      |
   | `LemonSelect`                          | `Select`                                                                                                     |
   | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
@@ -389,3 +393,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 ## 9. Review before handoff
 
 - Render in light and dark; check narrow widths; run lint and types; fix and repeat
+- For every `Credenza` you touched, open it at a wide viewport (1280px) and at a phone viewport (390px). Use content long enough to overflow, and check both modes:
+  - The wide viewport shows a centered dialog, and the phone viewport shows a bottom drawer
+  - `CredenzaBody` scrolls, and the header and footer stay in view
+  - Nothing overflows the popup or hides behind the footer, and the footer buttons show in the correct order
