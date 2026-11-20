@@ -52,3 +52,5 @@ class QueryBatchLanguage(LabeledStrEnum):
 
     INSIGHT = "insight", "Insight"
     HOGQL = "hogql", "HogQL"
+    PROMQL = "promql", "PromQL"
+    LOGQL = "logql", "LogQL"
