@@ -1,4 +1,3 @@
-import { RedisV2 } from '~/common/redis/redis-v2'
 import { PluginsServerConfig } from '~/types'
 
 import { CyclotronJobQueueRateLimitedPostgresV2 } from '../services/job-queue/job-queue-rate-limited-postgres-v2'
@@ -43,20 +42,13 @@ export class CdpCyclotronWorkerClassify extends CdpCyclotronWorkerHogFlow {
  * Unlike the email worker, the classify worker has no unthrottled fallback: without the limiter's Valkey it would
  * send the model every waiting classification at once, so it refuses to start instead.
  */
-export function requireClassifyLimiterValkey(config: PluginsServerConfig): RedisV2 {
+export function createClassifyJobQueue(config: PluginsServerConfig): CyclotronJobQueueRateLimitedPostgresV2 {
     const limiterValkey = createSesRateLimiterValkeyPool(config, 'classify-rate-limiter')
     if (!limiterValkey) {
         throw new Error(
             'The classify worker needs SES_RATE_LIMITER_VALKEY_HOST for its rate limit, so it refuses to start without it.'
         )
     }
-    return limiterValkey
-}
-
-export function createClassifyJobQueue(
-    config: PluginsServerConfig,
-    limiterValkey: RedisV2
-): CyclotronJobQueueRateLimitedPostgresV2 {
     return new CyclotronJobQueueRateLimitedPostgresV2(config.CONSUMER_BATCH_SIZE, config, {
         limiter: new RateLimiterService(limiterValkey, { name: 'classify' }),
         key: CLASSIFY_GLOBAL_BUCKET_KEY,

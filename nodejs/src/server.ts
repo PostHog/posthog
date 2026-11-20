@@ -32,7 +32,6 @@ import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-wo
 import {
     CdpCyclotronWorkerClassify,
     createClassifyJobQueue,
-    requireClassifyLimiterValkey,
 } from './cdp/consumers/cdp-cyclotron-worker-classify.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
@@ -445,7 +444,7 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorkerClassify(
                     this.config,
                     cdpDeps!,
-                    createClassifyJobQueue(this.config, requireClassifyLimiterValkey(this.config))
+                    createClassifyJobQueue(this.config)
                 )
                 await worker.start()
                 return worker.service

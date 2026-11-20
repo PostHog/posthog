@@ -89,9 +89,10 @@ describe('postHogClassify', () => {
                     poolMinSize: 0,
                     poolMaxSize: 1,
                 }),
-                1
+                Number.MAX_SAFE_INTEGER
             )
-            store.stopAnswering()
+            expect(await cap.countAndCheck(1)).toBe(true)
+            store.stopAnsweringOpenConnections()
 
             let gaveUp: NodeJS.Timeout | undefined
             const answer = await Promise.race([
