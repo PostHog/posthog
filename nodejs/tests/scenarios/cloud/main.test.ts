@@ -24,6 +24,7 @@ const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
+const GIVEN_RUN_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'
 const RUNNER_PROFILE = readFileSync(path.join(__dirname, '..', 'profiles', 'synthetic.yaml'), 'utf8')
 
 type Setup = {
@@ -296,6 +297,18 @@ describe('cloud controller', () => {
             { profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }) },
         ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
+        [
+            'a given run id that is not a UUID',
+            FAILOVER_CARD,
+            'is not a lowercase UUID',
+            { env: { SCENARIO_RUN_ID: 'scn-1' } },
+        ],
+        [
+            'a given run id in upper case',
+            FAILOVER_CARD,
+            'is not a lowercase UUID',
+            { env: { SCENARIO_RUN_ID: GIVEN_RUN_ID.toUpperCase() } },
+        ],
         ['no card', undefined, 'Usage:', {}],
     ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
         const { controller } = prepare(setup)
@@ -355,15 +368,42 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain(`Run ${runId} was not leased`)
     })
 
-    it('releases the lease when the run ends', async () => {
-        const { controller } = prepare()
+    it.each<[string, NodeJS.ProcessEnv, unknown]>([
+        [
+            'a new run id',
+            {},
+            expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+        ],
+        ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
+    ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
+        const { controller } = prepare({ env })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
+        expect(runId).toEqual(expected)
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!)).toMatchObject({
+            runId,
+            stackName: `scn-${runId}`,
+        })
+        expect(new Set(cloud.resources.map(({ runTag }) => runTag).filter(Boolean))).toEqual(new Set([runId]))
         expect(released(runId)).toBe(1)
         expect(cloud.schedules.size).toBe(0)
         expect(cloud.deleteStackRequests).toEqual([])
+    })
+
+    it('refuses a given run id whose folder already holds objects, and leaves that run as it was', async () => {
+        const { controller } = prepare()
+        const earlier = await leaseAt(T, controller)
+        const objects = new Map(cloud.objects)
+        controller.env.SCENARIO_RUN_ID = earlier
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(`Run ${earlier} already has objects`)
+        expect(cloud.objects).toEqual(objects)
+        expect(schedulesFor(earlier)).toHaveLength(2)
+        expect(cloud.stacks.size).toBe(0)
     })
 
     it('runs on the profile the account pin checked, even when the file changes during the identity check', async () => {

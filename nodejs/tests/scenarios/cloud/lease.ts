@@ -37,6 +37,8 @@ const StoredManifest = z
 
 const stackNameOf = (runId: string): string => `scn-${runId}`
 
+const isRunId = (value: string): boolean => z.uuid().safeParse(value).success && value === value.toLowerCase()
+
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
 export const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
@@ -120,7 +122,11 @@ export async function lease(
     { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
-    const runId = randomUUID()
+    const given = controller.env.SCENARIO_RUN_ID
+    if (given !== undefined && !isRunId(given)) {
+        throw new LeaseError(`SCENARIO_RUN_ID ${JSON.stringify(given)} is not a lowercase UUID, so no run is leased.`)
+    }
+    const runId = given ?? randomUUID()
     const createdAt = controller.now()
     const stackName = stackNameOf(runId)
     const manifest: Manifest = {
@@ -139,6 +145,9 @@ export async function lease(
         readerMinAcu: profile.readerAcu.min,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
+    if ((await bucket.keys(keyOf(runId, ''))).length > 0) {
+        throw new LeaseError(`Run ${runId} already has objects under ${keyOf(runId, '')}, so it is not leased again.`)
+    }
     const body = JSON.stringify(manifest, null, 2)
     try {
         await bucket.put(keyOf(runId, 'manifest.json'), body)
