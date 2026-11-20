@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -140,6 +141,24 @@ class TestLLMGatewayQuotaTasks(BaseTest):
             self.organization.is_active = False
             self.organization.save()
         self.assertEqual(queued, [str(self.organization.id)])
+
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_a_failed_cache_invalidation_does_not_block_the_projection(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
+            patch(
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+                side_effect=OperationalError("database unavailable"),
+            ),
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.organization.is_active = False
+            self.organization.save()
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
 
     def test_deactivating_an_org_enqueues_nothing_without_gateway_redis_url(self) -> None:
         with (
