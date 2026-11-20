@@ -220,6 +220,14 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     )
 
 
+def insight_ids_created_or_viewed_by(*, team_id: int, user_id: int, viewed_since: datetime) -> set[int]:
+    created = Insight.objects.filter(team_id=team_id, created_by_id=user_id, deleted=False).values_list("id", flat=True)
+    viewed = InsightViewed.objects.filter(
+        team_id=team_id, user_id=user_id, last_viewed_at__gte=viewed_since
+    ).values_list("insight_id", flat=True)
+    return set(created) | set(viewed)
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     unnamed = Q(name__isnull=True) | Q(name="")
     return set(

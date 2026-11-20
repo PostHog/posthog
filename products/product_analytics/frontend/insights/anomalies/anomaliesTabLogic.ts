@@ -32,6 +32,8 @@ export const ANOMALIES_PAGE_SIZE = 50
 export const SCORED_HISTORY_READY_DAYS = 14
 
 export interface AnomaliesFilters {
+    // Only insights the person created or viewed recently. False lists every insight in the project.
+    mine: boolean
     dateFrom: string
     // Null lists the series of every interval.
     interval: SignalsAnomaliesSearchRetrieveInterval | null
@@ -41,6 +43,7 @@ export interface AnomaliesFilters {
 }
 
 export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
+    mine: true,
     dateFrom: '-14d',
     interval: null,
     dashboardId: null,
@@ -76,6 +79,7 @@ function errorKind(error: unknown): AnomaliesLoadError {
 // Leaves out the search text, which can hold insight names.
 function filterProperties(filters: AnomaliesFilters): Record<string, unknown> {
     return {
+        mine: filters.mine,
         date_from: filters.dateFrom,
         interval: filters.interval,
         order: filters.order,
@@ -97,6 +101,7 @@ async function searchAnomalies(
         include_points: true,
         limit: ANOMALIES_PAGE_SIZE,
         offset,
+        ...(filters.mine && { mine: true }),
         ...(filters.interval != null && { interval: filters.interval }),
         ...(filters.dashboardId != null && { dashboard_id: filters.dashboardId }),
         ...(filters.search.trim() && { search: filters.search.trim() }),

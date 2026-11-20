@@ -4616,6 +4616,11 @@
                     "csv": false
                 },
                 {
+                    "param": "mine",
+                    "key": "mine",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false

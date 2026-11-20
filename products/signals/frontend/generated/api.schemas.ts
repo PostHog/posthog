@@ -13731,6 +13731,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
+     * Only insights the requesting user created, or viewed within the window in which anomaly scoring treats an insight as active (90 days by default). `watched_insights` and `insights_scored_in_range` then count only those insights. Defaults to false, every insight in the project.
+     */
+    mine?: boolean
+    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000

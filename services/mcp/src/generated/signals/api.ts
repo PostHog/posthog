@@ -252,6 +252,7 @@ export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryMineDefault = false
 export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
@@ -297,6 +298,12 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    mine: zod
+        .boolean()
+        .default(signalsAnomaliesSearchRetrieveQueryMineDefault)
+        .describe(
+            'Only insights the requesting user created, or viewed within the window in which anomaly scoring treats an insight as active (90 days by default). `watched_insights` and `insights_scored_in_range` then count only those insights. Defaults to false, every insight in the project.'
+        ),
     offset: zod
         .number()
         .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)

@@ -22,6 +22,7 @@ export function AnomaliesTab(): JSX.Element {
         expandedInsightIds,
         hasMore,
         seriesRatings,
+        filters,
     } = useValues(anomaliesTabLogic)
     const {
         loadAnomalies,
@@ -76,7 +77,7 @@ export function AnomaliesTab(): JSX.Element {
                     )}
                     <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
                         <span>
-                            {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
+                            {`${anomalies.insights_scored_in_range} of ${filters.mine ? 'your ' : ''}${anomalies.watched_insights} watched insights checked in this range`}
                         </span>
                         {scoredThrough && (
                             <>

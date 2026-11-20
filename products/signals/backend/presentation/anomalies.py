@@ -101,6 +101,14 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         max_length=200,
         help_text="Only insights whose name contains this text, ignoring case.",
     )
+    mine = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Only insights the requesting user created, or viewed within the window in which anomaly scoring treats "
+            "an insight as active (90 days by default). `watched_insights` and `insights_scored_in_range` then count "
+            "only those insights. Defaults to false, every insight in the project."
+        ),
+    )
     limit = serializers.IntegerField(min_value=1, max_value=100, default=25, help_text="The most rows to return.")
     offset = serializers.IntegerField(
         min_value=0,
@@ -548,6 +556,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=query["limit"],
             offset=query["offset"],
             search=query.get("search") or None,
+            mine=query["mine"],
             include_points=query["include_points"],
         )
         try:
@@ -561,6 +570,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             order=filters.order.value,
             offset=filters.offset,
             searched=filters.search is not None,
+            mine=filters.mine,
             include_points=filters.include_points,
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
