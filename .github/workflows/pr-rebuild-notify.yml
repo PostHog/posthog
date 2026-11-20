@@ -55,10 +55,11 @@ jobs:
                           ...issue,
                           body: [
                               marker,
-                              '@cvolzer3 A possible native rebuild needs acknowledgement before this PR can merge.',
+                              `@PostHog/team-mobile-app This PR may need a new production iOS or Android build. [See why the check flagged it](${gate.html_url}).`,
                               '',
-                              `See the [Mobile Rebuild check](${gate.html_url}) for the result. A maintainer can comment with the following command, then re-run failed jobs.`,
+                              'Anyone with repository write access, including the PR author, can acknowledge this commit.',
                               '',
-                              `\`/ack-mobile-rebuild ${run.head_sha}\``,
+                              `1. Post \`/ack-mobile-rebuild ${run.head_sha}\` as a separate PR comment.`,
+                              '2. Select **Re-run failed jobs** on the workflow run so the check reads your acknowledgement.',
                           ].join('\n'),
                       })

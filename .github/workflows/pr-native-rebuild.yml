@@ -153,7 +153,7 @@ jobs:
                       if (reviewer) {
                           core.summary.addRaw(`Acknowledged by @${reviewer}.`, true)
                       } else {
-                          core.summary.addRaw('A maintainer with write access can comment with the command below, then re-run failed jobs.', true)
+                          core.summary.addRaw('Anyone with repository write access, including the PR author, can acknowledge this commit. Post the command below as a separate PR comment, then select **Re-run failed jobs**.', true)
                           core.summary.addCodeBlock(rebuildCommand(head.sha))
                       }
                       await core.summary.write()
