@@ -35,6 +35,12 @@ urlpatterns = [
                 name=record_type.url_name,
             ),
             path(
+                f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/panels/<slug:panel_key>/live/",
+                admin.site.admin_view(views.record_panel_live),
+                {"record": record_type.key},
+                name=record_type.panel_live_url_name,
+            ),
+            path(
                 f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/<slug:panel_key>/<slug:operation_key>/",
                 admin.site.admin_view(views.run_operation),
                 {"record": record_type.key},

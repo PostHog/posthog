@@ -516,8 +516,14 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert (obj.count, obj.stats_calculated_at is not None) == ((2, True) if saved else (None, False))
 
+    def _stats_panel(self, html: str) -> dict[str, str | None]:
+        panel = BeautifulSoup(html, "html.parser").find(id="panel-stats")
+        assert panel is not None
+        return {"live": panel.get("data-console-live"), "refresh": panel.get("data-refresh-seconds")}
+
     def test_fetch_stats_counts_in_the_background_and_shows_a_failure(self) -> None:
         obj = self._request()
+        live_url = f"{self._url(obj)}panels/stats/live/"
 
         with patch("posthog.tasks.data_deletion_stats.refresh_deletion_stats_task.apply_async") as queued:
             started = self.client.post(self._url(obj, "stats", "fetch"), follow=True)
@@ -527,6 +533,7 @@ class TestDeletionRequestConsole(BaseTest):
         request_id, user_id, token = queued.call_args.kwargs["args"]
         assert (request_id, user_id) == (str(obj.pk), self.user.pk)
         assert "Counting since" in started.content.decode()
+        assert self._stats_panel(started.content.decode()) == {"live": live_url, "refresh": "2"}
         assert again.status_code == 404
 
         refresh_deletion_stats_task(str(obj.pk), self.user.pk, "token-of-an-older-fetch")
@@ -537,9 +544,11 @@ class TestDeletionRequestConsole(BaseTest):
         ):
             refresh_deletion_stats_task(str(obj.pk), self.user.pk, token)
 
-        page = self.client.get(self._url(obj)).content.decode()
-        assert "Last fetch failed: ClickHouse is down" in page
-        assert self._url(obj, "stats", "fetch") in page
+        live = self.client.get(live_url)
+        assert live["X-Console-Live"] == "1"
+        assert "Last fetch failed: ClickHouse is down" in live.content.decode()
+        assert self._url(obj, "stats", "fetch") in live.content.decode()
+        assert self._stats_panel(live.content.decode()) == {"live": live_url, "refresh": None}
 
     def _create(self, **data):
         fields = {

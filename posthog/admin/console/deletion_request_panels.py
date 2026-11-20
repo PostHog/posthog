@@ -168,7 +168,10 @@ def fetch_stats(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
         messages.info(request, "A stats fetch is already running for this request.")
         return None
     _log_change(request, obj, "Started a ClickHouse stats fetch.")
-    messages.success(request, "Counting the matching events in ClickHouse. Reload this page in a few minutes.")
+    messages.success(
+        request,
+        "Counting the matching events in ClickHouse. The ClickHouse stats panel updates when the count finishes.",
+    )
     return None
 
 
@@ -189,6 +192,10 @@ def preview_stats(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
         f"{_number(stats['parts_row_count'])} rows in those parts. Not saved to the request.",
     )
     return None
+
+
+# Most counts finish in seconds, so the panel checks often while one runs.
+STATS_REFRESH_SECONDS = 2
 
 
 @console.register_panel
@@ -225,6 +232,9 @@ class DeletionRequestStatsPanel(Panel):
             Fact(label="Latest event", value=_when(obj.max_timestamp)),
             Fact(label="Calculated", value=_when(obj.stats_calculated_at)),
         ]
+
+    def refresh_seconds(self, obj: Model) -> int | None:
+        return STATS_REFRESH_SECONDS if DeletionStatsRefresh(obj.pk).running_since() is not None else None
 
     def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, DataDeletionRequest)
