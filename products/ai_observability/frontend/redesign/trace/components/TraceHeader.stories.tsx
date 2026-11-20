@@ -27,7 +27,6 @@ const exportAction = { loading: false, onExport: () => {} }
 const copyAction = { loading: false, onCopy: () => {} }
 const distributedTraceAction = {
     traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
-    timestamp: '2026-09-01T10:00:00Z',
     onOpen: (event: MouseEvent) => event.preventDefault(),
 }
 

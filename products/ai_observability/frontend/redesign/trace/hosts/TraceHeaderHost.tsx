@@ -67,13 +67,10 @@ export function TraceHeaderHost({
     const distributedTraceAction = distributedTraceId
         ? {
               traceId: distributedTraceId,
-              timestamp: overview.createdAt,
+              // No time hint: an AI event carries its end time and a span its start, so a window around
+              // one can miss the other. The trace id alone finds the spans.
               onOpen: (event: MouseEvent) =>
-                  openTraceDialog(
-                      event,
-                      { traceId: distributedTraceId, ts: overview.createdAt },
-                      { entryPoint: 'ai_trace' }
-                  ),
+                  openTraceDialog(event, { traceId: distributedTraceId }, { entryPoint: 'ai_trace' }),
           }
         : undefined
     return (

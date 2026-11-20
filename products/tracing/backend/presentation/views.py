@@ -1519,7 +1519,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         query.is_valid(raise_exception=True)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         trace_id = find_stored_trace_id(self.team, query.validated_data["trace_id"])
-        return Response({"traceId": trace_id}, status=status.HTTP_200_OK)
+        return Response(_StoredTraceResponseSerializer({"traceId": trace_id}).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=_TracingQueryRequestSerializer,
