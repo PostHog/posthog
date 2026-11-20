@@ -37,11 +37,22 @@ if [ -f "$FLOX_MANIFEST" ]; then
   fi
 fi
 
+# Claude Code keeps one CLAUDE_ENV_FILE for the whole session and runs SessionStart
+# again on every resume and compaction. It prepends the file to every Bash command, so
+# a block appended on each start grows the file until every command fails with
+# "argument list too long". The marker line makes the hook write each manifest's
+# block once per session. The hook only appends and never rewrites the file, because
+# lines in it that this hook did not write are not its to remove.
+ENV_MARKER="# setup-flox manifest-hash: $MANIFEST_HASH"
+if grep -qxF "$ENV_MARKER" "$CLAUDE_ENV_FILE" 2>/dev/null; then
+  exit 0
+fi
+
 # Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
-    tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
+    { printf '%s\n' "$ENV_MARKER"; tail -n +2 "$CACHE_FILE"; } >> "$CLAUDE_ENV_FILE"
     exit 0
   fi
 fi
@@ -71,7 +82,7 @@ if [ -d "$VENV_DIR/bin" ]; then
 fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
-printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
+printf '%s\n%s' "$ENV_MARKER" "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
 printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0
