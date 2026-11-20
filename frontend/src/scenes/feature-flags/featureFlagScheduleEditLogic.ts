@@ -72,14 +72,14 @@ export interface featureFlagScheduleEditLogicActions {
     setEditPayloadValue: (value: boolean) => {
         value: boolean
     }
+    setEditPickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
+    }
     setEditRecurrenceInterval: (interval: RecurrenceInterval | null) => {
         interval: RecurrenceInterval | null
     }
     setEditRepeatsValue: (value: RecurrenceInterval | 'cron' | 'none') => {
         value: RecurrenceInterval | 'cron' | 'none'
-    }
-    setEditPickedDay: (day: Dayjs | null) => {
-        day: Dayjs | null
     }
     setEditScheduledAt: (date: Dayjs | null) => {
         date: Dayjs | null

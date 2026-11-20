@@ -1475,13 +1475,13 @@ export interface featureFlagLogicValues {
     rulesV2DraftDirty: boolean
     savedVariantKeys: string[]
     scheduleDateMarker: any
-    schedulePickedDay: Dayjs | null
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
     scheduleFormManuallyExpanded: boolean | null
     scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
+    schedulePickedDay: Dayjs | null
     schedulePreset: PairedPresetKey | null
     scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
@@ -2203,9 +2203,6 @@ export interface featureFlagLogicActions {
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
     }
-    setSchedulePickedDay: (day: Dayjs | null) => {
-        day: Dayjs | null
-    }
     setScheduleFormExpanded: (expanded: boolean) => {
         expanded: boolean
     }
@@ -2221,6 +2218,9 @@ export interface featureFlagLogicActions {
         filters: FeatureFlagFilters | null
         payloads: Record<string, any> | null | undefined
         variants: MultivariateFlagVariant[] | null | undefined
+    }
+    setSchedulePickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
     }
     setSchedulePreset: (preset: PairedPresetKey | null) => {
         preset: PairedPresetKey | null
