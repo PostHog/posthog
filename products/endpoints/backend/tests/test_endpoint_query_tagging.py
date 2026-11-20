@@ -1,5 +1,3 @@
-import json
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -10,7 +8,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.endpoints.backend.constants import ENDPOINT_EXECUTION_RECORDS_LOG_SOURCE
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 
@@ -68,7 +65,7 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
         assert call is not None, f"no tag_queries(product=ENDPOINTS, feature=...) call found: {spy.call_args_list}"
         assert call.kwargs["feature"] == Feature.ENDPOINT_EXECUTION
 
-    def test_run_tags_its_query_with_the_execution_id_of_its_record(self):
+    def test_run_tags_its_query_with_the_execution_id_of_its_log_entry(self):
         self.client.logout()
         execution_ids_at_query_time = []
 
@@ -82,7 +79,7 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(
                 self.run_url,
-                {},
+                {"limit": 5},
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}",
             )
@@ -90,10 +87,6 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         execution_id = response.json()["execution_id"]
         assert execution_ids_at_query_time == [execution_id]
-        [record] = [
-            call.kwargs["data"]
-            for call in get_producer.return_value.produce.call_args_list
-            if call.kwargs["data"]["log_source"] == ENDPOINT_EXECUTION_RECORDS_LOG_SOURCE
-        ]
-        assert record["instance_id"] == execution_id
-        assert json.loads(record["message"])["access_method"] == "personal_api_key"
+        [log_entry] = [call.kwargs["data"] for call in get_producer.return_value.produce.call_args_list]
+        assert log_entry["instance_id"] == execution_id
+        assert "refresh=cache access=personal_api_key limit=5" in log_entry["message"]

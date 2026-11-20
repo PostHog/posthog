@@ -1,5 +1,3 @@
-import json
-
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
@@ -12,8 +10,12 @@ from rest_framework import status
 from posthog.api.test.test_log_entries import create_log_entry
 from posthog.models import Team
 
-from products.endpoints.backend.constants import ENDPOINT_EXECUTION_RECORDS_LOG_SOURCE
-from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE, build_execution_message, log_endpoint_execution
+from products.endpoints.backend.logs import (
+    ENDPOINTS_LOG_SOURCE,
+    RunRequestShape,
+    build_execution_message,
+    log_endpoint_execution,
+)
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 
@@ -46,6 +48,34 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 "success_partial_tokens_omitted",
                 {"succeeded": True, "execution_type": "inline", "version": 1},
                 "Endpoint executed · path=inline version=1",
+            ),
+            (
+                "request_shape_full",
+                {
+                    "succeeded": True,
+                    "execution_type": "inline",
+                    "version": 1,
+                    "request": RunRequestShape(
+                        refresh="force",
+                        access="personal_api_key",
+                        variables=2,
+                        filters_override=True,
+                        limit=100,
+                        offset=0,
+                    ),
+                },
+                "Endpoint executed · path=inline version=1 refresh=force access=personal_api_key "
+                "variables=2 filters_override=true limit=100 offset=0",
+            ),
+            (
+                "request_shape_unset_tokens_omitted",
+                {
+                    "succeeded": True,
+                    "execution_type": "inline",
+                    "version": 1,
+                    "request": RunRequestShape(refresh="cache"),
+                },
+                "Endpoint executed · path=inline version=1 refresh=cache",
             ),
         ]
     )
@@ -111,6 +141,8 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
         self.assertIn("Endpoint execution failed", kwargs["message"])
         self.assertIn("error=", kwargs["message"])
+        self.assertRegex(kwargs["message"], r"duration_ms=\d+")
+        self.assertIn("refresh=cache access=session", kwargs["message"])
 
     def test_successful_run_returns_execution_id_matching_log(self):
         endpoint = self._create_hogql_endpoint("logs_exec_id", "SELECT 1")
@@ -125,68 +157,6 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(execution_id)
         # The id returned to the client must be the same one written to the logs, so it can be traced.
         self.assertEqual(execution_id, mock_log.call_args.kwargs["instance_id"])
-
-    @parameterized.expand(
-        [
-            (
-                "success",
-                "SELECT 4242 AS record_probe",
-                {"refresh": "force", "limit": 5},
-                status.HTTP_200_OK,
-                "INFO",
-                {
-                    "execution_type": "inline",
-                    "status": "success",
-                    "version": 1,
-                    "cache_outcome": "miss",
-                    "rows": 1,
-                    "is_interactive": True,
-                    "has_variables": False,
-                    "has_filters_override": False,
-                    "has_limit": True,
-                    "has_offset": False,
-                    "refresh_mode": "force",
-                },
-            ),
-            (
-                "failure",
-                "SELECT nonexistent_column_xyz FROM events",
-                {},
-                status.HTTP_400_BAD_REQUEST,
-                "ERROR",
-                {
-                    "execution_type": "inline",
-                    "status": "user_error",
-                    "version": 1,
-                    "error": "hogql_query_error",
-                    "is_interactive": True,
-                    "has_variables": False,
-                    "has_filters_override": False,
-                    "has_limit": False,
-                    "has_offset": False,
-                    "refresh_mode": "cache",
-                },
-            ),
-        ]
-    )
-    def test_run_emits_one_execution_record(self, name, query, body, expected_status, expected_level, expected):
-        endpoint = self._create_hogql_endpoint(f"record_{name}", query)
-
-        with mock.patch("products.endpoints.backend.logs.get_producer") as get_producer:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", body, format="json"
-            )
-
-        self.assertEqual(response.status_code, expected_status)
-        entries = [call.kwargs["data"] for call in get_producer.return_value.produce.call_args_list]
-        [record] = [entry for entry in entries if entry["log_source"] == ENDPOINT_EXECUTION_RECORDS_LOG_SOURCE]
-        [user_log] = [entry for entry in entries if entry["log_source"] == ENDPOINTS_LOG_SOURCE]
-        self.assertEqual(record["log_source_id"], str(endpoint.id))
-        self.assertEqual(record["instance_id"], user_log["instance_id"])
-        self.assertEqual(record["level"], expected_level)
-        message = json.loads(record["message"])
-        self.assertGreaterEqual(message.pop("duration_ms"), 0)
-        self.assertEqual(message, expected)
 
     def test_invalid_refresh_mode_emits_error_log_and_clean_message(self):
         endpoint = self._create_hogql_endpoint("logs_bad_refresh", "SELECT 1")

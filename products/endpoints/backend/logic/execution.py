@@ -85,14 +85,7 @@ from products.endpoints.backend.logic.materialized_serving import serving_state_
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logs import (
-    CacheOutcome,
-    EndpointExecutionRecord,
-    ExecutionStatus,
-    build_execution_message,
-    log_endpoint_execution,
-    log_endpoint_execution_record,
-)
+from products.endpoints.backend.logs import RunRequestShape, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
@@ -577,11 +570,12 @@ class EndpointExecutionService(PydanticModelMixin):
         debug = data.debug or False
         execution_type: ExecutionType = "materialized" if use_materialized else "inline"
         query_kind_metric = query_kind_label(version_obj.query)
-        execution_status: ExecutionStatus | None = None
+        execution_status: str | None = None
         execution_id = str(uuid.uuid4())
         # A cache hit runs no query, and a fallback or a stale cache runs two. This tag is the
-        # only key that joins the queries of a run to its log_entries rows.
+        # only key that joins the queries of a run to its log_entries row.
         tag_queries(endpoint_execution_id=execution_id)
+        request_shape = self._request_shape(data, limit=limit, offset=offset)
         error_label: str | None = None
         _start_time = time.monotonic()
         _duration = 0.0
@@ -721,21 +715,11 @@ class EndpointExecutionService(PydanticModelMixin):
                     message=build_execution_message(
                         succeeded=False,
                         execution_type=execution_type,
+                        duration_ms=round(_duration * 1000),
                         version=version_obj.version,
                         error=error_label,
+                        request=request_shape,
                     ),
-                )
-                self._log_execution_record(
-                    endpoint,
-                    data,
-                    version_obj,
-                    execution_id=execution_id,
-                    execution_type=execution_type,
-                    status=execution_status,
-                    duration_ms=round(_duration * 1000),
-                    error=error_label,
-                    limit=limit,
-                    offset=offset,
                 )
 
         cache_outcome, result_row_count = self._record_result_metrics(result, execution_type, query_kind_metric)
@@ -751,20 +735,8 @@ class EndpointExecutionService(PydanticModelMixin):
                 duration_ms=round(_duration * 1000),
                 rows=result_row_count,
                 version=version_obj.version,
+                request=request_shape,
             ),
-        )
-        self._log_execution_record(
-            endpoint,
-            data,
-            version_obj,
-            execution_id=execution_id,
-            execution_type=execution_type,
-            status="success",
-            duration_ms=round(_duration * 1000),
-            cache_outcome=cache_outcome,
-            rows=result_row_count,
-            limit=limit,
-            offset=offset,
         )
 
         self._maybe_shadow_ducklake(
@@ -789,8 +761,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
     def _record_result_metrics(
         self, result: Response, execution_type: str, query_kind_metric: str
-    ) -> tuple[CacheOutcome | None, int | None]:
-        cache_outcome: CacheOutcome | None = None
+    ) -> tuple[str | None, int | None]:
+        cache_outcome: str | None = None
         result_row_count: int | None = None
         try:
             if isinstance(result.data, dict):
@@ -808,48 +780,16 @@ class EndpointExecutionService(PydanticModelMixin):
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
         return cache_outcome, result_row_count
 
-    def _log_execution_record(
-        self,
-        endpoint: Endpoint,
-        data: EndpointRunRequest,
-        version_obj: EndpointVersion,
-        *,
-        execution_id: str,
-        execution_type: ExecutionType,
-        status: ExecutionStatus,
-        duration_ms: int,
-        limit: int | None,
-        offset: int | None,
-        cache_outcome: CacheOutcome | None = None,
-        rows: int | None = None,
-        error: str | None = None,
-    ) -> None:
-        # The failure path calls this from a `finally` block, where a new exception would
-        # replace the error that the caller must see.
-        try:
-            log_endpoint_execution_record(
-                team_id=self.team.pk,
-                endpoint_id=str(endpoint.id),
-                instance_id=execution_id,
-                record=EndpointExecutionRecord(
-                    execution_type=execution_type,
-                    status=status,
-                    version=version_obj.version,
-                    duration_ms=duration_ms,
-                    cache_outcome=cache_outcome,
-                    rows=rows,
-                    error=error,
-                    access_method=get_query_tag_value("access_method"),
-                    is_interactive=self._is_interactive_session(),
-                    has_variables=bool(data.variables),
-                    has_filters_override=bool(data.filters_override),
-                    has_limit=limit is not None,
-                    has_offset=offset is not None,
-                    refresh_mode=data.refresh.value if data.refresh else None,
-                ),
-            )
-        except Exception:
-            logger.debug("Failed to build endpoint execution record", exc_info=True)
+    def _request_shape(self, data: EndpointRunRequest, *, limit: int | None, offset: int | None) -> RunRequestShape:
+        access = get_query_tag_value("access_method")
+        return RunRequestShape(
+            refresh=data.refresh.value if data.refresh else None,
+            access=str(access) if access else ("session" if self._is_interactive_session() else None),
+            variables=len(data.variables) if data.variables else 0,
+            filters_override=bool(data.filters_override),
+            limit=limit,
+            offset=offset,
+        )
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
         """Record last execution time (30-minute granularity, API key calls only)."""
