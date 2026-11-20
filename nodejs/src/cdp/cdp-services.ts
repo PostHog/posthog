@@ -335,6 +335,10 @@ export function createCdpReaderRedisPool(
 // The shadow pools fail to acquire for as long as Valkey is down, so they extend failOpen to those
 // errors. Otherwise a fire-and-forget failOpen call, such as the push service's key write, rejects
 // with no handler, and the process stops on the unhandled rejection.
+//
+// A pipeline on a dropped connection resolves with an error for each command instead of rejecting.
+// Callers such as the watcher read a missing reply as a default state, so the shadow pools fail the
+// whole pipeline instead. A dropped connection then fails the same way as a pool that never connected.
 function failOpenOnPoolErrors(pool: RedisV2): RedisV2 {
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
         try {
@@ -349,7 +353,15 @@ function failOpenOnPoolErrors(pool: RedisV2): RedisV2 {
     }
     return {
         useClient: (options, callback) => failOpen(options, () => pool.useClient(options, callback)),
-        usePipeline: (options, callback) => failOpen(options, () => pool.usePipeline(options, callback)),
+        usePipeline: (options, callback) =>
+            failOpen(options, async () => {
+                const results = await pool.usePipeline(options, callback)
+                const commandError = results?.find(([error]) => error !== null)?.[0]
+                if (commandError) {
+                    throw commandError
+                }
+                return results
+            }),
     }
 }
 

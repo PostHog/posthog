@@ -64,35 +64,42 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         ).resolves.toBeNull()
     }, 30_000)
 
-    it('does not replay a write from the outage once Valkey answers again', async () => {
-        // A proxy stands in for Valkey, so the test can cut the connection the pool already holds.
-        const sockets: Socket[] = []
-        const proxy: Server = createServer((client) => {
-            const upstream = connect(defaultConfig.CDP_VALKEY_PORT, '127.0.0.1')
-            sockets.push(client, upstream)
-            client.pipe(upstream).pipe(client)
-            client.on('error', () => {})
-            upstream.on('error', () => {})
-        })
-        await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-        const port = (proxy.address() as AddressInfo).port
-        // One client, so the write during the outage and the read after it share a connection.
-        const { writer } = createCdpValkeyShadowPools(
-            { ...shadowConfig, CDP_VALKEY_PORT: port, REDIS_POOL_MAX_SIZE: 1 },
-            'test-valkey-outage-replay'
-        )
-        const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
+    describe('after a connection the pool holds drops', () => {
+        // A proxy stands in for Valkey, so a test can cut the connection the pool already holds.
+        let sockets: Socket[]
+        let proxy: Server
+        let port: number
+        let writer: RedisV2
 
-        try {
+        beforeEach(async () => {
+            sockets = []
+            proxy = createServer((client) => {
+                const upstream = connect(defaultConfig.CDP_VALKEY_PORT, '127.0.0.1')
+                sockets.push(client, upstream)
+                client.pipe(upstream).pipe(client)
+                client.on('error', () => {})
+                upstream.on('error', () => {})
+            })
+            await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+            port = (proxy.address() as AddressInfo).port
+            // One client, so the calls during the outage and after it share a connection.
+            writer = createCdpValkeyShadowPools(
+                { ...shadowConfig, CDP_VALKEY_PORT: port, REDIS_POOL_MAX_SIZE: 1 },
+                'test-valkey-dropped-connection'
+            ).writer
             expect(await writer.useClient({ name: 'warm' }, (client) => client.ping())).toEqual('PONG')
 
             const closed = new Promise<void>((resolve) => proxy.close(() => resolve()))
             sockets.forEach((socket) => socket.destroy())
             await closed
-            await expect(
-                writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'written during the outage'))
-            ).rejects.toThrow()
+        })
 
+        afterEach(() => {
+            proxy.close()
+            sockets.forEach((socket) => socket.destroy())
+        })
+
+        const restoreValkey = async (): Promise<void> => {
             await new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
             let pong: unknown = null
             while (pong !== 'PONG') {
@@ -100,12 +107,27 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
                 await new Promise((resolve) => setImmediate(resolve))
                 pong = await writer.useClient({ name: 'recover' }, (client) => client.ping()).catch(() => null)
             }
-
-            expect(await writer.useClient({ name: 'read' }, (client) => client.get(key))).toBeNull()
-        } finally {
-            await writer.useClient({ name: 'cleanup' }, (client) => client.del(key)).catch(() => null)
-            proxy.close()
-            sockets.forEach((socket) => socket.destroy())
         }
-    }, 30_000)
+
+        it('does not replay a write from the outage once Valkey answers again', async () => {
+            const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
+            try {
+                await expect(
+                    writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'written during the outage'))
+                ).rejects.toThrow()
+
+                await restoreValkey()
+
+                expect(await writer.useClient({ name: 'read' }, (client) => client.get(key))).toBeNull()
+            } finally {
+                await writer.useClient({ name: 'cleanup' }, (client) => client.del(key)).catch(() => null)
+            }
+        }, 30_000)
+
+        it('fails a pipeline instead of answering it with per-command errors', async () => {
+            await expect(
+                writer.usePipeline({ name: 'outage-read' }, (pipeline) => pipeline.get('test-valkey-outage-read'))
+            ).rejects.toThrow()
+        }, 30_000)
+    })
 })
