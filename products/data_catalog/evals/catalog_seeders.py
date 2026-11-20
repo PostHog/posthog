@@ -45,6 +45,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     DEALS_TABLE_DESCRIPTION,
     DEALS_V3_TABLE,
     DEALS_V3_TABLE_DESCRIPTION,
+    FILES_PAGE_ACTIONS_METRIC,
     LOCAL_AMOUNT_DESCRIPTION,
     LOCAL_AMOUNT_ROWS,
     LOCAL_AMOUNT_TABLE,
@@ -53,6 +54,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     NOISE_METRICS,
     OPERATIONS_NOISE_METRICS,
     PAYING_CUSTOMERS_METRIC,
+    POWER_DOWNLOADERS_METRIC,
     USD_AMOUNT_DESCRIPTION,
     USD_AMOUNT_ROWS,
     USD_AMOUNT_TABLE,
@@ -131,6 +133,14 @@ def seed_catalog_with_mrr(context: CustomPromptSandboxContext) -> dict[str, Any]
 
 def seed_catalog_with_account_engagement(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return _catalog(context, ACCOUNT_ENGAGEMENT_METRIC)
+
+
+def seed_catalog_with_files_page_actions(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, FILES_PAGE_ACTIONS_METRIC)
+
+
+def seed_catalog_with_power_downloaders(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, POWER_DOWNLOADERS_METRIC)
 
 
 def _require_paid_bills(context: CustomPromptSandboxContext) -> None:

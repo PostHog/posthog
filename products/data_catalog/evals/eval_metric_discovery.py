@@ -10,13 +10,17 @@ from __future__ import annotations
 
 from products.data_catalog.evals.catalog_seeders import (
     seed_catalog_with_account_engagement,
+    seed_catalog_with_files_page_actions,
     seed_catalog_with_mrr,
+    seed_catalog_with_power_downloaders,
     seed_catalog_with_proposed_download_adoption,
 )
 from products.data_catalog.evals.catalog_synthesizer import (
     ACCOUNT_ENGAGEMENT_METRIC,
+    FILES_PAGE_ACTIONS_METRIC,
     MRR_METRIC,
     NEW_USER_DOWNLOAD_ADOPTION_METRIC,
+    POWER_DOWNLOADERS_METRIC,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
@@ -109,6 +113,59 @@ async def eval_metric_discovery(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_catalog_with_proposed_download_adoption,
+        ),
+        # These three name an entity or a screen, not a measure, which is the shape where agents skip the catalog.
+        SandboxedEvalCase(
+            name="search_metric_for_quiet_accounts",
+            prompt="Which accounts have gone quiet over the last two weeks, and how was their activity trending before that?",
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metrics_catalog_before_data_discovery": {},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {ACCOUNT_ENGAGEMENT_METRIC.name} in the catalog before exploring the schema, and base "
+                        "the weekly activity trend on its definition of an active account. Name the accounts with no "
+                        "activity in the last two weeks, and label any per-account breakdown as an adaptation of the "
+                        "governed metric."
+                    )
+                },
+            },
+            setup=seed_catalog_with_account_engagement,
+        ),
+        SandboxedEvalCase(
+            name="search_metric_for_page_clicks",
+            prompt="What do people click most on the files page? Are they mostly opening files, uploading, or deleting?",
+            expected={
+                "metric_found": {"metric_name": FILES_PAGE_ACTIONS_METRIC.name},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"metric_name": FILES_PAGE_ACTIONS_METRIC.name, "outcome": "succeeded"},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {FILES_PAGE_ACTIONS_METRIC.name} in the catalog before exploring the schema, run it, "
+                        "and report that downloads are by far the most common action on the files page, with the "
+                        "number of people behind each action."
+                    )
+                },
+            },
+            setup=seed_catalog_with_files_page_actions,
+        ),
+        SandboxedEvalCase(
+            name="search_metric_for_power_users",
+            prompt=(
+                "Our key metrics dashboard already gives paid accounts more weight. I want heavy downloaders to count "
+                "for more too. How should we define them?"
+            ),
+            expected={
+                "metric_found": {"metric_name": POWER_DOWNLOADERS_METRIC.name},
+                "metrics_catalog_before_data_discovery": {},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {POWER_DOWNLOADERS_METRIC.name} in the catalog and use its definition of a power user, "
+                        "20 or more downloads in the trailing 30 days, instead of inventing a new threshold."
+                    )
+                },
+            },
+            setup=seed_catalog_with_power_downloaders,
         ),
     ]
 

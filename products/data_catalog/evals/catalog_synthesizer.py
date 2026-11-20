@@ -328,6 +328,52 @@ NEW_USER_DOWNLOAD_ADOPTION_METRIC = CatalogMetric(
     unit="percent",
 )
 
+# Hedgebox has no deletions in recent weeks, so downloads lead this mix by a wide margin.
+FILES_PAGE_ACTIONS_METRIC = CatalogMetric(
+    name="files_page_actions_30d",
+    display_name="Files page actions",
+    description=(
+        "What people who viewed the files page did there over the trailing 30 days: file downloads, uploads and "
+        "deletions, with the number of people behind each."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT event AS action, count() AS actions, count(DISTINCT person_id) AS people\n"
+            "FROM events\n"
+            "WHERE event IN ('downloaded_file', 'uploaded_file', 'deleted_file')\n"
+            "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "  AND person_id IN (\n"
+            "    SELECT person_id FROM events\n"
+            "    WHERE event = '$pageview' AND properties.$pathname = '/files/'\n"
+            "      AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "  )\n"
+            "GROUP BY action\n"
+            "ORDER BY actions DESC"
+        ),
+    },
+)
+
+POWER_DOWNLOADERS_METRIC = CatalogMetric(
+    name="power_downloaders_30d",
+    display_name="Power downloaders",
+    description=(
+        "People with 20 or more file downloads in the trailing 30 days. This is the team's definition of a power user."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT count() AS power_downloaders\n"
+            "FROM (\n"
+            "    SELECT person_id FROM events\n"
+            "    WHERE event = 'downloaded_file' AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "    GROUP BY person_id\n"
+            "    HAVING count() >= 20\n"
+            ")"
+        ),
+    },
+)
+
 TOOL_FAILURE_RATE_METRIC = CatalogMetric(
     name="agent_tool_failure_rate",
     display_name="Agent tool failure rate",

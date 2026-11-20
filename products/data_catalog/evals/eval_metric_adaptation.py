@@ -18,6 +18,7 @@ from __future__ import annotations
 from products.data_catalog.evals.catalog_seeders import (
     seed_account_engagement_metric,
     seed_activation_funnel_metric,
+    seed_catalog_with_mrr,
     seed_mrr_metric,
 )
 from products.data_catalog.evals.catalog_synthesizer import (
@@ -215,6 +216,79 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_mcp_tool_failures,
+        ),
+        # The next four cases add the noise catalog, because an agent skips the catalog more often when the
+        # question names an account or a task rather than the measure.
+        SandboxedEvalCase(
+            name="adjust_one_account_annual_plan_savings",
+            prompt="How much would Anixter International save in a year by moving to an annual plan with 20% off what they pay now?",
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "the Anixter International account through $group_0, then multiply that 30-day total by 12 "
+                        "and take 20% of it as the yearly saving"
+                    )
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_one_account_revenue_at_risk",
+            prompt=(
+                "Anixter International told their account manager they may move their files to an in-house system. "
+                "What else do they use us for, and how much revenue would we lose if they left?"
+            ),
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "the Anixter International account through $group_0 to size the revenue at risk"
+                    )
+                    + " Also describe what else the account does in the product."
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_mrr_band_account_list",
+            prompt=(
+                "I want to interview 15 users from accounts that pay between $10 and $50 a month and that logged in "
+                "during the last 14 days. List them with their account, how many days they were active in the last "
+                "30 days, and when they signed up."
+            ),
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "a 30-day total per account through $group_0, and keep only accounts between $10 and $50"
+                    )
+                    + " Then list users of those accounts who logged in during the last 14 days, with active days in "
+                    "the last 30 days and the signup date."
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_mrr_month_projection",
+            prompt=(
+                "Where will MRR land for the current month? Check first whether this month's data is complete so "
+                "far, and tell me which base you used for the projection."
+            ),
+            expected={
+                "metric_describe_before_adapted_sql": {},
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "the current calendar month so far, check how many of its days have data, and project the "
+                        "full month from that base"
+                    )
+                },
+            },
+            setup=seed_catalog_with_mrr,
         ),
         SandboxedEvalCase(
             name="adapt_trend_grouping",

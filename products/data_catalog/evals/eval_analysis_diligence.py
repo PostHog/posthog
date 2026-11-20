@@ -275,6 +275,25 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             setup=seed_share_dau,
         ),
         SandboxedEvalCase(
+            name="usage_claim_one_account",
+            prompt=(
+                "Anixter International says they uploaded far more files in the last 30 days than we bill them for. "
+                "What do our numbers show?"
+            ),
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog for an upload count before writing SQL, and base the count on the "
+                        "governed definition of a file upload. Count the uploaded_file events for the Anixter "
+                        "International account over the last 30 days, state the definition used, and compare it with "
+                        "the claim."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
+        ),
+        SandboxedEvalCase(
             name="percentile_no_metric",
             prompt="What's the 95th percentile size of uploaded files over the last 30 days, by file type?",
             expected={
