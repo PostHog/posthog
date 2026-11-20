@@ -22,7 +22,7 @@ Retry after the server returns a valid page and confirm that the remaining repor
 Capture matched base and proposed screenshots on iOS and Android for frontend and user-facing behavior changes.
 Use the same app variant, device model, OS version, viewport, orientation, appearance, and demo state within each pair.
 For a new screen, capture its prior entry point on both platforms.
-Capture representative states during implementation and reuse them when the PR still shows those states.
+Keep screenshots from a qualifying run while the commits and capture settings still match.
 A draft can list missing coverage. Attach both pairs before marking it ready for review.
 Track the [bundled demo flows](#demo-flows-before-you-merge) in the PR's testing section.
 
@@ -34,7 +34,11 @@ Check the app and fixture inputs again after a base change.
 
 ### Choose a build
 
-Use an available warm local or remote device before starting another.
+For every external PR test, including a retry of the same commit or a test after review, compile a fresh bundled app from the exact commit on each platform under test. For a before-and-after comparison, build each revision in its own empty build directory. Use only the app built for that revision in the current run. This rules out previously installed apps, downloaded builds, and development clients connected to Metro.
+
+Install dependencies, build, and run external changes on a disposable machine without developer credentials or access to internal services. If that environment is unavailable, record the native check as pending.
+
+For your own development, use an available warm local or remote device before starting another.
 For JavaScript-only iteration, use a compatible development client with Metro serving the selected revision.
 Verify the native configuration of both revisions against the client.
 For [repeatable bundled comparisons](#repeatable-screenshot-comparisons), use Release builds from the exact revisions with analytics and OTA updates disabled.
@@ -45,9 +49,9 @@ Use local builds for checks that require production app identity, a physical dev
 
 `simulator-review` targets a bundled iOS Simulator app and an Android APK with the preview app identity.
 `simulator-development` targets a development client for each platform.
-Use the PostHog Expo project only with reviewed source and an approved preview environment free of production credentials.
+Use the PostHog Expo project only for reviewed internal changes and an approved preview environment free of production credentials.
 These profiles disable OTA updates and analytics and use simulator or Android debug signing.
-Choose the local build path if the environment or inputs cannot be verified.
+If the environment or build inputs cannot be verified, skip the Expo build.
 
 Use the mobile build wrapper with an export of only the reviewed commit.
 For example, from the repository root:
@@ -65,7 +69,7 @@ git archive "$revision" products/mobile | tar -xf - -C "$source_dir"
 
 Use `--platform android` for the APK when it is needed.
 Verify the APK contains the emulator's architecture, normally `x86_64`.
-Record the build ID with the revision and platform. If the base lacks the profile, use a verified build of the same variant or capture both revisions locally.
+Record the build ID with the revision and platform. For an internal PR whose base lacks the profile, use a verified build of that base commit and variant or capture both revisions locally.
 Once the build finishes, install by build ID so the simulator downloads the artifact directly.
 
 ### Run isolated Expo sessions
@@ -469,7 +473,7 @@ The step after each one waits for a stable element, so these warnings are expect
 
 ### Demo flows before you merge
 
-CI does not run the simulator flows. Run `demo-smoke` and `views-smoke` locally before you merge a change to a screen,
+Run `demo-smoke` and `views-smoke` using the [build guidance for the PR](#choose-a-build) before you merge a change to a screen,
 navigation, the demo fixtures, or a flow. The `/running-mobile-demo-flows` skill in `.agents/skills/` walks an agent
 through the same steps and the result files.
 A draft PR can record the flows as pending. Update the PR when each result is available.

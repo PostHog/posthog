@@ -34,7 +34,7 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 
 ## Run the bundled flows
 
-Reuse passing reports when they cover the proposed app, fixtures, and flow definitions. Start the required run during implementation so it can finish alongside screenshot capture and PR preparation.
+For external PRs, follow the [fresh build requirements](../../../products/mobile/docs/TESTING.md#choose-a-build) for every run, including retries. Keep passing reports from that run with the tested commit. Start the required run during implementation so it can finish alongside screenshot capture and PR preparation.
 Keep one owner for the run. Share a Mac by scheduling bundled build and walkthrough runs one at a time.
 
 From `products/mobile`, install dependencies with `pnpm install --frozen-lockfile` if they are missing or the lockfile changed.
@@ -64,7 +64,7 @@ Set `ARGENT_IOS_RUNTIME` to a runtime id from `xcrun simctl list runtimes` to pi
 
 ## Iterate on a flow with the dev client
 
-The bundled build is slow to rebuild. While you edit a flow or a screen, use Metro instead:
+The bundled build is slow to rebuild. While you edit your own flow or screen, use Metro instead:
 
 1. `pnpm ios --port 8181` builds the dev client, boots a simulator and starts Metro.
 2. In the dev menu, turn off **Tools button** and **Fast refresh**. The floating gear swallows taps on the inbox More button, and the refresh banner covers Back and Close.
