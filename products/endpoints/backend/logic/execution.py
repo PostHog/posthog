@@ -49,6 +49,7 @@ from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     Feature,
     Product,
     get_query_tag_value,
@@ -774,8 +775,14 @@ class EndpointExecutionService(PydanticModelMixin):
         return cache_outcome, result_row_count
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
-        """Record last execution time (30-minute granularity, API key calls only)."""
-        if not is_api_key_access_method(get_query_tag_value("access_method")):
+        """Record last execution time (30-minute granularity, programmatic calls only).
+
+        OAuth sits outside the API-key set because limits and billing treat a user-consented token
+        differently, but an agent calling an endpoint through the MCP server is still a consumer, and
+        the stale-materialization cleanup reads these stamps to decide what nobody uses.
+        """
+        access_method = get_query_tag_value("access_method")
+        if not (is_api_key_access_method(access_method) or access_method == AccessMethod.OAUTH):
             return
         now = timezone.now()
         if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > LAST_EXECUTED_THROTTLE):
