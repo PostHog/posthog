@@ -75,8 +75,8 @@ tools:
             customer is paying for, which features they have access to, or aggregate usage for the current billing
             period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call
             billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics,
-            white-labelling), inspect `available_product_features` in the response.
-            Do not infer credit purchase history from the current billing state.
+            white-labelling), inspect `available_product_features` in the response. Do not infer credit purchase history
+            from the current billing state.
         exclude_params:
             - limit
             - offset
