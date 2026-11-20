@@ -11,9 +11,41 @@ const savedWorkflowWithoutWarnings = {
         hedgehog_config: null,
     },
     updated_at: '2026-01-01T00:00:00Z',
-    trigger: {},
-    actions: [],
-    edges: [],
+    name: 'Welcome series',
+    status: 'active',
+    trigger: { type: 'event', filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }] } },
+    actions: [
+        {
+            id: 'trigger_node',
+            name: 'Trigger',
+            type: 'trigger',
+            config: {
+                type: 'event',
+                filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }] },
+            },
+        },
+        {
+            id: 'action_email_1',
+            name: 'Welcome email',
+            type: 'function_email',
+            config: {
+                template_id: 'template-email',
+                inputs: {
+                    email: {
+                        templating: 'liquid',
+                        value: {
+                            to: { email: '{{ person.properties.email }}', name: '' },
+                            from: { email: 'hello@example.com', name: 'Example' },
+                            subject: 'Welcome',
+                            text: 'Welcome aboard.',
+                            html: '',
+                        },
+                    },
+                },
+            },
+        },
+    ],
+    edges: [{ from: 'trigger_node', to: 'action_email_1', type: 'continue' }],
     abort_action: null,
     billable_action_types: [],
     schedules: [],
