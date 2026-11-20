@@ -112,11 +112,9 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     return CHQueryErrorS3FileChangedDuringRead(
-        "A file backing a data warehouse table changed while the query was reading it. "
-        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
-        "upload new files and delete old ones instead.",
+        CHQueryErrorS3FileChangedDuringRead.public_message,
         code=err.code,
-        code_name="s3_file_changed_during_read",
+        code_name=CHQueryErrorS3FileChangedDuringRead.public_code,
     )
 
 
@@ -392,7 +390,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
 
-    pass
+    public_code = "s3_file_changed_during_read"
+    public_message = (
+        "A file backing a data warehouse table changed while the query was reading it. "
+        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+        "upload new files and delete old ones instead."
+    )
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
@@ -553,7 +556,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         "INCORRECT_NUMBER_OF_COLUMNS",
         user_safe="The column count doesn't match. Check the columns on each side of the expression.",
     ),
-    8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
+    8: ErrorCodeMeta(
+        "THERE_IS_NO_COLUMN",
+        user_safe="A referenced column is missing. Check the table schema and the columns returned by each subquery.",
+    ),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
     10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
@@ -562,7 +568,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     15: ErrorCodeMeta(
         "DUPLICATE_COLUMN", user_safe="Two output columns have the same name. Give them distinct aliases."
     ),
-    16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
+    16: ErrorCodeMeta(
+        "NO_SUCH_COLUMN_IN_TABLE",
+        user_safe="A referenced column is missing. Check the column names in the source table.",
+    ),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
     20: ErrorCodeMeta(
         "NUMBER_OF_COLUMNS_DOESNT_MATCH",
@@ -1441,6 +1450,7 @@ TRANSIENT_CH_ERROR_NAMES = frozenset(
         "NO_ACTIVE_REPLICAS",
         "NO_FREE_CONNECTION",
         "S3_ERROR",
+        CHQueryErrorS3FileChangedDuringRead.public_code.upper(),
     }
 )
 
@@ -1471,8 +1481,6 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
     "UNSUPPORTED_METHOD": "This operation isn't supported here. Simplify the expression or use a different SQL function.",
     "NOT_IMPLEMENTED": "ClickHouse doesn't support this combination of operations. Try running each subquery separately to isolate the unsupported expression.",
     "SYNTAX_ERROR": "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
-    "THERE_IS_NO_COLUMN": "A referenced column is missing. Check the table schema and the columns returned by each subquery.",
-    "NO_SUCH_COLUMN_IN_TABLE": "A referenced column is missing. Check the column names in the source table.",
     "CANNOT_EXTRACT_TABLE_STRUCTURE": "ClickHouse couldn't infer the source table's schema. Check the source file's format and column definitions.",
     "INCORRECT_DATA": "ClickHouse couldn't read the data in the expected format. Check the source format and column types.",
     "UNKNOWN_IDENTIFIER": (
@@ -1495,6 +1503,8 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Translate a stored status code. Statuses from other query engines share this field."""
     if not code_name:
         return None
+    if code_name.lower() == CHQueryErrorS3FileChangedDuringRead.public_code:
+        return CHQueryErrorS3FileChangedDuringRead.public_message
     meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
     if meta is None:
         if not re.fullmatch(r"clickhouse_[0-9]{1,10}", code_name):
@@ -1529,6 +1539,8 @@ def error_code_from_type(error: BaseException) -> str:
 
     A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
     """
+    if isinstance(error, CHQueryErrorS3FileChangedDuringRead):
+        return error.public_code
     if isinstance(error, ClickHouseDriverError):
         meta = look_up_clickhouse_error_code_meta(error)
         if (

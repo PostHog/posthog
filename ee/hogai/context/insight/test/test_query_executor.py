@@ -48,7 +48,12 @@ from posthog.hogql.errors import (
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import (
+    CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorS3FileChangedDuringRead,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+)
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.models import Organization, Team, User
 
@@ -567,6 +572,22 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "The database had a temporary problem while it ran this query. "
                 "Wait a few minutes, then run the query again. If the problem continues, contact support.",
                 "too_many_parts",
+                expected_error_type="api_5xx",
+            ),
+            param(
+                "legacy_changed_storage_file",
+                CHQueryErrorS3FileChangedDuringRead.public_message,
+                "incorrect_data",
+                CHQueryErrorS3FileChangedDuringRead.public_message,
+                "s3_file_changed_during_read",
+                expected_error_type="api_5xx",
+            ),
+            param(
+                "changed_storage_file",
+                "A file changed. Retry the query.",
+                "s3_file_changed_during_read",
+                "A file changed. Retry the query.",
+                "s3_file_changed_during_read",
                 expected_error_type="api_5xx",
             ),
             param(

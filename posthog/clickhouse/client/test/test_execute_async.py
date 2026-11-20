@@ -31,7 +31,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
 from posthog.logging.exceptions import add_otel_exception_attributes
 from posthog.models import Organization, Team
@@ -575,6 +575,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 ExposedCHQueryError("Expected an integer argument", code=43),
                 "illegal_type_of_argument",
                 "Expected an integer argument",
+                False,
+            ),
+            (
+                "changed_storage_file",
+                False,
+                CHQueryErrorS3FileChangedDuringRead("A file changed. Retry the query.", code=117),
+                "s3_file_changed_during_read",
+                "A file changed. Retry the query.",
                 False,
             ),
             (

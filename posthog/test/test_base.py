@@ -72,6 +72,13 @@ def test_variant_decorators_add_their_variants_to_the_class(decorator, expected_
     assert {name for name in vars(ExampleTests) if name.startswith("test_")} == expected_tests
 
 
+def test_run_clickhouse_statement_in_parallel_ignores_only_unknown_tables_in_the_test_database():
+    run_clickhouse_statement_in_parallel(["SELECT * FROM posthog_test.absent_test_table"])
+    with pytest.raises(ServerException) as exc:
+        run_clickhouse_statement_in_parallel(["SELECT * FROM system.absent_test_table"])
+    assert exc.value.code == 60
+
+
 def test_run_clickhouse_statement_in_parallel_propagates_errors():
     with pytest.raises(ServerException):
         run_clickhouse_statement_in_parallel(["SELECT invalid syntax!!!"])

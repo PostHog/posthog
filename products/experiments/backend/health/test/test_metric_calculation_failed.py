@@ -7,8 +7,10 @@ from unittest import TestCase
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
@@ -216,6 +218,15 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "type_mismatch",
                 _failure("DB::Exception: There is no supertype for types String, Float64", error_type="server_error"),
+                {},
+                ("settings", WARNING, "type_mismatch", "compares values of different types"),
+            ),
+            (
+                "formatted_no_common_type",
+                _failure(
+                    str(wrap_clickhouse_query_error(ServerException("database detail", code=386))),
+                    error_type="server_error",
+                ),
                 {},
                 ("settings", WARNING, "type_mismatch", "compares values of different types"),
             ),

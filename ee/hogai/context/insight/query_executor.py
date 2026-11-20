@@ -58,6 +58,7 @@ from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     TRANSIENT_CH_ERROR_NAMES,
     USER_CAUSED_NOT_IMPLEMENTED_MESSAGES,
+    CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
     QueryErrorCategory,
     classify_query_error,
@@ -222,6 +223,8 @@ def _query_status_tool_error(query_status: dict[str, Any]) -> MaxToolError:
         return MaxToolRetryableError(
             error_message, error_type="validation", error_code=_hogql_code_from_message(error_message) or error_code
         )
+    if error_code == "incorrect_data" and error_message == CHQueryErrorS3FileChangedDuringRead.public_message:
+        error_code = CHQueryErrorS3FileChangedDuringRead.public_code
     if error_code and (message := internal_ch_error_user_message(error_code)):
         return _internal_clickhouse_tool_error(error_code, error_message or message)
     # Async status loses the exception type, so keep retry advice without guessing its category.

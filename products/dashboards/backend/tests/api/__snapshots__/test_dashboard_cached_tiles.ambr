@@ -4,138 +4,11 @@
     'action_names': None,
     'alerts': list([
     ]),
-    'cache_target_age': None,
+    'cache_target_age': '2026-06-01T12:05:00Z',
     'color': None,
-    'columns': None,
-    'created_at': '2026-06-01T12:00:00Z',
-    'created_by': dict({
-      'distinct_id': '<run id>',
-      'email': 'user1@posthog.com',
-      'first_name': '',
-      'hedgehog_config': None,
-      'id': '<run id>',
-      'is_email_verified': None,
-      'last_name': '',
-      'role_at_organization': None,
-      'uuid': '<run id>',
-    }),
-    'dashboard_tiles': list([
-      dict({
-        'dashboard_id': '<run id>',
-        'deleted': None,
-        'id': '<run id>',
-      }),
+    'columns': list([
+      'count()',
     ]),
-    'deleted': False,
-    'derived_name': None,
-    'description': None,
-    'favorited': False,
-    'filter_override_context': dict({
-      'dashboard': dict({
-        'date_from': '-14d',
-      }),
-      'overridden_dashboard': None,
-      'tile': None,
-    }),
-    'filters_hash': None,
-    'hasMore': None,
-    'hogql': None,
-    'id': '<run id>',
-    'is_cached': False,
-    'is_sample': False,
-    'last_modified_at': '2026-06-01T12:00:00Z',
-    'last_modified_by': dict({
-      'distinct_id': '<run id>',
-      'email': 'user1@posthog.com',
-      'first_name': '',
-      'hedgehog_config': None,
-      'id': '<run id>',
-      'is_email_verified': None,
-      'last_name': '',
-      'role_at_organization': None,
-      'uuid': '<run id>',
-    }),
-    'last_refresh': None,
-    'last_viewed_at': None,
-    'layouts': dict({
-    }),
-    'name': '$pageview',
-    'next_allowed_client_refresh': None,
-    'order': None,
-    'query': dict({
-      'kind': 'DataTableNode',
-      'source': dict({
-        'actionId': None,
-        'actionSteps': None,
-        'after': '-14d',
-        'before': None,
-        'event': '$pageview',
-        'events': None,
-        'filterTestAccounts': None,
-        'fixedProperties': None,
-        'kind': 'EventsQuery',
-        'limit': None,
-        'modifiers': None,
-        'offset': None,
-        'orderBy': None,
-        'personId': None,
-        'properties': None,
-        'response': None,
-        'select': list([
-          'count()',
-        ]),
-        'source': None,
-        'tags': None,
-        'version': None,
-        'where': None,
-      }),
-    }),
-    'query_scan': None,
-    'query_status': dict({
-      'budget_remaining_bytes': None,
-      'bytes_read': None,
-      'cache_key': None,
-      'complete': False,
-      'dashboard_id': '<run id>',
-      'end_time': None,
-      'error': True,
-      'error_code': 'unknown_table',
-      'error_message': "ClickHouse couldn't find a table used in this query. Check the table name in the schema and the scope of any table aliases.",
-      'expiration_time': None,
-      'id': '<run id>',
-      'insight_id': 115,
-      'labels': None,
-      'pickup_time': None,
-      'query_async': True,
-      'query_progress': None,
-      'query_scan': None,
-      'results': None,
-      'start_time': None,
-      'task_id': None,
-      'team_id': 523,
-    }),
-    'resolved_compare_date_range': None,
-    'resolved_date_range': None,
-    'result': None,
-    'saved': True,
-    'short_id': '<run id>',
-    'tags': list([
-    ]),
-    'timezone': 'UTC',
-    'types': None,
-    'updated_at': '2026-06-01T12:00:00Z',
-    'user_access_level': 'manager',
-    'warnings': None,
-  })
-# ---
-# name: TestDashboardCachedTiles.test_per_tile_insight_endpoint_without_dashboard_v2_is_unchanged_1_force_cache
-  dict({
-    'action_names': None,
-    'alerts': list([
-    ]),
-    'cache_target_age': None,
-    'color': None,
-    'columns': None,
     'created_at': '2026-06-01T12:00:00Z',
     'created_by': dict({
       'distinct_id': '<run id>',
@@ -167,10 +40,21 @@
       'tile': None,
     }),
     'filters_hash': '<cache key>',
-    'hasMore': None,
-    'hogql': None,
+    'hasMore': False,
+    'hogql': '''
+      SELECT
+          count()
+      FROM
+          events
+      WHERE
+          and(equals(event, '$pageview'), less(timestamp, toDateTime('2026-06-01 12:00:05.000000')), greater(timestamp, toDateTime('2026-05-18 12:00:00.000000')))
+      ORDER BY
+          count() DESC
+      LIMIT 101
+      OFFSET 0
+    ''',
     'id': '<run id>',
-    'is_cached': False,
+    'is_cached': True,
     'is_sample': False,
     'last_modified_at': '2026-06-01T12:00:00Z',
     'last_modified_by': dict({
@@ -184,12 +68,12 @@
       'role_at_organization': None,
       'uuid': '<run id>',
     }),
-    'last_refresh': None,
+    'last_refresh': '2026-06-01T12:00:00Z',
     'last_viewed_at': None,
     'layouts': dict({
     }),
     'name': '$pageview',
-    'next_allowed_client_refresh': None,
+    'next_allowed_client_refresh': '2026-06-01T12:01:00Z',
     'order': None,
     'query': dict({
       'kind': 'DataTableNode',
@@ -223,13 +107,145 @@
     'query_status': None,
     'resolved_compare_date_range': None,
     'resolved_date_range': None,
-    'result': None,
+    'result': list([
+      list([
+        0,
+      ]),
+    ]),
     'saved': True,
     'short_id': '<run id>',
     'tags': list([
     ]),
     'timezone': 'UTC',
-    'types': None,
+    'types': list([
+      'UInt64',
+    ]),
+    'updated_at': '2026-06-01T12:00:00Z',
+    'user_access_level': 'manager',
+    'warnings': None,
+  })
+# ---
+# name: TestDashboardCachedTiles.test_per_tile_insight_endpoint_without_dashboard_v2_is_unchanged_1_force_cache
+  dict({
+    'action_names': None,
+    'alerts': list([
+    ]),
+    'cache_target_age': '2026-06-01T12:05:00Z',
+    'color': None,
+    'columns': list([
+      'count()',
+    ]),
+    'created_at': '2026-06-01T12:00:00Z',
+    'created_by': dict({
+      'distinct_id': '<run id>',
+      'email': 'user1@posthog.com',
+      'first_name': '',
+      'hedgehog_config': None,
+      'id': '<run id>',
+      'is_email_verified': None,
+      'last_name': '',
+      'role_at_organization': None,
+      'uuid': '<run id>',
+    }),
+    'dashboard_tiles': list([
+      dict({
+        'dashboard_id': '<run id>',
+        'deleted': None,
+        'id': '<run id>',
+      }),
+    ]),
+    'deleted': False,
+    'derived_name': None,
+    'description': None,
+    'favorited': False,
+    'filter_override_context': dict({
+      'dashboard': dict({
+        'date_from': '-14d',
+      }),
+      'overridden_dashboard': None,
+      'tile': None,
+    }),
+    'filters_hash': '<cache key>',
+    'hasMore': False,
+    'hogql': '''
+      SELECT
+          count()
+      FROM
+          events
+      WHERE
+          and(equals(event, '$pageview'), less(timestamp, toDateTime('2026-06-01 12:00:05.000000')), greater(timestamp, toDateTime('2026-05-18 12:00:00.000000')))
+      ORDER BY
+          count() DESC
+      LIMIT 101
+      OFFSET 0
+    ''',
+    'id': '<run id>',
+    'is_cached': True,
+    'is_sample': False,
+    'last_modified_at': '2026-06-01T12:00:00Z',
+    'last_modified_by': dict({
+      'distinct_id': '<run id>',
+      'email': 'user1@posthog.com',
+      'first_name': '',
+      'hedgehog_config': None,
+      'id': '<run id>',
+      'is_email_verified': None,
+      'last_name': '',
+      'role_at_organization': None,
+      'uuid': '<run id>',
+    }),
+    'last_refresh': '2026-06-01T12:00:00Z',
+    'last_viewed_at': None,
+    'layouts': dict({
+    }),
+    'name': '$pageview',
+    'next_allowed_client_refresh': '2026-06-01T12:01:00Z',
+    'order': None,
+    'query': dict({
+      'kind': 'DataTableNode',
+      'source': dict({
+        'actionId': None,
+        'actionSteps': None,
+        'after': '-14d',
+        'before': None,
+        'event': '$pageview',
+        'events': None,
+        'filterTestAccounts': None,
+        'fixedProperties': None,
+        'kind': 'EventsQuery',
+        'limit': None,
+        'modifiers': None,
+        'offset': None,
+        'orderBy': None,
+        'personId': None,
+        'properties': None,
+        'response': None,
+        'select': list([
+          'count()',
+        ]),
+        'source': None,
+        'tags': None,
+        'version': None,
+        'where': None,
+      }),
+    }),
+    'query_scan': None,
+    'query_status': None,
+    'resolved_compare_date_range': None,
+    'resolved_date_range': None,
+    'result': list([
+      list([
+        0,
+      ]),
+    ]),
+    'saved': True,
+    'short_id': '<run id>',
+    'tags': list([
+    ]),
+    'timezone': 'UTC',
+    'types': list([
+      'UInt64',
+    ]),
     'updated_at': '2026-06-01T12:00:00Z',
     'user_access_level': 'manager',
     'warnings': None,

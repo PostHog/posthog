@@ -312,6 +312,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("missing_column", 8, False),
+            ("missing_table_column", 16, False),
             ("cannot_parse_datetime", 41, False),
             ("cannot_parse_number", 72, False),
             ("no_common_type", 386, False),
