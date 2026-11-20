@@ -152,8 +152,9 @@ export function QuillAddPropertyRuleModal({
                             </Combobox>
                         </Field>
                         <Field>
-                            <FieldLabel>Access</FieldLabel>
+                            <FieldLabel htmlFor={`${id}-level`}>Access</FieldLabel>
                             <QuillLevelSelect
+                                id={`${id}-level`}
                                 value={level}
                                 options={PROPERTY_RULE_LEVEL_OPTIONS}
                                 onChange={(newLevel) => newLevel && setLevel(newLevel)}

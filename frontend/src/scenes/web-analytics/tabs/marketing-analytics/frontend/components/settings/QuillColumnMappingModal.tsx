@@ -24,13 +24,10 @@ import {
 import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 
 import { TestMappingResult } from '../../logic/marketingAnalyticsSettingsLogic'
+import { fieldLabel } from './fieldLabel'
 
 function FieldStatusIcon({ mapped }: { mapped: boolean }): JSX.Element {
     return mapped ? <IconCheck className="text-success-foreground" /> : <IconX className="text-muted-foreground" />
-}
-
-function fieldLabel(fieldName: MarketingAnalyticsColumnsSchemaNames): string {
-    return fieldName.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
 function FieldRows({

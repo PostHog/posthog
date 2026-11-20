@@ -27,10 +27,10 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -49,7 +49,7 @@ function UsageMetricsTable(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleEdit = (metric: GroupUsageMetricApi): void => {
         openModal()
@@ -168,7 +168,7 @@ function UsageMetricsForm(): JSX.Element {
         TaxonomicFilterGroupType.HogQLExpression,
     ]
     const source = getMetricSource(usageMetric.filters)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleMathChange = (newValue: string, onChange: (value: string) => void): void => {
         onChange(newValue)
@@ -304,7 +304,7 @@ export function UsageMetricsConfig(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     useOnMountEffect(() => {
         reportUsageMetricsSettingsViewed()
@@ -355,7 +355,7 @@ export function UsageMetricsConfig(): JSX.Element {
 export function UsageMetricsModal(): JSX.Element {
     const { isModalOpen } = useValues(usageMetricsConfigLogic)
     const { closeModal } = useActions(usageMetricsConfigLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (todayRailNav) {
         return (

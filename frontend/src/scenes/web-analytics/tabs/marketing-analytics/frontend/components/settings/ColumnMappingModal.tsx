@@ -25,6 +25,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { fieldLabel } from './fieldLabel'
 import { QuillColumnMappingModal } from './QuillColumnMappingModal'
 import { QuillMappingCombobox } from './QuillMappingCombobox'
 
@@ -92,7 +93,7 @@ function ColumnMappingCombobox({
                 onChange={(value) => handleChange(value ? [value] : [])}
                 options={options}
                 placeholder="Select or type..."
-                ariaLabel={fieldName}
+                ariaLabel={fieldLabel(fieldName)}
                 className="w-full"
             />
         )

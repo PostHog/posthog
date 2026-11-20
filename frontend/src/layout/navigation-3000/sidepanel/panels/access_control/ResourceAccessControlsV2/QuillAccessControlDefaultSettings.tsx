@@ -1,5 +1,5 @@
-import type { ColumnDef } from '@tanstack/react-table'
-import { useActions, useValues } from 'kea'
+import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconHome, IconInfo } from '@posthog/icons'
 import {
@@ -32,94 +32,99 @@ import { ScopeIcon } from './ScopeIcon'
 
 type ProductRow = { key: APIScopeObject; label: string }
 
-export function QuillAccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
-    const logic = accessControlsLogic({ projectId })
-    const { defaults, resourceKeys, loading, accessDetailPanelEnabled, terraformDisabledReason } = useValues(logic)
-    const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
+function getDefaultsDisabledReason(
+    loading: boolean,
+    canEdit: boolean,
+    terraformDisabledReason: string | null | undefined
+): string | undefined {
+    return loading ? 'Loading...' : !canEdit ? (terraformDisabledReason ?? 'Cannot edit') : undefined
+}
 
-    const {
-        can_edit: canEdit = false,
-        available_project_levels: projectLevels = [],
-        available_resource_levels: resourceLevels = [],
-    } = defaults ?? {}
+function ProductCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
+    const tooltipText = getAccessControlTooltip(row.original.key)
 
-    const disabledReason = loading ? 'Loading...' : !canEdit ? (terraformDisabledReason ?? 'Cannot edit') : undefined
+    return (
+        <div className="flex items-center gap-2">
+            <span className="flex items-center text-muted-foreground">
+                <ScopeIcon scope={row.original.key} />
+            </span>
+            <Text size="xs" weight="medium" render={<span />}>
+                {row.original.label}
+            </Text>
+            {tooltipText && (
+                <Tooltip>
+                    <TooltipTrigger render={<span className="flex items-center text-muted-foreground" />}>
+                        <IconInfo />
+                    </TooltipTrigger>
+                    <TooltipContent>{tooltipText}</TooltipContent>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
 
-    const setResourceDefault = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
+function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
+    const { defaults, loading, terraformDisabledReason } = useValues(accessControlsLogic)
+    const { updateResourceAccessControls } = useActions(accessControlsLogic)
+
+    const { can_edit: canEdit = false, available_resource_levels: resourceLevels = [] } = defaults ?? {}
+    const disabledReason = getDefaultsDisabledReason(loading, canEdit, terraformDisabledReason)
+    const entry = defaults?.resource_access_levels[row.original.key]
+    const value = entry?.access_level ?? null
+    const options = getLevelOptionsForResource(resourceLevels, {
+        minimum: entry?.minimum ?? null,
+        maximum: entry?.maximum ?? null,
+        inheritedLevel: null,
+        inheritedReason: null,
+        resourceLabel: row.original.label,
+    })
+
+    const setResourceDefault = (level: AccessControlLevel | null): void => {
         updateResourceAccessControls(
-            [{ resource, access_level: level, role: null, organization_member: null }],
+            [{ resource: row.original.key, access_level: level, role: null, organization_member: null }],
             'default'
         )
     }
 
-    const columns: ColumnDef<ProductRow>[] = [
-        {
-            id: 'label',
-            header: 'Product',
-            meta: { expand: true },
-            enableSorting: false,
-            cell: ({ row }) => {
-                const tooltipText = getAccessControlTooltip(row.original.key)
-                return (
-                    <div className="flex items-center gap-2">
-                        <span className="flex items-center text-muted-foreground">
-                            <ScopeIcon scope={row.original.key} />
-                        </span>
-                        <Text size="xs" weight="medium" render={<span />}>
-                            {row.original.label}
-                        </Text>
-                        {tooltipText && (
-                            <Tooltip>
-                                <TooltipTrigger render={<span className="flex items-center text-muted-foreground" />}>
-                                    <IconInfo />
-                                </TooltipTrigger>
-                                <TooltipContent>{tooltipText}</TooltipContent>
-                            </Tooltip>
-                        )}
-                    </div>
-                )
-            },
-        },
-        {
-            id: 'access',
-            header: 'Access',
-            meta: { align: 'right' },
-            enableSorting: false,
-            cell: ({ row }) => {
-                const entry = defaults?.resource_access_levels[row.original.key]
-                const value = entry?.access_level ?? null
-                const options = getLevelOptionsForResource(resourceLevels, {
-                    minimum: entry?.minimum ?? null,
-                    maximum: entry?.maximum ?? null,
-                    inheritedLevel: null,
-                    inheritedReason: null,
-                    resourceLabel: row.original.label,
-                })
+    if (value === null) {
+        return (
+            <QuillAddLevelMenu
+                label="Add default"
+                options={options}
+                onSelect={setResourceDefault}
+                disabledReason={disabledReason}
+            />
+        )
+    }
 
-                if (value === null) {
-                    return (
-                        <QuillAddLevelMenu
-                            label="Add default"
-                            options={options}
-                            onSelect={(level) => setResourceDefault(row.original.key, level)}
-                            disabledReason={disabledReason}
-                        />
-                    )
-                }
+    return (
+        <QuillLevelSelect
+            aria-label={`${row.original.label} default access`}
+            value={value}
+            options={options}
+            allowNoOverride
+            onChange={setResourceDefault}
+            disabledReason={disabledReason}
+            className="w-36"
+        />
+    )
+}
 
-                return (
-                    <QuillLevelSelect
-                        value={value}
-                        options={options}
-                        allowNoOverride
-                        onChange={(level) => setResourceDefault(row.original.key, level)}
-                        disabledReason={disabledReason}
-                        className="w-36"
-                    />
-                )
-            },
-        },
-    ]
+// DataTable renders each cell function as a component, so the cells live at module scope and read the logic
+// themselves. Rebuilding them on each save would remount the access select and drop keyboard focus.
+const COLUMNS: ColumnDef<ProductRow>[] = [
+    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: ProductCell },
+    { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
+]
+
+export function QuillAccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
+    const logic = accessControlsLogic({ projectId })
+    const { defaults, resourceKeys, loading, accessDetailPanelEnabled, terraformDisabledReason } = useValues(logic)
+    const { updateAccessControlDefault } = useActions(logic)
+
+    const { can_edit: canEdit = false, available_project_levels: projectLevels = [] } = defaults ?? {}
+
+    const disabledReason = getDefaultsDisabledReason(loading, canEdit, terraformDisabledReason)
 
     return (
         <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="resource-access-control-default-settings">
@@ -136,6 +141,7 @@ export function QuillAccessControlDefaultSettings({ projectId }: { projectId: st
                     </ItemContent>
                     <ItemActions>
                         <QuillLevelSelect
+                            aria-label="Default access to this project"
                             value={defaults?.project_access_level ?? null}
                             options={getLevelOptionsForResource(projectLevels)}
                             onChange={(newValue) => {
@@ -150,7 +156,14 @@ export function QuillAccessControlDefaultSettings({ projectId }: { projectId: st
                 {loading && !defaults ? (
                     <Skeleton className="h-48 w-full" />
                 ) : (
-                    <DataTable columns={columns} data={resourceKeys} getRowId={(resource) => resource.key} fullWidth />
+                    <BindLogic logic={accessControlsLogic} props={{ projectId }}>
+                        <DataTable
+                            columns={COLUMNS}
+                            data={resourceKeys}
+                            getRowId={(resource) => resource.key}
+                            fullWidth
+                        />
+                    </BindLogic>
                 )}
 
                 {accessDetailPanelEnabled && (

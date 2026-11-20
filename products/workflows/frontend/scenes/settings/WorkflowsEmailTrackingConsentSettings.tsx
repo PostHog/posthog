@@ -3,8 +3,8 @@ import { useId } from 'react'
 
 import { Field, FieldContent, FieldDescription, FieldLabel, RadioGroup, RadioGroupItem } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
@@ -35,7 +35,7 @@ const CONSENT_MODE_OPTIONS: LemonRadioOption<ConsentMode>[] = [
 export function WorkflowsEmailTrackingConsentSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
     const idPrefix = useId()
 
     const mode: ConsentMode = currentTeam?.workflows_config?.email_tracking_consent_mode ?? 'off'

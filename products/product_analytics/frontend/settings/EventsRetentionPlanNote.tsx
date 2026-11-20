@@ -50,7 +50,8 @@ export function EventsRetentionPlanNote({ plan }: { plan: EventsRetentionPlan })
         return (
             <Item variant="outline" size="sm" className="max-w-160" data-attr="events-retention-plan-note">
                 <ItemContent>
-                    <ItemDescription>
+                    {/* Quill clamps an untoned item's description to two lines, which hides the upgrade link. */}
+                    <ItemDescription className="line-clamp-none">
                         <span>{planSummary(plan, billingPlan)}</span>
                         {canUpgrade && (
                             <>

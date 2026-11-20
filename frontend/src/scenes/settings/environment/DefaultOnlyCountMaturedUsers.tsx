@@ -4,7 +4,7 @@ import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 import { QuillSettingCheckbox } from './QuillSettingCheckbox'
@@ -17,7 +17,7 @@ export function DefaultOnlyCountMaturedUsers(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleChange = (checked: boolean): void => {
         updateExperimentsConfig({ default_only_count_matured_users: checked })

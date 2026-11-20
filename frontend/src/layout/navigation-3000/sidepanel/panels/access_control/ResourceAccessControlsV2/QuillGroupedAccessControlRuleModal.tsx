@@ -83,6 +83,7 @@ export function QuillGroupedAccessControlRuleModal(props: {
                                 </Text>
                             </div>
                             <QuillLevelSelect
+                                aria-label="Project access"
                                 value={formProjectLevel}
                                 options={projectLevelOptions}
                                 onChange={setProjectLevel}
@@ -146,6 +147,7 @@ export function QuillGroupedAccessControlRuleModal(props: {
                                             />
                                         ) : (
                                             <QuillLevelSelect
+                                                aria-label={`${resource.label} access`}
                                                 value={formResourceLevels[resource.key]}
                                                 options={levelOptionsOnly(options)}
                                                 allowNoOverride={options.some((option) => option.value === null)}

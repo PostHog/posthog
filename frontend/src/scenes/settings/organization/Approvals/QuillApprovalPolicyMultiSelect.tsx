@@ -42,7 +42,14 @@ export function QuillApprovalPolicyMultiSelect({
             limit={MAX_APPROVER_RESULTS}
             itemToStringLabel={(key: string) => labelsByKey[key] ?? key}
             value={value}
-            onValueChange={(next: string[]) => onChange(next ?? [])}
+            onValueChange={(next: string[], eventDetails) => {
+                // Escape with the list closed would otherwise clear every selection.
+                if (eventDetails.reason === 'escape-key') {
+                    eventDetails.allowPropagation()
+                    return
+                }
+                onChange(next ?? [])
+            }}
         >
             <OptionChips id={id} placeholder={placeholder} labelsByKey={labelsByKey} />
         </Combobox>

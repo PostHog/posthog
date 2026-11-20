@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { Button, Item, ItemActions, ItemContent, ItemDescription, Skeleton } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { QuillCustomerAnalyticsTaskDigest } from './QuillCustomerAnalyticsTaskDigest'
 import { taskDigestLogic } from './taskDigestLogic'
@@ -30,7 +30,7 @@ export function CustomerAnalyticsTaskDigest({ source = 'settings' }: { source?: 
     const { draft, hasChanges, configLoading, isInitialLoading, configLoadFailed, timezone, validSendTime } =
         useValues(taskDigestLogic)
     const { setDraft, resetDraft, saveTaskDigest, loadConfig } = useActions(taskDigestLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
     const [hour, minute] = draft.send_time.split(':').map(Number)
     const timeOptions =
         validSendTime && !TIME_OPTIONS.some(({ value }) => value === draft.send_time)
