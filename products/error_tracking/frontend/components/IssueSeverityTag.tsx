@@ -31,7 +31,7 @@ function issueSeverityColor(severity: IssueSeverity | null | undefined): string 
     return 'text-muted'
 }
 
-function issueSeverityIcon(severity: IssueSeverity | null | undefined): JSX.Element {
+export function issueSeverityIcon(severity: IssueSeverity | null | undefined): JSX.Element {
     const activeBars = severity ? ISSUE_SEVERITY_OPTIONS.findIndex((option) => option.value === severity) + 1 : 0
 
     return (

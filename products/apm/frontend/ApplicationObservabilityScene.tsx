@@ -1,11 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
 
-import { LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { TracesAlertFromRowModals } from 'products/tracing/frontend/alerting/TracesAlertFromRowModals'
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
 
 import {
     ApplicationObservabilityTab,
@@ -13,7 +20,10 @@ import {
     TimeRange,
     applicationObservabilityLogic,
 } from './applicationObservabilityLogic'
+import { DependenciesTab } from './DependenciesTab'
+import { DeploymentsTab } from './DeploymentsTab'
 import { EndpointsTab } from './EndpointsTab'
+import { environmentOptions } from './environmentDisplay'
 import { ServiceMapTab } from './ServiceMapTab'
 import { ServicesTab } from './ServicesTab'
 import { UsageTab } from './UsageTab'
@@ -24,8 +34,17 @@ export const scene: SceneExport = {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { environments, resolvedEnvironment, timeRange, tab } = useValues(applicationObservabilityLogic)
-    const { setEnvironment, setTimeRange, setTab } = useActions(applicationObservabilityLogic)
+    const { environment, environments, timeRange, tab, paused, refreshing } = useValues(applicationObservabilityLogic)
+    const { setEnvironment, setTimeRange, setTab, setPaused, refresh } = useActions(applicationObservabilityLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The platform API serves traces alerts only with both flags on.
+    const alertsAvailable = !!(
+        featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS] && featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]
+    )
+    // Held here, not in the row, so a refresh that drops the row keeps the draft open.
+    const [alertDraft, setAlertDraft] = useState<TracesAlertFormType | null>(null)
+    const closeAlertDraft = useCallback((): void => setAlertDraft(null), [])
+    const onCreateAlert = alertsAvailable ? setAlertDraft : undefined
 
     return (
         <SceneContent>
@@ -39,12 +58,9 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 {tab !== 'usage' && (
                     <LemonSelect
                         size="small"
-                        value={resolvedEnvironment}
+                        value={environment}
                         onChange={(value) => setEnvironment(value)}
-                        options={(environments.length ? environments : [resolvedEnvironment]).map((env) => ({
-                            value: env,
-                            label: env,
-                        }))}
+                        options={environmentOptions(environments, environment)}
                         data-attr="apm-environment"
                     />
                 )}
@@ -58,19 +74,42 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     }))}
                     data-attr="apm-time-range"
                 />
-                <span className="text-muted text-xs">Refreshes every 5 minutes</span>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={refresh}
+                    loading={refreshing}
+                    tooltip="Refresh now"
+                    data-attr="apm-refresh"
+                />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={paused ? <IconPlayFilled /> : <IconPauseFilled />}
+                    onClick={() => setPaused(!paused)}
+                    data-attr="apm-live-toggle"
+                >
+                    {paused ? 'Resume' : 'Pause'}
+                </LemonButton>
+                <span className="text-muted text-xs">
+                    {paused ? 'Auto-refresh paused' : 'Refreshes every 5 minutes'}
+                </span>
             </div>
             <LemonTabs<ApplicationObservabilityTab>
                 activeKey={tab}
                 onChange={setTab}
                 tabs={[
-                    { key: 'services', label: 'Services', content: <ServicesTab /> },
-                    { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
+                    { key: 'services', label: 'Services', content: <ServicesTab onCreateAlert={onCreateAlert} /> },
+                    { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab onCreateAlert={onCreateAlert} /> },
                     { key: 'map', label: 'Map', content: <ServiceMapTab /> },
+                    { key: 'dependencies', label: 'Dependencies', content: <DependenciesTab /> },
+                    { key: 'deployments', label: 'Deployments', content: <DeploymentsTab /> },
                     { key: 'usage', label: 'Usage', content: <UsageTab /> },
                 ]}
                 data-attr="apm-tabs"
             />
+            {alertDraft !== null && <TracesAlertFromRowModals initialForm={alertDraft} onDone={closeAlertDraft} />}
         </SceneContent>
     )
 }

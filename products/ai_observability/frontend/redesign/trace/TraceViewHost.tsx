@@ -39,7 +39,7 @@ export const TraceViewHost = memo(function TraceViewHost({
     backLink,
 }: TraceViewHostProps): JSX.Element {
     const key = { hostId, traceId, timestampHint }
-    const { status, loadFailure } = useValues(traceViewLogic({ traceId, timestampHint }))
+    const { status, loadFailure, overview } = useValues(traceViewLogic({ traceId, timestampHint }))
     const { mode } = useValues(traceViewHostLogic({ hostId }))
     const { featureFlags } = useValues(featureFlagLogic)
     // Mounted before the trace arrives: it reads a step the URL names, opens Summary from a link and seeds the search,
@@ -55,15 +55,21 @@ export const TraceViewHost = memo(function TraceViewHost({
     if (status === 'error' && loadFailure) {
         return <TraceView status="error" loadFailure={loadFailure} backLink={backLink} />
     }
+    const header = <TraceHeaderHost {...key} backLink={backLink} />
+    const summaryBar = <TraceSummaryBarHost {...key} />
     if (status !== 'ready') {
-        return <TraceView status="loading" />
+        return overview ? (
+            <TraceView status="loading" header={header} summaryBar={summaryBar} />
+        ) : (
+            <TraceView status="loading" />
+        )
     }
     const Body = BODY_HOSTS[mode]
     return (
         <TraceView
             status="ready"
-            header={<TraceHeaderHost {...key} backLink={backLink} />}
-            summaryBar={<TraceSummaryBarHost {...key} />}
+            header={header}
+            summaryBar={summaryBar}
             modeTabs={<TraceModeTabsHost {...key} />}
             body={<Body {...key} />}
         />

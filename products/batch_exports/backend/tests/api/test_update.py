@@ -778,15 +778,16 @@ def test_can_patch_hogql_query(
             ],
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+            "restricted_properties": [],
         },
         "primary_key": [],
         "version_key": [],
         "incremental_mode": "APPEND",
     }
 
-    for patch_data, expected_schema in [
-        ({"name": "renamed"}, response_data["schema"]),
-        ({"hogql_query": None}, None),
+    for patch_data, expected_schema, expected_schedule_schema in [
+        ({"name": "renamed"}, response_data["schema"], args["batch_export_model"]["schema"]),
+        ({"hogql_query": None}, None, None),
     ]:
         response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -794,7 +795,7 @@ def test_can_patch_hogql_query(
         schedule = describe_schedule(temporal, batch_export["id"])
         decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
-        assert args["batch_export_model"].get("schema") == expected_schema
+        assert args["batch_export_model"].get("schema") == expected_schedule_schema
 
 
 @pytest.mark.usefixtures("grandfathered_batch_export")

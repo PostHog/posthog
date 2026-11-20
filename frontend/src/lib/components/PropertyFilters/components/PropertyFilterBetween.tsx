@@ -3,8 +3,8 @@ import { useId } from 'react'
 
 import { Input } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PropertyFilterValue } from '~/types'
 

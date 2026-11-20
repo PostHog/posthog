@@ -37,7 +37,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
     monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
-    release: { label: 'Releases', title: 'Releases', icon: <IconFlag /> },
+    release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }

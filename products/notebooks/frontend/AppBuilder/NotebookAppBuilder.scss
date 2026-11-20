@@ -1,0 +1,59 @@
+.NotebookAppBuilder {
+    container-type: inline-size;
+
+    &__workspace {
+        display: grid;
+        grid-template-columns: 14rem minmax(0, 1fr) 16rem;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    &__grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 1rem;
+        container-type: inline-size;
+    }
+
+    &__slot {
+        grid-column: span var(--app-block-width, 12);
+        min-width: 0;
+    }
+
+    &__page {
+        width: 100%;
+        max-width: 80rem;
+        margin-inline: auto;
+    }
+
+    &__cell.MarkdownNotebook {
+        --markdown-notebook-canvas-max-width: 100%;
+        --markdown-notebook-gutter-reserve: 0px;
+        --markdown-notebook-content-offset: 0px;
+
+        min-height: 0;
+        padding: 0;
+    }
+
+    @container (max-width: 70rem) {
+        &__workspace {
+            grid-template-columns: 12rem minmax(0, 1fr);
+        }
+
+        &__inspector {
+            grid-column: 1 / -1;
+        }
+    }
+
+    @container (max-width: 45rem) {
+        &__workspace {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @container (max-width: 30rem) {
+        &__slot {
+            grid-column: span 12;
+        }
+    }
+}

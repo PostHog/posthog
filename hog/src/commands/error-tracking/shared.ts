@@ -18,6 +18,16 @@ export const PATHS = {
     },
 } as const
 
+// For the build plugins, which hand over the files they wrote.
+export const PATHS_OR_STDIN = {
+    paths: {
+        ...PATHS.paths,
+        description:
+            'Files or folders to read, or - to read them from stdin, one per line. Defaults to errorTracking.sources in posthog.json',
+        stdin: true,
+    },
+} as const
+
 export const SELECTION_OPTIONS = {
     kind: {
         type: 'string',

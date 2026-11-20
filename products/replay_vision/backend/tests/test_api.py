@@ -38,7 +38,12 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
-from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
+from products.replay_vision.backend import quota
+from products.replay_vision.backend.api.scanners import (
+    HighlightFeedQuerySerializer,
+    ReplayScannerSerializer,
+    ScannerScopeField,
+)
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
@@ -86,10 +91,12 @@ from products.replay_vision.backend.temporal.constants import (
     on_demand_priority,
 )
 from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
     create_experiment,
     seed_scanner_spend,
     set_rank,
     snapshot_for as _snapshot_for,
+    unsynced_allowance,
 )
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
@@ -1193,7 +1200,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_create_respects_the_organization_quota(
         self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         self._authenticate_as_scout()
 
@@ -1234,7 +1243,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         organization_limit: int | None,
         expected_status: int,
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         ceiling = dict(ceiling)
         if ceiling.pop("armed_for_launch", False):
@@ -1306,7 +1317,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_duplicate_requires_a_credit_limit(
         self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="source", credit_limit=credit_limit)
         self._authenticate_as_scout()
@@ -1622,6 +1635,367 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class TestScannerScopeShape(SimpleTestCase):
+    """Field-level scope validation, which runs in `to_internal_value` before anything reads a row."""
+
+    @parameterized.expand(
+        [
+            ("unknown_kind", {"kind": "funnel", "experiment_id": 9, "variants": ["a"]}, "kind"),
+            ("missing_kind", {"experiment_id": 9, "variants": ["a"]}, "kind"),
+            ("missing_experiment", {"kind": "experiment", "variants": ["a"]}, "experiment_id"),
+            ("bad_experiment_id", {"kind": "experiment", "experiment_id": 0, "variants": ["a"]}, "experiment_id"),
+            ("empty_variants", {"kind": "experiment", "experiment_id": 9, "variants": []}, "variants"),
+            ("blank_variant", {"kind": "experiment", "experiment_id": 9, "variants": [""]}, "variants"),
+            # A scope rides into every observation's snapshot, so neither padding nor repeats may
+            # reach the column.
+            (
+                "too_many_variants",
+                {"kind": "experiment", "experiment_id": 9, "variants": [f"v{i}" for i in range(129)]},
+                "variants",
+            ),
+            (
+                "repeated_variant",
+                {"kind": "experiment", "experiment_id": 9, "variants": ["control", "control"]},
+                "variants",
+            ),
+            ("not_an_object", "nope", None),
+        ]
+    )
+    def test_rejects_a_malformed_scope(self, _name: str, scope: Any, field: str | None) -> None:
+        with self.assertRaises(DRFValidationError) as caught:
+            ScannerScopeField().to_internal_value(scope)
+        if field is not None:
+            self.assertIn(field, str(caught.exception.detail))
+
+    def test_accepts_a_scope_whose_legacy_store_named_no_variant(self) -> None:
+        # The mirror derives this shape from a targeting column that watched every variant, so a
+        # read returns it and an editor save sends it back. An empty list stays refused, because
+        # that names no variant rather than leaving the choice unstated.
+        value = ScannerScopeField().to_internal_value({"kind": "experiment", "experiment_id": 9})
+
+        self.assertEqual(value["experiment_id"], 9)
+        self.assertNotIn("variants", value)
+
+    def test_accepts_a_scope_and_adds_no_key_the_caller_left_out(self) -> None:
+        value = ScannerScopeField().to_internal_value(
+            {"kind": "experiment", "experiment_id": 9, "variants": ["control", "test"]}
+        )
+
+        self.assertEqual(value["experiment_id"], 9)
+        self.assertEqual(value["variants"], ["control", "test"])
+        # A default here would make a resent scope differ from the stored one, and every guard that
+        # asks whether the scope changed would read an ordinary rename as a new scope write.
+        self.assertNotIn("variants_source", value)
+
+
+class TestScannerScope(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.experiment = create_experiment(self.team, "scope-exp", launched=True, variants=["control", "test"])
+        self.scope = {"kind": "experiment", "experiment_id": self.experiment.id, "variants": ["control", "test"]}
+        # Writing a scope needs the flag; without it the API keeps today's shapes.
+        flag = patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_8_FLASH,
+            **extra,
+        }
+
+    def test_scope_round_trips_and_clears(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._payload("scoped", scope=self.scope), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["scope"]["experiment_id"], self.experiment.id)
+        self.assertEqual(resp.json()["scope"]["variants"], ["control", "test"])
+
+        scanner_id = resp.json()["id"]
+        resp = self.client.patch(f"{self.scanners_url}{scanner_id}/", data={"scope": None}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["scope"])
+
+    def test_a_new_scope_must_name_its_variants(self) -> None:
+        # The field accepts the variant-less shape so an editor can resend a mirrored scope; a
+        # scope written from scratch has no such history and would store the old wildcard.
+        scope = {"kind": "experiment", "experiment_id": self.experiment.id}
+        resp = self.client.post(self.scanners_url, data=self._payload("wildcard", scope=scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("variant", str(resp.json()).lower())
+
+    def test_scope_rejects_an_experiment_the_caller_cannot_view(self) -> None:
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.post(self.scanners_url, data=self._payload("denied", scope=self.scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("not found", str(resp.json()).lower())
+
+    def test_scope_rejects_a_variant_the_experiment_does_not_define(self) -> None:
+        bad = {**self.scope, "variants": ["control", "nope"]}
+
+        resp = self.client.post(self.scanners_url, data=self._payload("bad-variant", scope=bad), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    @parameterized.expand(
+        [
+            ("experiment_id", "experiment_id", 424242),
+            ("kind", "kind", "funnel"),
+        ]
+    )
+    def test_the_fixed_scope_keys_cannot_move(self, _name: str, key: str, value: Any) -> None:
+        scanner = self._create_scanner(name="fixed", scope=self.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"scope": {**self.scope, key: value}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    def test_variants_stay_editable(self) -> None:
+        scanner = self._create_scanner(name="editable", scope=self.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"scope": {**self.scope, "variants": ["control"]}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["scope"]["variants"], ["control"])
+
+    def test_a_denied_caller_reads_no_scope_and_a_summary_without_the_variant_count(self) -> None:
+        scanner = self._create_scanner(name="redacted", scope=self.scope)
+
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["scope"])
+        self.assertEqual(resp.json()["scope_summary"], "An experiment")
+
+    def test_an_allowed_caller_reads_the_variant_count(self) -> None:
+        scanner = self._create_scanner(name="visible", scope=self.scope)
+
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["scope_summary"], "An experiment, 2 variants")
+
+    def test_a_denied_callers_save_does_not_clear_the_scope(self) -> None:
+        scanner = self._create_scanner(name="keepme", scope=self.scope)
+
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", data={"name": "renamed", "scope": None}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["experiment_id"], self.experiment.id)
+
+    def test_filters_by_scope_kind_and_experiment_id(self) -> None:
+        scoped = self._create_scanner(name="has-scope", scope=self.scope)
+        self._create_scanner(name="no-scope")
+
+        by_kind = self.client.get(f"{self.scanners_url}?scope_kind=experiment")
+        self.assertEqual([r["id"] for r in by_kind.json()["results"]], [str(scoped.id)])
+
+        # Reads the scope column, which is the lookup the partial expression index serves.
+        by_experiment = self.client.get(f"{self.scanners_url}?experiment_id={self.experiment.id}")
+        self.assertEqual([r["id"] for r in by_experiment.json()["results"]], [str(scoped.id)])
+
+    @parameterized.expand(
+        [
+            ("experiment_type", {"scanner_type": ScannerType.EXPERIMENT, "scanner_config": {"prompt": "p"}}),
+            ("legacy_targeting", {"experiment_targeting": {"experiment_id": 9, "variant": "test"}}),
+        ]
+    )
+    def test_the_flag_refuses_the_older_shapes(self, _name: str, extra: dict[str, Any]) -> None:
+        resp = self.client.post(self.scanners_url, data=self._payload("legacy", **extra), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    def test_without_the_flag_the_older_shapes_still_write(self) -> None:
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.post(
+                self.scanners_url,
+                data=self._payload("legacy-ok", experiment_targeting={"experiment_id": self.experiment.id}),
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+
+    def test_without_the_flag_a_scope_is_refused(self) -> None:
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.post(self.scanners_url, data=self._payload("early", scope=self.scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scope")
+
+    def test_writing_both_stores_in_one_request_is_refused(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data=self._payload("both", scope=self.scope, experiment_targeting={"experiment_id": self.experiment.id}),
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
+
+    def test_writing_the_legacy_store_cannot_repoint_a_scoped_scanner(self) -> None:
+        other = create_experiment(self.team, "other-exp", launched=True, variants=["control"])
+        scanner = self._create_scanner(name="scoped", scope=self.scope)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"experiment_targeting": {"experiment_id": other.id}},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["experiment_id"], self.experiment.id)
+
+    def test_the_flag_still_lets_an_existing_experiment_scanner_be_renamed(self) -> None:
+        scanner = self._create_scanner(
+            name="old-name",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": self.experiment.id, "variants": ["control"]},
+        )
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "new-name", "scanner_type": ScannerType.EXPERIMENT},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+    def test_the_flag_refuses_retargeting_an_existing_scanner(self) -> None:
+        # Resending unchanged targeting is an ordinary save and must pass; moving it to another
+        # experiment is a new write of the retired shape and must not.
+        other = create_experiment(self.team, "retarget-exp", launched=True, variants=["control"])
+        scanner = self._create_scanner(name="legacy-targeted", experiment_targeting={"experiment_id": other.id})
+
+        unchanged = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "renamed", "experiment_targeting": {"experiment_id": other.id}},
+            format="json",
+        )
+        self.assertEqual(unchanged.status_code, 200, unchanged.json())
+
+        moved = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"experiment_targeting": {"experiment_id": self.experiment.id}},
+            format="json",
+        )
+        self.assertEqual(moved.status_code, 400, moved.json())
+
+    def test_a_rename_that_resends_the_mirrored_scope_passes_with_the_flag_off(self) -> None:
+        # The editor sends the whole scanner back on save, and the mirror has put a scope on every
+        # row that already watches an experiment.
+        scanner = self._create_scanner(
+            name="old-name",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": self.experiment.id, "variants": ["control"]},
+        )
+        scanner.refresh_from_db()
+        self.assertIsNotNone(scanner.scope)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"name": "new-name", "scope": scanner.scope},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "new-name")
+
+    def test_a_rename_keeps_the_scope_settings_it_resends(self) -> None:
+        # The settings the scope carries are not scan config the editor shows; it echoes back
+        # whatever it read. A field left off the scope serializer is dropped from that resend, and
+        # every changed-scope guard compares the stripped dict against the stored blob, so an
+        # unchanged resend reads as a new scope write and overwrites the setting with its default:
+        # the scanner would start sampling evenly, or stop waiting for its launch.
+        scanner = self._create_scanner(
+            name="settings-bearing",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={
+                "prompt": "p",
+                "experiment_id": self.experiment.id,
+                "variants": ["control"],
+                "balance_variants": False,
+                "start_on_launch": True,
+            },
+            enabled=False,
+        )
+        scanner.refresh_from_db()
+        mirrored = scanner.scope
+        assert isinstance(mirrored, dict)
+        self.assertEqual(mirrored.get("balance"), False)
+        self.assertEqual(mirrored.get("start_on_launch"), True)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"name": "renamed", "scope": mirrored},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "renamed")
+        saved = scanner.scope
+        assert isinstance(saved, dict)
+        self.assertEqual(saved.get("balance"), False)
+        self.assertEqual(saved.get("start_on_launch"), True)
+
+    def test_a_save_that_resends_targeting_and_its_mirrored_scope_passes(self) -> None:
+        # A read of a targeted scanner returns both stores, so the editor sends both back.
+        scanner = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": self.experiment.id})
+        scanner.refresh_from_db()
+        self.assertIsNotNone(scanner.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={
+                "name": "targeted-renamed",
+                "experiment_targeting": {"experiment_id": self.experiment.id},
+                "scope": scanner.scope,
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "targeted-renamed")
+
+    def test_a_scope_edit_on_a_legacy_targeted_scanner_is_applied(self) -> None:
+        # The mirror derives `scope` from `experiment_targeting` on save, so leaving that store in
+        # place would replace the written scope and return 200 without applying the edit.
+        scanner = self._create_scanner(name="legacy", experiment_targeting={"experiment_id": self.experiment.id})
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scope": {**self.scope, "variants": ["control"]}},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["variants"], ["control"])
+        self.assertFalse(scanner.experiment_targeting)
+
+
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
         # Launch dashboards read these config choices, so a dropped property or a silent non-fire
@@ -1832,7 +2206,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
 
         # One free credit is left, less than one observation costs, so the sweep would stop it straight away.
-        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 1):
+        with unsynced_allowance(free_credits=1):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
 
         self.assertEqual(resp.status_code, status, resp.json())
@@ -3167,7 +3541,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
@@ -3178,6 +3552,20 @@ class TestObserveAction(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "replay_vision_quota_exhausted")
         self.assertEqual(report.call_args.args[2]["trigger"], "on_demand")
+
+    def test_observe_waits_for_billing_to_sync_an_unsynced_org(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-unsynced"}, format="json"
+            )
+
+        self.assertEqual((resp.status_code, resp.json()["code"]), (503, "billing_sync_pending"))
+        start_workflow.assert_not_called()
 
     def test_observe_is_refused_when_the_scanner_limit_is_reached(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3290,7 +3678,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Enough in-flight headroom, but only one observation's worth of credits left → quota is the
         # binding limit, so the skip reason must say quota, not in-flight.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
+        with unsynced_allowance(credit_limit=cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
@@ -3356,7 +3744,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         seed_scanner_spend(self.scanner, cost)
         ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=cost * scanner_limit_multiplier)
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost * org_quota_multiplier):
+        with unsynced_allowance(credit_limit=cost * org_quota_multiplier):
             resp = self.client.post(
                 self.bulk_url(str(self.scanner.id)), data={"session_ids": ["s-1", "s-2"]}, format="json"
             )
@@ -3431,7 +3819,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Quota is the tighter limit, but the whole batch fits under it: one session is merely
         # already running, so no exhaustion should be reported.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
+        with unsynced_allowance(credit_limit=2 * cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "b"]}, format="json"
@@ -3629,7 +4017,7 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-quota")
 
-        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
@@ -4844,7 +5232,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self._scan()
 
@@ -4915,7 +5303,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             resp = self._scan(session_ids=["sess-1", "sess-2"])
 
         self.assertEqual(resp.status_code, 202, resp.json())

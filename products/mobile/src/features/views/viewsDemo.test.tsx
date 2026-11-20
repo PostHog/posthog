@@ -1,13 +1,19 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react-native'
+import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 
+import { webOverviewQuery } from '@/api/webAnalytics'
+import { useInternalUsersPreference } from '@/features/settings/internalUsersPreference'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
-import { insightQueryKey } from './items'
+import { insightQueryKey, webQueryKey } from './items'
 import { useViewsList } from './pinHooks'
-import { useViewRangeStore } from './rangeStore'
+import { rangeOverride } from './rangeOverride'
+import { customRange } from './rangePresets'
+import { insightRangeKey, useViewCompareStore, useViewRangeStore, viewRangesLoaded } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
-import { useInsightScreen } from './viewHooks'
+import { useDashboardScreen, useInsightScreen } from './viewHooks'
+import { useWebAnalyticsScreen, useWebBreakdownList } from './webAnalytics/hooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -38,10 +44,12 @@ async function advance(ms: number): Promise<void> {
 }
 
 describe('views in demo mode', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        await viewRangesLoaded
         jest.useFakeTimers()
         viewsQueue.reset()
-        useViewRangeStore.getState().clear()
+        useViewRangeStore.setState({ ranges: {} })
+        useViewCompareStore.getState().clear()
         client = new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
     })
 
@@ -77,7 +85,10 @@ describe('views in demo mode', () => {
         expect(result.current.refresh.hint).toBeNull()
     })
 
-    test('turns off a saved insight comparison and loads the single-period result', async () => {
+    test.each([
+        { range: 'saved range', choice: null, dateFrom: '-7d' },
+        { range: 'remembered range', choice: { kind: 'preset', key: '30d' } as const, dateFrom: '-30d' },
+    ])('turns off a saved insight comparison on the $range', async ({ choice, dateFrom }) => {
         const shortId = 'demo-ins-dau'
         const snapshot = insightSnapshot(
             {
@@ -90,7 +101,7 @@ describe('views in demo mode', () => {
                     source: {
                         kind: 'TrendsQuery',
                         series: [{ kind: 'EventsNode', event: '$pageview' }],
-                        dateRange: { date_from: '-7d' },
+                        dateRange: { date_from: dateFrom },
                         compareFilter: { compare: true },
                     },
                 },
@@ -105,19 +116,109 @@ describe('views in demo mode', () => {
             undefined,
             { readAt: Date.now(), serverNow: Date.now() }
         )
-        client.setQueryData(insightQueryKey(null, { shortId, dashboardRef: null, override: null }), snapshot)
+        useViewRangeStore.getState().setRange(insightRangeKey('demo', shortId), choice)
+        client.setQueryData(
+            insightQueryKey(null, { shortId, dashboardRef: null, override: rangeOverride(choice) }),
+            snapshot
+        )
         const { result, unmount } = renderHook(() => useInsightScreen(shortId, { from: 'browse' }), { wrapper })
         expect(result.current.range.compare).toBe(true)
+        expect(result.current.comparing).toBe(true)
 
         act(() => result.current.range.setCompare(false))
         await advance(1000)
 
         expect(result.current.range.compare).toBe(false)
         expect(result.current.comparing).toBe(false)
-        expect(result.current.insight.data?.query).toMatchObject({ source: { compareFilter: { compare: false } } })
+        expect(result.current.insight.data?.query).toMatchObject({
+            source: { dateRange: { date_from: dateFrom }, compareFilter: { compare: false } },
+        })
         expect(result.current.insight.data?.allSeries.length).toBeGreaterThan(0)
         expect(result.current.insight.data?.allSeries.some((series) => series.compare === 'previous')).toBe(false)
         expect(result.current.insight.data?.delta?.basis).not.toBe('compare')
         unmount()
+    })
+
+    test('reopens each view on its remembered range and remembers a reset', async () => {
+        const storageKey = useViewRangeStore.persist.getOptions().name
+        if (!storageKey) {
+            throw new Error('View range storage is unavailable')
+        }
+        const openDashboard = () =>
+            renderHook(() => useDashboardScreen('demo-dash-kpis', { from: 'pinned' }), { wrapper })
+        const openWebAnalytics = () => renderHook(() => useWebAnalyticsScreen({ from: 'pinned' }), { wrapper })
+        const preset = { kind: 'preset', key: '30d' } as const
+        const custom = customRange('2025-01-01', '2025-01-03')
+
+        const restart = async (): Promise<void> => {
+            const saved = await AsyncStorage.getItem(storageKey)
+            useViewRangeStore.setState({ ranges: {} })
+            if (saved !== null) {
+                await AsyncStorage.setItem(storageKey, saved)
+            }
+            viewsQueue.reset()
+            client.clear()
+            await useViewRangeStore.persist.rehydrate()
+        }
+
+        const dashboard = openDashboard()
+        const webAnalytics = openWebAnalytics()
+        act(() => {
+            dashboard.result.current.range.setChoice(preset, 'chip')
+            webAnalytics.result.current.range.setChoice(custom, 'custom')
+        })
+        dashboard.unmount()
+        webAnalytics.unmount()
+
+        await restart()
+
+        const reopenedDashboard = openDashboard()
+        const reopenedWebAnalytics = openWebAnalytics()
+        expect(reopenedDashboard.result.current.range.choice).toEqual(preset)
+        expect(reopenedWebAnalytics.result.current.range.choice).toEqual(custom)
+        act(() => reopenedDashboard.result.current.range.reset())
+        reopenedDashboard.unmount()
+        reopenedWebAnalytics.unmount()
+
+        await restart()
+
+        expect(openDashboard().result.current.range.choice).toBeNull()
+        expect(openWebAnalytics().result.current.range.choice).toEqual(custom)
+    })
+
+    test('switches every Web analytics card and the full breakdown list to the filtered queries', async () => {
+        const { result, unmount } = renderHook(
+            () => ({
+                screen: useWebAnalyticsScreen({ from: 'browse' }),
+                list: useWebBreakdownList('pages', null),
+            }),
+            { wrapper }
+        )
+        try {
+            await waitFor(() => expect(result.current.screen.overview.data).toBeDefined())
+
+            act(() => useInternalUsersPreference.getState().setExclude(true))
+            expect(result.current.screen.overview.data).toBeUndefined()
+            const { screen, list } = result.current
+            for (const item of [
+                screen.trend,
+                screen.retention,
+                screen.activeHours,
+                list.data,
+                ...screen.tiles.map((tile) => tile.data),
+            ]) {
+                expect(JSON.parse(String(item.queryKey.at(-1)))).toMatchObject({ filterTestAccounts: true })
+            }
+
+            await waitFor(() => expect(result.current.screen.overview.data).toBeDefined())
+            const filteredOverviewKey = webQueryKey(
+                null,
+                webOverviewQuery({ dateFrom: '-7d', dateTo: null, compare: true, filterTestAccounts: true })
+            )
+            expect(client.getQueryData(filteredOverviewKey)).toBe(result.current.screen.overview.data)
+        } finally {
+            unmount()
+            act(() => useInternalUsersPreference.getState().setExclude(false))
+        }
     })
 })

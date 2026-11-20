@@ -2,8 +2,9 @@
 
 Each action resolves against the report's current state to "available or not", a disabled reason,
 and the instructions and first message of the run. The text is ported from
-`frontend/inbox/inboxTaskKickoffLogic.ts` and must stay identical to it until the inbox moves onto
-the run endpoint. `test_report_task_actions.py` compares the two.
+`frontend/inbox/inboxTaskKickoffLogic.ts`, and the implement gates from `canCreateImplementationPr`
+and `implementationClaimStep` in `frontend/inbox/utils/reportActions.ts`. Both must stay identical to
+the frontend until the inbox moves onto the run endpoint.
 
 Runs started here are background runs: nobody follows them in a sidebar, and a background run parks
 `AskUserQuestion`. So the instructions also carry `BACKGROUND_RUN_INSTRUCTIONS`, which tells the
@@ -22,20 +23,30 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.integration import GitHubIntegration
 from posthog.utils import absolute_uri
 
-from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
-from products.signals.backend.enums import ReportTaskActionKind
+from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    ActionabilityChoice,
+)
+from products.signals.backend.enums import ReportLinkKind, ReportTaskActionKind
+from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE, self_driving_free_trial_enabled
 from products.signals.backend.implementation_pr import ImplementationPr, fetch_implementation_prs_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.pr_ci_status import any_conflicting, pr_ci_statuses_for_references, rollup_ci_status
+from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.task_profiles import INBOX
+from products.signals.backend.typed_report_links import incoming_links
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agent_run_starts import AGENT_PARENT_RUN_ID_STATE_KEY, AGENT_PARENT_TASK_ID_STATE_KEY
 from products.tasks.backend.facade.ai_run_defaults import resolve_ai_run_defaults
 
 logger = structlog.get_logger(__name__)
@@ -56,6 +67,20 @@ MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON = (
 RESOLVE_CONFLICTS_FLAG_DISABLED_REASON = "Resolve conflicts is not available for this project yet."
 RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON = "This report has no open pull request."
 RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON = "This report's pull request has no merge conflicts."
+IMPLEMENT_NO_REPOSITORY_DISABLED_REASON = (
+    "This self-improvement report names no repository. Pass `repository` to implement it in one."
+)
+IMPLEMENT_HAS_PR_DISABLED_REASON = "This report already has a pull request."
+IMPLEMENT_ALREADY_ADDRESSED_DISABLED_REASON = "This report is already addressed."
+IMPLEMENT_PLAN_DISABLED_REASON = "This report is a plan. Run `implement` on each of its steps instead."
+IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON = (
+    "Only a ready, actionable report, or a report waiting on input, can be implemented."
+)
+IMPLEMENT_CLAIMED_DISABLED_REASON = "Someone else is working on this report."
+# Mirrors the detail of the implementation slot, so the list and the refused run read the same.
+IMPLEMENT_RUN_ACTIVE_DETAIL = (
+    "A pull request run is already in progress for this report. Open the existing task to follow it."
+)
 
 # Mirrors `REPORT_FALLBACK_RUNTIME` in `inboxTaskKickoffLogic.ts`. Sent only when no project or
 # personal default resolves, because a model sent with the run wins over every default.
@@ -75,6 +100,13 @@ class ReportDiscussionIntent(StrEnum):
 
 
 # --- Text ported from `inboxTaskKickoffLogic.ts`. Keep it byte-identical. ---
+
+REPORT_STATE_INSTRUCTIONS = """Keep the report's own state honest while you work, with the inbox MCP tools (`inbox-reports-set-state`, `inbox-reports-claim`):
+- Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
+- Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
+- If the work is finished without a PR, set the state to resolved with the reason that fits (`fixed_outside_posthog`, `pr_merged`, or `already_fixed`) and a short note that says what you did.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (`report_unclear`, `analysis_wrong`, `wrong_repo` with `corrected_repository`, `wontfix_intentional`, `wontfix_irrelevant`, or `other`) and a short note. Suppressing the report also releases its claim. A report sent to the wrong person still holds work, so do not suppress it for that reason.
+- If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight. When the claim belongs to the person who started you, keep it: it is their claim, and only they can release it."""
 
 MERGE_PR_REQUEST = "Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make."
 
@@ -107,6 +139,20 @@ def resolve_conflicts_intro(report_url: str) -> str:
     return f"A person asked you to resolve the merge conflicts on the pull request of the PostHog Inbox report at {report_url}, without merging it, in the message after this block."
 
 
+def create_pr_report_prompt(report: SignalReport, feedback: str | None = None, *, background_run: bool = False) -> str:
+    """Mirrors `buildCreatePrReportPrompt`. A background run also gets `BACKGROUND_RUN_INSTRUCTIONS`, ahead
+    of the caller's feedback so the feedback stays last, as the inbox sends it."""
+    title = report.title if report.title is not None else str(report.id)
+    summary = f"\n\nReport summary:\n{report.summary}" if report.summary else ""
+    base = f'Act on PostHog Inbox report "{title}" (id {report.id}). Investigate the root cause using the report\'s contributing findings, implement the fix, and open a PR.{summary}\n\n{REPORT_STATE_INSTRUCTIONS}'
+    if background_run:
+        base = f"{base}\n\n{BACKGROUND_RUN_INSTRUCTIONS}"
+    trimmed = (feedback or "").strip()
+    if not trimmed:
+        return base
+    return f"{base}\n\nAdditional feedback from the user (take this into account):\n{trimmed}"
+
+
 def answer_only_intro(report_url: str) -> str:
     return f"Answer this question about the PostHog Inbox report at {report_url}. The question is the message after this block."
 
@@ -121,6 +167,11 @@ BACKGROUND_RUN_INSTRUCTIONS = "This run started from the API and runs in the bac
 
 # The statuses whose lifecycle still has work to do. See `ACTION_CAPABLE_STATUSES` in the frontend.
 ACTION_CAPABLE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT})
+
+# See `ACTIONABLE_ACTIONABILITY_VALUES` in the frontend.
+IMPLEMENTABLE_ACTIONABILITIES = frozenset(
+    {ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, ActionabilityChoice.REQUIRES_HUMAN_INPUT.value}
+)
 
 _TRUSTED_CONTEXT_TAG = re.compile(r"<(/?)(posthog_(?:(?:un)?trusted_)?context)")
 _MESSAGE_CONTEXT_TAG = re.compile(r"<(/?)((?:posthog_(?:(?:un)?trusted_)?|slack_thread_)context)")
@@ -161,6 +212,7 @@ class ReportActionState:
     """The parts of a report's current state that decide which actions it offers."""
 
     team_id: int
+    report_id: str
     status: str
     actionability: str | None
     already_addressed: bool | None
@@ -178,6 +230,7 @@ class ReportActionState:
         prompts = report.suggested_prompts if isinstance(report.suggested_prompts, list) else []
         return cls(
             team_id=report.team_id,
+            report_id=str(report.id),
             status=report.status,
             actionability=judgment.actionability,
             already_addressed=judgment.already_addressed,
@@ -200,6 +253,18 @@ class ReportActionState:
         """Read once and shared by the actions that gate on it. It can wait on GitHub, so callers read
         it after every cheaper gate."""
         return _open_pull_requests_ci(self.team_id, list(self.pull_requests))
+
+    @property
+    def is_implementable(self) -> bool:
+        """Mirrors the status and judgment rules of `canCreateImplementationPr`."""
+        if self.status == SignalReport.Status.PENDING_INPUT:
+            return True
+        return self.status == SignalReport.Status.READY and self.actionability in IMPLEMENTABLE_ACTIONABILITIES
+
+    @cached_property
+    def is_plan(self) -> bool:
+        """Other reports are part of this one, so its steps do the work. Auto-start skips a plan too."""
+        return bool(incoming_links(team_id=self.team_id, report_id=self.report_id, kinds=(ReportLinkKind.PART_OF,)))
 
     @property
     def is_action_capable(self) -> bool:
@@ -328,6 +393,67 @@ def resolve_conflicts_action(
     )
 
 
+def implementation_claim_disabled_reason(context: ReportTaskActionContext, report: SignalReport) -> str | None:
+    """Mirrors `implementationClaimStep`, apart from the run in flight, which the run endpoint answers
+    with a 409. A task's claim and the caller's own claim, directly or through their agent, let the run
+    start. Another person's claim has to be taken over first, and the run never takes it over itself."""
+    claim = get_active_claim(team_id=report.team_id, report_id=report.id)
+    if claim is None or not claim.actor_kind or claim.actor_kind == "task":
+        return None
+    holder = responsible_user(claim)
+    if holder is None:
+        return IMPLEMENT_CLAIMED_DISABLED_REASON
+    if holder.id == context.user.id:
+        return None
+    name = holder.first_name or holder.email
+    return f"{name} is working on this report. Take the claim over with `inbox-reports-claim` before you implement it."
+
+
+def implement_action(
+    context: ReportTaskActionContext,
+    report: SignalReport,
+    state: ReportActionState,
+    message: str | None = None,
+    repository: str | None = None,
+) -> ReportTaskAction:
+    """Mirrors `canCreateImplementationPr` and the Create PR gates, cheapest first.
+
+    `repository` is the one a caller picks for this run. It stands in for the report's own selection.
+    """
+    from products.signals.backend.scout_harness.tools.report import (  # noqa: PLC0415 — keeps the scout harness off this module's import path
+        is_self_improvement_title,
+    )
+
+    disabled_reason = context.ai_consent_disabled_reason
+    if (
+        disabled_reason is None
+        and not repository
+        and is_self_improvement_title(report.title)
+        and report.selected_repository() is None
+    ):
+        disabled_reason = IMPLEMENT_NO_REPOSITORY_DISABLED_REASON
+    if disabled_reason is None and state.pull_requests:
+        disabled_reason = IMPLEMENT_HAS_PR_DISABLED_REASON
+    if disabled_reason is None and state.already_addressed is True:
+        disabled_reason = IMPLEMENT_ALREADY_ADDRESSED_DISABLED_REASON
+    if disabled_reason is None and not state.is_implementable:
+        disabled_reason = IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON
+    if disabled_reason is None and state.is_plan:
+        disabled_reason = IMPLEMENT_PLAN_DISABLED_REASON
+    if disabled_reason is None:
+        disabled_reason = implementation_claim_disabled_reason(context, report)
+    if disabled_reason is None and active_implementation_run(team_id=report.team_id, report_id=str(report.id)):
+        disabled_reason = IMPLEMENT_RUN_ACTIVE_DETAIL
+    if disabled_reason is None and self_driving_free_trial_enabled(context.team):
+        disabled_reason = FREE_TRIAL_PR_MESSAGE
+    return ReportTaskAction(
+        kind=ReportTaskActionKind.IMPLEMENT,
+        disabled_reason=disabled_reason,
+        question=create_pr_report_prompt(report, message, background_run=True),
+        custom_message=bool(message),
+    )
+
+
 def discussion_instructions(report: SignalReport, state: ReportActionState) -> tuple[str, ...]:
     """The framing of a discussion without an intent, as `discussReportInstructions` picks it."""
     url = action_report_url(report)
@@ -376,6 +502,7 @@ def list_report_task_actions(context: ReportTaskActionContext, report: SignalRep
         get_it_merged_action(context, report, state),
         make_it_green_action(context, report, state),
         resolve_conflicts_action(context, report, state),
+        implement_action(context, report, state),
         *suggested_prompt_actions(context, report, state),
     ]
 
@@ -387,10 +514,12 @@ def resolve_report_task_action(
     suggested_prompt_index: int | None = None,
     state: ReportActionState | None = None,
     message: str | None = None,
+    repository: str | None = None,
 ) -> ReportTaskAction | None:
     """The action as the report's current state resolves it, or None when the report has no such entry.
 
-    `message` replaces the fixed request of a pull request action and is the request of `ask`.
+    `message` replaces the fixed request of a pull request action, is the request of `ask`, and is
+    feedback added to the prompt of `implement`. `repository` is the repository `implement` works in.
     """
     state = state or ReportActionState.read(report)
     if kind == ReportTaskActionKind.GET_IT_MERGED:
@@ -399,6 +528,8 @@ def resolve_report_task_action(
         return make_it_green_action(context, report, state, message)
     if kind == ReportTaskActionKind.RESOLVE_CONFLICTS:
         return resolve_conflicts_action(context, report, state, message)
+    if kind == ReportTaskActionKind.IMPLEMENT:
+        return implement_action(context, report, state, message, repository)
     if kind == ReportTaskActionKind.ASK:
         return ask_action(context, report, state, message) if message else None
     if suggested_prompt_index is None:
@@ -460,6 +591,16 @@ PULL_REQUEST_RUN_START_GRACE = timedelta(minutes=2)
 PULL_REQUEST_RUN_ACTIVE_DETAIL = "A run is already working on this report's pull request. Follow that run instead."
 
 
+def active_implementation_run(*, team_id: int, report_id: str) -> ActiveReportRun | None:
+    """The report's implementation run that is still working, if any. Only one may work at a time."""
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — task_run_artefacts imports this module
+        in_flight_implementation,
+    )
+
+    in_flight = in_flight_implementation(team_id=team_id, report_id=report_id)
+    return ActiveReportRun(task_id=in_flight.task_id, run_id=in_flight.run_id) if in_flight else None
+
+
 def is_pull_request_run_request(description: str | None) -> bool:
     """Whether a task's leading trusted block frames a run that pushes to the report's pull request.
 
@@ -512,27 +653,41 @@ def runtime_selection(*, team_id: int, user_id: int) -> dict[str, str]:
     return dict(FALLBACK_RUNTIME_SELECTION)
 
 
-def task_create_data(report: SignalReport, prompt: str) -> dict:
-    """The task fields the inbox sends for a discussion, as validated data for the tasks facade."""
+def task_create_data(report: SignalReport, prompt: str, relationship: str = TASK_RUN_TYPE_DISCUSSION) -> dict:
+    """The task fields the inbox sends for a discussion or an implementation, as validated data for the tasks facade."""
+    fallback_title = "Implement report fix" if relationship == TASK_RUN_TYPE_IMPLEMENTATION else "Ask AI about report"
     return {
         # A report title can be longer than a task title allows.
-        "title": ((report.title or "").strip() or "Ask AI about report")[:TASK_TITLE_MAX_LENGTH],
+        "title": ((report.title or "").strip() or fallback_title)[:TASK_TITLE_MAX_LENGTH],
         "description": prompt,
         "origin_product": INBOX.origin_product,
         "profile": INBOX.key,
         "signal_report": report,
-        "signal_report_task_relationship": TASK_RUN_TYPE_DISCUSSION,
+        "signal_report_task_relationship": relationship,
     }
 
 
-def task_run_data(*, report: SignalReport, prompt: str, user_id: int) -> dict:
-    return {
+@frozen
+class ParentRun:
+    """The run whose sandbox started a report action."""
+
+    task_id: str
+    run_id: str
+
+
+def task_run_data(*, report: SignalReport, prompt: str, user_id: int, parent: ParentRun | None = None) -> dict:
+    data = {
         "run_source": "signal_report",
         "signal_report_id": str(report.id),
         "mode": "background",
         "pending_user_message": prompt,
         **runtime_selection(team_id=report.team_id, user_id=user_id),
     }
+    if parent is not None:
+        # Tasks reads these keys to treat the run as one an agent started.
+        data[AGENT_PARENT_TASK_ID_STATE_KEY] = parent.task_id
+        data[AGENT_PARENT_RUN_ID_STATE_KEY] = parent.run_id
+    return data
 
 
 @frozen
@@ -543,29 +698,90 @@ class StartedReportTaskAction:
     run_error: str | None
 
 
+REPORT_ACTION_START_FAILED = "report_action_start_failed"
+# The tasks facade's code for an implementation it could not find a repository for.
+REPOSITORY_UNRESOLVED_CODE = "report_implementation_repository_unresolved"
+
+
 class ReportTaskActionStartError(Exception):
     """The tasks facade refused the task before it existed."""
 
-    def __init__(self, detail: str) -> None:
+    def __init__(self, detail: str, code: str = REPORT_ACTION_START_FAILED) -> None:
         super().__init__(detail)
         self.detail = detail
+        self.code = code
+
+
+def repository_connected(team_id: int, repository: str) -> bool:
+    """Whether the team's GitHub installation reaches the repository. An unsynced cache reads as yes."""
+    from products.signals.backend.report_generation.select_repo import (  # noqa: PLC0415 — keeps the repo-selection agent off this module's import path
+        saved_repository_connected,
+    )
+
+    return saved_repository_connected(team_id, repository)
+
+
+def select_implementation_repository(
+    report: SignalReport, repository: str, attribution: ArtefactAttribution
+) -> SignalReportArtefact:
+    """Record the caller's pick as the report's repo selection, as the inbox does before Create PR."""
+    from products.signals.backend.report_generation.select_repo import (  # noqa: PLC0415 — keeps the repo-selection agent off this module's import path
+        persisted_repo_selection,
+    )
+    from products.tasks.backend.facade.repo_selection_types import (  # noqa: PLC0415 — keeps the repo-selection types off this module's import path
+        RepoSelectionResult,
+    )
+
+    previous = persisted_repo_selection(str(report.id))
+    return SignalReportArtefact.append_status(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=RepoSelectionResult(
+            repository=repository,
+            reason="Selected by the user for implementation.",
+            research_context=previous.research_context if previous is not None else None,
+            autostart_eligible=False,
+        ),
+        attribution=attribution,
+    )
 
 
 def start_report_task_action(
-    context: ReportTaskActionContext, report: SignalReport, action: ReportTaskAction, *, code_access_allowed: bool
+    context: ReportTaskActionContext,
+    report: SignalReport,
+    action: ReportTaskAction,
+    *,
+    code_access_allowed: bool,
+    parent: ParentRun | None = None,
 ) -> StartedReportTaskAction:
-    """Create the report-linked discussion task and its first background run.
+    """Create the report-linked task and its first background run.
+
+    `implement` creates an implementation task, which claims the report and attaches the pull request
+    it opens. Every other action creates a discussion.
+
+    `parent` is the run whose sandbox asked for the action. None means a person asked.
 
     Raises `ReportTaskCapExceeded` when the report has spent its task allowance.
     """
-    prompt = build_report_task_prompt(action)
-    result = tasks_facade.create_task_and_run(
-        context.team.id,
-        context.user.id,
-        validated_data=task_create_data(report, prompt),
-        run_data=task_run_data(report=report, prompt=prompt, user_id=context.user.id),
-        code_access_allowed=code_access_allowed,
-    )
+    if action.kind == ReportTaskActionKind.IMPLEMENT:
+        prompt, relationship = action.question, TASK_RUN_TYPE_IMPLEMENTATION
+    else:
+        prompt, relationship = build_report_task_prompt(action), TASK_RUN_TYPE_DISCUSSION
+    try:
+        result = tasks_facade.create_task_and_run(
+            context.team.id,
+            context.user.id,
+            validated_data=task_create_data(report, prompt, relationship),
+            run_data=task_run_data(report=report, prompt=prompt, user_id=context.user.id, parent=parent),
+            code_access_allowed=code_access_allowed,
+        )
+    except ValidationError as error:
+        codes = error.get_codes()
+        if not (isinstance(codes, dict) and codes.get("repository") == [REPOSITORY_UNRESOLVED_CODE]):
+            raise
+        messages = error.detail.get("repository") if isinstance(error.detail, dict) else None
+        detail = str(messages[0]) if isinstance(messages, list) and messages else str(error)
+        raise ReportTaskActionStartError(detail, REPOSITORY_UNRESOLVED_CODE) from error
     if result.error is not None or result.task is None:
         raise ReportTaskActionStartError(result.error.detail if result.error else "Failed to create task.")
     task = result.task
@@ -585,20 +801,22 @@ def inbox_report_action_properties(
     outcome: str,
     state: ReportActionState | None = None,
     limit_code: str | None = None,
+    scout_skill_name: str | None = None,
 ) -> dict[str, object]:
     """Properties of the server-side `Inbox report action` event, in the shape the inbox sends."""
     properties: dict[str, object] = {
         "report_id": str(report.id),
         "actionability": state.actionability if state is not None else report.latest_actionability,
         "has_pr": bool(state.pull_requests) if state is not None else None,
-        "action_type": "discuss",
+        # The inbox sends Create PR as its own action type.
+        "action_type": "create_pr" if action.kind == ReportTaskActionKind.IMPLEMENT else "discuss",
         "surface": "api",
         "is_bulk": False,
         "bulk_size": 1,
         # The message text is never sent: it can name a customer's own entities.
         "question_source": "custom" if action.custom_message else "suggested",
         "suggestion_count": 1
-        if action.kind in PULL_REQUEST_ACTION_KINDS
+        if action.kind in PULL_REQUEST_ACTION_KINDS or action.kind == ReportTaskActionKind.IMPLEMENT
         else len(state.suggested_prompts if state is not None else report.suggested_prompts or []),
         "report_action": action.kind.value,
         "outcome": outcome,
@@ -607,4 +825,6 @@ def inbox_report_action_properties(
         properties["question_intent"] = action.intent.value
     if limit_code is not None:
         properties["limit_code"] = limit_code
+    if scout_skill_name is not None:
+        properties["scout_skill_name"] = scout_skill_name
     return properties

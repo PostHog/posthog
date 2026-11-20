@@ -8,6 +8,7 @@ use crate::{
         feature_flag_list::PreparedFlags,
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList},
+        flag_request::KnownAbsentProperties,
         flag_service::FlagService,
     },
     team::team_models::Team,
@@ -396,6 +397,7 @@ pub async fn evaluate_for_request(
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
+    known_absent_properties: KnownAbsentProperties,
     request_id: Uuid,
     request_entered_at: tokio::time::Instant,
     disable_flags: bool,
@@ -441,6 +443,7 @@ pub async fn evaluate_for_request(
             group_property_overrides,
             groups,
             hash_key_override,
+            known_absent_properties,
             flag_keys,
             optimize_experience_continuity_lookups: state
                 .config
@@ -700,7 +703,11 @@ mod tests {
         let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
 
-        for sdk in ["posthog-godot/1.0.0", "posthog-unreal/1.0.0"] {
+        for sdk in [
+            "posthog-godot/1.0.0",
+            "posthog-unreal/1.0.0",
+            "posthog-electron/0.1.0",
+        ] {
             headers.insert("user-agent", sdk.parse().unwrap());
             let result = detect_evaluation_runtime_from_request(&headers, None);
             assert_eq!(result, Some(EvaluationRuntime::Client));

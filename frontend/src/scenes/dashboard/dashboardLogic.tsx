@@ -123,6 +123,7 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
+import type { TeamPublicType, TeamType, UserType } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -229,6 +230,15 @@ import {
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+import {
+    deferOffscreenTiles,
+    isTelemetryInsight,
+    dashboardV2Logic,
+    loadScrolledInTiles,
+    omitsTileResultsOnLoad,
+    refreshThroughBoardStream,
+    telemetryTileLoadQueue,
+} from './dashboardV2Logic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
@@ -242,16 +252,29 @@ function tileGroupLoadProperties(
     return { ...tileGroupProperties(groupDisplay, tiles), collapsed_group_count: collapsedTileGroupKeys.length }
 }
 
+/** Where a tile's load spent its time, apart from refresh_duration_ms. */
+interface TileLoadTiming {
+    // From the tile joining the load queue to its first request starting.
+    queueWaitMs: number
+    // From the request that returned the result starting to its response. Earlier capacity retries and their
+    // backoff are not in it, so a cache hit stays fast here even when the tile waited for capacity.
+    requestMs: number | undefined
+    dashboardV2Ui: boolean
+}
+
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
+    servedFromCache: boolean | undefined,
     filters: Record<string, any>,
     variables: Record<string, any>,
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: ApiRequestTiming | undefined,
+    loadTiming: TileLoadTiming,
     filterChange?: PendingFilterChange,
-    isAutomatic = false
+    isAutomatic = false,
+    eventProperties?: Record<string, unknown>
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
@@ -261,12 +284,19 @@ function reportDashboardTileRefreshed(
         dashboard_id: dashboardId,
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
-        was_cached: tile.is_cached,
+        was_cached: servedFromCache,
+        // Auto-refresh ticks against loads and refreshes a person started
+        is_automatic: isAutomatic,
+        // Mostly true, since a load only refreshes tiles whose cached result is stale
+        was_cached_before_refresh: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
         refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
         filters: filtersForAnalytics(filters),
         variables,
         refresh_duration_ms: refreshDurationMs,
+        queue_wait_ms: loadTiming.queueWaitMs,
+        request_ms: loadTiming.requestMs,
+        dashboard_v2_ui: loadTiming.dashboardV2Ui,
         individual_refresh: individualRefresh,
         ...flattenRequestTiming(requestTiming, ''),
         ...sanitizedQuery,
@@ -277,6 +307,7 @@ function reportDashboardTileRefreshed(
                   all_insights_succeeded: filterChange.remainingInsightIds.size === 0,
               }
             : {}),
+        ...eventProperties,
     })
 }
 
@@ -286,11 +317,7 @@ const QUERY_SHARING_STREAM_WORKERS = 4
 const LAYOUT_UNDO_LIMIT = 20
 
 // Placements that show the dashboard's editing controls.
-const EDITABLE_PLACEMENTS = [
-    DashboardPlacement.Dashboard,
-    DashboardPlacement.ProjectHomepage,
-    DashboardPlacement.Builtin,
-]
+const EDITABLE_PLACEMENTS = [DashboardPlacement.Dashboard, DashboardPlacement.Builtin]
 
 /** `deferred` means a tab switch stopped the load, and the tile waits for its tab to open again. */
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
@@ -313,12 +340,32 @@ interface InsightTileRefresh {
     settings: DashboardSettings
     signal: AbortSignal
     queue: TaskQueue
+    telemetryQueue: TaskQueue
     tileLoads: TileLoads<TileLoadRefresh>
+    dashboardV2Ui: boolean
+    eventProperties?: Record<string, unknown>
+    maxAttempts?: number
+    asyncFallback?: boolean
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
 function tileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.tileLoadQueue ??= new TaskQueue(TILE_REFRESH_CONCURRENCY))
+}
+
+/**
+ * The queues an insight load runs in. With dashboard-v2, metrics tiles get their own queue,
+ * so analytics tiles never wait behind them.
+ */
+function insightTileQueues(
+    cache: Record<string, any>,
+    dashboardV2Enabled: boolean
+): Pick<InsightTileRefresh, 'queue' | 'telemetryQueue'> {
+    const queue = tileLoadQueue(cache)
+    return {
+        queue,
+        telemetryQueue: dashboardV2Enabled ? telemetryTileLoadQueue(cache) : queue,
+    }
 }
 
 function tileLoads(cache: Record<string, any>): TileLoads<TileLoadRefresh> {
@@ -355,13 +402,20 @@ async function refreshInsightTile(
         isAutomatic,
         settings,
         signal: refreshSignal,
-        queue,
+        queue: analyticsQueue,
+        telemetryQueue,
         tileLoads,
+        dashboardV2Ui,
+        eventProperties,
+        maxAttempts,
+        asyncFallback,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
+    const queue = isTelemetryInsight(insight) ? telemetryQueue : analyticsQueue
     const queryId = uuid()
-    let queryStartTime = performance.now()
+    const enqueuedAt = performance.now()
+    let queryStartTime = enqueuedAt
     let requestTiming: ApiRequestTiming | undefined
     const { signal, finish } = tileLoads.start([tile.id], refreshSignal, { forceRefresh, settings })
 
@@ -383,7 +437,10 @@ async function refreshInsightTile(
                 },
                 filters,
                 variables,
-                tile.filters_overrides
+                tile.filters_overrides,
+                maxAttempts,
+                undefined,
+                asyncFallback
             )
         }, signal)
 
@@ -397,13 +454,20 @@ async function refreshInsightTile(
         reportDashboardTileRefreshed(
             dashboardId,
             tile,
+            refreshedInsight.is_cached,
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
             false,
             requestTiming,
+            {
+                queueWaitMs: Math.floor(queryStartTime - enqueuedAt),
+                requestMs: requestTiming ? Math.floor(requestTiming.request_total_ms) : undefined,
+                dashboardV2Ui,
+            },
             undefined,
-            isAutomatic
+            isAutomatic,
+            eventProperties
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -777,6 +841,8 @@ function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTi
 export interface dashboardLogicValues {
     internetConnectionIssue: boolean // apiStatusLogic
     tileGroupChoices: TileGroupChoices // dashboardTileGroupChoicesLogic
+    dashboardV2Enabled: boolean // dashboardV2Logic
+    deferredTileIds: number[] // dashboardV2Logic
     deletionCutoff: Dayjs | null // dataRetentionBannerLogic
     dismissed: boolean // dataRetentionBannerLogic
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
@@ -793,10 +859,11 @@ export interface dashboardLogicValues {
     addWidgetTileLoading: boolean
     anyInsightReachesDeletion: boolean
     apiUrl: (
-        refresh?: RefreshType | undefined,
-        filtersOverride?: DashboardFilter | undefined,
-        variablesOverride?: Record<string, HogQLVariable> | undefined,
-        layoutSize?: 'sm' | 'xs' | undefined
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter,
+        variablesOverride?: Record<string, HogQLVariable>,
+        layoutSize?: 'sm' | 'xs',
+        omitTileResults?: boolean
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
     autoBreakdownColorsEnabled: boolean
@@ -872,6 +939,7 @@ export interface dashboardLogicValues {
     insightTiles: DashboardTile[]
     isEditablePlacement: boolean
     isPinned: boolean
+    isPreview: boolean
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
     isSavingTags: boolean
@@ -969,11 +1037,27 @@ export interface dashboardLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dashboardLogicActions {
+    refreshDeferredTiles: (
+        tileIds: number[],
+        forceRefresh: boolean,
+        settings: DashboardSettings | null
+    ) => {
+        forceRefresh: boolean
+        settings: DashboardSettings | null
+        tileIds: number[]
+    } // dashboardV2Logic
+    setTileInView: (
+        tileId: number,
+        inView: boolean
+    ) => {
+        inView: boolean
+        tileId: number
+    } // dashboardV2Logic
     abortAnyRunningQuery: () => {
         value: true
     }
     abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
-        deferred?: boolean | undefined
+        deferred?: boolean
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
@@ -1155,8 +1239,8 @@ export interface dashboardLogicActions {
         retry?: boolean
     }) => {
         action: DashboardLoadAction
-        manualDashboardRefresh?: boolean | undefined
-        retry?: boolean | undefined
+        manualDashboardRefresh?: boolean
+        retry?: boolean
     }
     loadDashboardStreamingFailure: (
         error: string,
@@ -1169,15 +1253,15 @@ export interface dashboardLogicActions {
         dashboard: DashboardType | null,
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     ) => {
         dashboard: DashboardType | null
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     }
     loadDashboardSuccess: (
@@ -1292,7 +1376,7 @@ export interface dashboardLogicActions {
         batchId: string
         result: {
             cached: boolean
-            debug?: DashboardSharingDebugApi | undefined
+            debug?: DashboardSharingDebugApi
             failed: boolean
         }
         tileId: number
@@ -1317,12 +1401,12 @@ export interface dashboardLogicActions {
         previewUnsavedFilters?: boolean
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean | undefined
-        isAutomatic?: boolean | undefined
-        previewUnsavedFilters?: boolean | undefined
+        forceRefresh?: boolean
+        isAutomatic?: boolean
+        previewUnsavedFilters?: boolean
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
-        forceRefresh?: boolean | undefined
+        forceRefresh?: boolean
         tileIds: number[]
     }
     refreshOpenTileGroupsWaiting: () => {
@@ -1957,14 +2041,16 @@ export interface dashboardLogicMeta {
         asDashboardTemplate: (dashboard: DashboardType | null) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
         readOnly: (arg: any) => boolean
+        isPreview: (placement: DashboardPlacement) => boolean
         isEditablePlacement: (placement: DashboardPlacement, readOnly: boolean) => boolean
         apiUrl: (
             id: number
         ) => (
-            refresh?: RefreshType | undefined,
-            filtersOverride?: DashboardFilter | undefined,
-            variablesOverride?: Record<string, HogQLVariable> | undefined,
-            layoutSize?: 'sm' | 'xs' | undefined
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>,
+            layoutSize?: 'sm' | 'xs',
+            omitTileResults?: boolean
         ) => string
         currentLayoutSize: (containerWidth: number | null) => 'sm' | 'xs'
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
@@ -2043,8 +2129,8 @@ export interface dashboardLogicMeta {
         ) => boolean
         canRestrictDashboard: (
             dashboard: DashboardType | null,
-            user: null | import('~/types').UserType,
-            currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            user: UserType | null,
+            currentTeam: TeamPublicType | TeamType | null
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
         layouts: (
@@ -2106,7 +2192,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (
@@ -2250,8 +2336,19 @@ function preloadTextTileRenderer(dashboard: DashboardType): void {
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
-    connect(() => ({
+    props({ id: NaN } as DashboardLogicProps),
+
+    key((props) => {
+        if (!Number.isFinite(props.id)) {
+            return 'invalid'
+        }
+        return props.id
+    }),
+
+    connect((props: DashboardLogicProps) => ({
         values: [
+            dashboardV2Logic(props),
+            ['dashboardV2Enabled', 'deferredTileIds'],
             teamLogic,
             ['currentTeamId'],
             featureFlagLogic,
@@ -2267,17 +2364,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dashboardTileGroupChoicesLogic,
             ['tileGroupChoices'],
         ],
+        actions: [dashboardV2Logic(props), ['setTileInView', 'refreshDeferredTiles']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
-
-    props({ id: NaN } as DashboardLogicProps),
-
-    key((props) => {
-        if (!Number.isFinite(props.id)) {
-            return 'invalid'
-        }
-        return props.id
-    }),
 
     actions(() => ({
         revealHighlightedInsight: true,
@@ -2612,7 +2701,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const apiUrl = values.apiUrl(
                             'force_cache',
                             values.filtersOverrideForRequests,
-                            values.currentDashboardVariables
+                            values.currentDashboardVariables,
+                            undefined,
+                            omitsTileResultsOnLoad(
+                                values.dashboardV2Enabled,
+                                action === DashboardLoadAction.InitialLoad ||
+                                    action === DashboardLoadAction.InitialLoadWithVariables,
+                                values.placement
+                            )
                         )
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
@@ -4246,6 +4342,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         readOnly: [() => [(_, props) => props.readOnly], (readOnly: boolean | undefined): boolean => !!readOnly],
+        isPreview: [
+            (s) => [s.placement],
+            (placement: DashboardPlacement): boolean => placement === DashboardPlacement.ProjectHomepage,
+        ],
         isEditablePlacement: [
             (s) => [s.placement, s.readOnly],
             (placement: DashboardPlacement, readOnly: boolean): boolean =>
@@ -4258,13 +4358,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>,
-                    layoutSize?: 'sm' | 'xs'
+                    layoutSize?: 'sm' | 'xs',
+                    omitTileResults?: boolean
                 ) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
                         layout_size: layoutSize,
+                        omit_tile_results: omitTileResults || undefined,
                     })}`
             },
         ],
@@ -4997,6 +5099,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     $update_person_last_seen_at: false,
                     loadingMilliseconds: loadingMilliseconds,
                     dashboardId: props.id,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                 })
             }
         },
@@ -5285,6 +5388,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action,
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                dashboard_v2_ui: values.dashboardV2Enabled,
                 ...tileGroupLoadProperties(values.tileGroupDisplay, values.tiles, values.collapsedTileGroupKeys),
             })
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
@@ -5872,11 +5976,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
+                    refreshedInsight?.is_cached,
                     urlFilters,
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true,
                     requestTiming,
+                    {
+                        // A single-tile refresh skips the load queue.
+                        queueWaitMs: 0,
+                        requestMs: requestTiming ? Math.floor(requestTiming.request_total_ms) : undefined,
+                        dashboardV2Ui: values.dashboardV2Enabled,
+                    },
                     currentFilterChange
                 )
                 if (currentFilterChange?.remainingInsightIds.size === 0) {
@@ -5934,7 +6045,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
-            const sortedTilesToRefresh = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
+            const openStaleTiles = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
+            const sortedTilesToRefresh = values.dashboardV2Enabled
+                ? deferOffscreenTiles(dashboardV2Logic(props), openStaleTiles, {
+                      isInitialLoad,
+                      forceRefresh: !!forceRefresh,
+                      isAutomatic: !!isAutomatic,
+                      onDashboardPage: values.placement === DashboardPlacement.Dashboard && !isSharedView(),
+                      settings: settingsToRefresh,
+                  })
+                : openStaleTiles
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
             const waiting = nextWaitingTileRefresh({
@@ -6025,7 +6145,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     isAutomatic,
                     settings: settingsToRefresh,
                     signal: cache.abortController.signal,
-                    queue: tileLoadQueue(cache),
+                    ...insightTileQueues(cache, values.dashboardV2Enabled),
+                    dashboardV2Ui: values.dashboardV2Enabled,
                     tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
@@ -6049,7 +6170,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const streamedTiles = new Set<number>()
+                const boardStream = values.dashboardV2Enabled
+                    ? await refreshThroughBoardStream(cache, sortedTilesToRefresh, tileRefresh, {
+                          placement: values.placement,
+                          report: reportDashboardTileRefreshed,
+                          settle: settleTile,
+                      })
+                    : null
+                if (boardStream?.aborted) {
+                    loadingHere.clear()
+                    return
+                }
+                boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
                 if (
+                    !boardStream &&
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
                     values.placement === DashboardPlacement.Dashboard &&
                     !isSharedView() &&
@@ -6178,11 +6312,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
+                                    refreshedInsight.is_cached,
                                     urlFilters,
                                     urlVariables,
                                     Math.floor(performance.now() - startedAt),
                                     false,
-                                    undefined
+                                    undefined,
+                                    {
+                                        // Shared-query tiles skip the load queue and arrive on one open stream.
+                                        queueWaitMs: 0,
+                                        requestMs: Math.floor(performance.now() - startedAt),
+                                        dashboardV2Ui: values.dashboardV2Enabled,
+                                    },
+                                    undefined,
+                                    !!isAutomatic
                                 )
                                 settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
                             }
@@ -6233,9 +6376,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
 
+                const fallbackRefresh: InsightTileRefresh = boardStream
+                    ? { ...tileRefresh, ...boardStream.fallback }
+                    : tileRefresh
                 const fetchSyncInsightFunctions = sortedTilesToRefresh
                     .filter((tile) => !streamedTiles.has(tile.id))
-                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, tileRefresh)))
+                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, fallbackRefresh)))
 
                 await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()
@@ -6266,12 +6412,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: action,
                     force_refresh: !!forceRefresh,
                     refresh_duration_ms: refreshDurationMs,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
                     tiles_deferred_count: staleTiles.length - tilesStaleCount,
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...boardStream?.refreshEventProperties,
                     ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
@@ -6308,6 +6456,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     primary_interaction_id: dashboardQueryId,
                     time_to_see_data_ms: Math.floor(performance.now() - startTime),
                     api_response_bytes: responseBytes,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                     insights_fetched: sortedTilesToRefresh.length,
                     insights_fetched_cached: tilesRefreshedCachedCount,
                     ...tileGroupProps,
@@ -6498,6 +6647,53 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
         },
+        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }, breakpoint) => {
+            const settings = deferredSettings ?? values.settingsForRefresh
+            const tiles = (values.insightTiles || []).filter(
+                (tile): tile is DashboardTile & { insight: InsightModel } => !!tile.insight && tileIds.includes(tile.id)
+            )
+            if (tiles.length === 0) {
+                return
+            }
+            const { refreshStatus } = values
+            actions.setRefreshTilesTotal(
+                (values.refreshTilesTotal ?? Object.keys(refreshStatus).length) +
+                    tiles.filter((tile) => !(tile.insight.short_id in refreshStatus)).length
+            )
+            // Queued before the card mounts, so it shows its loading state and does not start its own query.
+            // One tile at a time, so sibling tiles keep their loading and error states.
+            tiles.forEach((tile) => actions.setRefreshStatus(tile.insight.short_id, false, true))
+            // A cancelled refresh leaves its controller aborted, but a tile that scrolls in later still loads.
+            if (!cache.abortController || cache.abortController.signal.aborted) {
+                cache.abortController = new AbortController()
+            }
+            const tileRefresh: InsightTileRefresh = {
+                actions,
+                dashboardId: props.id,
+                currentTeamId: values.currentTeamId,
+                filters: withCompactMetricVariables(
+                    combineDashboardFilters(settings.filters, values.externalFilters),
+                    values.savedDashboardSettings.filters.metricVariables ?? []
+                ),
+                variables: settings.variables,
+                urlFilters: values.urlFilters,
+                forceRefresh,
+                settings,
+                signal: cache.abortController.signal,
+                ...insightTileQueues(cache, values.dashboardV2Enabled),
+                dashboardV2Ui: values.dashboardV2Enabled,
+                tileLoads: tileLoads(cache),
+            }
+            const scrolledIn = values.dashboardV2Enabled
+                ? await loadScrolledInTiles(cache, tiles, tileRefresh, {
+                      placement: values.placement,
+                      report: reportDashboardTileRefreshed,
+                      breakpoint,
+                  })
+                : null
+            const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
+            await Promise.all((scrolledIn?.leftTiles ?? tiles).map((tile) => refreshInsightTile(tile, perTileRefresh)))
+        },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
             // A tile leaves the waiting list only once it loads, so one still loading must not load again.
@@ -6546,7 +6742,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: waiting.forceRefresh,
                 settings: waiting.settings,
                 signal: cache.groupAbortController.signal,
-                queue: tileLoadQueue(cache),
+                ...insightTileQueues(cache, values.dashboardV2Enabled),
+                dashboardV2Ui: values.dashboardV2Enabled,
                 tileLoads: tileLoads(cache),
             }
             await Promise.all(
@@ -7578,12 +7775,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const parsedTileId = parseDashboardTileId(tileId)
                 actions.setTextTileId(parsedTileId)
                 actions.setButtonTileId(parsedTileId)
-            },
-            // The product analytics page shows a full dashboard at its own URL.
-            [urls.analyticsProductHome()]: (_params, searchParams, _hashParams, { method }) => {
-                if (method === 'POP' && values.dashboard && values.placement === DashboardPlacement.Dashboard) {
-                    restoreSettingsFromHistory(searchParams)
-                }
             },
         }
     }),

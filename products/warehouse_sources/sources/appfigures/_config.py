@@ -8,3 +8,4 @@ from products.warehouse_sources.sources.sdk import config
 class AppfiguresSourceConfig(config.Config):
     personal_access_token: str
     aso_countries: str | None = None
+    estimate_products: str | None = None

@@ -94,7 +94,10 @@ export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string
@@ -146,6 +149,11 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -220,7 +228,10 @@ export type PatchedOrganizationApiMetadata = { [key: string]: string }
 
 export interface PatchedOrganizationApi {
     readonly id?: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name?: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug?: string
@@ -272,6 +283,11 @@ export interface PatchedOrganizationApi {
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked?: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -964,7 +980,6 @@ export interface WelcomeResponseApi {
  * * `personal_api_key` - personal_api_key
  * * `oauth` - oauth
  * * `project_secret_key` - project_secret_key
- * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
  * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
@@ -982,6 +997,7 @@ export interface WelcomeResponseApi {
  * * `webhook` - webhook
  * * `cross_region_signature` - cross_region_signature
  * * `unattributed` - unattributed
+ * * `team_secret_token` - team_secret_token
  */
 export type ActivityLogCredentialTypeEnumApi =
     (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
@@ -991,7 +1007,6 @@ export const ActivityLogCredentialTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     Oauth: 'oauth',
     ProjectSecretKey: 'project_secret_key',
-    TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
     OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
@@ -1009,6 +1024,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     Webhook: 'webhook',
     CrossRegionSignature: 'cross_region_signature',
     Unattributed: 'unattributed',
+    TeamSecretToken: 'team_secret_token',
 } as const
 
 export interface ActivityLogApi {
@@ -1041,7 +1057,6 @@ export interface ActivityLogApi {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
@@ -1058,7 +1073,8 @@ export interface ActivityLogApi {
      * * `export_renderer` - export_renderer
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
-     * * `unattributed` - unattributed */
+     * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token */
     readonly credential_type: ActivityLogCredentialTypeEnumApi | null
     /**
      * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.

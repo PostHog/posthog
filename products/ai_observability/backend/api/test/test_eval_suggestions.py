@@ -43,7 +43,7 @@ SUGGESTIONS_MODULE = "products.ai_observability.backend.logic.eval_suggestions.s
 BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
 
 CHECK_DRAFT = {
-    "name": "Turns that end on a failed call",
+    "name": "Tool or model calls that never succeed",
     "description": "Finds failed calls nobody retried",
     "evaluation_type": "hog",
     "evaluation_config": {"source": "return true"},
@@ -425,6 +425,20 @@ class TestEvalSuggestionsApi(APIBaseTest):
             target.save()
 
         assert self.client.get(f"{self.url}/{fix.id}/").json()["applies"] is applies
+
+    @parameterized.expand(
+        [
+            ("no_runs", EvalSuggestionKind.FIX_EVAL, "fix:e1:no_runs", "no_runs"),
+            ("one_outcome", EvalSuggestionKind.FIX_EVAL, "fix:e1:one_outcome", "one_outcome"),
+            ("other_kind", EvalSuggestionKind.NEW_HOG, "check:no_runs", None),
+        ]
+    )
+    def test_retrieve_names_the_problem_a_fix_found(
+        self, _name: str, kind: str, dedupe_key: str, problem: str | None
+    ) -> None:
+        suggestion = self._suggestion(kind, dedupe_key=dedupe_key)
+
+        assert self.client.get(f"{self.url}/{suggestion.id}/").json()["fix_problem"] == problem
 
     @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     def test_applied_fix_is_tracked_as_an_evaluation_update(self, report: MagicMock) -> None:

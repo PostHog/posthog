@@ -17,6 +17,7 @@ import posthog, { CaptureOptions } from 'posthog-js'
 import { uuid } from 'lib/utils/dom'
 
 import { DataNodeStatusMap, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import type { CollectionNodeLoadMeta } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 
 import { homeTabDataCollectionId } from './homeTabQueryKeys'
 
@@ -46,10 +47,10 @@ export interface homeTabLoadTimeLogicActions {
     } // dataNodeCollectionLogic
     collectionNodeLoadDataSuccess: (
         id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta?: CollectionNodeLoadMeta | undefined
     ) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta: CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     endPageVisit: () => {
         value: true

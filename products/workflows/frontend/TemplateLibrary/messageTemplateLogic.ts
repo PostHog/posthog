@@ -40,7 +40,7 @@ import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
-export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
+export type TransactionalTemplateTab = 'design' | 'impact' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
 
 const TEMPLATE_PAGE_ROUTES = [
     '/transactional/library/templates/:id',
@@ -50,6 +50,7 @@ const TEMPLATE_PAGE_ROUTES = [
 // pinned: values of the `tab` URL search param - renaming breaks shared links
 const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
     'design',
+    'impact',
     'metrics',
     'sends',
     'runs',
@@ -115,12 +116,12 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         },
         ValidationErrorType
@@ -140,12 +141,12 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         },
         ValidationErrorType
@@ -227,12 +228,12 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: MessageTemplateContentApi | null | undefined
+        draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
         id: string
         name: string
-        sensitive?: boolean | undefined
-        tags?: string[] | undefined
-        transactional_hog_flow_id?: string | null | undefined
+        sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+        tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+        transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
         updated_at: string | null
     }) => {
         values?: {
@@ -243,12 +244,12 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         }
     }
@@ -342,12 +343,12 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         }>
     ) => {
@@ -359,12 +360,12 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         }>
     }
@@ -389,12 +390,12 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: MessageTemplateContentApi | null | undefined
+        draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
         id: string
         name: string
-        sensitive?: boolean | undefined
-        tags?: string[] | undefined
-        transactional_hog_flow_id?: string | null | undefined
+        sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+        tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+        transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
         updated_at: string | null
     }) => {
         template: {
@@ -405,12 +406,12 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         }
     }
@@ -422,12 +423,12 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
-        draft_content?: MessageTemplateContentApi | null | undefined
+        draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
         id: string
         name: string
-        sensitive?: boolean | undefined
-        tags?: string[] | undefined
-        transactional_hog_flow_id?: string | null | undefined
+        sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+        tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+        transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
         updated_at: string | null
     }) => {
         template: {
@@ -438,12 +439,12 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
-            draft_content?: MessageTemplateContentApi | null | undefined
+            draft_content?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['draft_content']
             id: string
             name: string
-            sensitive?: boolean | undefined
-            tags?: string[] | undefined
-            transactional_hog_flow_id?: string | null | undefined
+            sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
+            tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
+            transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
             updated_at: string | null
         }
     }

@@ -18,7 +18,11 @@ import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ReportDecisionSetByApi,
+    ReportRepositoryDecisionApi,
+    SignalReportCheckApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
@@ -344,7 +348,8 @@ describe('inboxReportDetailLogic', () => {
             expect(logic.values.expandedTaskIds).toEqual([])
         })
 
-        it('saves the priority and ignores another edit while the request is in flight', async () => {
+        it('saves the priority, records the change, and ignores another edit while the request is in flight', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
             let completeSave: () => void = () => {}
             const pendingSave = new Promise<void>((resolve) => {
                 completeSave = resolve
@@ -367,6 +372,151 @@ describe('inboxReportDetailLogic', () => {
             logic.actions.updatePriority('P2')
             await expectLogic(logic).toFinishAllListeners()
             expect(save).toHaveBeenCalledTimes(1)
+            const decisionEvents = capture.mock.calls.filter(
+                ([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED
+            )
+            expect(decisionEvents).toEqual([
+                [
+                    INBOX_EVENTS.REPORT_DECISION_CHANGED,
+                    expect.objectContaining({
+                        decision: 'priority',
+                        previous_value: 'P1',
+                        new_value: 'P2',
+                        surface: 'detail_pane',
+                    }),
+                    undefined,
+                ],
+            ])
+            capture.mockRestore()
+        })
+
+        it('saves the repository and attributes it to the person with the value it replaced', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const person = { id: 1, uuid: 'person-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.com' }
+            const decision = (
+                value: string,
+                setBy: Pick<ReportDecisionSetByApi, 'kind'> & Partial<ReportDecisionSetByApi>,
+                setAt: string
+            ): ReportRepositoryDecisionApi => ({
+                value,
+                reason: 'Reason.',
+                set_at: setAt,
+                set_by: { user: null, agent: null, task_id: null, ...setBy },
+            })
+            logic.actions.setReport({
+                ...REPORT,
+                repo_slug: 'example/web',
+                decisions: {
+                    repository: decision('example/web', { kind: 'task', task_id: 'task-1' }, '2026-10-09T12:00:00Z'),
+                    priority: null,
+                    actionability: null,
+                    already_addressed: null,
+                },
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                        results: [
+                            {
+                                id: 'selection-1',
+                                type: 'repo_selection',
+                                content: { repository: 'example/web' },
+                                created_at: '2026-10-09T12:00:00Z',
+                                actor_kind: 'task',
+                            },
+                            {
+                                id: 'selection-2',
+                                type: 'repo_selection',
+                                content: { repository: 'example/api' },
+                                created_at: '2026-10-10T12:00:00Z',
+                                actor_kind: 'user',
+                            },
+                        ],
+                    },
+                },
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/repository/': {
+                        ...REPORT,
+                        repo_slug: 'example/api',
+                        updated_at: '2026-10-10T12:00:00Z',
+                        decisions: {
+                            repository: decision('example/api', { kind: 'user', user: person }, '2026-10-10T12:00:00Z'),
+                            priority: null,
+                            actionability: null,
+                            already_addressed: null,
+                        },
+                    },
+                },
+            })
+            logic.actions.updateRepository('example/api')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.repo_slug).toBe('example/api')
+            expect(logic.values.repositorySaving).toBe(false)
+            expect(logic.values.decisionAttributions?.repository).toEqual({
+                person,
+                agent: null,
+                setAt: '2026-10-10T12:00:00Z',
+                reason: null,
+                previousValue: 'example/web',
+            })
+            expect(capture.mock.calls.filter(([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED)).toEqual([
+                [
+                    INBOX_EVENTS.REPORT_DECISION_CHANGED,
+                    expect.objectContaining({
+                        decision: 'repository',
+                        previous_value: 'example/web',
+                        new_value: 'example/api',
+                        previous_set_by: 'agent',
+                    }),
+                    undefined,
+                ],
+            ])
+            capture.mockRestore()
+        })
+
+        it('sends one actionability change and takes the status the change moved the report to', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const bodies: Record<string, unknown>[] = []
+            const save = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, SignalReport]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                return [
+                    200,
+                    {
+                        ...REPORT,
+                        actionability: 'requires_human_input',
+                        already_addressed: body.already_addressed === true,
+                        status: SignalReportStatus.PENDING_INPUT,
+                        updated_at: '2026-10-10T12:00:00Z',
+                    },
+                ]
+            })
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/actionability/': save } })
+            logic.actions.setReport({ ...REPORT, actionability: 'immediately_actionable', already_addressed: false })
+            logic.actions.updateActionability({ actionability: 'requires_human_input' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report).toMatchObject({
+                actionability: 'requires_human_input',
+                already_addressed: false,
+                status: SignalReportStatus.PENDING_INPUT,
+            })
+            logic.actions.updateActionability({ alreadyAddressed: true })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.already_addressed).toBe(true)
+            expect(logic.values.actionabilitySaving).toBe(false)
+            expect(bodies).toEqual([{ actionability: 'requires_human_input' }, { already_addressed: true }])
+            const decisionEvents = capture.mock.calls
+                .filter(([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED)
+                .map(([, properties]) => properties)
+            expect(decisionEvents).toEqual([
+                expect.objectContaining({
+                    decision: 'actionability',
+                    previous_value: 'immediately_actionable',
+                    new_value: 'requires_human_input',
+                }),
+                expect.objectContaining({ decision: 'already_addressed', previous_value: 'false', new_value: 'true' }),
+            ])
+            capture.mockRestore()
         })
 
         it.each([200, 500])(
@@ -411,6 +561,11 @@ describe('inboxReportDetailLogic', () => {
                 write: 'priority',
                 mocks: { put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } },
                 run: () => logic.actions.updatePriority('P2'),
+            },
+            {
+                write: 'repository',
+                mocks: { put: { '/api/projects/:team_id/signals/reports/:id/repository/': () => [500, {}] } },
+                run: () => logic.actions.updateRepository('example/api'),
             },
             {
                 write: 'state',
@@ -1207,19 +1362,33 @@ describe('inboxReportDetailLogic', () => {
             })
         })
 
-        it('links an inaccessible repository to the GitHub settings and stops polling its checks', async () => {
-            const inaccessible = {
-                code: 'github_repository_inaccessible',
-                error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
-                remediation_url: '/project/2/settings/project-integrations',
-            }
+        it.each([
+            [
+                'an inaccessible repository',
+                404,
+                {
+                    code: 'github_repository_inaccessible',
+                    error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
+                    remediation_url: '/project/2/settings/project-integrations',
+                },
+            ],
+            [
+                'a suspended GitHub installation',
+                403,
+                {
+                    code: 'github_installation_unavailable',
+                    error: "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub.",
+                    remediation_url: '/project/2/settings/project-integrations',
+                },
+            ],
+        ])('links %s to the GitHub settings and stops polling its checks', async (_name, status, inaccessible) => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
                         prChecksRequests += 1
-                        return [404, inaccessible]
+                        return [status, inaccessible]
                     },
-                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [404, inaccessible],
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [status, inaccessible],
                 },
             })
             logic.unmount()
@@ -1232,7 +1401,7 @@ describe('inboxReportDetailLogic', () => {
                 const expected = {
                     message: inaccessible.error,
                     remediationUrl: inaccessible.remediation_url,
-                    code: 'github_repository_inaccessible',
+                    code: inaccessible.code,
                 }
                 expect(logic.values.prChecksError).toEqual(expected)
                 expect(logic.values.prCommentsError).toEqual(expected)
@@ -1243,6 +1412,33 @@ describe('inboxReportDetailLogic', () => {
             } finally {
                 jest.useRealTimers()
             }
+        })
+        it('shows a load error when a PR response has no checks or comments', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': {},
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': {},
+                },
+            })
+            logic.unmount()
+            logic = inboxReportDetailLogic({ reportId: PR_REPORT.id, report: PR_REPORT })
+            logic.mount()
+
+            // Without the guard, kea rejects the undefined reducer value instead, and that error is what gets reported.
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    (action) =>
+                        action.type === logic.actionTypes.loadPrChecksFailure &&
+                        action.payload.error === 'Invalid PR checks response',
+                    (action) =>
+                        action.type === logic.actionTypes.loadPrCommentsFailure &&
+                        action.payload.error === 'Invalid PR comments response',
+                ])
+                .toFinishAllListeners()
+            expect(logic.values.prChecks).toBeNull()
+            expect(logic.values.prComments).toBeNull()
+            expect(logic.values.prChecksError?.message).toBe("Couldn't load the PR checks from GitHub.")
+            expect(logic.values.prCommentsError?.message).toBe("Couldn't load the PR comments from GitHub.")
         })
     })
 

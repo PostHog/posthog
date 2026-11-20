@@ -32,6 +32,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> & Pick<EvalSuggestionA
         created_evaluation: null,
         target_evaluation: null,
         target_evaluation_name: null,
+        fix_problem: null,
         similar_evaluation: null,
         similar_evaluation_name: null,
         dismiss_reason: null,
@@ -44,16 +45,16 @@ const CODE_CHECK = suggestion({
     id: 'suggestion-code',
     kind: 'new_hog',
     template_key: 'unrecovered_errors',
-    headline: 'Unrecovered tool or model failures',
-    outcome: 'Flags traces where a tool or model call fails without a later successful attempt.',
-    reason: 'The agent went on without the result of that call.',
+    headline: 'Tool or model calls that never succeed',
+    outcome: 'Flags traces where a tool or model call fails and no later attempt succeeds.',
+    reason: "The agent carries on without that call's result.",
     observation: '1 of 250 sampled traces flagged',
     observation_scope: 'Sampled from the last 7 days',
     draft: {
         evaluation_type: 'hog',
         target: 'trace',
         description:
-            "A trace fails when the last call to a tool, by span name, or the last model call ended in an error. Approval pauses and cancellations don't count as errors.",
+            "Fails when the last call to a tool, or the last model call, ends in an error. Each tool counts by its span name. Approval pauses and cancellations aren't errors.",
     },
     measured_failure_rate: 1 / 250,
     sample_size: 250,
@@ -104,6 +105,7 @@ const FIX_FILTER = suggestion({
     draft: { conditions: [{ id: 'help-center', rollout_percentage: 100, properties: [] }] },
     target_evaluation: 'evaluation-refunds',
     target_evaluation_name: 'Refund policy check',
+    fix_problem: 'no_runs',
 })
 
 const NO_RECENT_EVENTS = suggestion({
@@ -111,10 +113,11 @@ const NO_RECENT_EVENTS = suggestion({
     kind: 'fix_eval',
     headline: 'No recent events match this eval',
     outcome:
-        "No AI events from the last 7 days match this eval's filters. Review its filters and recent traffic to check whether this is expected.",
+        "No AI events from the last 7 days match this eval's filters. If you still expect traffic, check its filters.",
     reason: 'It has no runs in the last 30 days.',
     target_evaluation: 'evaluation-scout',
     target_evaluation_name: 'Support answers stay grounded',
+    fix_problem: 'no_runs',
 })
 
 const PROMPT_PROBLEM = suggestion({
@@ -231,7 +234,7 @@ export const FixReviewBanner: Story = {
     render: () => (
         <EvaluationFixSuggestionBanner
             suggestionId={FIX_FILTER.id}
-            evaluationId="evaluation-refunds"
+            evaluationLogicProps={{ evaluationId: 'evaluation-refunds' }}
             userAccessLevel={AccessControlLevel.Editor}
             hasUnsavedChanges={false}
         />

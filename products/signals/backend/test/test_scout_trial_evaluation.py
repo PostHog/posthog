@@ -93,6 +93,7 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
 from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.api import TaskRunLog
 
 if TYPE_CHECKING:
     pass
@@ -239,7 +240,7 @@ class TestScoutTrialEvaluation(BaseTest):
             patch.object(object_storage, "read", side_effect=lambda key, **kwargs: self.documents.get(key))
         )
         self.enterContext(patch.object(object_storage, "write", side_effect=self._write))
-        self.enterContext(patch(f"{MODULE}.get_task_run_log_urls", return_value=None))
+        self.enterContext(patch(f"{MODULE}.get_task_run_logs", return_value=None))
         self.enterContext(
             patch(f"{MODULE}.get_trial_workflow_status", return_value=TrialWorkflowStatus(status="completed"))
         )
@@ -791,11 +792,11 @@ class TestScoutTrialEvaluation(BaseTest):
 
     @parameterized.expand(["foreign_chain", "oversized"])
     def test_trace_reads_reject_inherited_logs_and_fail_explicitly_above_sandbox_limit(self, scenario: str) -> None:
-        urls = [self.scout_run.task_run.log_url]
+        logs = [self.scout_run.task_run.log]
         if scenario == "foreign_chain":
-            urls.insert(0, "s3://example/another-run.jsonl")
+            logs.insert(0, TaskRunLog(key="s3://example/another-run.jsonl"))
         with (
-            patch(f"{MODULE}.get_task_run_log_urls", return_value=urls),
+            patch(f"{MODULE}.get_task_run_logs", return_value=logs),
             patch(f"{MODULE}.get_task_run_log_size", return_value=MAX_EVIDENCE_BYTES + 1),
             patch(f"{MODULE}.read_task_run_log_content") as read_content,
         ):
@@ -827,7 +828,7 @@ class TestScoutTrialEvaluation(BaseTest):
             }
         )
         with (
-            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch(f"{MODULE}.get_task_run_logs", return_value=[self.scout_run.task_run.log]),
             patch("posthog.storage.object_storage.head_object", return_value=None) as lenient_head,
             patch(
                 "posthog.storage.object_storage.head_object_strict", return_value={"ContentLength": len(log)}
@@ -873,7 +874,7 @@ class TestScoutTrialEvaluation(BaseTest):
             }
         )
         with (
-            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch(f"{MODULE}.get_task_run_logs", return_value=[self.scout_run.task_run.log]),
             patch(f"{MODULE}.get_task_run_log_size", return_value=len(log)),
             patch(f"{MODULE}.read_task_run_log_content", return_value=log),
         ):
@@ -941,7 +942,7 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert len(log.encode()) > 2 * 1024 * 1024
         with (
-            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch(f"{MODULE}.get_task_run_logs", return_value=[self.scout_run.task_run.log]),
             patch(f"{MODULE}.get_task_run_log_size", return_value=len(log.encode())),
             patch(f"{MODULE}.read_task_run_log_content", return_value=log),
         ):
