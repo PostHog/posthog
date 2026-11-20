@@ -13,7 +13,7 @@ from typing import cast
 from django.db import DatabaseError, transaction
 
 import structlog
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.request import Request
 
 from posthog.hogql import ast
@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
     SchedulingUnavailableError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
+    assert_user_can_read_saved_query,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
     link_endpoint_nodes,
@@ -251,7 +252,7 @@ class EndpointMaterializationService:
                     saved_query_id=str(version.saved_query.id),
                     saved_query_name=version.saved_query.name,
                 )
-        except ValidationError:
+        except (ValidationError, PermissionDenied):
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
         except (ExposedHogQLError, MaterializationNotSupportedError) as e:
@@ -403,6 +404,8 @@ class EndpointMaterializationService:
             bucket_overrides=bucket_overrides,
             user=self.user,
         )
+        # The refresh runs without the user, so their own property rules would not apply to it.
+        assert_user_can_read_saved_query(saved_query, self.user)
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.save()
