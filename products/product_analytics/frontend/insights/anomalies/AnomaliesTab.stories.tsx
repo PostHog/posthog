@@ -67,7 +67,6 @@ function makeSeries(
             expected_buckets: inFlagWindow.length,
             coverage: 1,
             scored_through: points[points.length - 1].bucket_start,
-            baseline_rate: 0.04,
             dashboards: [{ id: 1, name: 'Growth' }],
             first_flagged_bucket: flagged[0]?.bucket_start ?? null,
             last_flagged_bucket: flagged.at(-1)?.bucket_start ?? null,
@@ -90,10 +89,13 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         date_to: iso(NOW),
         group_by: 'series',
         order: 'recent',
+        max_anomaly_rate: 0.1,
+        hidden_series: 0,
         series: [],
         insights: [],
         has_more: false,
         truncated: false,
+        series_capped: false,
         message: null,
         ...overrides,
     }
@@ -187,7 +189,35 @@ export const FlaggedSeries: Story = {
     },
     decorators: [
         mswDecorator({
-            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    has_more: true,
+                    hidden_series: 3,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const SeriesCapped: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-series-capped"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    truncated: true,
+                    series_capped: true,
+                }),
+            },
             post: { [POINTS_URL]: pointsResponse() },
         }),
     ],

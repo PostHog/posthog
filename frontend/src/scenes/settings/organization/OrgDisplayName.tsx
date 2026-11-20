@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { MouseEvent, useEffect, useState } from 'react'
 
 import { IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { QuillOrganizationDisplayName } from './QuillOrganizationDisplayName'
 
 export function OrganizationDisplayName(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -33,6 +36,7 @@ export function OrganizationDisplayName(): JSX.Element {
     })
 
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const nameChanged = name !== (currentOrganization?.name || '')
     const logoChanged = logoMediaId !== (currentOrganization?.logo_media_id || null)
@@ -48,6 +52,42 @@ export function OrganizationDisplayName(): JSX.Element {
               ? 'Organization not loaded'
               : undefined
     const saving = currentOrganizationLoading || uploading
+
+    const resetLogo = (e: MouseEvent): void => {
+        setLogoMediaId(null)
+        e.preventDefault()
+    }
+
+    const save = (e: MouseEvent): void => {
+        e.preventDefault()
+        const updates: Record<string, unknown> = {}
+        if (nameChanged) {
+            updates.name = name
+        }
+        if (logoChanged) {
+            updates.logo_media_id = logoMediaId
+        }
+        updateOrganization(updates)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillOrganizationDisplayName
+                organization={currentOrganization}
+                name={name}
+                onNameChange={setName}
+                logoMediaId={logoMediaId}
+                onResetLogo={resetLogo}
+                filesToUpload={filesToUpload}
+                onFilesToUploadChange={setFilesToUpload}
+                uploading={uploading}
+                restrictionReason={restrictionReason}
+                saveDisabledReason={saveDisabledReason}
+                saving={saving}
+                onSave={save}
+            />
+        )
+    }
 
     return (
         <div className="flex gap-6 items-start">
@@ -70,10 +110,7 @@ export function OrganizationDisplayName(): JSX.Element {
                             <div className="absolute -inset-2 group">
                                 <LemonButton
                                     icon={<IconX />}
-                                    onClick={(e) => {
-                                        setLogoMediaId(null)
-                                        e.preventDefault()
-                                    }}
+                                    onClick={resetLogo}
                                     size="small"
                                     tooltip="Reset back to lettermark"
                                     tooltipPlacement="right"
@@ -98,22 +135,7 @@ export function OrganizationDisplayName(): JSX.Element {
                     placeholder="Organization name"
                 />
                 <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            const updates: Record<string, unknown> = {}
-                            if (nameChanged) {
-                                updates.name = name
-                            }
-                            if (logoChanged) {
-                                updates.logo_media_id = logoMediaId
-                            }
-                            updateOrganization(updates)
-                        }}
-                        disabledReason={saveDisabledReason}
-                        loading={saving}
-                    >
+                    <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason} loading={saving}>
                         Save
                     </LemonButton>
                 </div>

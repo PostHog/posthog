@@ -9,8 +9,10 @@ const assert = require('node:assert/strict')
 const {
     decideJsonTargets,
     decideSelection,
+    decideSelectionWithShadow,
     isDagsterOnlyLegacyEdit,
     narrowedProducts,
+    productCascadePhase,
     productsWithUndeclaredInputChanges,
     selectedShards,
 } = require('./turbo-discover')
@@ -95,8 +97,13 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
 })
 
 test('after a full run passed, a ready PR runs the subset unless the subset is absent or blind', () => {
-    const requested = selectionFixture({ ast: { full_run_reasons: ['conftest.py'] } })
-    const cascade = (runLegacyReason, extra) => ({ legacyChanged: false, runLegacyReason, ...extra })
+    const requested = selectionFixture({ ast: { full_run_reasons: ['conftest.py'] }, snob: { status: 'ok' } })
+    const cascade = (runLegacyReason, extra) => ({
+        legacyChanged: false,
+        runLegacyReason,
+        selection: selectionFixture({ snob: { status: 'ok' } }),
+        ...extra,
+    })
     const cases = [
         [cascade('non_isolated_product'), 'selected', '', 'untrusted'],
         [cascade('contract_cascade', { selection: requested }), 'selected', '', 'untrusted'],
@@ -197,6 +204,114 @@ test('only Dagster Python that still exists counts as a Dagster-only legacy edit
     ]
     for (const [changedFiles, expected] of cases) {
         assert.equal(isDagsterOnlyLegacyEdit(changedFiles, exists), expected, JSON.stringify(changedFiles))
+    }
+})
+
+test('a product cascade gets the lowest phase that covers every file it changed', () => {
+    const cases = [
+        ['non_isolated_product', ['products/tasks/backend/tests/test_api.py'], 1],
+        ['non_isolated_product', ['products/tasks/backend/tests/__snapshots__/test_api.ambr'], 1],
+        ['non_isolated_product', ['products/tasks/backend/test/fixtures/run.json'], 3],
+        ['non_isolated_product', ['products/tasks/backend/tests/test_api.py', 'products/warehouse_sources/backend/test/utils.py'], 3],
+        ['non_isolated_product', ['products/tasks/backend/tests/conftest.py'], 3],
+        ['non_isolated_product', ['products/tasks/backend/api_test.py'], 1],
+        ['non_isolated_product', ['products/logs/backend/test/test_logs.jsonnd', 'products/logs/backend/test/test_api.py'], 3],
+        ['contract_cascade', ['products/logs/backend/facade/contracts.py'], 2],
+        [
+            'non_isolated_product',
+            [
+                'products/tasks/backend/tests/test_models.py',
+                'products/tasks/backend/facade/api.py',
+                'products/tasks/frontend/Tasks.tsx',
+                'frontend/src/scenes/Home.tsx',
+                'products/tasks/backend/AGENTS.md',
+            ],
+            3,
+        ],
+        ['non_isolated_product', ['products/tasks/backend/tests/test_api.py', 'products/tasks/backend/facade/temporal_types.py'], 3],
+        ['contract_cascade', ['products/logs/backend/logic.py'], 2],
+        ['contract_cascade', ['products/logs/backend/migrations/0002_add_column.py'], 2],
+        ['non_isolated_product', ['products/tasks/backend/logic.py', 'products/tasks/backend/tests/test_logic.py'], 3],
+        ['non_isolated_product', ['products/tasks/backend/models.py'], null],
+        ['non_isolated_product', ['products/tasks/backend/models/task.py'], null],
+        ['non_isolated_product', ['products/tasks/backend/tests/test_api.py', 'products/tasks/backend/migrations/0042_x.py'], null],
+        ['non_isolated_product', ['products/tasks/backend/tests/test_api.py', 'tach.toml'], null],
+        ['contract_cascade', ['products/logs/backend/facade/api.py', 'packages/owners-yaml/owners_yaml/resolve.py'], null],
+        ['non_isolated_product', ['products/isolation_baseline.txt'], null],
+        ['non_isolated_product', ['products/tasks/frontend/Tasks.tsx'], 3],
+        ['schema', ['products/tasks/backend/tests/test_api.py'], null],
+        ['legacy_changed', ['products/tasks/backend/tests/test_api.py'], null],
+        ['non_isolated_product', undefined, null],
+    ]
+    for (const [reason, changedFiles, phase] of cases) {
+        assert.equal(productCascadePhase(reason, changedFiles), phase, `${reason} ${JSON.stringify(changedFiles)}`)
+    }
+})
+
+const cascadeSelection = (extra) => selectionFixture({ snob: { status: 'ok' }, ...extra })
+
+// A ready product-only PR: Django runs only because a product cascaded into it.
+const decideCascade = (overrides) =>
+    decideSelectionWithShadow({
+        applies: true,
+        disabled: false,
+        draft: false,
+        legacyChanged: false,
+        runLegacy: true,
+        runLegacyReason: 'non_isolated_product',
+        selection: cascadeSelection(),
+        ...overrides,
+    })
+
+test('only phase 1 product cascades select today, and the rest report a shadow selection', () => {
+    const noShadow = { shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
+    const shadowed = { mode: 'full', skip_reason: 'untrusted', shadow_mode: 'selected', shadow_skip_reason: '', shadow_selection_size: 1 }
+    const cases = [
+        [{ productCascadePhase: 1 }, { mode: 'selected', skip_reason: '', would_trust_phase: 1, ...noShadow }],
+        [
+            { productCascadePhase: 1, runLegacyReason: 'contract_cascade' },
+            { mode: 'selected', skip_reason: '', would_trust_phase: 1, ...noShadow },
+        ],
+        [
+            { productCascadePhase: 1, selection: cascadeSelection({ combined: { count: 0, products: [], segments: segments() } }) },
+            { mode: 'selected', skip_reason: '', core_files: '', would_trust_phase: 1, ...noShadow },
+        ],
+        [{ productCascadePhase: 2, runLegacyReason: 'contract_cascade' }, { ...shadowed, would_trust_phase: 2 }],
+        [{ productCascadePhase: 3 }, { ...shadowed, would_trust_phase: 3 }],
+        [
+            { productCascadePhase: 3, selection: cascadeSelection({ ast: { full_run_reasons: ['conftest.py'] } }) },
+            { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'full_run_requested', shadow_selection_size: null },
+        ],
+        [{ productCascadePhase: null }, { mode: 'full', skip_reason: 'untrusted', would_trust_phase: null, ...noShadow }],
+        [
+            { productCascadePhase: 1, runLegacyReason: 'schema' },
+            { mode: 'full', skip_reason: 'untrusted', would_trust_phase: 1, shadow_mode: 'full', shadow_skip_reason: 'untrusted' },
+        ],
+        [
+            { productCascadePhase: 1, selection: cascadeSelection({ ast: { full_run_reasons: ['products/tasks/backend/tests/conftest.py'] } }) },
+            { mode: 'full', skip_reason: 'full_run_requested', would_trust_phase: 1, ...noShadow },
+        ],
+        [{ productCascadePhase: 1, selection: null }, { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 1, ...noShadow }],
+        [
+            { productCascadePhase: 1, selection: cascadeSelection({ snob: { status: 'error' }, combined: { count: 0, products: [], segments: segments() } }) },
+            { mode: 'full', skip_reason: 'selector_error', would_trust_phase: 1, ...noShadow },
+        ],
+        [
+            { productCascadePhase: 3, selection: cascadeSelection({ snob: { status: 'error' } }) },
+            { ...shadowed, would_trust_phase: 3, shadow_mode: 'full', shadow_skip_reason: 'selector_error', shadow_selection_size: null },
+        ],
+        [{ productCascadePhase: 1, draft: true, selection: null }, { mode: 'skip', skip_reason: 'selector_error', ...noShadow }],
+        [{ productCascadePhase: 1, disabled: true }, { mode: 'full', skip_reason: 'disabled', ...noShadow }],
+        [
+            { productCascadePhase: 3, trustedProductCascadePhase: 3 },
+            { mode: 'selected', skip_reason: '', would_trust_phase: 3, ...noShadow },
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        const decision = decideCascade(overrides)
+        for (const [key, value] of Object.entries(expected)) {
+            assert.equal(decision[key], value, `${key} for ${JSON.stringify(overrides)}`)
+        }
     }
 })
 
