@@ -39,7 +39,7 @@ from products.replay.backend.temporal.export_recordings.activities import (
     MAX_SELECTED_SESSIONS,
     destination_error,
 )
-from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, load_quote
+from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, current_cost, load_quote
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportRecordingsInput
 from products.replay.backend.temporal.export_recordings.workflow import shard_name
 
@@ -118,6 +118,14 @@ class Command(BaseCommand):
         region = _required(options, "region")
         if region != quote.region:
             raise CommandError(f"The quote priced region {quote.region}, not {region}")
+        # Only full runs: a run of failed shards repeats part of a selection the customer already paid for.
+        if not options["shards"]:
+            cost = current_cost(quote)
+            if cost.total_usd > quote.cost.total_usd:
+                raise CommandError(
+                    f"The selection now costs ${cost.total_usd:,.2f}, more than the quoted ${quote.cost.total_usd:,.2f}. "
+                    "Create a new quote."
+                )
         integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]

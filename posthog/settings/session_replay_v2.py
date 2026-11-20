@@ -51,3 +51,6 @@ RECORDING_API_BLOCKS_JWT_SECRET = os.getenv(
 # Never reuse SECRET_KEY or JWT_SIGNING_KEY. No dev default, because a key in public source lets anyone mint tokens.
 # Empty means no token, so self-hosted installs never use the proxy.
 REPLAY_PROXY_JWT_SECRET = os.getenv("REPLAY_PROXY_JWT_SECRET", "")
+
+# The external-access role that recording exports assume before a customer's role. Customers trust it.
+RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN = os.getenv("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN", "")

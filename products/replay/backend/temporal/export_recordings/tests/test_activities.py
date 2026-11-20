@@ -1,4 +1,5 @@
 import json
+import asyncio
 import hashlib
 import contextlib
 import dataclasses
@@ -21,18 +22,21 @@ from posthog.test.persons import create_person
 
 from products.replay.backend.temporal.export_recordings import activities
 from products.replay.backend.temporal.export_recordings.activities import (
+    Block,
+    ByteBudget,
     CustomerBucket,
     SessionRow,
     destination_error,
     export_session,
     export_shard,
+    fetch_blocks_in_order,
     list_shard_sessions,
     load_session_metadata,
     policy_statements,
     quote_storage_key,
     write_summary,
 )
-from products.replay.backend.temporal.export_recordings.quote import measure_usage
+from products.replay.backend.temporal.export_recordings.quote import create_quote, current_cost, measure_usage
 from products.replay.backend.temporal.export_recordings.types import (
     ExportDestination,
     ExportShardInput,
@@ -357,6 +361,33 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             50,
         )
 
+    def test_a_session_ingested_after_the_quote_raises_the_current_cost(self) -> None:
+        day = self.day.date().isoformat()
+        quote = create_quote(
+            team_id=self.team.pk,
+            date_from=day,
+            date_to=day,
+            session_ids=None,
+            region="us-east-1",
+            cross_region=True,
+            max_parallel_shards=1,
+        )
+        assert current_cost(quote).total_usd == quote.cost.total_usd
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s6",
+            distinct_id="d-s6",
+            first_timestamp=self.day + timedelta(hours=1),
+            last_timestamp=self.day + timedelta(hours=1, seconds=30),
+            block_urls=["s3://replay-bucket/session_recordings/30d/1-00000000000000ff?range=bytes=0-999999999"],
+            block_first_timestamps=[self.day + timedelta(hours=1)],
+            block_last_timestamps=[self.day + timedelta(hours=1, seconds=30)],
+            ensure_analytics_event_in_session=False,
+        )
+
+        assert current_cost(quote).total_usd > quote.cost.total_usd
+
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
 
@@ -427,6 +458,45 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         quoted_at=(now - timedelta(days=2)).isoformat(),
     )
 
-    line = await export_session(MagicMock(), MagicMock(), input, session, [], None)
+    line = await export_session(MagicMock(), MagicMock(), ByteBudget(1), input, session, [], None)
 
     assert line.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
+    now = datetime.now(UTC)
+    blocks = [Block(key=f"k{i}", start_byte=0, end_byte=99) for i in range(4)]
+    sessions = [
+        SessionRow(
+            session_id=f"s{n}",
+            distinct_id="d",
+            start_time=now,
+            end_time=now,
+            blocks=blocks,
+            expiry_time=now + timedelta(days=1),
+        )
+        for n in range(2)
+    ]
+    in_flight = 0
+    peak = 0
+
+    async def fetch(*_: Any, **__: Any) -> bytes:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0)
+        in_flight -= 1
+        return b"x" * 100
+
+    client = MagicMock()
+    client.fetch_block = fetch
+    # Room for 3 blocks of 100 bytes across both sessions.
+    budget = ByteBudget(300)
+
+    async def drain(session: SessionRow) -> int:
+        return len([data async for data in fetch_blocks_in_order(client, session, 1, budget)])
+
+    assert await asyncio.gather(*(drain(s) for s in sessions)) == [4, 4]
+    assert peak <= 3
+    assert budget.used == 0

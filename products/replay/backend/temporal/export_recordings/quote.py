@@ -212,6 +212,16 @@ def create_quote(
     return quote
 
 
+def current_cost(quote: Quote) -> QuoteCost:
+    """Price the quote's selection as it stands now: late ingestion or data moving to Glacier IR raise it."""
+    session_ids = None
+    if quote.session_ids_key:
+        content = object_storage.read(quote.session_ids_key) or ""
+        session_ids = [line for line in content.splitlines() if line]
+    usage = measure_usage(quote.team_id, quote.date_from, quote.date_to, session_ids, datetime.now(UTC))
+    return price(usage, max_parallel_shards=quote.max_parallel_shards, cross_region=quote.cross_region)
+
+
 def load_quote(quote_id: str) -> Quote | None:
     content = object_storage.read(quote_storage_key(quote_id), missing_ok=True)
     return Quote.from_json(content) if content else None

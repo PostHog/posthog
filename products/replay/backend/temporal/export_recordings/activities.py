@@ -10,6 +10,8 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -71,6 +73,7 @@ MAX_SELECTED_SESSIONS = 100_000
 MAX_SELECTED_SESSION_BYTES = 4 * 1024 * 1024
 METADATA_BATCH_SIZE = 100
 VIEWPORT_ROW_LIMIT = 50000
+SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
 BUCKET_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
@@ -347,6 +350,8 @@ async def resolve_s3_credentials(team_id: int, destination: ExportDestination, r
         f"posthog-{team.organization_id}",
         session_name=f"PostHog-replay-export-{team_id}",
         policy_statements=policy_statements(destination, team_id, run_id, aws_role_arn),
+        # Recording exports have their own external-access role, separate from batch exports.
+        external_role_arn=settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
     )
     return RoleCredentials(
         credentials=await refresh_using(), refresh_using=refresh_using, owner_account_id=role_account_id(aws_role_arn)
@@ -503,25 +508,71 @@ async def fetch_block(client: RecordingApiClient, block: Block, session: Session
     return await fetch()
 
 
-async def fetch_blocks_in_order(client: RecordingApiClient, session: SessionRow, team_id: int) -> AsyncGenerator[bytes]:
-    """Yield the session's blocks in order, keeping up to BLOCK_CONCURRENCY fetches in flight."""
-    pending: collections.deque[asyncio.Task[bytes]] = collections.deque()
+class ByteBudget:
+    """Caps the block bytes a shard holds in memory, across all its sessions."""
+
+    def __init__(self, capacity: int) -> None:
+        self.capacity = capacity
+        self.used = 0
+        self.released = asyncio.Condition()
+
+    def try_take(self, size: int) -> bool:
+        # A block larger than the whole budget still goes through, alone.
+        if self.used > 0 and self.used + size > self.capacity:
+            return False
+        self.used += size
+        return True
+
+    async def take(self, size: int) -> None:
+        async with self.released:
+            await self.released.wait_for(lambda: self.try_take(size))
+
+    async def give_back(self, size: int) -> None:
+        async with self.released:
+            self.used -= size
+            self.released.notify_all()
+
+
+def block_size(block: Block) -> int:
+    return block.end_byte - block.start_byte + 1
+
+
+async def fetch_blocks_in_order(
+    client: RecordingApiClient, session: SessionRow, team_id: int, budget: ByteBudget
+) -> AsyncGenerator[bytes]:
+    """Yield the session's blocks in order, with up to BLOCK_CONCURRENCY fetches in flight within the byte budget."""
+    pending: collections.deque[tuple[asyncio.Task[bytes], int]] = collections.deque()
+
+    async def take_oldest() -> bytes:
+        task, size = pending.popleft()
+        try:
+            return await task
+        finally:
+            await budget.give_back(size)
+
     try:
         for block in session.blocks or []:
-            pending.append(asyncio.create_task(fetch_block(client, block, session, team_id)))
-            if len(pending) == BLOCK_CONCURRENCY:
-                yield await pending.popleft()
+            size = block_size(block)
+            # Drain this session's own queue before waiting, so sessions never wait on each other in a cycle.
+            while pending and (len(pending) == BLOCK_CONCURRENCY or not budget.try_take(size)):
+                yield await take_oldest()
+            if not pending:
+                await budget.take(size)
+            pending.append((asyncio.create_task(fetch_block(client, block, session, team_id)), size))
         while pending:
-            yield await pending.popleft()
+            yield await take_oldest()
     finally:
-        for task in pending:
+        for task, _ in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*(task for task, _ in pending), return_exceptions=True)
+        for _, size in pending:
+            await budget.give_back(size)
 
 
 async def export_session(
     recordings: RecordingApiClient,
     bucket: CustomerBucket,
+    budget: ByteBudget,
     input: ExportShardInput,
     session: SessionRow,
     viewports: list[dict[str, Any]],
@@ -559,7 +610,7 @@ async def export_session(
                 }
             )
         )
-        async with contextlib.aclosing(fetch_blocks_in_order(recordings, session, input.team_id)) as blocks:
+        async with contextlib.aclosing(fetch_blocks_in_order(recordings, session, input.team_id, budget)) as blocks:
             async for data in blocks:
                 await upload.write(frame_block(data))
         await upload.finish()
@@ -615,12 +666,13 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
                 customer_bucket(input.team_id, input.destination, input.run_id) as bucket,
             ):
                 semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
+                budget = ByteBudget(SHARD_BLOCK_BUFFER_BYTES)
 
                 async def export_one(
                     session: SessionRow, viewports: list[dict[str, Any]], person: dict | None
                 ) -> ManifestLine:
                     async with semaphore:
-                        return await export_session(recordings, bucket, input, session, viewports, person)
+                        return await export_session(recordings, bucket, budget, input, session, viewports, person)
 
                 prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
                 while True:
