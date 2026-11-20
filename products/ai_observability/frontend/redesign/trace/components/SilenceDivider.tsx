@@ -1,4 +1,4 @@
-import { formatSilence } from './turnTiming'
+import { formatSilence } from './turnGaps'
 
 export interface SilenceDividerProps {
     silenceMs: number

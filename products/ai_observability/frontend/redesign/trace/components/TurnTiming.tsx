@@ -5,7 +5,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { formatLatencyMs } from './formatStats'
-import { isSlowWait } from './turnTiming'
+import { isSlowWait } from './turnGaps'
 
 export interface TurnTimingProps {
     timestamp: string

@@ -47,6 +47,6 @@ describe('SessionListRow', () => {
     it('shows the failure mark for a failed title read', () => {
         renderRow({ title: { status: 'error' } })
 
-        expect(screen.getAllByRole('img', { name: /Couldn't load this/ }).length).toBeGreaterThan(0)
+        expect(screen.getAllByLabelText(/Couldn't load this/).length).toBeGreaterThan(0)
     })
 })

@@ -1,5 +1,5 @@
 import { ConversationTurn } from '../types'
-import { formatSilence, isSlowWait, silenceBefore } from './turnTiming'
+import { formatSilence, isSlowWait, silenceBefore } from './turnGaps'
 
 function turnAt(timestamp: string, waitMs: number | null): ConversationTurn {
     return {
@@ -12,7 +12,7 @@ function turnAt(timestamp: string, waitMs: number | null): ConversationTurn {
     }
 }
 
-describe('turnTiming', () => {
+describe('turnGaps', () => {
     test.each([
         [9_999, false],
         [10_000, true],

@@ -7,7 +7,7 @@ import { turnHasContent } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
 import { SilenceDivider } from './SilenceDivider'
 import { ThreadTurn } from './ThreadTurn'
-import { silenceBefore } from './turnTiming'
+import { silenceBefore } from './turnGaps'
 import { useSearchHighlight } from './useSearchHighlight'
 
 export interface ThreadProps {
