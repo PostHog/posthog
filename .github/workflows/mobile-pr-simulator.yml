@@ -97,7 +97,7 @@ jobs:
                   ARGENT_APP_DIR: ${{ github.workspace }}/products/mobile
               run: |
                   mkdir "$RUNNER_TEMP/build"
-                  curl --fail --silent --show-error \
+                  curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://raw.githubusercontent.com/PostHog/posthog/$GITHUB_SHA/products/mobile/scripts/ci-argent-build.sh" \
                       --output "$RUNNER_TEMP/ci-argent-build.sh"
                   bash "$RUNNER_TEMP/ci-argent-build.sh" "$RUNNER_TEMP/build" "$RUNNER_TEMP/build-logs"
@@ -106,7 +106,7 @@ jobs:
               env:
                   ARGENT_APP_DIR: ${{ github.workspace }}/products/mobile
               run: |
-                  curl --fail --silent --show-error \
+                  curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://raw.githubusercontent.com/PostHog/posthog/$GITHUB_SHA/products/mobile/scripts/ci-argent.sh" \
                       --output "$RUNNER_TEMP/ci-argent.sh"
                   bash "$RUNNER_TEMP/ci-argent.sh" \
