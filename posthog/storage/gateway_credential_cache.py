@@ -19,9 +19,11 @@ cold Redis.
 """
 
 import os
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from itertools import chain
 from typing import Any
 
 from django.conf import settings
@@ -278,11 +280,15 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
     return memo.access(team_id, user.id, _load_access) if memo else _load_access()
 
 
-def _policy_for_credential(
-    credential: Credential,
-    memo: "_RefreshMemo | None" = None,
-    *,
-    organization_deactivated: bool | None = None,
+def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
+    team = _team_for_credential(credential, None)
+    if team is None:
+        return HyperCacheStoreMissing()
+    return _policy_for_team(credential, team, None, _organization_deactivated(team.id))
+
+
+def _policy_for_team(
+    credential: Credential, team: Team, memo: "_RefreshMemo | None", organization_deactivated: bool
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
@@ -291,16 +297,7 @@ def _policy_for_credential(
     OAuth — the user/expiry/scope/membership/RBAC checks. A project secret key has no user, so
     scope + resolvable-team + team-has-token is sufficient.
     """
-    if not credential_has_gateway_scope(credential):
-        return HyperCacheStoreMissing()
-
-    team = _team_for_credential(credential, memo)
-    if team is None:
-        return HyperCacheStoreMissing()
-
-    if organization_deactivated is None:
-        organization_deactivated = _organization_deactivated(team.id)
-    if organization_deactivated:
+    if organization_deactivated or not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
 
     project_token = team.api_token
@@ -413,9 +410,9 @@ def _clear_unverified_gateway_credential(cache_hash: str) -> None:
 
 
 def _write_or_clear_gateway_credential(
-    credential: Credential, cache_hash: str, memo: "_RefreshMemo | None", organization_deactivated: bool
+    credential: Credential, cache_hash: str, memo: "_RefreshMemo | None", team: Team, organization_deactivated: bool
 ) -> bool:
-    policy = _policy_for_credential(credential, memo, organization_deactivated=organization_deactivated)
+    policy = _policy_for_team(credential, team, memo, organization_deactivated)
     if isinstance(policy, HyperCacheStoreMissing):
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return False
@@ -442,16 +439,16 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
         return
 
     team = _team_for_credential(credential, memo)
-
-    def deactivated_now() -> bool:
-        return team is not None and _organization_deactivated(team.id)
+    if team is None:
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        return
 
     unverified_write = False
     try:
         for _ in range(_MAX_PROJECTION_PASSES):
-            deactivated = deactivated_now()
-            unverified_write = _write_or_clear_gateway_credential(credential, cache_hash, memo, deactivated)
-            if deactivated_now() == deactivated:
+            deactivated = _organization_deactivated(team.id)
+            unverified_write = _write_or_clear_gateway_credential(credential, cache_hash, memo, team, deactivated)
+            if _organization_deactivated(team.id) == deactivated:
                 return
         raise RuntimeError("Organization state did not settle during gateway credential projection")
     except Exception:
@@ -520,8 +517,8 @@ def refresh_all_gateway_credentials() -> int:
     return count
 
 
-def reproject_organization_gateway_credentials(organization_id: str) -> None:
-    querysets = (
+def reproject_organization_gateway_credentials(organization_id: str, deadline: float | None = None) -> None:
+    credentials: Iterable[Credential] = chain(
         ProjectSecretAPIKey.objects.using("default")
         .select_related("team")
         .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
@@ -532,18 +529,19 @@ def reproject_organization_gateway_credentials(organization_id: str) -> None:
     )
     first_error: Exception | None = None
     infra_failures_in_a_row = 0
-    for queryset in querysets:
-        for credential in queryset:
-            try:
-                project_gateway_credential(credential)
-            except Exception as e:
-                first_error = first_error or e
-                if isinstance(e, _REFRESH_INFRA_ERRORS):
-                    infra_failures_in_a_row += 1
-                    if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
-                        raise
-                continue
-            infra_failures_in_a_row = 0
+    for credential in credentials:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        try:
+            project_gateway_credential(credential)
+        except Exception as e:
+            first_error = first_error or e
+            if isinstance(e, _REFRESH_INFRA_ERRORS):
+                infra_failures_in_a_row += 1
+                if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+                    raise
+            continue
+        infra_failures_in_a_row = 0
     if first_error is not None:
         raise first_error
 
