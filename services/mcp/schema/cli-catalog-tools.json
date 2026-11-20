@@ -27968,6 +27968,11 @@
                     "csv": false
                 },
                 {
+                    "param": "connected",
+                    "key": "connected",
+                    "csv": false
+                },
+                {
                     "param": "count_only",
                     "key": "count_only",
                     "csv": false
@@ -28172,6 +28177,7 @@
                     "personal_tier",
                     "personal_reason",
                     "monitoring_started_at",
+                    "monitoring_ended_at",
                     "monitoring_summary.state",
                     "monitoring_summary.started_at",
                     "monitoring_summary.ends_at",
@@ -28180,6 +28186,8 @@
                     "monitoring_summary.lead_check.comparison",
                     "monitoring_summary.lead_check.baseline_value",
                     "monitoring_summary.lead_check.next_measurement_at",
+                    "monitoring_summary.checks",
+                    "monitoring_outcome",
                     "created_at",
                     "updated_at"
                 ],
@@ -38882,6 +38890,47 @@
             "validators": []
         }
     },
+    "organization-create": {
+        "name": "organization-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/organizations/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "pick",
+                "fields": ["id", "name", "slug", "teams.*.id", "teams.*.name", "teams.*.project_id"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "organization-events-retention-deletion-count": {
         "name": "organization-events-retention-deletion-count",
         "kind": "http",
@@ -40124,6 +40173,10 @@
                 {
                     "param": "api_key",
                     "key": "api_key"
+                },
+                {
+                    "param": "settings",
+                    "key": "settings"
                 }
             ],
             "injectBody": {},
@@ -44211,6 +44264,11 @@
                     "csv": false
                 },
                 {
+                    "param": "include_revisions",
+                    "key": "include_revisions",
+                    "csv": false
+                },
+                {
                     "param": "key",
                     "key": "key",
                     "csv": false
@@ -46217,6 +46275,11 @@
                 {
                     "param": "include_expired",
                     "key": "include_expired",
+                    "csv": false
+                },
+                {
+                    "param": "include_revisions",
+                    "key": "include_revisions",
                     "csv": false
                 },
                 {
@@ -56894,6 +56957,44 @@
             "validators": []
         }
     },
+    "workflows-enable": {
+        "name": "workflows-enable",
+        "kind": "http",
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
+        "uiApp": "workflow",
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/hog_flows/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [],
+            "injectBody": {
+                "status": "active"
+            },
+            "softDelete": null,
+            "transformBody": true
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "omit",
+                "fields": ["actions.*.config.inputs", "draft.actions.*.config.inputs"],
+                "expandable": []
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "workflows-get": {
         "name": "workflows-get",
         "kind": "http",
@@ -57696,8 +57797,8 @@
     "workflows-publish": {
         "name": "workflows-publish",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -57713,11 +57814,15 @@
                 {
                     "param": "confirm_token",
                     "key": "confirm_token"
+                },
+                {
+                    "param": "sandbox_sender_warned",
+                    "key": "sandbox_sender_warned"
                 }
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
@@ -57728,7 +57833,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": null,
+            "agentNote": "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
             "informational": null,
             "textInclude": []
         },

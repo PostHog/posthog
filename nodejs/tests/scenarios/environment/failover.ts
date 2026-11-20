@@ -27,6 +27,7 @@ export type FailoverActuation = {
     observed(signal?: AbortSignal): Promise<boolean>
     release(): Promise<void>
     journal(): FailoverJournal
+    refused(): boolean
 }
 
 export type FailoverOptions = {
@@ -360,6 +361,8 @@ export async function failOver({
                 }
             })()),
 
+        refused: () => answered?.refused !== undefined,
+
         journal: () => ({
             ...journal,
             ...(journal.observations ? { observations: [...journal.observations] } : {}),
@@ -371,6 +374,8 @@ export async function failOver({
         const idleMax =
             manifest.readerIdleMaxAcu ??
             refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
+        const floor =
+            manifest.readerMinAcu ?? refuse(`the run manifest names no minimum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
@@ -407,7 +412,7 @@ export async function failOver({
                 from,
                 to: until,
                 periodMs: MINUTE_MS,
-                floor: 0,
+                floor,
                 subject: () => `${reader}'s capacity read`,
             }).acu.map(({ at, value }) => ({ at, max: value }))
         } catch (error) {

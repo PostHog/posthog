@@ -633,7 +633,12 @@ tools:
             `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows
             outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as
             `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in
-            inbox-report-checks-list.
+            inbox-report-checks-list. `monitoring_summary.checks` gives every check's state at a glance.
+
+            `view=monitoring_recent` also lists the resolved and closed reports whose Monitoring ended in the last 14
+            days. Each of those has `monitoring_ended_at` and a `monitoring_outcome` that says how it ended and, for a
+            closed report, the follow-up report researching why. To list only the reports tied to the user, pass
+            `connected=assigned,suggested_reviewer`.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -684,6 +689,7 @@ tools:
                 - personal_tier
                 - personal_reason
                 - monitoring_started_at
+                - monitoring_ended_at
                 - monitoring_summary.state
                 - monitoring_summary.started_at
                 - monitoring_summary.ends_at
@@ -692,6 +698,8 @@ tools:
                 - monitoring_summary.lead_check.comparison
                 - monitoring_summary.lead_check.baseline_value
                 - monitoring_summary.lead_check.next_measurement_at
+                - monitoring_summary.checks
+                - monitoring_outcome
                 - created_at
                 - updated_at
     inbox-reports-merge:
@@ -1792,7 +1800,8 @@ tools:
             write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call
             returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before
             you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an
-            entry.
+            entry. The version a write replaces is kept for two weeks: read it with `scout-scratchpad-search` passing
+            `key` and `include_revisions=true`, and restore it by remembering its content.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
@@ -1857,7 +1866,7 @@ tools:
             - signal_scout:write
             - llm_skill:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Read one private scout run's output

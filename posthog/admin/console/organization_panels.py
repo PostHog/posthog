@@ -10,7 +10,6 @@ import structlog
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.models.organization import Organization
 
 from ee.billing.quota_limiting import QuotaResource
@@ -25,7 +24,7 @@ class OrganizationOverviewPanel(Panel):
     record = "organization"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -51,7 +50,7 @@ class OrganizationTeamsPanel(Panel):
     record = "organization"
     key = "teams"
     title = "Teams"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
