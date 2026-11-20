@@ -533,7 +533,7 @@ def wizard_product_node(program: object, policy: WizardGatewayPolicy) -> str | N
 
 WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
-    "Wizard gateway token mints, by outcome (ok/refused/unreachable/malformed)",
+    "Wizard gateway token mints, by outcome (ok/refused/unreachable/malformed/uncapped)",
     labelnames=["outcome"],
 )
 
@@ -651,12 +651,17 @@ def mint_wizard_gateway_token(
     if not isinstance(minted, dict) or not minted.get("token") or not minted.get("expires_at"):
         WIZARD_GATEWAY_MINTS.labels(outcome="malformed").inc()
         raise WizardGatewayMintError("mint response missing token or expires_at")
-    WIZARD_GATEWAY_MINTS.labels(outcome="ok").inc()
-    if not minted.get("decision_cap_usd"):
-        # The gateway echoes a decision cap it stored, so no echo means it predates the field.
+    if not _stored_decision_cap(minted.get("decision_cap_usd"), decision_cap):
+        # The gateway echoes a decision cap it stored, so anything else means it predates the field.
         logger.warning(
             "wizard_gateway_token: the gateway did not store the decision cap", decision_cap_usd=decision_cap
         )
+        if policy.prompt is None:
+            # With no prompt either, the gateway would serve this token's decisions
+            # against the run's whole cap, so the bearer is not released.
+            WIZARD_GATEWAY_MINTS.labels(outcome="uncapped").inc()
+            raise WizardGatewayMintError("gateway did not store the decision cap")
+    WIZARD_GATEWAY_MINTS.labels(outcome="ok").inc()
     return {
         "token": minted["token"],
         "expires_at": minted["expires_at"],
@@ -703,6 +708,13 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
             WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="flat_cap_usd").inc()
             cap = _DEFAULT_CAP_USD
     return f"{cap.quantize(_CAP_QUANTUM):f}"
+
+
+def _stored_decision_cap(echoed: object, sent: str) -> bool:
+    """Whether the mint response shows the gateway stored a decision cap no
+    higher than the one sent."""
+    stored = _parse_cap(echoed)
+    return stored is not None and stored <= Decimal(sent)
 
 
 def _decision_cap_usd(cap_usd: str) -> str:

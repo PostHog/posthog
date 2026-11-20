@@ -170,7 +170,7 @@ class TestWizardMintRequest:
 
     @pytest.mark.parametrize("configured", ["0.3", "0"])
     def test_a_token_with_no_prompt_still_carries_a_decision_cap(self, configured):
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "decision_cap_usd": "0.000001"}
         unpinned = dataclasses.replace(POLICY, prompt=None)
         with (
             override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
@@ -180,6 +180,38 @@ class TestWizardMintRequest:
         sent = post.call_args.kwargs["json"]
         assert "system_prompt" not in sent
         assert Decimal(sent["decision_cap_usd"]) > 0
+
+    @pytest.mark.parametrize(
+        "echoed",
+        [
+            # A gateway that predates the field echoes nothing.
+            None,
+            # Not a cap, and one above what was sent, are not the cap that was asked for.
+            "a quarter",
+            "0.31",
+        ],
+    )
+    def test_a_token_with_no_prompt_is_not_released_without_its_decision_cap(self, echoed):
+        # With neither a prompt nor a decision cap the gateway serves the token's
+        # decisions against the run's whole cap, so the mint fails and keeps its slot.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        if echoed is not None:
+            minted["decision_cap_usd"] = echoed
+        unpinned = dataclasses.replace(POLICY, prompt=None)
+        with (
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)),
+            pytest.raises(WizardGatewayMintError) as refused,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+        assert refused.value.token_may_exist is True
+        assert "phe_x" not in str(refused.value)
+
+    def test_a_token_with_a_prompt_is_released_without_its_decision_cap(self):
+        # Every gateway refuses a prompt-carrying token's decisions when it has no
+        # decision cap, so this token is safe to hand over.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)):
+            assert mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)["token"] == "phe_x"
 
     @pytest.mark.parametrize(
         "configured,echoed,warns",
@@ -796,7 +828,8 @@ class TestWizardGatewayPolicy:
         unpinned = WizardGatewayPolicy(
             models=POLICY.models, efforts=POLICY.efforts, programs=POLICY.programs, prompt=None
         )
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        # An unpinned token is released only with the decision cap the gateway stored.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "decision_cap_usd": "0.3"}
         with (
             override_settings(**MINT_SETTINGS),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
