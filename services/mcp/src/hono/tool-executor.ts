@@ -240,7 +240,7 @@ export class ToolExecutor {
             if (toolName === EXEC_READ_TOOL_NAME) {
                 return this.instructionsBuilder.buildExecReadToolEntry(state)
             }
-            if (toolName === EXEC_WRITE_TOOL_NAME && state.splitWrites) {
+            if (toolName === EXEC_WRITE_TOOL_NAME) {
                 return this.instructionsBuilder.buildExecWriteToolEntry()
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
