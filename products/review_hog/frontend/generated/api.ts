@@ -332,7 +332,7 @@ export const getCodeReviewRepositoriesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews or its Deep reviews of pull requests that need a person on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews or Deep reviews on. Everything else needs a project admin.
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews, push reviews or Deep reviews of pull requests that need a person on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft, push or Deep reviews on. Everything else needs a project admin.
  * @summary Save a repository's settings
  */
 export const codeReviewRepositoriesCreate = async (

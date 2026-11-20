@@ -303,6 +303,7 @@ class ProjectRepositories:
         new_selected: bool,
         new_flash_for: str | None,
         new_review_drafts: bool,
+        new_review_pushes: bool,
         new_deep_review_gated_prs: bool,
     ) -> None:
         """Refuse a write that turns the repository's reviews down or reaches past this project."""
@@ -311,6 +312,7 @@ class ProjectRepositories:
         old_selected = row is not None and row.selected
         old_flash_for = row.flash_for if row is not None else None
         old_review_drafts = row is not None and row.review_drafts
+        old_review_pushes = row is not None and row.review_pushes
         old_deep_review_gated_prs = row is not None and row.deep_review_gated_prs
         if new_selected != old_selected:
             if not new_selected:
@@ -331,24 +333,31 @@ class ProjectRepositories:
                 )
         if old_review_drafts and not new_review_drafts:
             raise AdminOnlyChangeError("Only project admins can turn off draft reviews.")
+        if old_review_pushes and not new_review_pushes:
+            raise AdminOnlyChangeError("Only project admins can turn off push reviews.")
         if old_deep_review_gated_prs and not new_deep_review_gated_prs:
             raise AdminOnlyChangeError(
-                "Only project admins can turn off Deep reviews for pull requests that need a person."
+                "Only project admins can turn off Deep reviews of large or sensitive pull requests."
             )
 
     @staticmethod
     def _check_settings_need_project(
-        flash_for: str | None | Unset, review_drafts: bool | None, deep_review_gated_prs: bool | None
+        flash_for: str | None | Unset,
+        review_drafts: bool | None,
+        review_pushes: bool | None,
+        deep_review_gated_prs: bool | None,
     ) -> None:
         """Refuse an exception or a switch turned on for a repository that is not in the project."""
         if isinstance(flash_for, str):
             raise RepositorySettingsError("Include the repository in this project before you add an exception.")
         if review_drafts:
             raise RepositorySettingsError("Include the repository in this project before you turn on draft reviews.")
+        if review_pushes:
+            raise RepositorySettingsError("Include the repository in this project before you turn on push reviews.")
         if deep_review_gated_prs:
             raise RepositorySettingsError(
-                "Include the repository in this project before you turn on Deep reviews for pull requests "
-                "that need a person."
+                "Include the repository in this project before you turn on Deep reviews of large or sensitive "
+                "pull requests."
             )
 
     def save_repository(
@@ -358,11 +367,12 @@ class ProjectRepositories:
         selected: bool | None = None,
         flash_for: str | None | Unset = UNSET,
         review_drafts: bool | None = None,
+        review_pushes: bool | None = None,
         deep_review_gated_prs: bool | None = None,
         raise_only: bool = False,
     ) -> RepositoryWriteResult:
-        """Include or remove a repository, set or clear its exception, or turn its draft reviews or its Deep
-        reviews of pull requests that need a person on or off.
+        """Include or remove a repository, set or clear its exception, or turn its draft reviews, push reviews or
+        Deep reviews of pull requests that need a person on or off.
 
         Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
         """
@@ -389,18 +399,32 @@ class ProjectRepositories:
                 if deep_review_gated_prs is not None
                 else row is not None and row.deep_review_gated_prs
             )
+            new_review_pushes = review_pushes if review_pushes is not None else row is not None and row.review_pushes
             if raise_only:
                 self._check_raise_only(
-                    ref, row, claim, new_selected, new_flash_for, new_review_drafts, new_deep_review_gated_prs
+                    ref,
+                    row,
+                    claim,
+                    new_selected,
+                    new_flash_for,
+                    new_review_drafts,
+                    new_review_pushes,
+                    new_deep_review_gated_prs,
                 )
 
             if not new_selected and not takes_all:
-                self._check_settings_need_project(flash_for, review_drafts, deep_review_gated_prs)
-                # The repository leaves the project, so its exception and its switches go too.
+                self._check_settings_need_project(flash_for, review_drafts, review_pushes, deep_review_gated_prs)
                 new_flash_for = None
                 new_review_drafts = False
+                new_review_pushes = False
                 new_deep_review_gated_prs = False
-            if not new_selected and new_flash_for is None and not new_review_drafts and not new_deep_review_gated_prs:
+            if (
+                not new_selected
+                and new_flash_for is None
+                and not new_review_drafts
+                and not new_review_pushes
+                and not new_deep_review_gated_prs
+            ):
                 if row is not None:
                     row.delete()
                 return RepositoryWriteResult(repository=None, taken_from=None)
@@ -432,6 +456,7 @@ class ProjectRepositories:
             row.flash_for = new_flash_for
             row.review_drafts = new_review_drafts
             row.deep_review_gated_prs = new_deep_review_gated_prs
+            row.review_pushes = new_review_pushes
             try:
                 with transaction.atomic():
                     row.save()
@@ -584,12 +609,14 @@ class RepositoryOverview:
         has_exception = entry.repository is not None and entry.repository.flash_for is not None
         reviews_drafts = entry.repository is not None and entry.repository.review_drafts
         deep_reviews_gated_prs = entry.repository is not None and entry.repository.deep_review_gated_prs
+        reviews_pushes = entry.repository is not None and entry.repository.review_pushes
         return (
             entry.owner == RepositoryOwnerKind.THIS_PROJECT
             and entry.in_project
             and not has_exception
             and not reviews_drafts
             and not deep_reviews_gated_prs
+            and not reviews_pushes
             and entry.my_choice is None
         )
 

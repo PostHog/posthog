@@ -383,6 +383,21 @@ def has_reviewable_repo_config(team_id: int) -> bool:
     )
 
 
+def reviewable_repositories(team_id: int) -> frozenset[str]:
+    """Lowercased names of the repositories with a config that hosted reviews can run on, as in `has_reviewable_repo_config`.
+
+    The Code review scene shows a repository's Deep review switch only for these, because the switch reads the
+    repository's approval rules.
+    """
+    names = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(provider="github", enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .values_list("repository", flat=True)
+    )
+    return frozenset(name.lower() for name in names)
+
+
 def check_approval_gates(
     *, team_id: int, repository: str, pr_number: int, head_sha: str
 ) -> contracts.ApprovalGateCheck | None:

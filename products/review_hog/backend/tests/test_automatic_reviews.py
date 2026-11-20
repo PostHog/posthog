@@ -38,6 +38,7 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
 from products.review_hog.backend.receivers import queue_stamphog_handoff
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
@@ -409,6 +410,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped", True),
             ("missing_installation", "installation_mismatch", True),
             ("full_review_published", "full_review_published", True),
+            ("automatically_reviewed", "follow_up_skipped", False),
+            ("ready_event_after_a_ready_review", "follow_up_skipped", True),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),
@@ -431,6 +434,10 @@ class TestAuthoredPRReviewTask(BaseTest):
         queued = self._queued_event(
             draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
             labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
+            action={
+                "automatically_reviewed": "synchronize",
+                "ready_event_after_a_ready_review": "ready_for_review",
+            }.get(change, "opened"),
         )
         if change == "draft_with_drafts_off":
             self.repository.review_drafts = True
@@ -457,6 +464,16 @@ class TestAuthoredPRReviewTask(BaseTest):
                 head_branch="feature",
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
+            )
+        elif change in ("automatically_reviewed", "ready_event_after_a_ready_review"):
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="PostHog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                automatic_reviewed_head_sha="earlier-head",
+                automatic_reviewed_draft=False,
             )
         elif change == "unmapped":
             self.github_identity.delete()
@@ -522,6 +539,8 @@ class TestAuthoredPRReviewTask(BaseTest):
     ) -> None:
         self.repository.deep_review_gated_prs = setup != "switch_off"
         self.repository.review_drafts = setup == "draft"
+        # A head with its automatic review reaches the depth choice only when the cadence reviews pushes.
+        self.repository.review_pushes = setup == "head_already_reviewed"
         self.repository.save()
         queued = QueuedReviewModes()
         if setup == "head_already_reviewed":
@@ -581,6 +600,51 @@ class TestAuthoredPRReviewTask(BaseTest):
         # A Deep turn starts no silent stamphog review, so stamphog routes the ready head now instead of after the turn.
         reported = [call(team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA)]
         assert report_to_stamphog.call_args_list == (reported if expected_mode == "full" else [])
+
+    @parameterized.expand(
+        [
+            ("push_in_a_repository_that_reviews_pushes", "synchronize", True),
+            ("ready_event_after_a_draft_review", "ready_for_review", False),
+        ]
+    )
+    @patch(_QUEUE_ROUTING)
+    @patch(_START)
+    def test_follow_up_events_start_a_turn_when_the_cadence_has_one(
+        self, _name: str, action: str, review_pushes: bool, start: MagicMock, report: MagicMock
+    ) -> None:
+        self.repository.review_pushes = review_pushes
+        self.repository.save()
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            automatic_reviewed_head_sha="earlier-head",
+            automatic_reviewed_draft=True,
+        )
+        started_before = _dispatch_count("started")
+
+        process_authored_pr_event.run(**self._queued_event(action=action))
+
+        assert start.call_args.kwargs["trigger_action"] == action
+        assert _dispatch_count("started") - started_before == 1.0
+
+    @parameterized.expand(
+        [
+            ("by_installation", _INSTALLATION_ID, ReviewCadence(review_drafts=False, review_pushes=False)),
+            ("by_name_only", None, None),
+        ]
+    )
+    def test_the_cadence_lookup_finds_the_repository_by_installation_when_the_account_name_is_a_placeholder(
+        self, _name: str, installation_id: str | None, expected: ReviewCadence | None
+    ) -> None:
+        self.integration.config = {"installation_id": _INSTALLATION_ID, "account": {"name": "placeholder"}}
+        self.integration.save(update_fields=["config"])
+
+        cadence = ReviewCadence.load(self.team.id, "PostHog/posthog", installation_id=installation_id)
+
+        assert cadence == expected
 
     @parameterized.expand(
         [

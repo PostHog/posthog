@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -22,6 +23,8 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         exception: null,
         review_drafts: false,
         deep_review_gated_prs: false,
+        auto_approval: false,
+        review_pushes: false,
         my_choice: null,
         my_choice_id: null,
         my_result: { flash: true, reason: 'project_everyone' },
@@ -201,6 +204,30 @@ describe('reviewHogRepositoriesLogic', () => {
             'loadOverviewSuccess',
         ])
         expect(overviewCalls).toBe(callsBefore + 1)
+    })
+
+    it.each([
+        {
+            name: 'turning draft reviews on also sends the drafts event',
+            reviews: { review_drafts: true, review_pushes: false },
+            expected: [
+                ['review hog repository reviews changed', { review_drafts: true, review_pushes: false }],
+                ['review hog repository drafts changed', { review_drafts: true }],
+            ],
+        },
+        {
+            name: 'turning push reviews on sends only the reviews event',
+            reviews: { review_drafts: false, review_pushes: true },
+            expected: [['review hog repository reviews changed', { review_drafts: false, review_pushes: true }]],
+        },
+    ])('reviews setting events: $name', async ({ reviews, expected }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
+
+        await expectLogic(logic, () => logic.actions.setRepositoryReviews(entry({}), reviews)).toFinishAllListeners()
+
+        expect(capture.mock.calls.filter(([event]) => event.startsWith('review hog repository'))).toEqual(expected)
+        capture.mockRestore()
     })
 
     it('goes back to the last page with rows when a write empties the current one', async () => {

@@ -140,13 +140,21 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         allow_null=True, help_text="This project's repository exception. Null when the repository follows the project."
     )
     review_drafts = serializers.BooleanField(
-        help_text="Whether draft pull requests in this repository get their automatic review when they open. "
-        "Authors who turned off reviews of their drafts still get none."
+        help_text="Whether draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready. Authors who turned off reviews of their drafts still get none."
+    )
+    review_pushes = serializers.BooleanField(
+        help_text="Whether later pushes to a ready pull request in this repository get automatic reviews, as the "
+        "push gate allows."
     )
     deep_review_gated_prs = serializers.BooleanField(
         help_text="Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person "
         "gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also "
         "added to auto-approval."
+    )
+    auto_approval = serializers.BooleanField(
+        help_text="Whether auto-approval reviews this repository in this project. Only then can its size, "
+        "restricted-path and tier rules make an automatic review a Deep review."
     )
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
@@ -218,7 +226,9 @@ def _entry_data(entry: ReviewRepositoryOverviewEntry) -> dict[str, Any]:
         "repository_id": entry.repository_id,
         "exception": exception,
         "review_drafts": entry.review_drafts,
+        "review_pushes": entry.review_pushes,
         "deep_review_gated_prs": entry.deep_review_gated_prs,
+        "auto_approval": entry.auto_approval,
         "my_choice": entry.my_choice,
         "my_choice_id": entry.my_choice_id,
         "my_result": decision_data(entry.my_result),

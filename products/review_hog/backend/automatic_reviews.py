@@ -13,6 +13,7 @@ from products.review_hog.backend.automatic_review_rules import AutomaticReviewRe
 from products.review_hog.backend.models import ReviewReport, ReviewRepository, ReviewUserSettings
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.review_request_rules import full_review_published
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.progress import turn_recorded_in_mode
@@ -29,6 +30,7 @@ AuthoredPRReviewOutcome = Literal[
     "bot_no_connector",
     "not_opted_in",
     "full_review_published",
+    "follow_up_skipped",
     "draft_skipped",
     "label_skipped",
     "started",
@@ -167,11 +169,11 @@ class AutomaticDispatch:
 def drafts_reviewed(team_id: int, row: ReviewRepository | None, *, author_user_id: int | None) -> bool:
     """Whether a draft gets its automatic review: the repository turned draft reviews on, and the author did not
     turn them off for their own pull requests. A bot or an unmapped author follows the repository."""
-    if row is None or not row.review_drafts:
+    cadence = ReviewCadence.of(row)
+    if not cadence.review_drafts:
         return False
-    if author_user_id is None:
-        return True
-    return ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+    author_allows = author_user_id is None or ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+    return cadence.reviews_opening_draft(author_allows=author_allows)
 
 
 def plan_automatic_review(
@@ -300,6 +302,15 @@ class AuthoredPRReview:
         if full_review_published(report):
             observe_dispatch("full_review_published")
             return AutomaticDispatch(outcome="full_review_published", team_id=dispatch.team_id)
+        # The push gate judges a turn queued while the first review runs, so it checks the cadence again.
+        cadence = ReviewCadence.of(owner.row if owner is not None else None)
+        if (
+            report is not None
+            and report.automatic_reviewed_head_sha is not None
+            and not cadence.dispatches_follow_up(self.action, reviewed_draft=report.automatic_reviewed_draft)
+        ):
+            observe_dispatch("follow_up_skipped")
+            return AutomaticDispatch(outcome="follow_up_skipped", team_id=dispatch.team_id)
         mode = choose_automatic_review_mode(
             team_id=dispatch.team_id,
             repository=self.repository,
