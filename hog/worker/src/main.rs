@@ -21,8 +21,9 @@
 //   native_candidates  {"files":[{"candidates":[{"id",...} | {"problem"}]} | {"unparseable"}]}
 //   dsym_slices        {"members":[{"slices":[{"id","uuid"}]} | {"unreadable"}]}
 //   source_paths       {"sources":[{"paths":["..."]} | {"failed"}]}
-//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...} | null]},
-//                      null for a native file that a dSYM which fits replaces
+//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...} | {"failed"}
+//                      | null]}, failed for every slice of a dSYM bundle that failed, and null for a
+//                      native file that a dSYM which fits replaces
 // Each architecture of a fat Mach-O is a binary with an id of its own. `pack_native` reads each
 // list in `sources` once and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
@@ -33,6 +34,7 @@
 mod cleanup;
 mod constant;
 mod dsym;
+mod guard;
 mod hermes;
 mod memory;
 mod native;
@@ -50,7 +52,7 @@ mod write;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
@@ -163,7 +165,15 @@ struct PackItem {
     // A place in the request's `sources`. Null packs the binary alone.
     sources: Option<usize>,
     chunk_id: String,
-    dsym: bool,
+    // The dSYM bundle a slice comes from, a place hog numbers. Null for a native file.
+    bundle: Option<usize>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Packed {
+    Container(upload::Container),
+    Failed { failed: String },
 }
 
 #[derive(Deserialize)]
@@ -241,7 +251,7 @@ enum Answer {
     },
     Packed {
         unreadable: Vec<Vec<sources::Unreadable>>,
-        containers: Vec<Option<upload::Container>>,
+        containers: Vec<Option<Packed>>,
     },
     Done {},
 }
@@ -853,7 +863,7 @@ impl Worker {
     fn native_candidates(&mut self, paths: &[String]) -> Answer {
         let parsed: Vec<Result<Vec<native::Candidate>, String>> = paths
             .par_iter()
-            .map(|path| native::candidates(Path::new(path)))
+            .map(|path| guard::guarded(|| native::candidates(Path::new(path))))
             .collect();
         self.trace.mark("native candidates");
 
@@ -887,7 +897,7 @@ impl Worker {
     fn dsym_slices(&mut self, paths: &[String]) -> Answer {
         let read: Vec<Result<Vec<dsym::Slice>, String>> = paths
             .par_iter()
-            .map(|path| dsym::slices(Path::new(path)))
+            .map(|path| guard::guarded(|| dsym::slices(Path::new(path))))
             .collect();
         self.trace.mark("dsym slices");
 
@@ -917,11 +927,12 @@ impl Worker {
 
         let sources = binaries
             .par_iter()
-            .map(|binary| match binary.source_paths() {
-                Ok(paths) => SourcePathsAnswer::Found { paths },
-                Err(error) => SourcePathsAnswer::Failed {
-                    failed: format!("{error:#}"),
-                },
+            .map(|binary| {
+                match guard::guarded(|| binary.source_paths().map_err(|error| format!("{error:#}")))
+                {
+                    Ok(paths) => SourcePathsAnswer::Found { paths },
+                    Err(failed) => SourcePathsAnswer::Failed { failed },
+                }
             })
             .collect();
         self.trace.mark("source paths");
@@ -949,6 +960,8 @@ impl Worker {
         }
         let ids: Vec<usize> = items.iter().map(|item| item.id).collect();
         let binaries = self.binaries.take_all(&ids)?;
+        // A binary hog left out, such as the smaller of two with one debug ID, is never packed.
+        self.binaries.release_all();
 
         let (collected, unreadable): (Vec<_>, Vec<_>) = sources
             .par_iter()
@@ -962,35 +975,60 @@ impl Worker {
         };
         let dsym_ids: HashSet<&str> = items
             .iter()
-            .filter(|item| item.dsym)
+            .filter(|item| item.bundle.is_some())
             .map(|item| item.chunk_id.as_str())
             .collect();
-        let first: Vec<Option<upload::Container>> = items
+        let first: Vec<Option<Result<upload::Container, String>>> = items
             .par_iter()
             .zip(&binaries)
             .map(|(item, binary)| {
-                let waits = !item.dsym && dsym_ids.contains(item.chunk_id.as_str());
-                (!waits).then(|| pack(item, binary)).transpose()
+                let waits = item.bundle.is_none() && dsym_ids.contains(item.chunk_id.as_str());
+                (!waits).then(|| pack(item, binary))
             })
-            .collect::<Result<_, _>>()
-            .map_err(Failure::failed)?;
+            .collect();
+
+        // As posthog-cli does, a dSYM bundle that fails to pack is skipped whole and leaves a native
+        // file with its UUID to upload, while a native file that fails stops the request.
+        let mut failed_bundles: HashMap<usize, String> = HashMap::new();
+        for (item, packed) in items.iter().zip(&first) {
+            match (item.bundle, packed) {
+                (Some(bundle), Some(Err(message))) => {
+                    failed_bundles
+                        .entry(bundle)
+                        .or_insert_with(|| message.clone());
+                }
+                (None, Some(Err(message))) => return Err(Failure::failed(message)),
+                _ => {}
+            }
+        }
         let fitting: HashSet<&str> = items
             .iter()
             .zip(&first)
-            .filter(|(item, _)| item.dsym)
-            .filter_map(|(item, packed)| packed.as_ref().map(|packed| (item, packed)))
-            .filter(|(_, packed)| packed.size <= max_size)
-            .map(|(item, _)| item.chunk_id.as_str())
+            .filter(|(item, _)| {
+                item.bundle
+                    .is_some_and(|bundle| !failed_bundles.contains_key(&bundle))
+            })
+            .filter_map(|(item, packed)| match packed {
+                Some(Ok(packed)) if packed.size <= max_size => Some(item.chunk_id.as_str()),
+                _ => None,
+            })
             .collect();
 
-        let containers: Vec<Option<upload::Container>> = items
+        let containers: Vec<Option<Packed>> = items
             .par_iter()
             .zip(binaries)
             .zip(first)
-            .map(|((item, binary), packed)| match packed {
-                Some(packed) => Ok(Some(packed)),
-                None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
-                None => pack(item, &binary).map(Some),
+            .map(|((item, binary), packed)| {
+                if let Some(message) = item.bundle.and_then(|bundle| failed_bundles.get(&bundle)) {
+                    return Ok(Some(Packed::Failed {
+                        failed: message.clone(),
+                    }));
+                }
+                match packed {
+                    Some(packed) => packed.map(|packed| Some(Packed::Container(packed))),
+                    None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
+                    None => pack(item, &binary).map(|packed| Some(Packed::Container(packed))),
+                }
             })
             .collect::<Result<_, _>>()
             .map_err(Failure::failed)?;
@@ -1014,6 +1052,7 @@ fn send(message: &impl Serialize) -> io::Result<()> {
 
 fn main() -> io::Result<()> {
     memory::tune_allocator();
+    guard::install_hook();
 
     send(&Hello {
         r#type: "hello",
