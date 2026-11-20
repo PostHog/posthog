@@ -265,6 +265,43 @@ class UnstorableIntegerError(NonReportableError):
         self.column = column
 
 
+class UnstorableDecimalError(NonReportableError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has."""
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text."
+        )
+        self.column = column
+
+
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
+
+
 class DuplicateOutputColumnError(NonReportableError):
     """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
     list from it, and the arrow transform looks it up on the batch. Neither can say which of two
@@ -477,6 +514,32 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # Arrow requires map keys to be non-nullable, so only the key's own children are relaxed.
+        key_field = arrow_type.key_field
+        return pa.map_(
+            key_field.with_type(_nullable_type(key_field.type)),
+            _nullable_field(arrow_type.item_field),
+            keys_sorted=arrow_type.keys_sorted,
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -488,42 +551,73 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
 
 
+DELTA_MAX_DECIMAL_PRECISION = 38
+
+
+def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
+    if pa.types.is_decimal256(arrow_type):
+        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            _delta_decimal_field(arrow_type.key_field),
+            _delta_decimal_field(arrow_type.item_field),
+            keys_sorted=arrow_type.keys_sorted,
+        )
+
+    return arrow_type
+
+
+def _delta_decimal_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_delta_decimal_type(field.type))
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform high-precision decimal columns to types supported by Delta Lake."""
+    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
     schema = batch.schema
-    columns_to_cast: dict[str, pa.DataType] = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
+    target_fields = [_delta_decimal_field(field) for field in schema]
+    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
         return batch
+
+    precision = DELTA_MAX_DECIMAL_PRECISION
+    scale = DELTA_MAX_DECIMAL_PRECISION - 1
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    for field in batch.schema:
+    for field, target in zip(schema, target_fields):
         col = batch[field.name]
-        if field.name in columns_to_cast:
-            decimal128_type = columns_to_cast[field.name]
+        if target.type.equals(field.type):
+            new_fields.append(field)
+            new_columns.append(col)
+        elif pa.types.is_decimal(field.type):
             try:
-                cast_col = pc.cast(col, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
+                cast_col = pc.cast(col, target.type)
+                new_fields.append(target)
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
@@ -534,14 +628,96 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
-            new_fields.append(field)
-            new_columns.append(col)
+            try:
+                new_columns.append(pc.cast(col, target.type))
+            except pa.ArrowInvalid as err:
+                raise UnstorableDecimalError(field.name) from err
+            new_fields.append(target)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
     )
 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+# Repairing one value means a Python decode of its whole slice, so a small slice keeps that work
+# close to the values that need it.
+UTF8_REPAIR_SLICE_ROWS = 65_536
+
+
+def _is_valid(array: pa.Array) -> bool:
+    try:
+        array.validate(full=True)
+    except pa.ArrowInvalid:
+        return False
+    return True
+
+
+def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+    binary_type = pa.large_binary() if pa.types.is_large_string(array.type) else pa.binary()
+    slices: list[pa.Array] = []
+    for start in range(0, len(array), UTF8_REPAIR_SLICE_ROWS):
+        piece = array.slice(start, UTF8_REPAIR_SLICE_ROWS)
+        if not _is_valid(piece):
+            raw = typing.cast(list[bytes | None], piece.cast(binary_type).to_pylist())
+            piece = pa.array(
+                [None if value is None else value.decode("utf-8", errors="replace") for value in raw],
+                type=array.type,
+            )
+        slices.append(piece)
+    return pa.concat_arrays(slices)
+
+
+def _utf8_repaired(array: pa.Array) -> pa.Array:
+    if _is_valid(array):
+        return array
+
+    arrow_type = array.type
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return _replace_invalid_utf8_in_strings(array)
+
+    # pyarrow cannot rebuild a sliced nested array with a null mask, so the rebuild starts from an
+    # unsliced copy. This copy happens only for a column that holds invalid UTF-8.
+    array = pa.concat_arrays([array])
+    if pa.types.is_large_list(arrow_type):
+        return pa.LargeListArray.from_arrays(
+            array.offsets, _utf8_repaired(array.values), type=arrow_type, mask=array.is_null()
+        )
+    if pa.types.is_list(arrow_type):
+        return pa.ListArray.from_arrays(
+            array.offsets, _utf8_repaired(array.values), type=arrow_type, mask=array.is_null()
+        )
+    if pa.types.is_struct(arrow_type):
+        return pa.StructArray.from_arrays(
+            [_utf8_repaired(array.field(index)) for index in range(arrow_type.num_fields)],
+            fields=list(arrow_type),
+            mask=array.is_null(),
+        )
+    if pa.types.is_map(arrow_type):
+        return pa.MapArray.from_arrays(
+            array.offsets,
+            _utf8_repaired(array.keys),
+            _utf8_repaired(array.items),
+            type=arrow_type,
+            mask=array.is_null(),
+        )
+    return array
+
+
+def _replace_invalid_utf8(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Replace byte sequences that are not valid UTF-8 in string values, at any depth, with U+FFFD.
+
+    A ClickHouse String holds arbitrary bytes, and the Arrow stream sends it as an Arrow string
+    without a check. Parquet stores the bytes as they are, but deltalake, DuckDB and Trino then
+    refuse to read the file. The column keeps its string type so that the table schema does not
+    depend on the data in one batch.
+    """
+    if _is_valid(batch):
+        return batch
+    return pa.RecordBatch.from_arrays(
+        [_utf8_repaired(batch.column(index)) for index in range(batch.num_columns)], schema=batch.schema
+    )
 
 
 _SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
@@ -1101,6 +1277,7 @@ async def _materialize_fully(
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1205,6 +1382,7 @@ async def _materialize_incrementally(
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1419,28 +1597,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.

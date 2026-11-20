@@ -9,6 +9,7 @@ import asyncio
 import threading
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, cast
 
 import pytest
@@ -56,16 +57,13 @@ def _batch(days: list[datetime | None], counts: list[int], *, value_column: str 
     return pa.RecordBatch.from_arrays(arrays, names=["day", value_column])
 
 
-def _unsigned_batch(day: datetime, count: int, flag: int) -> pa.RecordBatch:
-    arrays = cast(
-        Collection[pa.Array],
-        [
-            pa.array([day], type=pa.timestamp("us", tz="UTC")),
-            pa.array([count], type=pa.uint64()),
-            pa.array([flag], type=pa.uint8()),
-        ],
-    )
-    return pa.RecordBatch.from_arrays(arrays, names=["day", "c", "flag"])
+def _day_batch(day: datetime, **columns: pa.Array) -> pa.RecordBatch:
+    arrays = cast(Collection[pa.Array], [pa.array([day], type=pa.timestamp("us", tz="UTC")), *columns.values()])
+    return pa.RecordBatch.from_arrays(arrays, names=["day", *columns])
+
+
+def _not_utf8(value: bytes) -> pa.Array:
+    return pa.array([value], pa.binary()).view(pa.string())
 
 
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
@@ -382,35 +380,59 @@ class TestIncrementalMaterialization:
         assert ajob.run_mode == "full_refresh"
         assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20)]
 
-    async def test_an_unsigned_column_stays_incremental_across_runs(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    @pytest.mark.parametrize(
+        "column_types,first,second,expected",
+        [
+            pytest.param(
+                [("c", "UInt64"), ("flag", "UInt8")],
+                _day_batch(DAY1, c=pa.array([10], pa.uint64()), flag=pa.array([1], pa.uint8())),
+                _day_batch(DAY2, c=pa.array([20], pa.uint64()), flag=pa.array([200], pa.uint8())),
+                [(DAY1, 10, 1), (DAY2, 20, 200)],
+                id="unsigned_integers",
+            ),
+            pytest.param(
+                [("c", "Array(Decimal(76, 10))")],
+                _day_batch(DAY1, c=pa.array([[Decimal("12.5")]], pa.list_(pa.decimal256(76, 10)))),
+                _day_batch(DAY2, c=pa.array([[Decimal("7.25")]], pa.list_(pa.decimal256(76, 10)))),
+                [(DAY1, [Decimal("12.5")]), (DAY2, [Decimal("7.25")])],
+                id="decimal256_in_an_array",
+            ),
+            pytest.param(
+                [("c", "String")],
+                _day_batch(DAY1, c=_not_utf8(b"caf\xc3")),
+                _day_batch(DAY2, c=_not_utf8(b"\xffok")),
+                [(DAY1, "caf\ufffd"), (DAY2, "\ufffdok")],
+                id="string_that_is_not_valid_utf8",
+            ),
+        ],
+    )
+    async def test_a_column_delta_cannot_store_as_sent_stays_incremental_across_runs(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        ajob,
+        bucket_name,
+        adag,
+        column_types: list[tuple[str, str]],
+        first: pa.RecordBatch,
+        second: pa.RecordBatch,
+        expected: list[tuple[Any, ...]],
     ):
         await _configure(asaved_query)
-        column_types = [("day", "DateTime64(6, 'UTC')"), ("c", "UInt64"), ("flag", "UInt8")]
+        column_types = [("day", "DateTime64(6, 'UTC')"), *column_types]
 
         with _settings(bucket_name):
-            first = await _run(
-                activity_environment, ateam, anode, ajob, adag, _unsigned_batch(DAY1, 10, 1), column_types=column_types
-            )
-            await _run(
-                activity_environment,
-                ateam,
-                anode,
-                ajob,
-                adag,
-                _unsigned_batch(DAY2, 20, 200),
-                column_types=column_types,
-            )
+            result = await _run(activity_environment, ateam, anode, ajob, adag, first, column_types=column_types)
+            await _run(activity_environment, ateam, anode, ajob, adag, second, column_types=column_types)
 
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "incremental"
         assert ajob.full_refresh_reason is None
 
-        table = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
-        stored = sorted(
-            zip(table.column("day").to_pylist(), table.column("c").to_pylist(), table.column("flag").to_pylist())
-        )
-        assert stored == [(DAY1, 10, 1), (DAY2, 20, 200)]
+        table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
+        assert sorted(tuple(row.values()) for row in table.to_pylist()) == expected
 
     async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
