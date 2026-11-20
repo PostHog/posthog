@@ -157,7 +157,7 @@ class DeletionRequestsTool(ConsoleTool):
     key = "deletion-requests"
     title = "Deletion requests"
     owner = CLICKHOUSE
-    group = "Data"
+    group = "Data deletion"
     description = (
         "Every request to delete data of a team, with its status, and the ClickHouse Team members who approve them."
     )

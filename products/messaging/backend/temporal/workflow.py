@@ -18,18 +18,22 @@ with temporalio.workflow.unsafe.imports_passed_through():
         ProviderImportWorkflowInputs,
     )
 
-# A step pages through a whole provider list, which can run for hours. The heartbeat timeout finds a dead worker
+# A step pages through a whole provider list, which can run for days. The heartbeat timeout finds a dead worker
 # quickly, and the step continues from its last saved page on the next attempt.
-STEP_TIMEOUT = timedelta(hours=6)
+STEP_TIMEOUT = timedelta(days=2)
 STEP_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 STEP_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=5,
+    # Each attempt continues from the last saved page, so a step that outlives several worker restarts still finishes.
+    maximum_attempts=20,
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
     non_retryable_error_types=[
         "ImportCredentialsMissing",
         "ImportCredentialsInvalid",
+        "ImportTooLarge",
+        "ImportAccessLost",
+        "ImportStepBlocked",
         "ImportRunClosed",
         "StaleImportAttempt",
         "UnknownImportStep",

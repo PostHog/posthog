@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
@@ -5,6 +6,7 @@ from urllib.parse import quote
 from products.warehouse_sources.sources.apify_dataset.settings import (
     APIFY_BASE_URL,
     DATASET_ITEMS_ENDPOINT,
+    DATASET_STATISTICS_ENDPOINT,
     PLATFORM_ENDPOINTS,
     PRIMARY_KEYS,
     USAGE_MONTHLY_ENDPOINT,
@@ -38,10 +40,14 @@ class ApifyResumeConfig:
     offset: int = 0
 
 
-def _items_path(dataset_id: str) -> str:
+def _dataset_segment(dataset_id: str) -> str:
     # Encode the dataset_id as a single path segment so a crafted value can't inject extra path
     # segments or query params.
-    return f"/datasets/{quote(dataset_id, safe='')}/items"
+    return quote(dataset_id, safe="")
+
+
+def _items_path(dataset_id: str) -> str:
+    return f"/datasets/{_dataset_segment(dataset_id)}/items"
 
 
 def _to_iso8601(value: Any) -> Optional[str]:
@@ -79,7 +85,28 @@ def _explode_usage_cycle(row: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _platform_resource(name: str, config: ApifyPlatformEndpointConfig, use_incremental: bool) -> EndpointResource:
+def _explode_field_statistics(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn the dataset statistics response into one row per field.
+
+    `fieldStatistics` maps each field of the dataset's fields schema to its `min`/`max`/`nullCount`/
+    `emptyCount`. It is null when the Actor declares no fields schema, which yields no rows.
+    """
+    return [
+        {"field": field_name, **stats}
+        for field_name, stats in (row.get("fieldStatistics") or {}).items()
+        if isinstance(stats, dict)
+    ]
+
+
+_DATA_MAPS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+    USAGE_MONTHLY_ENDPOINT: _explode_usage_cycle,
+    DATASET_STATISTICS_ENDPOINT: _explode_field_statistics,
+}
+
+
+def _platform_resource(
+    name: str, config: ApifyPlatformEndpointConfig, use_incremental: bool, dataset_id: str
+) -> EndpointResource:
     params: dict[str, Any] = dict(config.params)
     if use_incremental and config.incremental_param:
         params[config.incremental_param] = {
@@ -98,7 +125,7 @@ def _platform_resource(name: str, config: ApifyPlatformEndpointConfig, use_incre
         "table_name": name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
         "endpoint": {
-            "path": config.path,
+            "path": config.path.replace("{dataset_id}", _dataset_segment(dataset_id)),
             "params": params,
             "paginator": paginator,
             "data_selector": config.data_selector,
@@ -109,8 +136,9 @@ def _platform_resource(name: str, config: ApifyPlatformEndpointConfig, use_incre
         "table_format": "delta",
     }
 
-    if name == USAGE_MONTHLY_ENDPOINT:
-        resource["data_map"] = _explode_usage_cycle
+    data_map = _DATA_MAPS.get(name)
+    if data_map is not None:
+        resource["data_map"] = data_map
 
     return resource
 
@@ -143,7 +171,7 @@ def apify_dataset_source(
     platform_config = PLATFORM_ENDPOINTS.get(endpoint)
     if platform_config is not None:
         use_incremental = should_use_incremental_field and platform_config.incremental_param is not None
-        resource_config = _platform_resource(endpoint, platform_config, use_incremental)
+        resource_config = _platform_resource(endpoint, platform_config, use_incremental, dataset_id)
         # A single-page endpoint has no cursor to come back to.
         resumable = platform_config.paginated
     elif endpoint == DATASET_ITEMS_ENDPOINT:
@@ -202,7 +230,7 @@ def validate_credentials(api_token: str, dataset_id: str) -> tuple[bool, str | N
     """Probe the dataset itself so a bad token (401/403) and a wrong/inaccessible dataset (404) are both caught."""
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
-        f"{APIFY_BASE_URL}/datasets/{quote(dataset_id, safe='')}",
+        f"{APIFY_BASE_URL}/datasets/{_dataset_segment(dataset_id)}",
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
     )
     if ok:

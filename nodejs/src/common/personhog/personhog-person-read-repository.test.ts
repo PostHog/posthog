@@ -24,8 +24,6 @@ function makeProtoPerson(id: bigint = 42n, uuid: string = 'aaaaaaaa-bbbb-cccc-dd
         uuid,
         teamId: BigInt(TEAM_ID),
         properties: jsonBytes({ name: 'Test User' }),
-        propertiesLastUpdatedAt: jsonBytes({}),
-        propertiesLastOperation: jsonBytes({}),
         createdAt: 1704067200000n,
         version: 1n,
         isIdentified: true,

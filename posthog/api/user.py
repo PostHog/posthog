@@ -170,7 +170,9 @@ from posthog.tasks.email import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
@@ -1876,7 +1878,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
