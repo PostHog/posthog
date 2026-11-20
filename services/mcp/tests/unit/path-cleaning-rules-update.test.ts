@@ -125,17 +125,20 @@ describe('applyOperations', () => {
 
     it.each([
         ['an invalid regex', '/users/(', /Invalid regex/],
-        ['a repeat count over the cap', '/users/[0-9]{101}', /repeat count \{101\} is over 100/],
-        ['a repeat upper bound over the cap', '/users/[0-9]{1,500}', /repeat count \{1,500\} is over 100/],
+        ['a nested counted repeat', '(?:(?:(?:[a-z]{100}){100}){100})', /too complex/],
         ['a pattern whose program is too large', '(?:/[a-z]+/[0-9]+){100}(?:/[a-z]+/[0-9]+){100}', /too complex/],
     ])('throws on %s before anything is saved', (_name, regex, error) => {
         expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex }])).toThrow(error)
     })
 
-    it('accepts a valid re2 inline-flag regex that JS RegExp alone would reject', () => {
+    it.each([
         // (?i) is valid re2 and documented for case-insensitive path cleaning, but throws in JS.
-        const { rules } = applyOperations(base, [{ action: 'append', alias: '/ci', regex: '(?i)/ci/[0-9]+' }])
-        expect(rules[rules.length - 1]).toEqual({ alias: '/ci', regex: '(?i)/ci/[0-9]+' })
+        ['a leading inline flag', '(?i)/ci/[0-9]+'],
+        ['literal braces in a quoted span', '\\Q/api/{500}\\E'],
+        ['literal braces in a character class', '[/#{500}]'],
+    ])('accepts a valid re2 regex with %s', (_name, regex) => {
+        const { rules } = applyOperations(base, [{ action: 'append', alias: '/ok', regex }])
+        expect(rules[rules.length - 1]).toEqual({ alias: '/ok', regex })
     })
 
     it('does not mutate the input array', () => {
@@ -316,6 +319,17 @@ describe('path-cleaning-rules-update handler', () => {
             confirm: false,
         })
         expect(result.sample_preview).toEqual([{ path, before: path, after: path }])
+    })
+
+    it('refuses a preview whose matches would rescan long paths too many times', async () => {
+        const context = createMockContext({ currentFilters: [] })
+        await expect(
+            updatePathCleaningHandler(context, {
+                operations: [{ action: 'append', alias: '/b', regex: '(?:' + '[^Z]*'.repeat(50) + 'Z)?a' }],
+                sample_paths: ['/' + 'a'.repeat(2047)],
+                confirm: false,
+            })
+        ).rejects.toThrow(/sample preview is too expensive/)
     })
 
     it('substitutes capture groups and empty matches like replaceRegexpAll', async () => {

@@ -58,17 +58,80 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
     return rules.map((rule, index) => ({ ...rule, order: index }))
 }
 
-// RE2 matches in time linear in program size × input length, so these caps keep a caller's pattern
-// cheap over a 2,048-character sample path. `{n}` copies its body n times into the program, hence
-// the count check before compiling.
-const MAX_REPEAT_COUNT = 100
+// RE2 compiles `{n}` by copying its operand n times, so a short pattern can expand into a program
+// large enough to block the event loop while it compiles. The estimate refuses that expansion
+// before RE2JS.compile allocates it, and programSize() checks the real program afterwards.
 const MAX_PROGRAM_SIZE = 1000
+// One search costs up to program size × the input it scans, and replaceAll starts a new search after
+// every match, so a preview with many matches can cost path length squared × program size.
+const PREVIEW_WORK_BUDGET = 50_000_000
+
+const COUNTED_REPEAT = /\{(\d+)(?:,(\d*))?\}/y
+
+/** Approximates the RE2 instruction count, multiplying each counted repeat's operand as the compiler does. */
+function estimateProgramSize(regex: string): number {
+    const frames = [{ size: 0, last: 0 }]
+    let i = 0
+    while (i < regex.length) {
+        const char = regex[i]!
+        COUNTED_REPEAT.lastIndex = i
+        const repeat = COUNTED_REPEAT.exec(regex)
+        if (repeat) {
+            const [text, min, max] = repeat
+            const count = max === undefined ? Number(min) : max === '' ? Number(min) + 1 : Number(max)
+            const frame = frames[frames.length - 1]!
+            frame.size += frame.last * (count - 1)
+            frame.last *= count
+            i += text.length
+            continue
+        }
+        if (char === '(') {
+            frames.push({ size: 0, last: 0 })
+            i++
+            continue
+        }
+        if ('*+?|'.includes(char)) {
+            frames[frames.length - 1]!.size++
+            i++
+            continue
+        }
+        let atom = 1
+        let next = i + 1
+        if (char === ')' && frames.length > 1) {
+            atom = frames.pop()!.size + 1
+        } else if (char === '\\' && regex[i + 1] === 'Q') {
+            const end = regex.indexOf('\\E', i)
+            next = end === -1 ? regex.length : end + 2
+            atom = next - i
+        } else if (char === '\\') {
+            next = i + 2
+            if ('xpP'.includes(regex[i + 1] ?? '') && regex[next] === '{') {
+                next = regex.indexOf('}', next) + 1 || regex.length
+            }
+        } else if (char === '[') {
+            next = i + 1
+            if (regex[next] === '^') {
+                next++
+            }
+            if (regex[next] === ']') {
+                next++
+            }
+            while (next < regex.length && regex[next] !== ']') {
+                next += regex[next] === '\\' ? 2 : 1
+            }
+            next++
+        }
+        const frame = frames[frames.length - 1]!
+        frame.size += atom
+        frame.last = atom
+        i = next
+    }
+    return frames.reduce((sum, frame) => sum + frame.size, 0)
+}
 
 function compilePathCleaningRegex(regex: string): RE2JS {
-    for (const [repeat, min, max] of regex.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) {
-        if (Math.max(Number(min), Number(max ?? 0)) > MAX_REPEAT_COUNT) {
-            throw new Error(`repeat count ${repeat} is over ${MAX_REPEAT_COUNT}`)
-        }
+    if (estimateProgramSize(regex) > MAX_PROGRAM_SIZE) {
+        throw new Error('pattern is too complex')
     }
     const compiled = RE2JS.compile(regex)
     if (compiled.programSize() > MAX_PROGRAM_SIZE) {
@@ -222,25 +285,36 @@ export function expandAlias(alias: string, groups: (string | undefined)[]): stri
     return out
 }
 
-/** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
-function applyChain(path: string, rules: PathCleaningRule[]): string {
-    let out = path
-    for (const rule of rules) {
-        let re: RE2JS
+type CompiledRule = { alias: string; re: RE2JS }
+
+function compileForPreview(rules: PathCleaningRule[]): CompiledRule[] {
+    return rules.flatMap((rule) => {
         try {
-            re = compilePathCleaningRegex(rule.regex)
+            return [{ alias: rule.alias, re: compilePathCleaningRegex(rule.regex) }]
         } catch {
             // Stored rules did not pass this tool's validation, so the preview leaves out one that
             // RE2 rejects or the caps refuse instead of failing the call.
-            continue
+            return []
         }
-        out = re.matcher(out).replaceAll((match: string, ...rest: unknown[]): string => {
+    })
+}
+
+/** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
+function applyChain(path: string, rules: CompiledRule[], spend: (work: number) => void): string {
+    let out = path
+    for (const { alias, re } of rules) {
+        const input = out
+        const programSize = re.programSize()
+        spend(input.length * programSize)
+        out = re.matcher(input).replaceAll((match: string, ...rest: unknown[]): string => {
             // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
             // the pattern didn't fill arrives as undefined, so the first number is the offset and
             // marks where the capture values stop.
             const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
-            const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
-            return expandAlias(rule.alias, [match, ...captures])
+            const offset = rest[offsetIndex] as number
+            spend((input.length - offset - match.length) * programSize)
+            const captures = rest.slice(0, offsetIndex) as (string | undefined)[]
+            return expandAlias(alias, [match, ...captures])
         })
     }
     return out
@@ -251,10 +325,21 @@ function buildSamplePreview(
     after: PathCleaningRule[],
     samplePaths: string[]
 ): SamplePreview[] {
+    const compiledBefore = compileForPreview(before)
+    const compiledAfter = compileForPreview(after)
+    let budget = PREVIEW_WORK_BUDGET
+    const spend = (work: number): void => {
+        budget -= work
+        if (budget < 0) {
+            throw new Error(
+                'The sample preview is too expensive for these rules and paths. Retry with fewer or shorter sample_paths.'
+            )
+        }
+    }
     return samplePaths.map((path) => ({
         path,
-        before: applyChain(path, before),
-        after: applyChain(path, after),
+        before: applyChain(path, compiledBefore, spend),
+        after: applyChain(path, compiledAfter, spend),
     }))
 }
 
