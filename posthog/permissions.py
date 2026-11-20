@@ -965,7 +965,10 @@ def organization_refuses_personal_api_key(request: Request, organization: Organi
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
         return False
-    return not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN
+    return (
+        not organization.members_can_use_personal_api_keys
+        and membership.effective_level < OrganizationMembership.Level.ADMIN
+    )
 
 
 def check_team_within_credential_scope(request: Request, team_id: int) -> None:
@@ -1698,7 +1701,7 @@ class UserCanInvitePermission(BasePermission):
         membership = get_required_organization_membership(request, organization)
 
         members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
+        user_is_admin = membership.effective_level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
             return True
@@ -1723,7 +1726,7 @@ class UserCanCreateProjectPermission(BasePermission):
 
         membership = get_required_organization_membership(request, organization)
 
-        if membership.level >= OrganizationMembership.Level.ADMIN:
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             return True
 
         # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).

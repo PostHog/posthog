@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     probe_status_message,
@@ -46,7 +47,6 @@ ERROR_MESSAGES = {
     "SubscriptionRequiredException": "Enable SageMaker for this AWS account and region, then try again.",
     "OptInRequired": "Enable SageMaker for this AWS account and region, then try again.",
 }
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _TIMESTAMP_FIELDS = {
     "CreationTime",
     "LastModifiedTime",
@@ -162,7 +162,7 @@ def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
             continue
         if key in _TIMESTAMP_FIELDS and isinstance(value, int | float) and not isinstance(value, bool):
             value = dt.datetime.fromtimestamp(value, tz=dt.UTC)
-        row[_CAMEL_BOUNDARY.sub("_", key).lower()] = value
+        row[camel_to_snake(key)] = value
     return row
 
 

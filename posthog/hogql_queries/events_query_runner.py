@@ -114,8 +114,7 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # It then prints the persons join before the override join that the persons join condition reads.
     alias="flag_evaluations",
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
-    # person_id holds the id that flag_evaluations resolved through person merges.
-    person_id="person_id",
+    person_id="merged_person_id",
     # Reading person.properties in the query joins persons. That join deduplicates every person in the team before
     # the query picks the page. The runner reads display names for only the page's persons after the query, unless
     # the query sorts by Person and joins persons anyway.
@@ -491,7 +490,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if self._adds_persons_join(table):
-            join_persons_to_flag_evaluations(context.database)
+            join_persons_to_flag_evaluations(context.database, person_id_field=table.person_id)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:

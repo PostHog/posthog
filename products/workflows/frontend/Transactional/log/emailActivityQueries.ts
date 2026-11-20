@@ -7,6 +7,7 @@ import {
     transactionalEmailLogList,
 } from 'products/messaging/frontend/generated/api'
 import type {
+    TransactionalEmailActivityApi,
     TransactionalEmailActivityEventApi,
     TransactionalEmailLogEntryApi,
 } from 'products/messaging/frontend/generated/api.schemas'
@@ -52,7 +53,10 @@ LIMIT 1`,
 }
 
 export async function fetchPersonActivity(projectId: number, messageId: string): Promise<PersonActivity> {
-    const activity = await transactionalEmailLogActivityRetrieve(String(projectId), messageId)
+    return toPersonActivity(await transactionalEmailLogActivityRetrieve(String(projectId), messageId))
+}
+
+export function toPersonActivity(activity: TransactionalEmailActivityApi): PersonActivity {
     return {
         before: activity.before.map(toEvent),
         after: activity.after.map(toEvent),

@@ -45,6 +45,8 @@ export interface Series<Meta = unknown> {
     key: string
     /** Human-readable name shown in tooltips and legends. */
     label: string
+    /** Short pill after the label in the legend only, e.g. "Previous" on a comparison series. */
+    legendTag?: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
     /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar

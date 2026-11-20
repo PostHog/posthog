@@ -2,12 +2,17 @@
 
 Workflows for common ingestion pipeline investigations.
 Each playbook describes **what to check and in what order** —
-construct PromQL live using the discovery workflow from the main skill doc.
+use the discovery workflow from the main skill doc.
+Discover exact names with `posthog:metric-names-list`, then send PromQL as written in `posthog:query-metrics`'s `query.promql`.
+Use `query.output: "summary"` for range summaries or `query.instant: true` for current values.
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
+Share the returned `_posthogUrl`. Use the same region's `posthog:query-logs` for log checks.
+Set its discovered `query.serviceNames` and an explicit `query.dateRange`; add severity and text filters as needed.
 
 ## 1. "Is ingestion healthy?" — quick health check
 
-Start by pulling up the main dashboard:
-`get_dashboard_by_uid` with uid `"ingestion-health"`.
+Start with the metrics below through PostHog.
+The `ingestion-health` dashboard remains a reference when existing Grafana access is available.
 
 Then verify these signals in order:
 
@@ -36,9 +41,9 @@ The pipeline result funnel tells you what happened to each event:
 
 1. **Check result distribution** — `ingestion_pipeline_results` by `result`.
    Key values: `ingested`, `filtered`, `dropped`, `dlq`.
-   Discover all values with `list_prometheus_label_values` on `result`.
+   Discover all values with `posthog:metric-attribute-values-list` on `result`.
 2. **Check drop causes** — `ingestion_event_dropped_total` by `cause`.
-   Discover live values with `list_prometheus_label_values` on `cause`.
+   Discover live values with `posthog:metric-attribute-values-list` on `cause`.
 3. **Check DLQ rate** — events sent to dead letter queue.
    Look at `ingestion_outputs_errors_total` by `topic` for DLQ topic production failures.
 4. **Check overflow redirect** — `overflow_redirect_*` metrics.
@@ -89,8 +94,8 @@ Diagnose layer by layer, from consumer to output:
 4. **Consumer assignment** — `kafka_consumer_assignment` by `groupId`.
    Partitions should be evenly distributed. Zero = consumer not assigned.
 5. **Rebalance events** — `consumer_background_task_timeout_total` for timeouts
-   that trigger rebalances. Check Loki logs for rebalance messages:
-   `{app=~"ingestion-analytics.*"} |= "rebalance"`.
+   that trigger rebalances. Use `posthog:query-logs` for the discovered analytics ingestion services,
+   with the same time window and `query.searchTerm: "rebalance"`. Include info logs.
 6. **Backpressure from downstream** — if Kafka production to output topics is slow
    (`ingestion_outputs_latency_seconds` high), the consumer can't commit offsets fast enough.
 
@@ -134,9 +139,10 @@ Diagnose layer by layer, from consumer to output:
 
 1. **Broker RTT** — `kafka_broker_rtt_us` by `broker_name` and `consumer_group`.
    Identify if a single broker is slow vs all brokers.
-2. **Broker connectivity** — check for librdkafka error logs in Loki:
-   `{app=~"ingestion-analytics.*"} |= "broker"`.
-3. **MSK JMX metrics** — `list_prometheus_metric_names` regex `"aws_msk_kafka.*"`.
+2. **Broker connectivity** — use `posthog:query-logs` for the discovered analytics ingestion services.
+   Set the time window and `query.searchTerm: "broker"`. Omit the severity filter.
+   Nonfatal broker errors use `warn`, and librdkafka diagnostics use `info`.
+3. **MSK JMX metrics** — `posthog:metric-names-list` with `match: "regex"` and `value` `"aws_msk_kafka.*"`.
    Key signals: throttle time, network processor idle %, request queue size.
 4. **WarpStream agent health** — `warpstream_agent_*` metrics. Ingestion workers
    produce ALL ClickHouse-bound output to WarpStream (`warpstream-ingestion-v2` VC).
@@ -168,13 +174,14 @@ First, identify **which** Redis instance is affected:
 
 Then check infrastructure health:
 
-1. **CloudWatch ElastiCache** — datasource `P034F075C744B399F`.
+1. **CloudWatch ElastiCache** — discover the ingested metrics in PostHog.
    Key metrics: `EngineCPUUtilization`, `DatabaseMemoryUsagePercentage`,
    `CurrConnections`, `Evictions`, `ReplicationLag`.
    Cluster IDs: `ingestion-prod-redis`, `posthog-solo` (prod-us primary),
    `cookieless-prod-redis`, `ingestion-duplicates-prod-redis`.
    prod-eu primary: `posthog-prod-redis-encripted` (sic).
-2. **Loki logs** — `{app=~"ingestion-analytics.*"} |= "redis" |= "error"`.
+2. **Logs** — use `posthog:query-logs` for the discovered analytics ingestion services.
+   Set the time window, `query.severityLevels: ["error", "fatal"]`, and `query.searchTerm: "redis"`.
 3. **Fail-open behavior** — ingestion workers are generally designed to fail open
    for Redis failures, but overflow routing accuracy degrades.
 
@@ -185,19 +192,19 @@ Then check infrastructure health:
 2. **PgBouncer** — `pgbouncer_*` metrics for connection pool utilization,
    waiting clients, query duration. Scope to the ingestion PgBouncer instances:
    `ingestion-default-pgbouncer` (main) and `ingestion-events-pgbouncer` (persons).
-3. **CloudWatch RDS** — datasource `P034F075C744B399F`.
+3. **CloudWatch RDS** — discover the ingested metrics in PostHog.
    Cluster IDs: `posthog-cloud-prod-us-east-1` (main), `posthog-cloud-persons-prod-us-east-1` (persons).
    Key metrics: `CPUUtilization`, `ReadLatency`, `WriteLatency`, `DatabaseConnections`.
-4. **Postgres exporter** — `list_prometheus_metric_names` regex `"pg_.*"`.
+4. **Postgres exporter** — `posthog:metric-names-list` with `match: "regex"` and `value` `"pg_.*"`.
    `prometheus-postgres-exporter` and `prometheus-postgres-persons-exporter`.
-5. **Loki logs** — `{app=~"ingestion-analytics.*"} |= "postgres" |= "error"` or
-   `{app=~"ingestion-analytics.*"} |= "ECONNREFUSED"`.
+5. **Logs** — use `posthog:query-logs` for the discovered analytics ingestion services and the same time window.
+   Search separately for `postgres` and `ECONNREFUSED`; use `query.severityLevels: ["error", "fatal"]` for errors.
 
 ## 9. "Session replay ingestion issues" — replay pipeline
 
-1. **Replay-specific dashboard** — `get_dashboard_by_uid` with uid `"ingestion-sessionreplay"`.
+1. **Replay-specific dashboard** — inspect `ingestion-sessionreplay` if existing Grafana access is available.
 2. **Consumer lag** — `kminion_kafka_consumer_group_topic_lag_seconds{group_id="session-recordings-blob-v2"}`.
-3. **Replay metrics** — `list_prometheus_metric_names` regex `"recording_blob_ingestion_v2_.*"`.
+3. **Replay metrics** — `posthog:metric-names-list` with `match: "regex"` and `value` `"recording_blob_ingestion_v2_.*"`.
    Key: batch size, S3 upload latency, session manager operations.
 4. **K8s resources** — scope to `app="recordings-blob-ingestion-v2"`.
    Also check `recordings-blob-ingestion-v2-overflow` for overflow pipeline health.
@@ -269,7 +276,9 @@ following the order below turns it into minutes.
 
 2. **Locate it.** `ingestion_lag_ms{app="…", partition="N"}` for the lag
    curve and onset time. Find the owning pod and live offsets from the batch
-   logs in Loki: `{app="ingestion-analytics-main"} |= "KAFKA_BATCH_START" |= "\"partition\":N"`.
+   logs with `posthog:query-logs`. Select the discovered main analytics service and the same time window.
+   Set `query.searchTerm: "KAFKA_BATCH_START"`, then inspect partition `N` in the returned fields or body.
+   If the partition is a structured log attribute, discover its key and add a `query.filterGroup` filter.
 
 3. **Slow or busy? Compute it, don't guess.** From two batch-log samples:
    offset delta ÷ elapsed = events/sec; batch duration ÷ batch size =
@@ -316,13 +325,15 @@ following the order below turns it into minutes.
 
 ## 12. "Comparing prod-us vs prod-eu" — cross-environment
 
-Most ingestion app metrics use the `app` / `ingestion_pipeline` labels but
-**no environment label** — the environment is implicit in which Grafana you're connected to.
+US and EU use separate internal PostHog projects on separate PostHog instances.
+Use each region's connection. Discover labels and check `environment` where it exists.
+US metrics carry `environment="prod-us"`.
 
 For cross-environment comparison:
 
-1. **Same queries, different Grafana** — run the same PromQL against both environments
-   by switching the Grafana MCP connection (requires a new session).
+1. **Same queries, separate PostHog instances** — discover names in each region with `posthog:metric-names-list`.
+   Send the same PromQL as written in `posthog:query-metrics`'s `query.promql` through each region's connection.
+   Query logs through each region's `posthog:query-logs`. Report unavailable regions as not checked.
 2. **Dashboard UIDs are mostly synced** — boards from the shared `Synced` folder carry the
    same UID in both environments. The exceptions are boards that live in a personal or
    team folder: `pl-ingestion-slas`, `8e93b023-a544-4a3b-8fac-123459d4eb84` and

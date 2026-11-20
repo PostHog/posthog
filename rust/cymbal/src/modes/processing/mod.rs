@@ -12,6 +12,7 @@ use crate::server::start_server;
 pub mod app_context;
 pub mod config;
 pub mod fingerprinting;
+pub mod issue_changes;
 pub mod issue_resolution;
 pub mod ledger;
 pub mod normalization;

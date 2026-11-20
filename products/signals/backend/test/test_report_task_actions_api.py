@@ -1,14 +1,20 @@
 import json
+from collections.abc import Callable
+from datetime import timedelta
+from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.github_integration_base import PullRequestCiStatus
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
@@ -18,6 +24,8 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
     SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutRun,
 )
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_claims import get_active_claim
@@ -48,6 +56,7 @@ from products.signals.backend.report_task_actions import (
 from products.signals.backend.serializers import SignalReportTaskActionRunRequestSerializer
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import DesktopAccessDecision, compute_quota_limit_response
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -82,9 +91,7 @@ def _ci(ci_status: str, has_conflict: bool = False):
     )
 
 
-@patch("posthoganalytics.feature_enabled", side_effect=_flag)
-@patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-class TestReportTaskActionsAPI(APIBaseTest):
+class _ReportActionFixtures(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
@@ -141,6 +148,10 @@ class TestReportTaskActionsAPI(APIBaseTest):
                 f"/api/projects/{self.team.id}/signals/reports/{report.id}/actions/run/", body, format="json"
             )
 
+
+@patch("posthoganalytics.feature_enabled", side_effect=_flag)
+@patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+class TestReportTaskActionsAPI(_ReportActionFixtures):
     @parameterized.expand(
         [
             ("approved", "approved", True),
@@ -586,6 +597,214 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert set(response.json()) == {"code", "detail"}
         assert not Task.objects.filter(signal_report=report).exists()
         workflow.assert_not_called()
+
+
+SCOUT_SKILL = "signals-scout-ci-watch"
+
+
+def _stop_run(test: "TestScoutReportActionsAPI") -> None:
+    TaskRun.objects.filter(id=test.scout_run.task_run_id).update(status=TaskRun.Status.COMPLETED)
+
+
+def _revoke(test: "TestScoutReportActionsAPI") -> None:
+    test.config.report_actions = []
+    test.config.save()
+
+
+def _dry_run(test: "TestScoutReportActionsAPI") -> None:
+    test.config.emit = False
+    test.config.save()
+
+
+def _widen_after_dispatch(test: "TestScoutReportActionsAPI") -> None:
+    test.scout_run.metadata = {}
+    test.scout_run.save()
+
+
+def _store_ungrantable_kinds(test: "TestScoutReportActionsAPI") -> None:
+    kinds = ["make_it_green", "get_it_merged", "ask", "suggested_prompt"]
+    test.config.report_actions = kinds
+    test.config.save()
+    test.scout_run.metadata = {"report_actions": kinds}
+    test.scout_run.save()
+
+
+@patch("posthoganalytics.feature_enabled", side_effect=_flag)
+@patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+class TestScoutReportActionsAPI(_ReportActionFixtures):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name=SCOUT_SKILL, report_actions=["make_it_green"]
+        )
+        self.scout_run = self._scout_run()
+        self.app = OAuthApplication.objects.create(
+            name="Synthetic scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+
+    def _scout_run(self) -> SignalScoutRun:
+        with patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Synthetic scout run",
+                description="Synthetic scout run",
+                profile=get_task_profile("signals.scout"),
+                user_id=self.user.id,
+                mcp_builtin_agent_key="scout",
+            )
+        return SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=TaskRun.objects.filter(task=task).latest("created_at"),
+            scout_config=self.config,
+            skill_name=SCOUT_SKILL,
+            skill_version=1,
+            metadata={"report_actions": ["make_it_green"]},
+        )
+
+    def _as_sandbox(self, task_id: object) -> None:
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.app,
+            token=f"pha_synthetic_{uuid4().hex}",
+            scope="inbox:read inbox:write task:read task:write",
+            expires=timezone.now() + timedelta(days=3),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}", HTTP_X_POSTHOG_SANDBOX_ORIGIN="1")
+
+    def _red_report(self) -> SignalReport:
+        report = self._report()
+        self._attach_pr(report, "approved")
+        return report
+
+    def _make_it_green(self, report: SignalReport, **body: str):
+        with _ci("failing"):
+            return self._run(report, {"action": "make_it_green", **body})
+
+    def test_a_granted_scout_starts_make_it_green_and_the_work_log_names_it(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._red_report()
+        self._as_sandbox(self.scout_run.task_run.task_id)
+
+        with patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._make_it_green(report)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        entry = SignalReportArtefact.objects.get(
+            report=report, task_id=response.json()["task_id"], type=SignalReportArtefact.ArtefactType.TASK_RUN
+        )
+        content = json.loads(entry.content)
+        assert (content["started_by_scout"], content["started_by_scout_run_id"]) == (
+            SCOUT_SKILL,
+            str(self.scout_run.id),
+        )
+        assert capture.call_args.args[2]["scout_skill_name"] == SCOUT_SKILL
+        started_state = TaskRun.objects.get(id=response.json()["run_id"]).state
+        assert (started_state["agent_parent_task_id"], started_state["agent_parent_run_id"]) == (
+            str(self.scout_run.task_run.task_id),
+            str(self.scout_run.task_run_id),
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "no_scout_run_behind_the_task",
+                lambda test: test.scout_run.delete(),
+                {},
+                "report_action_sandbox_refused",
+            ),
+            ("finished_scout_run", _stop_run, {}, "report_action_sandbox_refused"),
+            ("revoked_mid_run", _revoke, {}, "report_action_not_granted"),
+            ("dry_run", _dry_run, {}, "report_action_not_granted"),
+            ("granted_after_dispatch", _widen_after_dispatch, {}, "report_action_not_granted"),
+            # The scout's steering must not choose what a run with its acting user's full posture does.
+            ("own_message", lambda test: None, {"message": "Also add a destination"}, "report_action_not_granted"),
+            (
+                "ask_even_when_stored",
+                _store_ungrantable_kinds,
+                {"action": "ask", "message": "Hi"},
+                "report_action_not_granted",
+            ),
+            (
+                "get_it_merged_even_when_stored",
+                _store_ungrantable_kinds,
+                {"action": "get_it_merged"},
+                "report_action_not_granted",
+            ),
+        ]
+    )
+    def test_refuses_a_sandbox_without_a_live_grant(
+        self, workflow: MagicMock, _flag_mock: MagicMock, _name: str, setup: Callable, body: dict, code: str
+    ) -> None:
+        report = self._red_report()
+        setup(self)
+        self._as_sandbox(self.scout_run.task_run.task_id)
+
+        response = self._make_it_green(report, **body)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.data
+        assert response.json()["code"] == code
+        assert not Task.objects.filter(signal_report=report).exists()
+
+    def test_a_grant_revoked_while_the_request_waits_is_refused(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._red_report()
+        self._as_sandbox(self.scout_run.task_run.task_id)
+
+        def revoke_during_the_ci_read(_team_id: int, refs: list) -> dict:
+            SignalScoutConfig.objects.filter(id=self.config.id).update(report_actions=[])
+            return dict.fromkeys(refs, PullRequestCiStatus(ci_status="failing", has_conflict=False))
+
+        with patch(
+            "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
+            side_effect=revoke_during_the_ci_read,
+        ):
+            response = self._run(report, {"action": "make_it_green"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.data
+        assert response.json()["code"] == "report_action_not_granted"
+        assert not Task.objects.filter(signal_report=report).exists()
+
+    def test_a_run_a_scout_started_cannot_start_another_action(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        self._as_sandbox(self.scout_run.task_run.task_id)
+        started = self._make_it_green(self._red_report())
+        assert started.status_code == status.HTTP_201_CREATED, started.data
+
+        self._as_sandbox(started.json()["task_id"])
+        chained = self._make_it_green(self._red_report())
+
+        assert chained.status_code == status.HTTP_403_FORBIDDEN
+        assert chained.json()["code"] == "report_action_sandbox_refused"
+
+    def test_the_daily_cap_counts_every_run_of_the_scout_and_rolls_off(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        self.config.max_report_actions_per_day = 1
+        self.config.save()
+        self._as_sandbox(self.scout_run.task_run.task_id)
+        assert self._make_it_green(self._red_report()).status_code == status.HTTP_201_CREATED
+
+        self.scout_run = self._scout_run()
+        self._as_sandbox(self.scout_run.task_run.task_id)
+        report = self._red_report()
+        capped = self._make_it_green(report)
+        assert capped.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert capped.json()["code"] == "report_action_scout_daily_cap"
+
+        with time_machine.travel(timezone.now() + timedelta(hours=25)):
+            assert self._make_it_green(report).status_code == status.HTTP_201_CREATED
 
 
 class TestPullRequestRunDetection(SimpleTestCase):
