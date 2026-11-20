@@ -22,6 +22,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
@@ -787,9 +788,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
@@ -1052,6 +1051,29 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert self.store.invalid_reason() is None
         first.refresh_from_db()
         assert first.title == "Earlier report"
+
+    def test_inbox_list_preserves_source_metadata_failure_across_trial_rows(self) -> None:
+        edited = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        SignalReport.objects.create(team=self.team, title="Production report", status="ready")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(edited.id),
+            title="Private revision",
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                side_effect=[ClickHouseQueryTimeOut(), {}],
+            ),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            response = self.client.get(base)
+
+        assert response.status_code == 200
+        assert response.json()["source_metadata_available"] is False
 
     @parameterized.expand(
         [

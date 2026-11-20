@@ -143,12 +143,33 @@ class TestGetRows:
         assert result.items == [[{"propertyId": "prop-1", "name": "Site"}]]
         assert result.saved_states == []
 
-    def test_unpaginated_scoped_endpoint_sends_only_property_id(self):
-        result = _driver("prop-1").run("members", [_response({"ok": True, "data": [{"role": "admin"}]})])
+    @pytest.mark.parametrize(
+        "endpoint, method, row",
+        [
+            ("members", "members.list", {"role": "admin"}),
+            ("knowledge_base_articles", "knowledge-base.article.list", {"id": "article-1", "title": "Reset"}),
+        ],
+    )
+    def test_unpaginated_scoped_endpoint_sends_only_property_id(self, endpoint, method, row):
+        result = _driver("prop-1").run(endpoint, [_response({"ok": True, "data": [dict(row)]})])
 
         assert len(result.requests) == 1
+        assert result.requests[0].url == f"https://api.tawk.to/v1/{method}"
         assert result.requests[0].json() == {"propertyId": "prop-1"}
-        assert result.items == [[{"role": "admin", "propertyId": "prop-1"}]]
+        assert result.items == [[{**row, "propertyId": "prop-1"}]]
+
+    def test_unpaginated_scoped_endpoint_fans_out_over_all_properties(self):
+        result = _driver().run(
+            "knowledge_base_articles",
+            [
+                _response({"ok": True, "data": [{"propertyId": "prop-1"}, {"propertyId": "prop-2"}]}),
+                _response({"ok": True, "data": [{"id": "a"}]}),
+                _response({"ok": True, "data": [{"id": "a"}]}),
+            ],
+        )
+
+        # Same article id under two properties stays two rows: the key is (propertyId, id).
+        assert [(row["propertyId"], row["id"]) for row in result.rows] == [("prop-1", "a"), ("prop-2", "a")]
 
     def test_ok_false_body_raises(self):
         result = _driver("prop-1").run(

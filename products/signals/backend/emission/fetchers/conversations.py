@@ -31,7 +31,7 @@ def conversations_ticket_fetcher(
     config: SignalSourceTableConfig,
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Fetch conversation tickets from Postgres and record emission in SignalEmissionRecord."""
+    """Fetch quiet tickets; the pipeline records processed snapshots after admission."""
     now = timezone.now()
     quiet_since = now - timedelta(hours=TICKET_QUIET_PERIOD_HOURS)
     resnapshot_floor = now - timedelta(hours=TICKET_RESNAPSHOT_MIN_INTERVAL_HOURS)
@@ -102,19 +102,19 @@ def conversations_ticket_fetcher(
         ticket_id = str(ticket["id"])
         ticket["messages"] = comments_by_ticket.get(ticket_id, [])
         ticket["image_attachments"] = images_by_ticket.get(ticket_id, [])
-    # Record emission optimistically. Upsert rather than ignore conflicts, because a re-snapshotted
-    # ticket already has a row and its emitted_at is what gates the next one.
-    # TODO: Revisit if signal loss on transient pipeline failure becomes a concern
+    # Empty tickets cannot emit work. Mark those benign skips here so they do not fill every batch;
+    # leave actual outputs eligible until the pipeline admits and processes them.
     SignalEmissionRecord.objects.bulk_create(
         [
             SignalEmissionRecord(
                 team=team,
                 source_product=config.source_product,
                 source_type=config.source_type,
-                source_id=str(tid),
+                source_id=str(ticket["id"]),
                 emitted_at=now,
             )
-            for tid in ticket_ids
+            for ticket in tickets
+            if not ticket["messages"]
         ],
         update_conflicts=True,
         update_fields=["emitted_at"],

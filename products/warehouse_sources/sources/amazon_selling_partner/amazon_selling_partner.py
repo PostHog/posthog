@@ -311,6 +311,19 @@ def _orders_resource(
     return resource
 
 
+def _is_invalid_input(error: requests.HTTPError) -> bool:
+    """Whether Amazon's error body names the request InvalidInput, read from the response Amazon sent rather
+    than the exception message, which `_send_request` redacts to the error code alone."""
+    response = error.response
+    if response is None or response.status_code != 400:
+        return False
+    try:
+        errors = response.json().get("errors") or []
+    except ValueError:
+        return False
+    return any(isinstance(item, dict) and item.get("code") == "InvalidInput" for item in errors)
+
+
 def deferred_release_sweep(now: datetime) -> TransactionWindow:
     cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
     return TransactionWindow(
@@ -383,7 +396,7 @@ def _transactions_resource(
             }
             if window.transaction_status is not None:
                 params["transactionStatus"] = window.transaction_status
-            yield from _build_resource(
+            resource = _build_resource(
                 region=region,
                 auth=auth,
                 name=TRANSACTIONS,
@@ -399,6 +412,25 @@ def _transactions_resource(
                 resume_hook=save_checkpoint,
                 initial_paginator_state=initial_paginator_state if index == 0 else None,
             )
+            got_a_page = False
+            try:
+                for batch in resource:
+                    got_a_page = True
+                    yield batch
+            except requests.HTTPError as e:
+                # Amazon rejects some windows this far back outright, rather than the empty page it
+                # documents for a gap over 180 days. The rejection lands on the window's first
+                # request, before any row or page token exists to lose, so the walk moves on to the
+                # window after it instead of failing the whole sync.
+                if got_a_page or following is None or not _is_invalid_input(e):
+                    raise
+                logger.warning(
+                    "amazon_selling_partner_transactions_window_skipped",
+                    window_start=params["postedAfter"],
+                    window_end=params["postedBefore"],
+                )
+                resumable_source_manager.save_state(state_for(following))
+                resumable_source_manager.safe_point()
 
     return Resource(pages, name=TRANSACTIONS, hints=_wrapper_hints(TRANSACTIONS, should_use_incremental_field))
 

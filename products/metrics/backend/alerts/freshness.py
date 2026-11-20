@@ -12,6 +12,8 @@ from contextlib import AbstractContextManager
 from typing import Final
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -21,14 +23,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import (
-    ClickHouseUser,
-    Workload,
-    connection_creds,
-    get_kwargs_for_client,
-    is_file_backed_user,
-    make_ch_pool,
-)
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, get_pool
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -89,45 +84,43 @@ def fetch_partition_checkpoint(team: Team, *, max_execution_time: int) -> dt.dat
     )
 
 
+def freshness_workload() -> Workload:
+    """The cluster the alert's PromQL reads, so a lag there is never hidden by the other cluster's checkpoint.
+
+    PromQL reaches the metrics cluster only once a deployment points `SNUFFLE_METRICS_URL` at its Snuffle.
+    """
+    return Workload.METRICS if settings.SNUFFLE_METRICS_URL != settings.SNUFFLE_APM_URL else Workload.LOGS
+
+
 def _fetch_instant(
     team: Team, query: ast.SelectQuery | ast.SelectSetQuery, *, query_type: str, max_execution_time: int
 ) -> dt.datetime | None:
     tag_queries(product=Product.METRICS, feature=Feature.ALERTING, source="metrics_alert", team_id=str(team.id))
+    workload = freshness_workload()
     sql, context = HogQLQueryExecutor(
         query_type=query_type,
         # The executor edits the node it is given, and this one is shared by every call.
         query=clone_expr(query, True),
         team=team,
-        workload=Workload.LOGS,
+        workload=workload,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
     ).generate_clickhouse_sql()
-    with _bounded_logs_client(max_execution_time + _TRANSPORT_MARGIN_SECONDS) as client:
-        rows = sync_execute(
-            sql, context.values, workload=Workload.LOGS, team_id=team.id, readonly=True, sync_client=client
-        )
+    with _bounded_client(workload, max_execution_time + _TRANSPORT_MARGIN_SECONDS) as client:
+        rows = sync_execute(sql, context.values, workload=workload, team_id=team.id, readonly=True, sync_client=client)
     if not rows or rows[0][0] is None:
         return None
     instant: dt.datetime = rows[0][0]
     return instant if instant.tzinfo is not None else instant.replace(tzinfo=ZoneInfo("UTC"))
 
 
-def _bounded_logs_client(send_receive_timeout: int) -> AbstractContextManager:
-    """A logs cluster client whose socket reads and writes time out, as the shared pool's do not.
-
-    Mirrors the file-backed branch of `get_pool`, so a token-authenticated user stays token-aware.
-    `make_ch_pool` is cached on its arguments, so every call reuses one pool.
-    """
-    kwargs = get_kwargs_for_client(workload=Workload.LOGS, ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS)
-    creds = connection_creds(Workload.LOGS, ClickHouseUser.ALERTS_PLATFORM_METRICS)
-    if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
-        kwargs.pop("password", None)
-        pool = make_ch_pool(
-            send_receive_timeout=send_receive_timeout, credential_provider=creds.read_password, **kwargs
-        )
-    else:
-        pool = make_ch_pool(send_receive_timeout=send_receive_timeout, **kwargs)
-    return pool.get_client()
+def _bounded_client(workload: Workload, send_receive_timeout: int) -> AbstractContextManager:
+    """A client for the workload's cluster whose socket reads and writes time out, as the shared pool's do not."""
+    return get_pool(
+        workload=workload,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
+        send_receive_timeout=send_receive_timeout,
+    ).get_client()
 
 
 @frozen

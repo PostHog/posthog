@@ -1,16 +1,19 @@
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
+from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS, SHIPMAIL_PARENT_ENDPOINTS
 
 SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -19,6 +22,7 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 @frozen
 class ShipmailResumeConfig:
     cursor: str | None = None
+    fanout_state: dict[str, Any] | None = None
 
 
 def _incremental_value(value: Any) -> str:
@@ -49,7 +53,7 @@ def shipmail_source(
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = SHIPMAIL_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {"limit": 100}
+    params: dict[str, Any] = {"limit": endpoint_config.page_size}
 
     if (
         endpoint == "messages"
@@ -59,18 +63,19 @@ def shipmail_source(
     ):
         params["updated_after"] = _incremental_value(db_incremental_field_last_value)
 
+    client_config: ClientConfig = {
+        "base_url": SHIPMAIL_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        "paginator": JSONResponseCursorPaginator(
+            cursor_path="pagination.next_cursor",
+            cursor_param="cursor",
+        ),
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
+    }
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SHIPMAIL_BASE_URL,
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-            "paginator": JSONResponseCursorPaginator(
-                cursor_path="pagination.next_cursor",
-                cursor_param="cursor",
-            ),
-            "session": make_tracked_session(redact_values=(api_key,), capture=False),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -89,14 +94,42 @@ def shipmail_source(
         if state and state.get("cursor"):
             resumable_source_manager.save_state(ShipmailResumeConfig(cursor=str(state["cursor"])))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=_initial_paginator_state(resumable_source_manager),
-    )
+    resource: Iterable[Any]
+    if endpoint_config.fanout is not None:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+        def save_fanout_checkpoint(state: dict[str, Any] | None) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(ShipmailResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs=SHIPMAIL_ENDPOINTS | SHIPMAIL_PARENT_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=endpoint_config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data", "data_selector_required": True},
+            child_endpoint_extra={
+                "data_selector": "data",
+                "data_selector_required": True,
+                "paginator": JSONResponseCursorPaginator(cursor_path="pagination.next_cursor", cursor_param="cursor"),
+            },
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+            resume_parent_pagination=True,
+        )
+    else:
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=_initial_paginator_state(resumable_source_manager),
+        )
 
     return SourceResponse(
         name=endpoint,
@@ -107,7 +140,7 @@ def shipmail_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[endpoint_config.partition_key],
-        sort_mode="asc" if endpoint == "messages" else "desc",
+        sort_mode=endpoint_config.sort_mode,
     )
 
 

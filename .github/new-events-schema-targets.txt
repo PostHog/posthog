@@ -6,10 +6,23 @@
 # The test-new-events-schema label doubles the backend suites. Listed paths those suites
 # exclude still run here so the label does not reduce native-schema coverage.
 #
-# Only tests that read event properties can behave differently between the two events tables,
-# so the list holds those directories plus the modules that own a *.new_events_schema.ambr
-# snapshot. A module outside the list runs against the legacy table only, and its JSON snapshot
-# goes stale. When you add a directory of tests that read event properties, add it here.
+# A test belongs here when the code it runs can give a different result on the two events tables.
+# Three kinds of code can:
+#   - code that reads event properties, through HogQL or through its own SQL
+#   - code that branches on use_new_events_schema() or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+#   - callers of flag_calls_only_in_flag_evaluations() and reads_flag_calls_from_flag_evaluations()
+#     in products/feature_flags/backend/facade/flags.py. Both return True on every flag evaluations
+#     mode for a team that reads the native JSON events table and has the flag_evaluations table
+#     enabled, because the JSON events table holds no flag calls.
+# The list also holds the modules that own a *.new_events_schema.ambr snapshot. A module outside
+# the list runs against the legacy table only, and its JSON snapshot goes stale. A test that mocks
+# the branching code, or sets CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA itself, gets the same result
+# on both runs, so it stays off the list.
+#
+# .github/scripts/check-new-events-schema-targets.py fails a pull request that adds one of those
+# branches to a module when a test that imports the module is not listed, unless the pull request
+# has the test-new-events-schema label. It does not see a test that reaches the module through
+# another module.
 #
 # One path per line, directory or file, relative to the repository root. A file under a listed
 # directory needs no line of its own. Every path must hold at least one test module.
@@ -23,21 +36,25 @@ posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
+ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
-products/ai_observability/backend/tests/test_trace_views.py
+products/ai_observability/backend/tests/presentation/views
 products/cohorts
 products/customer_analytics/backend/hogql_queries
+products/customer_analytics/backend/test/test_account_automations.py
 products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
+products/error_tracking/backend/tests/test_issue_tagger_rerun.py
 products/experiments
 products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
 products/marketing_analytics/backend/services/test_attribution_health.py
 products/marketing_analytics/backend/services/test_conversion_recordings.py
+products/mcp_analytics/backend/tests/test_dashboard_query.py
 products/mcp_analytics/backend/tests/test_dashboard_series.py
 products/mcp_analytics/backend/tests/test_harness_breakdown.py
 products/mcp_analytics/backend/tests/test_missing_capabilities.py
@@ -45,14 +62,18 @@ products/mcp_analytics/backend/tests/test_model_breakdown.py
 products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
+products/mcp_analytics/backend/tests/test_wrapped_queries.py
 products/product_analytics/backend/hogql_queries
+products/product_analytics/backend/tests/test_flag_evaluations_insight_series.py
 products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
 products/signals/backend/test/test_anomaly_search.py
 products/signals/backend/test/test_report_check_final_metrics.py
+products/signals/backend/test/test_scout_precheck.py
 products/signals/backend/test/test_anomaly_scoring_tick.py
 products/signals/backend/test/test_first_report_evals.py
 products/web_analytics/backend/hogql_queries
+products/workflows/skills/measuring-email-performance/tests
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
 posthog/dags/tests/test_deletes.py
@@ -60,12 +81,16 @@ posthog/models/person/test/test_point_in_time_properties_integration.py
 posthog/models/team/test_production_event_activation.py
 posthog/models/test/test_deletion_targets.py
 posthog/tasks/test/test_ai_observability_usage_report.py
+posthog/tasks/test/test_team_event_volume.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
+posthog/temporal/tests/session_replay/copy_recording/test_activities.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
 posthog/temporal/ai_observability/test_run_trace_evaluation.py
 posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py
 products/autoresearch/backend/inference/test_person_property.py
+products/ai_observability/backend/test/test_backfill_candidates.py
+products/analytics_platform/backend/lazy_computation/tests/test_lazy_computation_executor.py
 products/batch_exports/backend/tests/api/test_serializers.py
 products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py
 products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py
@@ -74,9 +99,17 @@ products/batch_exports/backend/tests/temporal/test_filters.py
 products/batch_exports/backend/tests/temporal/test_record_batch_model.py
 products/batch_exports/backend/tests/test_custom_events_schema.py
 products/batch_exports/backend/tests/test_hogql_source.py
+products/feature_flags/backend/test/test_facade_usage.py
+products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
 products/feature_flags/backend/test/test_request_usage.py
+products/growth/backend/tests/test_team_sdk_versions.py
+products/growth/dags/tests/test_team_production_event_activation.py
+products/posthog_ai/eval_harness/test/test_eval_seeders.py
+products/replay_vision/backend/tests/test_temporal.py
+products/signals/backend/test/test_billing.py
+products/workflows/backend/tests/api/test_workflow_data_suggestions.py
 
 # Other modules that own a *.new_events_schema.ambr snapshot, so the snapshot bot keeps it current
 posthog/api/test/test_event.py
@@ -89,5 +122,6 @@ products/ai_observability/backend/api/test/test_evaluations.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
+products/dashboards/backend/tests/api/test_query_sharing.py
 products/surveys/backend/responses/test_linked.py
 products/web_analytics/backend/test/test_heatmaps_api.py

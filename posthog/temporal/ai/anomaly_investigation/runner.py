@@ -22,13 +22,13 @@ import posthoganalytics
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport, salvage_report
 from posthog.temporal.ai.anomaly_investigation.tools import (
+    AlertedSeries,
     FetchMetricSeriesArgs,
     InvestigationToolkit,
     RecentEventsArgs,
@@ -311,6 +311,7 @@ async def run_investigation(
     user: User,
     anomaly_context: Any,  # str or list[{type, ...}] LangChain content blocks
     alert: AlertConfiguration | None = None,
+    alerted: AlertedSeries | None = None,
     heartbeat: Callable[[], None] | None = None,
 ) -> InvestigationRunResult:
     """Drive the agent loop to completion and return the structured report.
@@ -324,7 +325,7 @@ async def run_investigation(
     # (Temporal workflow sandbox restrictions).
     from ee.hogai.llm import MaxChatAnthropic
 
-    toolkit = InvestigationToolkit(team=team, alert=alert)
+    toolkit = InvestigationToolkit(team=team, alert=alert, alerted=alerted)
     handlers: dict[str, ToolHandler] = {
         "run_hogql_query": lambda raw: toolkit.run_hogql_query(RunHogQLQueryArgs.model_validate(raw)),
         "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),
@@ -433,6 +434,8 @@ async def run_investigation(
 
 def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
     callbacks: list[BaseCallbackHandler] = []
+    from ee.hogai.llm import MaxCallbackHandler
+
     client = posthoganalytics.default_client
     if client is None:
         return callbacks
@@ -443,7 +446,7 @@ def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[Ba
     if alert is not None:
         properties["alert_id"] = str(alert.id)
     callbacks.append(
-        CallbackHandler(
+        MaxCallbackHandler(
             client,
             distinct_id=str(team.id),
             trace_id=f"alert-investigation-{uuid.uuid4()}",

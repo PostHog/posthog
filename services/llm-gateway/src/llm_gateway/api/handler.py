@@ -230,7 +230,7 @@ async def handle_llm_request(
     is_streaming: bool,
     provider_config: ProviderConfig,
     llm_call: Callable[..., Awaitable[Any]],
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any] | StreamingResponse:
     _raise_if_unsupported_model(model)
     request_data = _sanitize_request_data(request_data)
@@ -326,7 +326,7 @@ async def _handle_streaming_request(
     llm_call: Callable[..., Awaitable[Any]],
     start_time: float,
     timeout: float,
-    product: str = "llm_gateway",
+    product: str,
 ) -> StreamingResponse:
     CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
     try:
@@ -478,7 +478,7 @@ async def _handle_non_streaming_request(
     llm_call: Callable[..., Awaitable[Any]],
     start_time: float,
     timeout: float,
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any]:
     status_code = "200"
     try:

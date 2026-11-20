@@ -2,7 +2,7 @@ import './AnnotationsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly sign-up series with a visible dip two thirds along, which is
 // the moment the annotation explains.
@@ -21,7 +21,7 @@ function areaPath(line: string): string {
  * in `__swap` grids and crossfaded, so nothing shifts.
  */
 export function AnnotationsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('AnnotationPreview', isStatic && 'AnnotationPreview--static')}>

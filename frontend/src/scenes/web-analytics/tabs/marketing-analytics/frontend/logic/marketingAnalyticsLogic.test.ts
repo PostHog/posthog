@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { TileId } from 'scenes/web-analytics/common'
 import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -80,27 +81,33 @@ describe('marketingAnalyticsLogic', () => {
         localStorage.clear()
     })
 
-    it('keeps the search date range in the URL when restoring a tab', async () => {
-        router.actions.push(urls.marketingAnalyticsApp(), {
-            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-            date_from: '-28d',
-            compare: 'true',
-        })
-        logic = marketingAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
-        expect(router.values.searchParams).toMatchObject({
-            date_from: '-28d',
-            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-        })
-    })
+    it.each(['search-performance', 'ad-performance'])(
+        'opens the Search tab and keeps its date range from tab=%s',
+        async (tab) => {
+            router.actions.push(urls.marketingAnalyticsApp(), {
+                tab,
+                date_from: '-28d',
+                compare: 'true',
+            })
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
+            expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+            expect(router.values.searchParams).toMatchObject({
+                date_from: '-28d',
+                tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            })
+        }
+    )
 
     it('keeps the campaign breakdown query while sources refresh in the background', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+        expect(tiles.values.tiles.map(({ tileId }) => tileId)).not.toContain(TileId.MARKETING)
         await expectLogic(logic).toFinishAllListeners()
         const breakdown = tiles.values.campaignCostsBreakdown
         expect(breakdown).not.toBeNull()
@@ -238,9 +245,9 @@ describe('marketingAnalyticsLogic', () => {
         { description: 'active draft' },
         { description: 'URL override', overrideFromUrl: true },
         {
-            description: 'Ad performance URL override',
+            description: 'Search URL override',
             overrideFromUrl: true,
-            tab: MarketingAnalyticsTab.AD_PERFORMANCE,
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
         },
         {
             description: 'cleared draft sorted by its goal',
@@ -404,11 +411,11 @@ describe('marketingAnalyticsLogic', () => {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]: true,
             })
             if (hideGoals) {
-                logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
-                logic.actions.setAdPerformanceConversionGoals(false)
+                logic.actions.setShowConversionGoals(false)
             }
             logic.actions.setDrillDownLevel(level)
             expect(logic.values.drillDownLevel).toBe(level)
+            expect(logic.values.includeConversionGoals).toBe(!hideGoals)
             const breakdown = tiles.values.campaignCostsBreakdown!
             marketingAnalyticsTableLogic.actions.setQuery({
                 ...breakdown,
@@ -425,7 +432,7 @@ describe('marketingAnalyticsLogic', () => {
         }
     })
 
-    it('excludes conversion queries only in Ad performance and preserves legacy columns', async () => {
+    it('excludes conversion queries only where goals can be toggled and preserves legacy columns', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
@@ -451,7 +458,7 @@ describe('marketingAnalyticsLogic', () => {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
             })
-            logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
+            logic.actions.setActiveTab(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
             search.actions.setMetrics('conversions')
             expect(search.values.query.includePostHogConversions).toBe(false)
@@ -506,9 +513,9 @@ describe('marketingAnalyticsLogic', () => {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                 })
                 expect(search.values.query.includePostHogConversions).toBe(true)
-                logic.actions.setAdPerformanceConversionGoals(false)
+                logic.actions.setShowConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
-                logic.actions.setAdPerformanceConversionGoals(true)
+                logic.actions.setShowConversionGoals(true)
             }
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
@@ -626,10 +633,10 @@ describe('marketingAnalyticsLogic', () => {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
-                logic.actions.setAdPerformanceConversionGoals(true)
+                logic.actions.setShowConversionGoals(true)
                 expect(search.values.query.includePostHogConversions).toBe(true)
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
-                logic.actions.setAdPerformanceConversionGoals(false)
+                logic.actions.setShowConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
                 expect(search.values.detailQuery).toMatchObject({
                     normalizePageUrls: false,
@@ -667,7 +674,14 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
-            logic.actions.setAdPerformanceConversionGoals(false)
+            expect(tiles.values.tiles.map(({ tileId }) => tileId)).toContain(TileId.MARKETING)
+            // A sync reloads the schema, and the warehouse tables stay empty until it lands.
+            const settledChart = tiles.values.marketingChartTile.query
+            databaseTableListLogic.actions.loadDatabase({ force: true })
+            expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+            expect(tiles.values.marketingChartTile.query).toEqual(settledChart)
+            await expectLogic(databaseTableListLogic).toFinishAllListeners()
+            logic.actions.setShowConversionGoals(false)
             const overview = tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery
             const table = tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery
             expect(overview.select).toEqual(Object.values(MarketingAnalyticsBaseColumns))
@@ -676,14 +690,16 @@ describe('marketingAnalyticsLogic', () => {
             expect(table.draftConversionGoal).toBeNull()
             expect(table.orderBy).toEqual([])
             expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
-            logic.actions.setAdPerformanceConversionGoals(true)
+            logic.actions.setShowConversionGoals(true)
             expect((tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select).toContain(
                 'Purchases'
             )
-            logic.actions.setAdPerformanceConversionGoals(false)
+            logic.actions.setShowConversionGoals(false)
             for (const legacyState of ['other-tab', 'flag-off'] as const) {
                 logic.actions.setActiveTab(
-                    legacyState === 'other-tab' ? MarketingAnalyticsTab.DASHBOARD : MarketingAnalyticsTab.AD_PERFORMANCE
+                    legacyState === 'other-tab'
+                        ? MarketingAnalyticsTab.ATTRIBUTION
+                        : MarketingAnalyticsTab.SEARCH_PERFORMANCE
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
@@ -696,6 +712,14 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
+            logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
+            expect(logic.values.includeConversionGoals).toBe(false)
+            expect((tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery).select).toEqual(
+                Object.values(MarketingAnalyticsBaseColumns)
+            )
         } finally {
             search.unmount()
             tiles.unmount()
@@ -710,9 +734,9 @@ describe('marketingAnalyticsLogic', () => {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
         })
-        logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
-        expect(logic.values.includeConversionGoals).toBe(false)
-        expect(logic.values.adPerformanceConversionGoals).toBe(true)
+        logic.actions.setActiveTab(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
+        expect(logic.values.canToggleConversionGoals).toBe(false)
+        expect(logic.values.showConversionGoals).toBe(true)
         const search = searchPerformanceLogic()
         search.mount()
         search.actions.setBreakdown('page')
@@ -738,7 +762,7 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.includeConversionGoals).toBe(true)
         expect(search.values.displayMetrics).toBe('conversions')
         expect(search.values.conversionsDisabledReason).toBeNull()
-        logic.actions.setAdPerformanceConversionGoals(false)
+        logic.actions.setShowConversionGoals(false)
         expect(search.values.displayMetrics).toBe('traffic')
         expect(search.values.conversionsDisabledReason).toContain('Include conversion goals')
         search.unmount()
@@ -1244,6 +1268,10 @@ describe('marketingAnalyticsLogic', () => {
                 entry_point: 'dashboard_customer_cards',
                 section: SetupSection.CONVERSION_GOALS,
             })
+            expect(posthog.capture).not.toHaveBeenCalledWith(
+                'marketing analytics dashboard tab selected',
+                expect.anything()
+            )
 
             await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
                 .toFinishAllListeners()
@@ -1259,6 +1287,37 @@ describe('marketingAnalyticsLogic', () => {
             unmountSettings()
         }
     )
+
+    it('reports a tab click with the Search tag visibility, but not a click on the open tab', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            'marketing analytics dashboard tab selected',
+            expect.anything()
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.DASHBOARD,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard tab selected', {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            previous_tab: MarketingAnalyticsTab.DASHBOARD,
+            search_new_tag_visible: true,
+        })
+    })
+
     it.each([
         ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
         ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],

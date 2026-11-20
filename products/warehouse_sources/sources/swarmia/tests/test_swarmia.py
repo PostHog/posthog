@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.swarmia.swarmia import (
     SwarmiaRetryableError,
     _build_windows,
     _convert_value,
-    _fetch_csv,
+    _fetch,
     _rename_column,
     _rows_from_csv,
     _window_params,
@@ -34,7 +34,7 @@ from products.warehouse_sources.sources.swarmia.swarmia import (
 
 # The tenacity `@retry` decorator wraps the real function; `__wrapped__` reaches the undecorated
 # body so these tests exercise a single call without the retry loop.
-_fetch_csv_direct = _fetch_csv.__wrapped__  # type: ignore[attr-defined]
+_fetch_direct = _fetch.__wrapped__  # type: ignore[attr-defined]
 
 PULL_REQUESTS_CSV = (
     "Start Date,End Date,Parent Team(s),Team,Cycle Time (s),Review Rate (%),Time to first review (s),"
@@ -151,20 +151,22 @@ class TestWindowParams:
             ),
             ("month_param", "fte", {"month": "2026-06"}),
             ("year_param", "capex_employees", {"year": "2026"}),
+            ("v1_timeframe", "code_metrics", {"timeframe.start": "2026-06-29", "timeframe.end": "2026-07-05"}),
+            ("no_window", "teams", {}),
         ]
     )
     def test_window_params(self, _name: str, endpoint: str, expected: dict[str, str]) -> None:
         assert _window_params(SWARMIA_ENDPOINTS[endpoint], date(2026, 6, 29), date(2026, 7, 5)) == expected
 
 
-class TestFetchCsv:
+class TestFetch:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = _mock_response(status_code)
 
         with pytest.raises(SwarmiaRetryableError):
-            _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
+            _fetch_direct(session, "https://app.swarmia.com/api/v0/reports/dora", {}, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_errors_raise_http_error(self, _name: str, status_code: int) -> None:
@@ -172,7 +174,7 @@ class TestFetchCsv:
         session.get.return_value = _mock_response(status_code)
 
         with pytest.raises(requests.HTTPError):
-            _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
+            _fetch_direct(session, "https://app.swarmia.com/api/v0/reports/dora", {}, MagicMock())
 
 
 def _driver() -> SourceDriver:
@@ -210,6 +212,75 @@ class TestGetRows:
             "issue_key": "ENG-1",
         }
 
+    @parameterized.expand(
+        [
+            ("code_metrics", "/api/v1/reports/metrics/code", "2"),
+            ("ai_adoption", "/api/v1/reports/ai/adoption/users-and-licenses", "1"),
+        ]
+    )
+    def test_v1_report_request_and_row_shaping(self, endpoint: str, path: str, revision: str) -> None:
+        report = {
+            "schema": {},
+            "rows": [
+                {
+                    "_key": {"type": "Team", "id": "team-1", "name": "Frontend"},
+                    "id": "team-1",
+                    "name": "Frontend",
+                    "cycleTime": 3600,
+                    "reviewRate": 100,
+                    "mergedCount": 3,
+                    "teamFte": None,
+                    "mergedPrsByFte": 1.5,
+                    "activeAiUsers": [{"type": "Author", "id": "a-1", "name": "Alice", "email": "a@example.com"}],
+                }
+            ],
+            "summaryRow": {"id": None, "name": None, "mergedCount": 3},
+        }
+
+        result = _driver().run(
+            endpoint,
+            always(ScriptedResponse(json=report)),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 28),
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [path, path]
+        assert result.params("revision") == [revision, revision]
+        assert result.params("timeframe.start") == ["2026-06-29", "2026-07-06"]
+        assert result.params("timeframe.end") == ["2026-07-05", "2026-07-12"]
+        assert result.requests[0].headers["accept"] == "application/json"
+        assert result.rows[0] == {
+            "start_date": date(2026, 6, 29),
+            "end_date": date(2026, 7, 5),
+            "team_id": "team-1",
+            "team_name": "Frontend",
+            "cycle_time_seconds": 3600.0,
+            "review_rate_percent": 100.0,
+            "merged_count": 3.0,
+            "team_fte": None,
+            "merged_prs_by_fte": 1.5,
+            "active_ai_users": [{"type": "Author", "id": "a-1", "name": "Alice", "email": "a@example.com"}],
+        }
+        assert isinstance(result.rows[0]["merged_count"], float)
+        assert len(result.rows) == 2
+
+    @parameterized.expand(
+        [
+            ("teams_key", {"teams": [{"id": "t-1", "parentId": None, "name": "Eng", "jiraProjectKeys": ["ENG"]}]}, 1),
+            ("missing_key", {}, 0),
+            ("null_list", {"teams": None}, 0),
+        ]
+    )
+    def test_teams_single_request_and_row_shaping(self, _name: str, payload: dict, expected_rows: int) -> None:
+        result = _driver().run("teams", [ScriptedResponse(json=payload)])
+
+        assert result.raised is None
+        assert [(request.path, dict(request.query)) for request in result.requests] == [("/api/v0/teams", {})]
+        assert len(result.rows) == expected_rows
+        if expected_rows:
+            assert result.rows[0] == {"id": "t-1", "parent_id": None, "name": "Eng", "jira_project_keys": ["ENG"]}
+
     def test_header_only_csv_yields_nothing(self) -> None:
         result = _driver().run(
             "dora",
@@ -231,15 +302,29 @@ class TestCredentialChecks:
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_check_endpoint_access_flags_denied_reports(self) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
-            if request.path.endswith("/reports/capex"):
+            if request.path in ("/api/v0/reports/capex", "/api/v0/teams"):
                 return ScriptedResponse(status=403)
             return _csv("Start Date,End Date\n")
 
-        with scripted_network(script):
-            results = check_endpoint_access("token", ["pull_requests", "capex"])
+        with scripted_network(script) as network:
+            results = check_endpoint_access("token", ["pull_requests", "capex", "teams", "code_metrics"])
 
         assert results["pull_requests"] is None
-        assert results["capex"] is not None and "can't access" in results["capex"]
+        assert results["code_metrics"] is None
+        for denied in ("capex", "teams"):
+            message = results[denied]
+            assert message is not None and "can't access" in message
+        # A probe without the required revision or timeframe gets a 400, which would read as accessible.
+        code_probe = next(r for r in network.requests_log if r.path == "/api/v1/reports/metrics/code")
+        assert (
+            code_probe.param("revision"),
+            code_probe.param("timeframe.start"),
+            code_probe.param("timeframe.end"),
+        ) == (
+            "2",
+            "2026-07-06",
+            "2026-07-12",
+        )
 
     def test_check_endpoint_access_network_blip_is_not_a_permission_error(self) -> None:
         with scripted_network(always(ConnectionError("boom"))):
@@ -290,22 +375,28 @@ class TestHttpSampleCaptureDisabled:
 class TestSwarmiaSourceResponse:
     @parameterized.expand(
         [
-            ("pull_requests", ["start_date", "end_date", "team"], "start_date"),
-            ("dora", ["start_date", "end_date"], "start_date"),
-            ("investment", ["start_date", "end_date", "investment_category"], "start_date"),
-            ("capex", ["month", "employee_id", "capitalizable_work"], None),
-            ("capex_employees", ["month", "employee_id"], None),
-            ("fte", ["month", "author_id", "issue_key"], None),
+            ("pull_requests", ["start_date", "end_date", "team"], "start_date", "asc"),
+            ("dora", ["start_date", "end_date"], "start_date", "asc"),
+            ("investment", ["start_date", "end_date", "investment_category"], "start_date", "asc"),
+            ("capex", ["month", "employee_id", "capitalizable_work"], None, "asc"),
+            ("capex_employees", ["month", "employee_id"], None, "asc"),
+            ("fte", ["month", "author_id", "issue_key"], None, "asc"),
+            ("code_metrics", ["start_date", "end_date", "team_id"], "start_date", "asc"),
+            ("ai_adoption", ["start_date", "end_date", "team_id"], "start_date", "asc"),
+            ("teams", ["id"], None, None),
         ]
     )
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = _driver().run(endpoint, always(_csv("Start Date\n"))).response
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, sort_mode: str | None
+    ) -> None:
+        # Parses as an empty JSON report and as a header-only CSV, so one body serves every endpoint.
+        response = _driver().run(endpoint, always(_csv('{"rows": [], "teams": []}\n'))).response
 
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"

@@ -134,21 +134,39 @@ export function defineProduct<LaunchOptions extends object>(definition: {
 
 export function buildPullRequestFooter(
   launch: ProductLaunchConfiguration,
-  options: { automated?: boolean; source?: TaskSource } = {},
+  options: {
+    automated?: boolean;
+    sources?: readonly (TaskSource | undefined)[];
+  } = {},
 ): string {
   const mobile = launch.launchOptions.client_platform === "mobile";
-  let createdWith =
-    "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
-  if (mobile) {
+  const report = (options.sources ?? []).find(
+    (source) => source?.label === "inbox report",
+  );
+  const slackThread = (options.sources ?? []).find(
+    (source) => source?.label === "Slack thread",
+  );
+  let createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
+  if (!report && slackThread) {
+    createdWith =
+      "Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr)";
+  } else if (!report && mobile) {
     createdWith = "Created with [PostHog Mobile](https://posthog.com?ref=pr)";
-  } else if (options.automated || launch.clientProvenance === "posthog_web") {
-    createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
+  } else if (
+    !report &&
+    !options.automated &&
+    launch.clientProvenance === "posthog_desktop"
+  ) {
+    createdWith =
+      "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
   }
 
-  const { source } = options;
-  if (!source) {
-    return `*${createdWith}*`;
-  }
-  const article = /^[aeiou]/i.test(source.label) ? "an" : "a";
-  return `*${createdWith} from ${article} [${source.label}](${source.url})*`;
+  const links = (options.sources ?? [])
+    .filter((source): source is TaskSource => source !== undefined)
+    .map((source, index) => {
+      const preposition = index === 0 ? "from" : "via";
+      const article = /^[aeiou]/i.test(source.label) ? "an" : "a";
+      return `${preposition} ${article} [${source.label}](${source.url})`;
+    });
+  return `*${[createdWith, ...links].join(" ")}*`;
 }

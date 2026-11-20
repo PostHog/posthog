@@ -3,6 +3,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { SignalReportBillingExemptReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport } from '../../types'
+import { formatCredits, usdToCredits } from '../../utils/credits'
 
 const EXEMPT_TOOLTIPS: Record<SignalReportBillingExemptReasonEnumApi, string> = {
     [SignalReportBillingExemptReasonEnumApi.PosthogHealthCheck]:
@@ -21,7 +22,7 @@ function refundTooltip(refund: NonNullable<SignalReport['refund']>): string {
         return "This PR was refunded before it was billed. You won't pay for it, and it doesn't count toward your included PRs."
     }
     if (refund.credit_amount_usd != null) {
-        return `This PR was refunded. $${refund.credit_amount_usd} was credited toward your next invoice, and it doesn't count toward your included PRs.`
+        return `This PR was refunded, returning ${formatCredits(usdToCredits(Number(refund.credit_amount_usd)))} toward your next invoice. It doesn't count toward your included PRs.`
     }
     return "This PR was refunded. The credit is being processed, and it doesn't count toward your included PRs."
 }

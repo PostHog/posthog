@@ -116,6 +116,7 @@ class TestOfferFeatureTip:
                 SlackFeature.MODEL_IN_MENTION,
             ),
             ("is in the middle of onboarding", {}, None, {"started_at": "2026-01-01T00:00:00Z"}, None),
+            ("only got a work focus", {}, None, {"work_focus_outcome": "sent"}, SlackFeature.THREAD_FOLLOWUP),
             (
                 "finished onboarding",
                 {},

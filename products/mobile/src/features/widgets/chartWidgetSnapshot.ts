@@ -38,7 +38,16 @@ export function widgetSnapshot(
         return null
     }
     const format = snapshotFormatter(snapshot)
-    const display = insightDisplay(snapshot)
+    // Native home-screen widgets do not carry category labels or per-series axes in their snapshot format.
+    const needsSqlRows =
+        snapshot.sqlTable &&
+        snapshot.allSeries.some(
+            (series) =>
+                series.points.some((point) => point.label !== undefined) ||
+                series.axis === 'right' ||
+                (series.chartKind !== undefined && series.chartKind !== snapshot.chartKind)
+        )
+    const display = needsSqlRows ? 'table' : insightDisplay(snapshot)
     if (display === 'web') {
         return null
     }
@@ -76,7 +85,7 @@ export function widgetSnapshot(
             })
         }
     }
-    const plotted = snapshot.allSeries.slice(0, 10)
+    const plotted = needsSqlRows ? [] : snapshot.allSeries.slice(0, 10)
     const current = plotted.filter((series) => series.compare !== 'previous')
     const values = plotted
         .filter((series) => snapshot.chartKind !== 'bar' || series.compare !== 'previous')

@@ -8,7 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { type FeatureFlagsSet, featureFlagLogic, revokePostHogAIAccess } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { stashPendingAiPrompt } from '~/layout/ai/pendingAiPrompt'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
@@ -61,7 +62,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
-import { hasTasksFlag, tasksLogic } from '../../logics/tasksLogic'
+import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
@@ -142,7 +143,7 @@ function creationRouteKey(pathname: string, searchParams: Record<string, any>): 
  * A repo-scoped warm must already know its branch: the backend matches branch as a `None`-normalized
  * exact value, so warming while `GitHubBranchCombobox` is still resolving the repo's default would
  * book a sandbox on `null` and then miss on submit. Repo-less drafts carry `null` on both sides and
- * warm immediately.
+ * warm immediately. Warm sandboxes are GitHub-only, so a GitLab project never warms.
  */
 function buildWarmRequest(
     form: TaskCreateForm,
@@ -154,7 +155,7 @@ function buildWarmRequest(
     cloudTarget: CloudTargetIds
 ): WarmTaskRequestApi | null {
     const { repositoryConfig, model, reasoningEffort, permissionMode } = form
-    if (repositoryConfig.repository && !repositoryConfig.branch) {
+    if (repositoryConfig.repositoryIntegrationId || (repositoryConfig.repository && !repositoryConfig.branch)) {
         return null
     }
     const base = {
@@ -229,6 +230,7 @@ export interface taskTrackerSceneLogicValues {
     autoPublishCloudRuns: boolean
     cloudTargetEnabled: boolean
     composerAdapter: string
+    composerFocused: boolean
     consentBlocked: boolean
     customImages: SandboxCustomImageDTOApi[] | null
     defaultRepositoryConfig: PersistedRepositoryConfig
@@ -326,8 +328,10 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest,
+        eligible?: boolean | undefined
     ) => {
+        eligible: boolean
         hasText: boolean
         request: import('../../logics/taskWarmLogic').TaskWarmRequest
     } // taskWarmLogic
@@ -418,6 +422,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         environments: SandboxEnvironmentDTOApi[] | null
         images: SandboxCustomImageDTOApi[] | null
+    }
+    setComposerFocused: (focused: boolean) => {
+        focused: boolean
     }
     setDefaultRepositoryConfig: (config: PersistedRepositoryConfig) => {
         config: PersistedRepositoryConfig
@@ -512,6 +519,30 @@ export type taskTrackerSceneLogicType = MakeLogicType<
     TaskTrackerSceneLogicProps,
     taskTrackerSceneLogicMeta
 >
+
+/**
+ * The server refused 2.0 to a page that still shows it, such as one rendered before a flag outage.
+ * Classic PostHog AI takes over for the rest of the session, with the user's message as its draft.
+ */
+function moveToClassicPostHogAI(featureFlags: FeatureFlagsSet, message: string, panelId: string | undefined): void {
+    revokePostHogAIAccess()
+    // A side panel or the AI scene swaps to classic in place, so its host takes the message. The message never
+    // goes in the URL, because pageview events record the full URL.
+    const swapsInPlace = !!panelId || removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+    if (message.trim()) {
+        if (swapsInPlace) {
+            runnerPanelLogic({ panelId }).actions.handOffToClassic(message)
+        } else {
+            stashPendingAiPrompt(message)
+        }
+    }
+    // featureFlagLogic applies the revocation when it computes the flags, so resending the current flags applies it.
+    const currentFlags: Record<string, string | boolean> = JSON.parse(JSON.stringify(featureFlags))
+    featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(currentFlags), currentFlags)
+    if (!swapsInPlace) {
+        router.actions.push(urls.ai())
+    }
+}
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
@@ -608,6 +639,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
         noteNewTaskDraft: true,
+        setComposerFocused: (focused: boolean) => ({ focused }),
         pickCloudTarget: (cloudTarget: string | null) => ({ cloudTarget }),
         toggleFavoriteCloudTarget: (cloudTarget: string) => ({ cloudTarget }),
         setCloudTargets: (
@@ -617,6 +649,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     reducers({
+        composerFocused: [false, { setComposerFocused: (_, { focused }) => focused }],
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
@@ -805,6 +838,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             (s) => [s.newTaskData, s.defaultRepositoryConfig],
             (newTaskData: TaskCreateForm, defaultRepositoryConfig: PersistedRepositoryConfig): boolean =>
                 !!newTaskData.repositoryConfig.repository &&
+                !newTaskData.repositoryConfig.repositoryIntegrationId &&
                 newTaskData.repositoryConfig.repository === defaultRepositoryConfig.repository &&
                 newTaskData.repositoryConfig.integrationId === defaultRepositoryConfig.integrationId,
         ],
@@ -865,7 +899,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
             // A host default owns this composer's starting repo, so picks made here keep the shared memory intact.
-            if (data.repositoryConfig?.repository && !props.initialRepositoryConfig) {
+            // The memory holds GitHub repositories only, so a GitLab pick leaves the last GitHub repo in place.
+            if (
+                data.repositoryConfig?.repository &&
+                !data.repositoryConfig.repositoryIntegrationId &&
+                !props.initialRepositoryConfig
+            ) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }
@@ -883,8 +922,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.noteNewTaskDraft()
         },
         toggleDefaultRepository: () => {
-            const { integrationId, repository } = values.newTaskData.repositoryConfig
-            if (!repository) {
+            const { integrationId, repository, repositoryIntegrationId } = values.newTaskData.repositoryConfig
+            if (!repository || repositoryIntegrationId) {
                 return
             }
             const starred = !values.isDefaultRepository
@@ -896,7 +935,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
         removeRepository: () => {
             actions.setNewTaskData({
-                repositoryConfig: { ...values.newTaskData.repositoryConfig, repository: undefined, branch: undefined },
+                repositoryConfig: {
+                    ...values.newTaskData.repositoryConfig,
+                    repository: undefined,
+                    branch: undefined,
+                    repositoryIntegrationId: undefined,
+                },
             })
             posthog.capture('task composer repository removed')
         },
@@ -918,8 +962,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setCloudTargets: () => {
             actions.noteNewTaskDraft()
         },
+        setComposerFocused: () => {
+            actions.noteNewTaskDraft()
+        },
         noteNewTaskDraft: () => {
             if (values.activeCreation || !values.dataProcessingAccepted) {
+                return
+            }
+            if (values.effectiveRepositoryConfig.repository) {
+                actions.releaseWarm()
+                return
+            }
+            if (!values.defaultsResolved) {
                 return
             }
             const request = buildWarmRequest(
@@ -930,15 +984,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 values.selectedCloudTargetIds
             )
             if (request) {
-                // An empty draft releases the warm, and so does the ChatGPT plan, which boots cold.
-                const hasText = values.newTaskData.description.trim().length > 0
-                actions.noteDraft(hasText && !usesChatGptPlan(values.composerAdapter), request)
+                const shouldWarm = values.composerFocused || values.newTaskData.description.trim().length > 0
+                actions.noteDraft(shouldWarm, request, !usesChatGptPlan(values.composerAdapter))
+            } else if (values.effectiveRepositoryConfig.repositoryIntegrationId) {
+                // A sandbox warmed for an earlier GitHub pick can't serve a GitLab task.
+                actions.releaseWarm()
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
         // chosen yet. The IntegrationChoice picker that used to own this selection is no longer rendered.
         maybeAutoSelectIntegration: () => {
-            if (values.newTaskData.repositoryConfig.integrationId) {
+            const selection = values.newTaskData.repositoryConfig
+            if (selection.integrationId || selection.repositoryIntegrationId) {
                 return
             }
             const githubIntegrations = values.githubIntegrations
@@ -993,8 +1050,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
             // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
             const description = values.newTaskData.description.trim()
+            const onTaskCreated = props.onTaskCreated
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
+            const gitlabIntegrationId = repositoryConfig.repositoryIntegrationId
             const composerAdapter = values.composerAdapter
 
             if (!description) {
@@ -1075,8 +1134,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // and a run, so they go onto that run and ride its activation. Without one there is nothing
                 // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
                 const attachedFiles = sending.map(({ file }) => file)
-                const warmLease = warmSubmission.lease
-                const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
+                // A lease from an earlier GitHub pick names a sandbox the GitLab task can't use.
+                const warmLease = gitlabIntegrationId ? null : warmSubmission.lease
+                const suppressWarmReuse = !!gitlabIntegrationId || (attachedFiles.length > 0 && !warmLease)
                 let pendingUserArtifactIds: string[] = []
                 if (attachedFiles.length > 0) {
                     actions.setUploading(true)
@@ -1135,7 +1195,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     origin_product: TaskOriginProductEnumApi.PosthogAi,
                     // PostHog AI can run without a repo; null means the task is not scoped to any repository.
                     repository: repositoryConfig.repository ?? null,
-                    github_integration: repositoryConfig.integrationId ?? null,
+                    // The backend rejects a GitLab integration sent together with a GitHub one.
+                    ...(gitlabIntegrationId
+                        ? { repository_integration: gitlabIntegrationId }
+                        : { github_integration: repositoryConfig.integrationId ?? null }),
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
@@ -1144,6 +1207,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // resolves it for warm matching too.
                     // A warm sandbox holds no ChatGPT token, so a run on the plan skips warm reuse and boots cold.
                     ...(suppressWarmReuse || onChatGptPlan ? {} : { branch: runPayload.branch }),
+                    ...(!onChatGptPlan && warmLease?.permissionModeMutable
+                        ? { warm_run_id: warmLease.runId, warm_submission_id: uuid() }
+                        : {}),
                     ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
@@ -1163,8 +1229,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     (options) => tasksCreate(projectId, taskData, options),
                     disposables
                 )
-                actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
-                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -1206,6 +1270,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
+
+                actions.consumeWarm(warmSubmission, runId ?? null)
+                warmConsumed = true
 
                 if (disposables.isDisposed) {
                     return
@@ -1273,7 +1340,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
                 // Every composer submits through here, so this is the one place that reaches all of them.
                 todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
-                props.onTaskCreated?.(newTask.id)
+                if (gitlabIntegrationId) {
+                    posthog.capture('task composer gitlab task created')
+                }
+                onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
@@ -1299,6 +1369,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         })
                     }
                     actions.clearActiveCreation()
+                }
+                if (error instanceof ApiError && error.code === 'task_unavailable') {
+                    moveToClassicPostHogAI(values.featureFlags, values.newTaskData.description, props.panelId)
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
@@ -1423,9 +1496,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
-        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need no 2.0 access.
         const redirectedWithoutAccess = (taskId?: string): boolean => {
-            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
+            if (props.panelId || values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] || (taskId && taskId !== 'new')) {
                 return false
             }
             router.actions.replace(urls.ai())

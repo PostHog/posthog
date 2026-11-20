@@ -100,6 +100,16 @@ class MCPToolCall:
     is_error: bool
     error_message: str
     duration_ms: int | None
+    parameters: str
+    response: str
+    error_type: str
+    error_status: str
+    exec_verb: str
+    exec_target_tool: str
+    input_keys: list[str]
+    error_code: str
+    error_field: str
+    llm_model: str
 
 
 @dataclass(frozen=True)
@@ -207,6 +217,27 @@ class ToolOverlap:
 
 
 @dataclass(frozen=True)
+class IntentClusterLongTail:
+    intent_count: int
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+    sample_intents: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RecurringIntentEntry:
+    intent_text: str
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+    variant_count: int = 1
+    sample_variants: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class IntentClusterSnapshotMeta:
     distance_threshold: float
     embedding_model: str
@@ -238,6 +269,9 @@ class IntentClusterSnapshot:
     computed_with: IntentClusterSnapshotMeta | None = None
     tools: list[ToolPivot] = field(default_factory=list)
     tool_overlaps: list[ToolOverlap] = field(default_factory=list)
+    long_tail: IntentClusterLongTail | None = None
+    recurring: list[RecurringIntentEntry] = field(default_factory=list)
+    intent_text_redacted: bool = False
 
 
 @dataclass(frozen=True)

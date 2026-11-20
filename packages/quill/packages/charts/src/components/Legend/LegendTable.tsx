@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react'
 
 import { buildYTickFormatter } from '../../utils/y-formatters'
 import type { LegendProps, LegendTableConfig, LegendValue } from './Legend'
+import { LegendTag } from './LegendTag'
 
 const HEADERS: Record<'label' | LegendValue, string> = {
     label: 'Name',
@@ -118,7 +119,7 @@ export function LegendTable({
                         <span className="flex flex-1 min-w-0 items-center gap-1.5">
                             <span
                                 aria-hidden="true"
-                                className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                                className={`inline-block w-2.5 h-2.5 rounded-sm shrink-0 ${item.swatchClassName ?? ''}`}
                                 style={{ backgroundColor: item.color }}
                             />
                             <span className="truncate min-w-0" title={item.label} data-attr="hog-chart-legend-label">
@@ -132,6 +133,7 @@ export function LegendTable({
                                     {item.secondaryLabel}
                                 </span>
                             )}
+                            {item.tag && <LegendTag tag={item.tag} />}
                         </span>
                         {cells.get(item.key)?.map((text, i) => (
                             <span

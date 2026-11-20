@@ -7,11 +7,14 @@ from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     SinglePagePaginator,
     SortMode,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -301,6 +304,33 @@ def _dedupe_pages_by_id(pages: Iterable[Any], primary_key: str) -> Iterator[list
             yield fresh
 
 
+def _endpoint_config(
+    config: ShortcutEndpointConfig,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> Endpoint:
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "method": config.method,
+        "data_selector_required": True,
+    }
+    if config.single_object:
+        endpoint_config["data_selector"] = "$"
+    if config.method == "POST":
+        # Shortcut's stories/search carries its server-side timestamp filters in the POST body (not the
+        # query string). This seeds the first window; the paginator sets the created_at bounds per request.
+        endpoint_config["json"] = _build_search_body(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+    endpoint_config["paginator"] = (
+        StoriesSearchPaginator(primary_key=config.primary_key, split_threshold=STORY_SEARCH_SPLIT_THRESHOLD)
+        if config.method == "POST"
+        else SinglePagePaginator()
+    )
+    return endpoint_config
+
+
 def shortcut_source(
     api_token: str,
     endpoint: str,
@@ -311,46 +341,63 @@ def shortcut_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = SHORTCUT_ENDPOINTS[endpoint]
-
-    endpoint_config: dict[str, Any] = {
-        "path": config.path,
-        "method": config.method,
-        # Every Shortcut list endpoint (and stories/search) returns a bare JSON array; require it to
-        # be a list so a changed/error 200 body fails loud instead of syncing a stray object as a row.
-        "data_selector_required": True,
+    client_config: ClientConfig = {
+        "base_url": SHORTCUT_BASE_URL,
+        "headers": _base_headers(),
+        "auth": {
+            "type": "api_key",
+            "api_key": api_token,
+            "name": "Shortcut-Token",
+            "location": "header",
+        },
     }
-    if config.method == "POST":
-        # Shortcut's stories/search carries its server-side timestamp filters in the POST body (not the
-        # query string). This seeds the first window; the paginator sets the created_at bounds per request.
-        endpoint_config["json"] = _build_search_body(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+
+    if config.fanout is not None:
+        seen_parent_ids: set[Any] = set()
+
+        def unique_parent(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+            # Story search windows overlap, so each story must trigger its child request only once.
+            if row["id"] in seen_parent_ids:
+                return []
+            seen_parent_ids.add(row["id"])
+            return row
+
+        child = build_dependent_resource(
+            endpoint_configs=SHORTCUT_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=_endpoint_config(SHORTCUT_ENDPOINTS[config.fanout.parent_name]),
+            child_endpoint_extra=_endpoint_config(config),
+            parent_data_map=unique_parent,
+            page_size_param=None,
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=[config.fanout.parent_field_renames["id"], config.primary_key],
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime" if config.partition_key else None,
+            partition_format="month" if config.partition_key else None,
+            partition_keys=[config.partition_key] if config.partition_key else None,
         )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SHORTCUT_BASE_URL,
-            "headers": _base_headers(),
-            "auth": {
-                "type": "api_key",
-                "api_key": api_token,
-                "name": "Shortcut-Token",
-                "location": "header",
-            },
-            # Flat list endpoints return the whole collection in one response; stories/search
-            # documents no cap or order, so it is read in created_at windows.
-            "paginator": StoriesSearchPaginator(
-                primary_key=config.primary_key, split_threshold=STORY_SEARCH_SPLIT_THRESHOLD
-            )
-            if config.method == "POST"
-            else SinglePagePaginator(),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             cast(
                 "EndpointResource",
                 {
                     "name": endpoint,
-                    "endpoint": endpoint_config,
+                    "endpoint": _endpoint_config(
+                        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+                    ),
                 },
             )
         ],

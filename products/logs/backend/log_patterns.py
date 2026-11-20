@@ -11,6 +11,8 @@ from urllib.parse import quote
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
 ERROR_SEVERITIES = {"error", "fatal"}
+# Longest raw body kept as a stored-pattern example. Ingestion accepts bodies far larger.
+STORED_EXAMPLE_MAX_CHARS = 4096
 STORED_PATTERN_GROUP_MAX_MEMBERS = 50
 STORED_PATTERN_GROUP_MAX_BYTES = 3072
 
@@ -171,6 +173,10 @@ class MinedPattern:
     match_literal: str | None
     match_patterns: list[str] = field(default_factory=list)
     pattern_version: int | None = None
+    # Set when `count` and `error_count` are scaled up from a sample of a stored group: the raw
+    # sampled tallies they were scaled from. None when the counts are exact or body-mined.
+    sample_count: int | None = None
+    sample_error_count: int | None = None
 
 
 @dataclass(frozen=False)
@@ -208,10 +214,22 @@ class _PreparedBody:
     from_json: bool
 
 
-# Keys checked (in order) for the human-readable message inside a JSON body. Matches Loki's
-# pattern-ingester default list plus "event" (structlog's convention); Datadog's JSON
-# preprocessing remaps the same core keys (message/msg/log) to the log body.
-_JSON_MESSAGE_KEYS = ("message", "msg", "log", "msg_", "_msg", "content", "event")
+# Paths checked (in order) for the human-readable message inside a JSON body. The top-level keys
+# match Loki's pattern-ingester default list plus "event" (structlog's convention); Datadog's JSON
+# preprocessing remaps the same core keys (message/msg/log) to the log body. Rust `tracing` nests
+# its message under "fields".
+_JSON_MESSAGE_PATHS: tuple[tuple[str, ...], ...] = (
+    ("message",),
+    ("msg",),
+    ("log",),
+    ("msg_",),
+    ("_msg",),
+    ("content",),
+    ("event",),
+    ("fields", "message"),
+    ("error",),
+    ("fields", "error"),
+)
 
 # Raw example bodies (the predicate validation corpus) are kept at a multiple of the mining
 # truncation cap: long enough that predicates over truncated templates still validate against
@@ -249,12 +267,19 @@ def _prepare_json_body(body: str) -> str | None:
     if not isinstance(parsed, dict):
         return None
 
-    for key in _JSON_MESSAGE_KEYS:
-        value = parsed.get(key)
+    for path in _JSON_MESSAGE_PATHS:
+        value: object = parsed
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
         if isinstance(value, str) and value.strip():
             return value
 
     return None
+
+
+def is_json_key_set_pattern(pattern: str) -> bool:
+    """Whether a stored pattern is ingestion's key-set reduction of a JSON object body."""
+    return pattern.startswith("<JSON:")
 
 
 def _prepare_body(body: str, truncate: int) -> _PreparedBody:
@@ -563,3 +588,121 @@ def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> 
         replace(pattern, volume_share_pct=round(pattern.count / total_count * 100, 2) if total_count else 0)
         for pattern in ordered[: _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)]
     ]
+
+
+def split_json_key_set_group(
+    group: MinedPattern,
+    samples: list[LogSample],
+    *,
+    buckets: list[tuple[dt.datetime, dt.datetime]],
+) -> list[MinedPattern]:
+    """Split a stored JSON key-set group into the messages its rows carry.
+
+    Ingestion reduces a JSON object body without a top-level message key to its key set, so every
+    line from one logger shape lands in one group, whatever it says. Rust `tracing` output is the
+    common case: the message sits under "fields". Mining the sampled rows with the nested message
+    paths recovers what they say. The split patterns pivot with `match_regex` rather than
+    `match_patterns`, because each one covers only part of a stored pattern.
+
+    Counts are scaled from the sample to the group's exact count, so they are estimates whenever
+    the sample is smaller than the group. Rows that carry no message stay in the key-set group,
+    which keeps its exact-match pivot. A group with no message-bearing rows comes back unchanged.
+    """
+    with_message: list[LogSample] = []
+    residual: list[LogSample] = []
+    for sample in samples:
+        (residual if _prepare_json_body(sample.body) is None else with_message).append(sample)
+    if not with_message:
+        return [group]
+    scale = group.count / len(samples)
+
+    def scaled(count: int) -> int:
+        return round(count * scale)
+
+    split = [
+        replace(
+            pattern,
+            count=scaled(pattern.count),
+            error_count=scaled(pattern.error_count),
+            bucket_counts=[scaled(count) for count in pattern.bucket_counts],
+            match_patterns=[],
+            pattern_version=None,
+            sample_count=pattern.count,
+            sample_error_count=pattern.error_count,
+        )
+        for pattern in mine_patterns(with_message, buckets=buckets)
+    ]
+    if residual:
+        severities: dict[str, int] = {}
+        for sample in residual:
+            severity = sample.severity_text.lower()
+            severities[severity] = severities.get(severity, 0) + 1
+        bucket_counts = [0] * len(buckets)
+        for sample in residual:
+            if (index := _bucket_index(buckets, sample.timestamp)) is not None:
+                bucket_counts[index] += 1
+        residual_errors = sum(severities.get(severity, 0) for severity in ERROR_SEVERITIES)
+        # Examples come from the sampled message-less rows. Fetching them by the stored pattern
+        # would also return the message-bearing rows that were split out.
+        examples: list[LogSample] = []
+        for sample in residual:
+            if len(examples) >= _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int):
+                break
+            body = sample.body[:STORED_EXAMPLE_MAX_CHARS]
+            if all(example.body != body for example in examples):
+                examples.append(replace(sample, body=body))
+        split.append(
+            replace(
+                group,
+                count=scaled(len(residual)),
+                error_count=scaled(residual_errors),
+                first_seen=min(sample.timestamp for sample in residual),
+                last_seen=max(sample.timestamp for sample in residual),
+                bucket_counts=[scaled(count) for count in bucket_counts],
+                severity_counts=severities,
+                examples=examples,
+                sample_count=len(residual),
+                sample_error_count=residual_errors,
+            )
+        )
+    return [pattern for pattern in split if pattern.count > 0]
+
+
+def merge_split_templates(patterns: list[MinedPattern]) -> list[MinedPattern]:
+    """Merge split patterns that mined the same template from different JSON key sets.
+
+    Two logger shapes can carry the same message, and each key-set group is mined on its own, so
+    the same template can come back twice. Patterns with stored members are left alone.
+    """
+    positions: dict[str, int] = {}
+    result: list[MinedPattern] = []
+    for pattern in patterns:
+        if pattern.match_patterns:
+            result.append(pattern)
+            continue
+        if pattern.pattern not in positions:
+            positions[pattern.pattern] = len(result)
+            result.append(pattern)
+            continue
+        existing = result[positions[pattern.pattern]]
+        severities = dict(existing.severity_counts)
+        for severity, count in pattern.severity_counts.items():
+            severities[severity] = severities.get(severity, 0) + count
+        combined = replace(
+            existing,
+            count=existing.count + pattern.count,
+            error_count=existing.error_count + pattern.error_count,
+            first_seen=min(existing.first_seen, pattern.first_seen),
+            last_seen=max(existing.last_seen, pattern.last_seen),
+            examples=[*existing.examples, *pattern.examples][: _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)],
+            services=sorted({*existing.services, *pattern.services})[: _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)],
+            bucket_counts=[a + b for a, b in zip(existing.bucket_counts, pattern.bucket_counts)],
+            severity_counts=severities,
+            # Each regex was validated against its own group's raw rows only, and the same message
+            # can be encoded differently in another key set, so keep a regex only when both agree.
+            match_regex=existing.match_regex if existing.match_regex == pattern.match_regex else None,
+            sample_count=(existing.sample_count or 0) + (pattern.sample_count or 0),
+            sample_error_count=(existing.sample_error_count or 0) + (pattern.sample_error_count or 0),
+        )
+        result[positions[pattern.pattern]] = combined
+    return result

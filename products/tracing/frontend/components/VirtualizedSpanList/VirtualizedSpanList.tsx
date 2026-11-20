@@ -1,13 +1,14 @@
 import { CSSProperties, ReactNode, useCallback, useMemo, useRef } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { range } from 'lib/utils/arrays'
 import { cn } from 'lib/utils/css-classes'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
@@ -292,6 +293,39 @@ function SpanRow({
     )
 }
 
+function SpanSkeletonRows({
+    spanColumns,
+    widths,
+    showSpanErrors,
+    height,
+}: {
+    spanColumns: SpanColumnConfig[]
+    widths: Record<string, number>
+    showSpanErrors: boolean
+    height: number
+}): JSX.Element {
+    const keys = [...spanColumns.map(spanColumnKey), ...(showSpanErrors ? ['spanErrors'] : []), 'actions']
+    const rowCount = Math.max(1, Math.floor(height / ROW_HEIGHT))
+    return (
+        <div data-attr="tracing-spans-table-loading">
+            {range(rowCount).map((i) => (
+                <div
+                    key={i}
+                    className="flex items-center border-b border-border"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ height: ROW_HEIGHT, opacity: 1 - i / rowCount }}
+                >
+                    {keys.map((key) => (
+                        <TableCell key={key} width={widths[key]}>
+                            <LemonSkeleton className="h-3 w-full" />
+                        </TableCell>
+                    ))}
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function SpanListRow({
     ariaAttributes,
     index,
@@ -411,24 +445,33 @@ export function VirtualizedSpanList({
                                     orderDirection={orderDirection}
                                     onSort={onSort}
                                 />
-                                <List<SpanRowProps>
-                                    style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
-                                    overscanCount={10}
-                                    rowCount={dataSource.length}
-                                    rowHeight={ROW_HEIGHT}
-                                    rowComponent={SpanListRow}
-                                    rowProps={{
-                                        dataSource,
-                                        spanColumns,
-                                        widths,
-                                        spanErrors,
-                                        showRootTag,
-                                        showTraceDuration,
-                                        onRowClick,
-                                    }}
-                                    onRowsRendered={handleRowsRendered}
-                                    listRef={listRef}
-                                />
+                                {dataSource.length === 0 ? (
+                                    <SpanSkeletonRows
+                                        spanColumns={spanColumns}
+                                        widths={widths}
+                                        showSpanErrors={showSpanErrors}
+                                        height={height - HEADER_HEIGHT}
+                                    />
+                                ) : (
+                                    <List<SpanRowProps>
+                                        style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
+                                        overscanCount={10}
+                                        rowCount={dataSource.length}
+                                        rowHeight={ROW_HEIGHT}
+                                        rowComponent={SpanListRow}
+                                        rowProps={{
+                                            dataSource,
+                                            spanColumns,
+                                            widths,
+                                            spanErrors,
+                                            showRootTag,
+                                            showTraceDuration,
+                                            onRowClick,
+                                        }}
+                                        onRowsRendered={handleRowsRendered}
+                                        listRef={listRef}
+                                    />
+                                )}
                             </div>
                         </div>
                     )

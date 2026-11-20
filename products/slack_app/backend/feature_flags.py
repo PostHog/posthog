@@ -22,14 +22,16 @@ surfaces:
   on that user, so the person's own record answers the rule. That makes the usual
   internal rollout rules work unchanged: ``email ends_with @posthog.com``, a cohort,
   any person property. Nothing here forwards those properties; the person already
-  carries them.
+  carries them. A gate deciding for a Slack user gets the linked user's distinct ID
+  from ``slack_user_oauth.linked_posthog_distinct_id``, and falls back to the
+  workspace before the person links.
 - ``send_feature_flag_events=False`` — these are control checks, not analytics.
 - **Fail-closed** — any error returns ``False`` so a flaky flag call never
   silently enables a feature for everyone.
 
-The identity a gate is keyed on is also the identity it buckets on. So give a gate
-either a user on every call or on none, and read a rollout percentage on a
-user-keyed gate as a share of people rather than of workspaces.
+The identity a gate is keyed on is also the identity it buckets on. So read a rollout
+percentage on a user-keyed gate as a share of people rather than of workspaces, and
+on a gate that falls back to the workspace as a mix of the two.
 """
 
 from __future__ import annotations
@@ -48,8 +50,12 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
+SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
+SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
+SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
+SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
+SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -132,26 +138,33 @@ def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_i
     )
 
 
+def is_slack_app_jev_needs_repo_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for asking Jev whether a mention needs code before any repository is picked.
+
+    ``distinct_id`` is the PostHog user who mentioned the app. Off, repository selection
+    keeps the cascade it had before: one connected repository is used without asking.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_JEV_NEEDS_REPO_FLAG,
+        integration,
+        failure_log_key="slack_app_jev_needs_repo_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
 def is_slack_app_byos_enabled(
     integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
 ) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
-    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
-    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    Follows the tasks rollout for that plan. A Slack run marked for a plan whose rollout
+    is off fails when it starts, so Slack must never mark one.
     ``distinct_id`` is the PostHog user whose plan the run would use.
     """
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
-    if not tasks_facade.own_subscription_cloud_enabled(
+    return tasks_facade.own_subscription_cloud_enabled(
         adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
-    ):
-        return False
-    return _workspace_flag_enabled(
-        SLACK_APP_BYOS_FLAG,
-        integration,
-        failure_log_key="slack_app_byos_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 
@@ -184,11 +197,51 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     )
 
 
-def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
-    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
-    yet. Each step checks its own scopes."""
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
+    authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
+    return _workspace_flag_enabled(
+        SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
+        integration,
+        failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """The Slack account link also connects the person's Slack MCP."""
+    return _workspace_flag_enabled(
+        SLACK_APP_SLACK_MCP_FLAG,
+        integration,
+        failure_log_key="slack_app_slack_mcp_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
+        integration,
+        failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_WORK_FOCUS_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Decided for the person who would get the thread, who is usually not linked to a PostHog user yet. Each step
+    checks its own scopes."""
     return _workspace_flag_enabled(
         SLACK_APP_ONBOARDING_FLAG,
         integration,
         failure_log_key="slack_app_onboarding_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )

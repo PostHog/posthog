@@ -15,7 +15,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`)."
+            "description": "Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`)."
         },
         "title": {
             "description": "Short human-readable title. Auto-generated from `description` when omitted.",

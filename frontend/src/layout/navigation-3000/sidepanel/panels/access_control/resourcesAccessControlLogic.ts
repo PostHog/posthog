@@ -34,6 +34,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
     [AccessControlResourceType.MarketingAnalytics]: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    [AccessControlResourceType.Canvas]: FEATURE_FLAGS.TODAY_RAIL_NAV,
 }
 
 export function isResourceRolledOut(
@@ -47,7 +48,7 @@ export function isResourceRolledOut(
 // The backend still enforces these resources, but customers have no product surface to manage them from.
 const RESOURCES_HIDDEN_FROM_ACCESS_CONTROLS: ReadonlySet<AccessControlResourceType> = new Set([
     AccessControlResourceType.RevenueAnalytics,
-    AccessControlResourceType.Stamphog,
+    AccessControlResourceType.CodeReviewApproval,
 ])
 
 export function isResourceShownInAccessControls(
@@ -185,6 +186,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
                     AccessControlResourceType.BusinessKnowledge,
+                    AccessControlResourceType.Canvas,
                     AccessControlResourceType.CustomerAnalytics,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.EarlyAccessFeature,
@@ -208,7 +210,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
                     AccessControlResourceType.SharingConfiguration,
-                    AccessControlResourceType.Stamphog,
+                    AccessControlResourceType.CodeReviewApproval,
                     AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.ReplayScanner,
                     AccessControlResourceType.Survey,

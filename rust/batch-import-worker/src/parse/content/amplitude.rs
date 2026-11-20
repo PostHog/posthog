@@ -327,6 +327,7 @@ fn create_group_identify_event(
         timestamp,
         is_cookieless_mode: false,
         historical_migration: true,
+        options: None,
     };
 
     Ok(InternallyCapturedEvent {
@@ -707,6 +708,7 @@ impl AmplitudeEvent {
                     timestamp,
                     is_cookieless_mode: false,
                     historical_migration: true,
+                    options: None,
                 };
 
                 events.push(InternallyCapturedEvent { team_id, inner });

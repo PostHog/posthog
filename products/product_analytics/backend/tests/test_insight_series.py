@@ -20,7 +20,11 @@ from posthog.week_start_day import WeekStartDay
 from products.access_control.backend.facade.testing import create_access_control
 from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend import insight_series
-from products.product_analytics.backend.facade.api import get_insight_series, viewable_insight_definitions
+from products.product_analytics.backend.facade.api import (
+    get_insight_series,
+    viewable_insight_definitions,
+    viewable_insights_are_trends,
+)
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
@@ -273,6 +277,28 @@ def _sql_query(display: str = "ActionsLineGraph", **chart_settings: Any) -> dict
 
 def _weekly(*rows: list[Any]) -> dict[str, Any]:
     return {"columns": ["week", "p50"], "results": list(rows)}
+
+
+class TestInsightDisplayNames(BaseTest):
+    @parameterized.expand(
+        [
+            ("Saved insight name", "Generated insight name", "Saved insight name"),
+            ("", "Generated insight name", "Generated insight name"),
+            (None, "Generated insight name", "Generated insight name"),
+        ]
+    )
+    def test_series_uses_the_insight_display_name(self, name: str | None, derived_name: str, expected: str) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            name=name,
+            derived_name=derived_name,
+            query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+        )
+        with patch.object(insight_series, "_run", return_value={"results": [_result("signed up")]}):
+            found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
+
+        assert found is not None
+        self.assertEqual(found.name, expected)
 
 
 class TestSqlSeries(SimpleTestCase):
@@ -661,4 +687,20 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
                 insight.short_id
             ].name,
             insight.name or insight.derived_name,
+        )
+        funnel = Insight.objects.create(
+            team=self.team,
+            name="Checkout",
+            created_by=self.user,
+            saved=True,
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}},
+        )
+        self.assertEqual(
+            viewable_insights_are_trends(team=requesting_team, user=reader, short_ids=[insight.short_id]), {}
+        )
+        self.assertEqual(
+            viewable_insights_are_trends(
+                team=requesting_team, user=self.user, short_ids=[insight.short_id, funnel.short_id, "missing"]
+            ),
+            {insight.short_id: True, funnel.short_id: False},
         )

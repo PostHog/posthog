@@ -44,13 +44,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    BaseMathType,
     FeatureFlagConfig,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
@@ -76,6 +75,7 @@ import {
     isV1FeatureFlagConfig,
     rulesV2CreateDisabledReason,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { featureFlagBreakdownInsightUrl, keyBeforeDelete } from 'products/feature_flags/frontend/featureFlagKeyLinks'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
@@ -204,13 +204,6 @@ function WarningStatusTag({ label, heading, detail }: { label: string; heading: 
     )
 }
 
-// Deleting a flag that an experiment uses renames its key to `<key>:deleted:<id>`. Code still calls the flag by
-// its old key, so that's the key to copy.
-function keyBeforeDelete(featureFlag: FeatureFlagType): string {
-    const suffix = `:deleted:${featureFlag.id}`
-    return featureFlag.key.endsWith(suffix) ? featureFlag.key.slice(0, -suffix.length) : featureFlag.key
-}
-
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
@@ -224,28 +217,6 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const configFormat = featureFlagConfigFormat(featureFlag.filters)
     const isV1Config = configFormat === 'v1'
     const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters(featureFlag.filters))
-
-    const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
-        const query: InsightVizNode = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        event: '$pageview',
-                        name: '$pageview',
-                        kind: NodeKind.EventsNode,
-                        math: BaseMathType.UniqueUsers,
-                    },
-                ],
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                    breakdown: `$feature/${featureFlag.key}`,
-                },
-            },
-        }
-        return urls.insightNew({ query })
-    }
 
     // Both menus open with these, so a deleted row's View keeps the list's filters like a live row's does.
     const viewAndCopyKeyItems = (
@@ -348,7 +319,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </LemonButton>
                         )}
 
-                        <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
+                        <LemonButton
+                            to={featureFlagBreakdownInsightUrl(featureFlag.key)}
+                            data-attr="usage"
+                            fullWidth
+                            targetBlank
+                        >
                             Try out in Insights
                         </LemonButton>
 

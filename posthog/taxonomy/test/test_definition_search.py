@@ -98,14 +98,14 @@ class TestDefinitionEndpointsUseSearchPlan(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("event_definitions_small_project", "event_definitions", 1, "lower(name) like lower("),
-            ("event_definitions_huge_project", "event_definitions", 0, "name ilike "),
-            ("property_definitions_small_project", "property_definitions", 1, "lower(name) like lower("),
-            ("property_definitions_huge_project", "property_definitions", 0, "name ilike "),
+            ("event_definitions_small_project", "event_definitions", 1, False),
+            ("event_definitions_huge_project", "event_definitions", 0, True),
+            ("property_definitions_small_project", "property_definitions", 1, False),
+            ("property_definitions_huge_project", "property_definitions", 0, True),
         ]
     )
     def test_search_predicate_follows_the_plan(
-        self, _name: str, endpoint: str, max_definitions: int, expected_predicate: str
+        self, _name: str, endpoint: str, max_definitions: int, uses_trigram_index: bool
     ) -> None:
         with (
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions),
@@ -114,6 +114,6 @@ class TestDefinitionEndpointsUseSearchPlan(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.pk}/{endpoint}/?search=foo")
 
         assert response.status_code == 200
-        search_queries = [q["sql"] for q in queries.captured_queries if "%foo%" in q["sql"]]
+        search_queries = [q["sql"] for q in queries.captured_queries if "strpos(lower(name), lower(" in q["sql"]]
         assert search_queries, "no search query was captured"
-        assert all(expected_predicate in sql for sql in search_queries), search_queries
+        assert all(("name ilike " in sql) is uses_trigram_index for sql in search_queries), search_queries

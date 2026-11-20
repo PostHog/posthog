@@ -26,7 +26,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Spinner,
     Text,
 } from '@posthog/quill'
 
@@ -40,11 +39,13 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
-import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
+import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
+
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
@@ -52,7 +53,9 @@ import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
+import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
@@ -64,6 +67,8 @@ export const scene: SceneExport = {
     component: AnalyticsList,
     logic: analyticsListLogic,
 }
+
+const rowHoverGroup = (): string => 'group/row'
 
 export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
@@ -90,6 +95,7 @@ function AnalyticsListContent(): JSX.Element {
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
         root: tableViewport,
@@ -120,6 +126,9 @@ function AnalyticsListContent(): JSX.Element {
     // Only the collection itself is deleted from Manage; a folder inside it is deleted from its row.
     const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
+
+    // The hint belongs to the visit that asked for it.
+    useEffect(() => () => hidePinHint(), [hidePinHint])
 
     useEffect(() => {
         if (nearEnd && hasMore) {
@@ -253,16 +262,9 @@ function AnalyticsListContent(): JSX.Element {
                             }}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
+                            rowClassName={rowHoverGroup}
                         />
                     </Card>
-                )}
-                {hasMore && (
-                    <div className="flex items-center justify-center gap-2 py-3" aria-busy>
-                        <Spinner />
-                        <Text size="xs" variant="muted">
-                            Loading more…
-                        </Text>
-                    </div>
                 )}
             </div>
         )
@@ -364,6 +366,8 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsTagsDialog />
+            <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

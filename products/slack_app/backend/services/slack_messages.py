@@ -690,6 +690,8 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
+# Run state key holding the `ts` of the run's progress card.
+SLACK_PROGRESS_MESSAGE_TS_KEY = "slack_progress_message_ts"
 
 
 @dataclass(frozen=True)
@@ -720,6 +722,9 @@ class RunFooter:
     chart_links: bool = False
     # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
     thread_cost_usd: Decimal | None = None
+    # Where the run's progress card lives, so the handler edits or deletes it without searching
+    # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
+    progress_message_ts: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -848,6 +853,7 @@ def load_run_footer(
             ),
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
+            progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
             # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
             thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )

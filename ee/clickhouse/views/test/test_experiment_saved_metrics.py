@@ -462,7 +462,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
-            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'", response.json()["detail"]
+            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'",
+            response.json()["detail"],
         )
 
     def test_create_saved_metric_with_experiment_metric_ratio(self):

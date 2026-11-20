@@ -1,10 +1,8 @@
-"""Self-driving free trial gate.
+"""Legacy reports-only trial gate, shared by automatic and explicit implementation.
 
-Sibling of `quota.py` (the org-level billing quota gate) with the same call shape and the same
-fail-open posture. While the `self-driving-free-trial` flag is on for an org, Self-driving still
-researches and writes reports but opens no pull requests: auto-start creates no implementation
-task and the manual create-from-report path refuses one. Nothing is billed because nothing ships
-a PR, so the billing exemption and refund machinery in `billing.py` stays untouched.
+Claimed projects use the one-time policy while its rollout is enabled, so this gate
+must not prevent their opt-in implementation or subsequent paid continuation.
+Other projects retain the legacy reports-only restriction and its fail-open flag behavior.
 """
 
 from typing import TYPE_CHECKING
@@ -15,6 +13,8 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from posthog.event_usage import groups
+
+from products.signals.backend.trial.policy import TrialPolicy
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -40,13 +40,28 @@ class FreeTrialPullRequestRefused(APIException):
     default_detail = FREE_TRIAL_PR_MESSAGE
 
 
-def self_driving_free_trial_enabled(team: "Team") -> bool:
-    """Whether the team's org is on a Self-driving free trial.
+def self_driving_free_trial_enabled(
+    team: "Team", *, admitted_report_id: str | None = None, enabled: bool | None = None
+) -> bool:
+    """Whether the legacy reports-only restriction applies to this project.
 
     Org-keyed like the quota-enforcement and refund flags. Fails open (not on trial) on a
     flag-read error: a flag outage must not stop every org's pull requests. Blocking network
     I/O; wrap in `sync_to_async` from async code.
+
+    Server continuations keep their admitted funding. A pre-resolved verdict avoids reading
+    flags again while the caller holds database locks.
     """
+    if admitted_report_id is not None:
+        from products.signals.backend.trial.reports import report_funding  # noqa: PLC0415 -- Tasks model import cycle
+
+        funding = report_funding(team, admitted_report_id)
+        # Older accepted pipelines have no snapshot and retain implementation access.
+        return not funding.implementation_allowed if funding is not None else False
+    if enabled is not None:
+        return enabled
+    if TrialPolicy(team).active_grant() is not None:
+        return False
     try:
         org_id = str(team.organization_id)
         return (

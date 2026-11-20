@@ -20,6 +20,8 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from products.data_modeling.backend.facade.contracts import IncrementalFilterError
+
 SelectLike = Union[ast.SelectQuery, ast.SelectSetQuery]
 
 # The alias the outer guard binds the user's query to. Leading underscores keep it clear of
@@ -32,14 +34,6 @@ GUARD_ALIAS = "__ph_incremental"
 WINDOW_START_PLACEHOLDER = "incremental_window_start"
 
 
-class IncrementalFilterError(ValueError):
-    """The query cannot carry an incremental window filter.
-
-    A user-input problem (a 400), not a server fault: the key column is missing, or it is produced
-    by an aggregate and so cannot be filtered before grouping.
-    """
-
-
 def inject_incremental_filter(query: str, *, incremental_key: str, since: Any) -> SelectLike:
     """Parse ``query`` and return it filtered to rows at or after ``since``."""
     return apply_incremental_filter(parse_select(query), incremental_key=incremental_key, since=since)
@@ -47,8 +41,13 @@ def inject_incremental_filter(query: str, *, incremental_key: str, since: Any) -
 
 def apply_incremental_filter(node: SelectLike, *, incremental_key: str, since: Any) -> SelectLike:
     """Filter an already-parsed query to rows at or after ``since``, which also binds the window start."""
-    filtered = _push_predicate(bind_window_start(node, since), incremental_key=incremental_key, since=since)
-    return _wrap_with_guard(filtered, incremental_key=incremental_key, since=since)
+    filtered = narrow_to_incremental_window(node, incremental_key=incremental_key, since=since)
+    return wrap_with_incremental_guard(filtered, incremental_key=incremental_key, since=since)
+
+
+def narrow_to_incremental_window(node: SelectLike, *, incremental_key: str, since: Any) -> SelectLike:
+    """Bind the window start and AND the key predicate into the query, without the outer guard."""
+    return _push_predicate(bind_window_start(node, since), incremental_key=incremental_key, since=since)
 
 
 def parse_model_query(sql: str) -> SelectLike:
@@ -161,7 +160,12 @@ def _push_predicate(node: SelectLike, *, incremental_key: str, since: Any) -> Se
     return node
 
 
-def _wrap_with_guard(node: SelectLike, *, incremental_key: str, since: Any) -> ast.SelectQuery:
+def wrap_with_incremental_guard(node: SelectLike, *, incremental_key: str, since: Any) -> ast.SelectQuery:
+    """Re-select ``node`` through ``*`` and filter on the key's output column.
+
+    HogQL expands ``*`` to one column per name, so an output that repeats a name loses a column
+    here unless its items already carry distinct aliases.
+    """
     return ast.SelectQuery(
         select=[ast.Field(chain=["*"])],
         select_from=ast.JoinExpr(table=node, alias=GUARD_ALIAS),

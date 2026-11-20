@@ -3,6 +3,7 @@ import type { InsightValueFormat } from '@/model/views'
 
 import { asTrendsInsight, chartFormat, formatMetricValue } from './metric'
 import { sqlValuePresentation } from './sqlVisualization'
+import { compactNumber } from './text'
 
 function precision(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100 ? value : undefined
@@ -58,17 +59,6 @@ function significantDecimals(value: number, minimum = 2): number {
         : Math.min(Math.max(minimum, 1 - Math.floor(Math.log10(Math.abs(value)))), 10)
 }
 
-function shortNumber(value: number): string {
-    const magnitudes = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
-    let rounded = Number(value.toPrecision(3))
-    let magnitude = 0
-    while (Math.abs(rounded) >= 1000 && magnitude < magnitudes.length - 1) {
-        magnitude++
-        rounded /= 1000
-    }
-    return magnitude ? `${rounded}\u00a0${magnitudes[magnitude]}` : String(rounded)
-}
-
 function duration(milliseconds: number): string {
     const absolute = Math.abs(milliseconds)
     if (absolute === 0) {
@@ -118,7 +108,7 @@ export function formatInsightValue(value: number, format: InsightValueFormat): s
                 }
                 break
             case 'short':
-                formatted = shortNumber(scaled)
+                formatted = compactNumber(scaled, '\u00a0')
                 break
             default:
                 formatted = decimalPlaces === undefined ? String(scaled) : scaled.toFixed(decimalPlaces)
@@ -135,7 +125,7 @@ export function formatInsightValue(value: number, format: InsightValueFormat): s
                 formatted = `$${number(value, 2, 2)}`
                 break
             case 'short':
-                formatted = shortNumber(value)
+                formatted = compactNumber(value, '\u00a0')
                 break
             case 'duration':
                 formatted = duration(value * 1000)

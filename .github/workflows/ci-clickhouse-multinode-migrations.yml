@@ -102,20 +102,40 @@ jobs:
                   # a fork can upload an artifact of the same name, and the fork's branch can be
                   # called master too, so only a run on this repository's own master counts.
                   # Any failure here degrades to the full-migrate fallback in the
-                  # smoke script (PRIME_POSTGRES_FROM stays absent).
-                  ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=migrated-schema&per_page=100" \
-                      --jq '[.artifacts[] | select((.expired | not) and .workflow_run.head_branch == "master" and .workflow_run.head_repository_id == .workflow_run.repository_id)][0].id // empty' || true)
+                  # smoke script (PRIME_POSTGRES_FROM stays absent). That fallback costs
+                  # most of the job's timeout, and gh api intermittently fails with
+                  # "unexpected end of JSON input", so both calls retry before giving up.
+                  attempts=4
+                  lookup_ok=false
+                  for attempt in $(seq 1 "$attempts"); do
+                      if ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=migrated-schema&per_page=100" \
+                          --jq '[.artifacts[] | select((.expired | not) and .workflow_run.head_branch == "master" and .workflow_run.head_repository_id == .workflow_run.repository_id)][0].id // empty'); then
+                          lookup_ok=true
+                          break
+                      fi
+                      echo "migrated-schema artifact lookup attempt ${attempt}/${attempts} failed"
+                      if [ "$attempt" -lt "$attempts" ]; then sleep $((attempt * 5)); fi
+                  done
+                  if [ "$lookup_ok" != true ]; then
+                      echo "::warning::migrated-schema artifact lookup failed ${attempts} times; falling back to full migrate"
+                      exit 0
+                  fi
                   if [ -z "$ARTIFACT_ID" ]; then
                       echo "::warning::no migrated-schema artifact from a master run; falling back to full migrate"
                       exit 0
                   fi
                   echo "using migrated-schema artifact ${ARTIFACT_ID}"
-                  if ! { gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > migrated-schema.zip \
-                      && unzip -o migrated-schema.zip schema.sql.gz \
-                      && gunzip -t schema.sql.gz; }; then
-                      echo "::warning::migrated-schema artifact ${ARTIFACT_ID} unusable; falling back to full migrate"
-                      rm -f schema.sql.gz
-                  fi
+                  for attempt in $(seq 1 "$attempts"); do
+                      if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > migrated-schema.zip \
+                          && unzip -o migrated-schema.zip schema.sql.gz \
+                          && gunzip -t schema.sql.gz; then
+                          exit 0
+                      fi
+                      echo "migrated-schema artifact download attempt ${attempt}/${attempts} failed"
+                      rm -f migrated-schema.zip schema.sql.gz
+                      if [ "$attempt" -lt "$attempts" ]; then sleep $((attempt * 5)); fi
+                  done
+                  echo "::warning::migrated-schema artifact ${ARTIFACT_ID} download failed ${attempts} times; falling back to full migrate"
 
             - name: Log in to ghcr.io
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0

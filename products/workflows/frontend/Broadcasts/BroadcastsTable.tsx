@@ -45,7 +45,6 @@ export function BroadcastsTable(): JSX.Element {
         filters,
         filtersPending,
         loadFailed,
-        tags: allTags,
         savingTagsFor,
     } = useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
@@ -109,7 +108,6 @@ export function BroadcastsTable(): JSX.Element {
                         {...shown}
                         onChange={(tags) => saveBroadcastTags(item.id, tags)}
                         saving={savingTagsFor === item.id}
-                        tagsAvailable={allTags}
                     />
                 )
             },

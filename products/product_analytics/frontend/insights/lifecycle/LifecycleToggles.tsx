@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -13,6 +14,8 @@ import {
     AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
     getAggregationTargetPronoun,
 } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
+
+import { QuillLifecycleToggles } from './QuillLifecycleToggles'
 
 const lifecycles: { name: LifecycleToggle; color: string }[] = [
     {
@@ -64,6 +67,7 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     const { insightFilter, aggregationGroupTypeIndex, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
+    const quillSurface = useQuillSurface()
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
     const customAggregationTarget = (querySource as LifecycleQuery | null)?.customAggregationTarget === true
@@ -78,6 +82,20 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
         } else {
             updateInsightFilter({ toggledLifecycles: [...toggledLifecycles, name] })
         }
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillLifecycleToggles
+                rows={lifecycles.map(({ name, color }) => ({
+                    name,
+                    color,
+                    tooltip: getLifecycleTooltip(name, aggregationTargetLabel, aggregationTargetPronoun),
+                    checked: toggledLifecycles.includes(name),
+                }))}
+                onToggle={toggleLifecycle}
+            />
+        )
     }
 
     return (

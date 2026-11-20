@@ -346,6 +346,38 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('fullscreen across recordings', () => {
+        afterEach(() => {
+            delete (document as any).fullscreenElement
+        })
+
+        it.each([
+            { given: 'its own element is fullscreen', keep: true, fullscreen: 'player', expected: true },
+            { given: 'another element is fullscreen', keep: true, fullscreen: 'body', expected: false },
+            { given: 'the opener did not opt in', keep: undefined, fullscreen: 'player', expected: false },
+        ] as const)('isFullScreen is $expected at mount when $given', ({ keep, fullscreen, expected }) => {
+            const playerElement = document.createElement('div')
+            playerElement.requestFullscreen = jest.fn().mockResolvedValue(undefined)
+            Object.defineProperty(document, 'fullscreenElement', {
+                configurable: true,
+                get: () => (fullscreen === 'player' ? playerElement : document.body),
+            })
+
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+                playerRef: { current: playerElement },
+                keepFullScreenAcrossRecordings: keep,
+            })
+            logic.mount()
+
+            expect(logic.values.isFullScreen).toBe(expected)
+            expect(playerElement.requestFullscreen).not.toHaveBeenCalled()
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
@@ -812,6 +844,34 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
         })
 
+        it("loads the gap window's full snapshot when another window's newer one already satisfies the seek", async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess(makeBlobSources(['10', '11', '12', '13', '14', '15']) as any)
+            const store = dataLogic.cache.store
+            const loaded: RecordingSnapshot[][] = [
+                w1moves(START + 61000, START + 116000),
+                [...w1moves(START + 121000, START + 176000), w2fs(START + 180000)],
+                w1moves(START + 181000, START + 236000),
+                [...w1moves(START + 241000, START + 241000), w1move(START + 262000), w1move(START + 296000)],
+                w1moves(START + 301000, START + 356000),
+            ]
+            loaded.forEach((snapshots, index) => markLoaded(store, index + 1, snapshots))
+            dataLogic.actions.storeUpdated()
+            coordinator.actions.setProcessedSnapshots(loaded.flat())
+            logic.actions.setPause()
+
+            await expectLogic(dataLogic, () => {
+                logic.actions.seekToTimestamp(START + 250000)
+            }).toDispatchActions([
+                (action) =>
+                    action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.sources?.[0]?.blob_key === '10',
+            ])
+            expect(logic.values.currentSegment?.kind).toBe('gap')
+            expect(logic.values.isBuffering).toBe(true)
+        })
+
         it('clamps to a recovery full snapshot even when a preceding gap owns its boundary timestamp', () => {
             // Window 2's recovery FullSnapshot at +70s sits right after window-1 activity, so the micro-gap ending at its timestamp is attributed to window 1 and that inferred windowId must not veto the only usable recovery point.
             seedRecording(
@@ -912,18 +972,35 @@ describe('sessionRecordingPlayerLogic', () => {
             ])
         })
 
-        it('buffers while earlier data that could contain a full snapshot is still loading', () => {
-            // The first source is unloaded — it could still contain the window's
-            // FullSnapshot, so a seek into the second source's FullSnapshot-less data
-            // must buffer, not clamp
-            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+        it.each([
+            {
+                description: 'inside a window segment',
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                seekTo: START + 61500,
+                expectedSegmentKind: 'window',
+            },
+            {
+                description: 'inside an inactivity gap',
+                secondSourceSnapshots: [w1move(START + 61000), w1move(START + 90000)],
+                seekTo: START + 75000,
+                expectedSegmentKind: 'gap',
+            },
+        ])(
+            'buffers while earlier data that could contain a full snapshot is still loading, $description',
+            ({ secondSourceSnapshots, seekTo, expectedSegmentKind }) => {
+                // The first source is unloaded — it could still contain the window's
+                // FullSnapshot, so a seek into the second source's FullSnapshot-less data
+                // must buffer, not clamp
+                seedRecording(null, secondSourceSnapshots)
 
-            logic.actions.seekToTimestamp(START + 61500)
+                logic.actions.seekToTimestamp(seekTo)
 
-            expect(logic.values.isBuffering).toBe(true)
-            expect(logic.values.playerError).toBeNull()
-            expect(logic.values.currentTimestamp).toBe(START + 61500)
-        })
+                expect(logic.values.currentSegment?.kind).toBe(expectedSegmentKind)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.currentTimestamp).toBe(seekTo)
+            }
+        )
 
         // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
         // case above. Both sides of the ingestion grace boundary: while within it the missing
@@ -1234,7 +1311,7 @@ describe('sessionRecordingPlayerLogic', () => {
         // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
         // synchronously when it rebuilds a full snapshot on a document without a head, which is the
         // WebKit failure this recovery path guards against.
-        const fakeReplayer = (head: HTMLElement | null): any => {
+        const fakeReplayer = (head: HTMLElement | null, events: RecordingSnapshot[] = []): any => {
             const throwWhenHeadless = (): void => {
                 if (!head) {
                     throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
@@ -1248,8 +1325,21 @@ describe('sessionRecordingPlayerLogic', () => {
                 setConfig: jest.fn(),
                 on: jest.fn(),
                 destroy: jest.fn(),
-                service: { state: { context: { events: [] } } },
+                // rrweb's addEvent hands the event to its state machine in a microtask, not synchronously
+                addEvent: jest.fn((event: RecordingSnapshot) => {
+                    void Promise.resolve().then(() => events.push(event))
+                }),
+                service: { state: { context: { events } } },
             }
+        }
+
+        const pausedWithReplayer = async (events?: RecordingSnapshot[]): Promise<any> => {
+            const replayer = fakeReplayer(document.createElement('head'), events)
+            logic.actions.setPause()
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer, windowId: 1 })
+            }).toFinishAllListeners()
+            return replayer
         }
 
         it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
@@ -1271,6 +1361,70 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect.objectContaining({ feature: 'session-recording-replayer-playback' })
             )
             expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
+
+        it('redraws the first page when a paused seek lands between the first Meta and its FullSnapshot', async () => {
+            seedRecording([meta(START), fs(START + 200), ...w1moves(START + 300, START + 50000)], [])
+            const replayer = await pausedWithReplayer()
+            logic.actions.seekToTimestamp(START + 30000)
+            replayer.pause.mockClear()
+
+            logic.actions.seekToTimestamp(START)
+
+            expect(logic.values.currentTimestamp).toBe(START)
+            expect(replayer.pause).toHaveBeenLastCalledWith(200)
+        })
+
+        it('redraws the loaded window when a paused seek lands in a gap between two windows', async () => {
+            seedRecording(
+                [fs(START), ...w1moves(START + 1000, START + 20000)],
+                [w2fs(START + 70000), w2inc(START + 71000), w2inc(START + 75000)]
+            )
+            const replayer = await pausedWithReplayer()
+            logic.actions.seekToTimestamp(START + 10000)
+            replayer.pause.mockClear()
+
+            logic.actions.seekToTimestamp(START + 40000)
+
+            expect(logic.values.currentSegment?.kind).toBe('gap')
+            expect(logic.values.currentSegment?.windowId).toBeUndefined()
+            expect(replayer.pause).toHaveBeenLastCalledWith(40000)
+            // playback reads the playhead from this, and the loaded window's frozen clock would stall it in the gap
+            expect(logic.values.fromRRWebPlayerTime(40000)).toBeUndefined()
+        })
+
+        it('redraws a paused frame with the events of sources that arrive after the seek', async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            const firstSource = [fs(START), ...w1moves(START + 1000, START + 20000)]
+            const replayerEvents = [...firstSource]
+            const replayer = await pausedWithReplayer(replayerEvents)
+            const redraws: [number | undefined, number][] = []
+            replayer.pause.mockImplementation((offset?: number) => redraws.push([offset, replayerEvents.length]))
+
+            dataLogic.actions.loadSnapshotSourcesSuccess(makeBlobSources(['20', '21', '22']) as any)
+            const store = dataLogic.cache.store
+            // a second window's tail keeps the recording end past the target, and no window covers the span between
+            const tail = [w2fs(START + 150000), w2inc(START + 151000)]
+            markLoaded(store, 0, firstSource)
+            markLoaded(store, 2, tail)
+            dataLogic.actions.storeUpdated()
+            coordinator.actions.setProcessedSnapshots([...firstSource, ...tail])
+            dataLogic.cache.playerActive = false
+            logic.actions.seekToTimestamp(START + 90000)
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.currentSegment?.windowId).toBeUndefined()
+            redraws.length = 0
+
+            const middleSource = w1moves(START + 61000, START + 96000)
+            await expectLogic(logic, () => {
+                markLoaded(store, 1, middleSource)
+                dataLogic.actions.storeUpdated()
+                coordinator.actions.setProcessedSnapshots([...firstSource, ...middleSource, ...tail])
+            }).toFinishAllListeners()
+
+            expect(logic.values.isBuffering).toBe(false)
+            expect(redraws.at(-1)).toEqual([90000, firstSource.length + middleSource.length])
         })
     })
 

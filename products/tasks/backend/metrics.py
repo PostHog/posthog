@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 import structlog
@@ -71,6 +72,18 @@ TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
         "runtime_adapter",
         "prewarmed",
     ],
+)
+
+TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_refused_beside_live_run_total",
+    "Cloud TaskRuns refused because another cloud run of the same task was still live",
+    labelnames=["profile", "source"],
+)
+
+TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL = Counter(
+    "posthog_tasks_status_outside_transitions_total",
+    "Task status changes mirrored from a run that the task status transition table does not allow",
+    labelnames=["from_status", "to_status"],
 )
 
 TASK_CONTRACT_VIOLATION_TOTAL = Counter(
@@ -502,6 +515,7 @@ ComputeSettlementOutcome = Literal[
     "retry",
     "attempts_exhausted",
     "contract_error",
+    "insufficient_credits",
     "deployment_error",
     "skipped",
 ]
@@ -517,7 +531,9 @@ def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
     COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
 
 
-def push_compute_settlement_sweep_gauges(*, hogland_open_over_day: int, unsettled_over_hour: int) -> None:
+def push_compute_settlement_sweep_gauges(
+    *, hogland_open_over_day: int, unsettled_over_hour: int, parked_by_reason: Mapping[str, int]
+) -> None:
     with pushed_metrics_registry("tasks_compute_settlement") as registry:
         Gauge(
             "posthog_tasks_hogland_sandbox_sessions_open_over_day",
@@ -529,6 +545,14 @@ def push_compute_settlement_sweep_gauges(*, hogland_open_over_day: int, unsettle
             "Attributed sandbox sessions that ended more than an hour ago and are neither settled nor parked",
             registry=registry,
         ).set(unsettled_over_hour)
+        parked = Gauge(
+            "posthog_tasks_sandbox_sessions_parked",
+            "Sandbox sessions that are parked and not settled, by park reason",
+            labelnames=["reason"],
+            registry=registry,
+        )
+        for reason, rows in parked_by_reason.items():
+            parked.labels(reason=reason).set(rows)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
@@ -543,6 +567,17 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
+
+
+GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_lookup_total",
+    "GitHub webhook lookups by the leg that picked the run, and whether the task's pr_urls or head_branch named the task",
+    labelnames=["leg", "by_task_columns"],
+)
+
+
+def observe_github_webhook_task_lookup(*, leg: str, by_task_columns: bool) -> None:
+    GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL.labels(leg=leg, by_task_columns="true" if by_task_columns else "false").inc()
 
 
 MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
@@ -629,6 +664,35 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
 
 def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
     TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_refused_beside_live_run(*, profile: str, source: str) -> None:
+    TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL.labels(profile=profile, source=source).inc()
+
+
+def observe_task_status_outside_transitions(*, from_status: str, to_status: str) -> None:
+    TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
+
+
+TASK_DONE_TOTAL = Counter(
+    "posthog_tasks_done_total",
+    "Tasks moved to done, or that would move under shadow mode, by profile, reason and done mode",
+    labelnames=["profile", "reason", "mode"],
+)
+
+TASK_WAKE_REFUSED_TOTAL = Counter(
+    "posthog_tasks_wake_refused_total",
+    "Wakes refused because the task is done, or that would be refused under shadow mode",
+    labelnames=["profile", "source", "mode"],
+)
+
+
+def observe_task_done(*, profile: str, reason: str, mode: str) -> None:
+    TASK_DONE_TOTAL.labels(profile=profile, reason=reason, mode=mode).inc()
+
+
+def observe_task_wake_refused(*, profile: str, source: str, mode: str) -> None:
+    TASK_WAKE_REFUSED_TOTAL.labels(profile=profile, source=source, mode=mode).inc()
 
 
 def observe_contract_violation(*, check: str, profile: str) -> None:

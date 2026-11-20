@@ -1,5 +1,4 @@
 import {
-    comparableRecordingFilters,
     splitOngoingRecordings,
     stripSessionIds,
     summarizePlaylistFilters,
@@ -235,24 +234,6 @@ describe('stripSessionIds()', () => {
         ['null', null],
     ])('passes %s through unchanged', (_name, input) => {
         expect(stripSessionIds(input as any)).toBe(input)
-    })
-})
-
-describe('comparableRecordingFilters()', () => {
-    it.each([
-        [
-            'drops recommended_only when the list wrote it back as false',
-            { recommended_only: false, date_from: '-7d' },
-            { date_from: '-7d' },
-        ],
-        [
-            'keeps recommended_only when it is on',
-            { recommended_only: true, date_from: '-7d' },
-            { recommended_only: true, date_from: '-7d' },
-        ],
-        ['drops session ids', { session_ids: ['a'], date_from: '-7d' }, { date_from: '-7d' }],
-    ])('%s', (_, filters, expected) => {
-        expect(comparableRecordingFilters(filters as any)).toEqual(expected)
     })
 })
 

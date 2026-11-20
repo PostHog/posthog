@@ -45,6 +45,8 @@ export interface Series<Meta = unknown> {
     key: string
     /** Human-readable name shown in tooltips and legends. */
     label: string
+    /** Short pill after the label in the legend only, e.g. "Previous" on a comparison series. */
+    legendTag?: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
     /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar
@@ -228,6 +230,8 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Backing pixels per CSS pixel to rasterise the canvas at. Absent means `devicePixelRatio`. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */
@@ -290,6 +294,10 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Turn it on only for charts whose
+     *  labels are x values, such as dates. Defaults to false; the time-series charts default it to
+     *  true. */
+    syncHover?: boolean
     /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
@@ -464,7 +472,7 @@ export interface BarsConfig {
      *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
     fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
-     *  baseline (positives above). Default `false` clamps negatives to 0. */
+     *  baseline (positives above). A stacked layout with a negative value uses it without this flag. */
     divergingStack?: boolean
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
      *  still span the full width — useful for few-category funnel-style charts. */
@@ -555,8 +563,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
-     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
-     *  {@link BarsConfig.divergingStack}. */
+     *  zero baseline (positives above). A stacked layout with a negative bar value uses it without
+     *  this flag. Mirrors {@link BarsConfig.divergingStack}. */
     divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number

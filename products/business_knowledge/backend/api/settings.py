@@ -12,7 +12,12 @@ from rest_framework.viewsets import ViewSet
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
+from posthog.permissions import (
+    APIScopePermission,
+    PostHogFeatureFlagPermission,
+    get_authenticator_scoped_team_ids,
+    is_authenticated_via_project_secret_api_key,
+)
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -33,6 +38,16 @@ class CanonicalTeamTokenPermission(BasePermission):
 
     def has_permission(self, request: Request, view: Any) -> bool:
         canonical_id = view.team.parent_team_id or view.team.id
+        if is_authenticated_via_project_secret_api_key(request):
+            # A key has no user to check against the parent project's grants. Only a key the parent
+            # project created reads its rows, or a child environment's admin could mint a way around them.
+            if view.team.parent_team_id:
+                self.message = (
+                    f"Business knowledge belongs to project ID {canonical_id}. "
+                    "Use a project secret API key created in that project."
+                )
+                return False
+            return True
         authenticator = getattr(request, "successful_authenticator", None)
         scoped_teams = get_authenticator_scoped_team_ids(authenticator) if authenticator is not None else None
         if scoped_teams and canonical_id not in scoped_teams:

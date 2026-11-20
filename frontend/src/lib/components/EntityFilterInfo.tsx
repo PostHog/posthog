@@ -223,6 +223,7 @@ export function EntityFilterInfo({
     showIcon = false,
 }: EntityFilterInfoProps): JSX.Element {
     const isColumn = layout === 'column'
+    const isRow = !isColumn && !allowWrap
 
     // `filter` is null for formula series (and can be absent for other callers); render nothing
     // rather than dereferencing it in getEntityFilterDisplayInfo.
@@ -258,21 +259,30 @@ export function EntityFilterInfo({
             className={clsx(
                 isColumn
                     ? 'flex flex-col items-start gap-0.5'
-                    : !allowWrap && 'block overflow-hidden text-ellipsis whitespace-nowrap'
+                    : isRow && 'flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap'
             )}
             style={style}
         >
-            <span className={clsx(icon && 'inline-flex items-center gap-1 max-w-full')}>
+            <span className={clsx((icon || isRow) && 'inline-flex items-center gap-1 max-w-full', isRow && 'min-w-0')}>
                 {icon}
                 <span
-                    className={clsx('EntityFilterInfo max-w-full', !allowWrap && 'whitespace-nowrap truncate')}
+                    className={clsx(
+                        'EntityFilterInfo max-w-full',
+                        !allowWrap && 'whitespace-nowrap truncate',
+                        isRow && 'min-w-0'
+                    )}
                     title={showTooltip ? undefined : displayName}
                 >
                     {displayName}
                 </span>
             </span>
             {isOptional && (
-                <span className={clsx('text-xs font-normal text-secondary normal-case', !isColumn && 'ml-1')}>
+                <span
+                    className={clsx(
+                        'text-xs font-normal text-secondary normal-case',
+                        isRow ? 'shrink-0' : !isColumn && 'ml-1'
+                    )}
+                >
                     (optional)
                 </span>
             )}
@@ -280,7 +290,7 @@ export function EntityFilterInfo({
                 <span
                     className={clsx(
                         'EntityFilterInfo max-w-full text-secondary text-xs',
-                        isColumn ? (icon ? 'ml-5' : '') : 'ml-1',
+                        isColumn ? (icon ? 'ml-5' : '') : isRow ? 'min-w-0 shrink-[100]' : 'ml-1',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}
                     title={showTooltip ? undefined : underlyingName}

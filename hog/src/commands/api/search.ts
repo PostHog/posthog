@@ -19,9 +19,9 @@ export default defineCommand({
 
     human({ result, out }) {
         toolTable(out, result.tools)
-        if (result.truncated) {
-            out.line(out.style('More tools match. Use more specific words to see them.', 'dim'))
-        }
+        out.notes({
+            notes: result.truncated ? [out.style('More tools match. Use more specific words to see them.', 'dim')] : [],
+        })
     },
 
     agent({ result, out }) {

@@ -3,6 +3,8 @@ from posthog.api.routing import RouterRegistry
 from products.conversations.backend.api import (
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
+    IntercomImportViewSet,
+    PylonImportViewSet,
     SigningSecretViewSet,
     TicketMacroViewSet,
     TicketViewSet,
@@ -22,6 +24,18 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/zendesk_imports",
         ZendeskImportViewSet,
         "project_conversations_zendesk_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/intercom_imports",
+        IntercomImportViewSet,
+        "project_conversations_intercom_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/pylon_imports",
+        PylonImportViewSet,
+        "project_conversations_pylon_imports",
         ["team_id"],
     )
     # Dual-route surface preserved for existing clients (project + environment).

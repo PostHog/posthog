@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
@@ -18,7 +18,8 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "canvas",
     "customer_analytics",
     "data_catalog",
     "data_deletion",
@@ -88,7 +90,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
-    "stamphog",
+    "code_review_approval",
     "survey",
     "ticket",
     "web_analytics",
@@ -118,6 +120,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
+    # The account_note API scope split off `account`, and access control governs notes the way it governs
+    # accounts, through the Customer analytics rules.
+    "account_note": "customer_analytics",
     "customer_journey": "customer_analytics",
     "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
@@ -215,9 +220,12 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "LLM playground"
     if resource == "business_knowledge":
         return "business knowledge"
-    if resource == "stamphog":
-        # Product name: a proper noun, and it does not take a plural
-        return "Stamphog"
+    if resource == "canvas":
+        # Ends in "s" but is singular, so the rule below would leave it as "canvas"
+        return "canvases"
+    if resource == "code_review_approval":
+        # A feature name, not a collection of objects, so it takes no plural
+        return "code review auto-approval"
 
     name = resource.replace("_", " ")
     # Names such as "marketing analytics", "logs" and "metrics" are already plural
@@ -247,6 +255,9 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
 def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
     if resource == "action":
+        return "viewer"
+    if resource == "canvas":
+        # Who can see a canvas at all is its space's choice, so these rules only narrow editing.
         return "viewer"
     return "none"
 
@@ -340,7 +351,7 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "endpoint"
     # The workflow scope is "hog_flow" but the model is "hogflow"; its batch jobs and schedules have no
     # route of their own and inherit the parent workflow's access (same idea as endpointversion → endpoint).
-    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule"):
+    if name in ("hogflow", "hogflowbatchjob", "hogflowschedule", "messagetemplate"):
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
@@ -441,6 +452,19 @@ class _ObjectAccessTarget:
 class ObjectAccessDecision:
     blocked_ids: frozenset[str]
     allowed_ids: frozenset[str]
+
+
+@frozen
+class ListAccessFilter:
+    """Which objects of a resource a list may show the user.
+
+    With `only_allowed`, the user has no resource-level access: the list keeps the allowed ids and
+    the user's own objects. Otherwise it drops the blocked ids, except the user's own objects.
+    """
+
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
 
 
 class UserAccessControl:
@@ -650,6 +674,11 @@ class UserAccessControl:
         return self._team
 
     @property
+    def organization_membership(self) -> Optional[OrganizationMembership]:
+        """The user's membership in this instance's organization, looked up once per instance."""
+        return self._organization_membership
+
+    @property
     def rbac_supported(self) -> bool:
         if not self._organization:
             return False
@@ -672,7 +701,7 @@ class UserAccessControl:
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
-        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+        return bool(org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN)
 
     def _is_creator(self, obj: Model) -> bool:
         # Compare ids so callers do not need created_by hydrated on the object.
@@ -838,7 +867,7 @@ class UserAccessControl:
         """Fill self._cache for these filter groups. When every group is team-scoped they're served
         from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
         a targeted OR-combined query is issued for them."""
-        if not filter_groups:
+        if not filter_groups or not self.access_controls_supported:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):
@@ -924,7 +953,7 @@ class UserAccessControl:
 
         if resource == "organization":
             # Organization access is controlled via membership level only
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            if org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
                 return "admin"
             return "member"
 
@@ -1092,13 +1121,25 @@ class UserAccessControl:
         Returns None if the user has no access context.
         """
         resource = resource or model_to_resource(obj)
+        if not resource:
+            return None
+        return self._access_source(resource, str(obj.id), getattr(obj, "created_by_id", None))  # type: ignore[attr-defined]
+
+    def get_access_source_for_ref(self, ref: ObjectAccessRef) -> Optional[AccessSource]:
+        """`get_access_source_for_object` for an object held only as a reference."""
+        target = self._target_for_ref(ref)
+        return self._access_source(target.resource, target.object_id, target.created_by_id)
+
+    def _access_source(
+        self, resource: APIScopeObject, object_id: str, created_by_id: Optional[int]
+    ) -> Optional[AccessSource]:
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not org_membership:
             return None
 
         # Check if user is the creator
-        if self._is_creator(obj):
+        if self._is_creator_id(created_by_id):
             return AccessSource.CREATOR
 
         # Check if user is org admin
@@ -1110,7 +1151,7 @@ class UserAccessControl:
             return AccessSource.DEFAULT
 
         # Get cached access controls for this object
-        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        filters = self._access_controls_filters_for_object(resource, object_id)
         cached_controls = self._get_access_controls(filters)
 
         # Check for explicit member access
@@ -1118,7 +1159,8 @@ class UserAccessControl:
             return AccessSource.EXPLICIT_MEMBER
 
         # Check for explicit role access
-        if any(ac.role_id in self._user_role_ids for ac in cached_controls if ac.role_id):
+        user_role_ids = {str(role_id) for role_id in self._user_role_ids}  # seeded as str, read from the DB as UUID
+        if any(str(ac.role_id) in user_role_ids for ac in cached_controls if ac.role_id):
             return AccessSource.EXPLICIT_ROLE
 
         # Check for project-level access
@@ -1418,33 +1460,51 @@ class UserAccessControl:
         if not resource:
             return queryset
 
-        if include_all_if_admin and self.is_organization_admin:
+        model_has_creator = hasattr(model, "created_by")
+
+        access = self.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
+        if access is None:
             return queryset
 
-        model_has_creator = hasattr(model, "created_by")
+        # Apply filtering logic based on resource-level access
+        if access.only_allowed:
+            # Resource-level "none": show only granted objects and the user's own objects, also
+            # when there are no grants at all. Logic-layer and background callers reach this
+            # filter with no permission layer above it, so it must fail closed on its own.
+            if model_has_creator:
+                queryset = queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by=self._user))
+            else:
+                queryset = queryset.filter(id__in=access.allowed_ids)
+        elif access.blocked_ids:
+            # Standard case: exclude explicitly blocked objects
+            if model_has_creator:
+                queryset = queryset.exclude(Q(id__in=access.blocked_ids) & ~Q(created_by=self._user))
+            else:
+                queryset = queryset.exclude(id__in=access.blocked_ids)
+
+        return queryset
+
+    def list_access_filter(
+        self, resource: APIScopeObject, include_all_if_admin: bool = False
+    ) -> Optional[ListAccessFilter]:
+        """The rows of `resource` a list may show this user, as `filter_queryset_by_access_level` applies them.
+
+        A list that pages through a facade has no queryset to hand to that method, so it reads the
+        decision here and applies it in its own query. None means the list is not filtered.
+        """
+        if include_all_if_admin and self.is_organization_admin:
+            return None
 
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
         decision = self._blocked_and_allowed_object_ids(resource, access_controls)
 
-        # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource):
-            # Resource-level "none": show only granted objects and the user's own objects, also
-            # when there are no grants at all. Logic-layer and background callers reach this
-            # filter with no permission layer above it, so it must fail closed on its own.
-            if model_has_creator:
-                queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
-            else:
-                queryset = queryset.filter(id__in=decision.allowed_ids)
-        elif decision.blocked_ids:
-            # Standard case: exclude explicitly blocked objects
-            if model_has_creator:
-                queryset = queryset.exclude(Q(id__in=decision.blocked_ids) & ~Q(created_by=self._user))
-            else:
-                queryset = queryset.exclude(id__in=decision.blocked_ids)
-
-        return queryset
+        return ListAccessFilter(
+            only_allowed=not self.has_resource_access(resource),
+            allowed_ids=decision.allowed_ids,
+            blocked_ids=decision.blocked_ids,
+        )
 
     def _blocked_and_allowed_object_ids(
         self, resource: APIScopeObject, access_controls: list[_AccessControl]
@@ -1616,7 +1676,10 @@ class UserAccessControl:
         return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
 
     def filter_and_annotate_file_system_queryset(
-        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
+        self,
+        queryset: QuerySet["FileSystem"],
+        extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None,
+        resolved_types: Collection[str] = (),
     ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
@@ -1698,6 +1761,8 @@ class UserAccessControl:
             if refs:
                 denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
 
+        if resolved_types:
+            denied &= ~Q(type__in=resolved_types)
         queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset
@@ -1738,7 +1803,7 @@ class UserAccessControl:
         if resource == "organization":
             # Organization access is controlled via membership level only
             membership_level: AccessControlLevel = (
-                "admin" if org_membership.level >= OrganizationMembership.Level.ADMIN else "member"
+                "admin" if org_membership.effective_level >= OrganizationMembership.Level.ADMIN else "member"
             )
             return True, ResolvedAccess(
                 access_level=membership_level,

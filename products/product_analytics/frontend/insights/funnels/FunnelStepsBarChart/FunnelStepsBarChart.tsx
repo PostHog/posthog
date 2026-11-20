@@ -49,6 +49,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
+    context,
 }: ChartParams): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
@@ -175,6 +176,7 @@ export function FunnelStepsBarChart({
                     {conversionChipStepIndexes.length > 0 && (
                         <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
                     )}
+                    {context?.chartOverlay}
                 </FunnelChart>
             </div>
         </ScrollableShadows>

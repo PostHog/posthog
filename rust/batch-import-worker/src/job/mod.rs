@@ -14,9 +14,9 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{
-        extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
-        is_transient_network_error, is_transient_object_store_error, is_transient_server_error,
-        UserError,
+        extract_retry_after_from_error, get_user_message, get_user_message_or, is_oob_domain_error,
+        is_rate_limited_error, is_timeout_error, is_transient_network_error,
+        is_transient_object_store_error, is_transient_server_error, UserError,
     },
     extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
@@ -32,6 +32,9 @@ pub mod config;
 pub mod model;
 #[cfg(test)]
 pub(crate) mod test_db;
+
+const COMMIT_FAILED_USER_MESSAGE: &str =
+    "Job paused after a failed commit. Resolve the error and resume.";
 
 #[derive(Debug, PartialEq)]
 enum ErrorHandlingDecision {
@@ -53,7 +56,24 @@ fn decide_on_error(
     current_attempt: u32,
     user_message: &str,
 ) -> ErrorHandlingDecision {
-    if is_rate_limited_error(err) {
+    if is_oob_domain_error(err) {
+        // The host is on the out-of-band domain denylist, so the resolver refusal is permanent.
+        // A retry always fails the same way, so pause the job rather than back off without limit.
+        let error_msg = match current_date_range {
+            Some(dr) => format!("{err:#} (Date range: {dr})"),
+            None => format!("{err:#}"),
+        };
+        let display_msg = match current_date_range {
+            Some(dr) => format!(
+                "PostHog can't import from this URL. Use a different source URL. (Date range: {dr})"
+            ),
+            None => "PostHog can't import from this URL. Use a different source URL.".to_string(),
+        };
+        ErrorHandlingDecision::Pause {
+            error_msg,
+            display_msg,
+        }
+    } else if is_rate_limited_error(err) {
         let mut delay = policy.next_delay(current_attempt);
         if let Some(ra) = extract_retry_after_from_error(err) {
             delay = std::cmp::min(ra, policy.max_delay);
@@ -968,13 +988,10 @@ impl Job {
 
         let status_message =
             format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
+        let display_message = get_user_message_or(err, COMMIT_FAILED_USER_MESSAGE);
 
         model
-            .pause(
-                self.context.clone(),
-                status_message,
-                Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
-            )
+            .pause(self.context.clone(), status_message, Some(display_message))
             .await?;
         model.release_lease(&self.context.db).await
     }
@@ -1097,6 +1114,45 @@ mod tests {
             error_message,
             "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
         );
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_pause_for_oob_domain() {
+        // A refused out-of-band host reaches this classifier wrapped in a reqwest error. The
+        // refusal is permanent, so the job must pause rather than retry it as a network error.
+        common_dns::oob_domains::force_cloud();
+
+        let client = Client::builder()
+            .dns_resolver(std::sync::Arc::new(common_dns::PublicIPv4Resolver {}))
+            .build()
+            .unwrap();
+        let err = client
+            .get("http://probe.oast.live/")
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+
+        assert!(crate::error::is_oob_domain_error(&err));
+
+        let decision = decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "An unknown error occurred",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Pause { display_msg, .. } => {
+                assert!(display_msg.contains("can't import"));
+            }
+            _ => panic!("expected pause for an out-of-band domain refusal"),
+        }
     }
 
     #[tokio::test]
@@ -1612,6 +1668,8 @@ mod tests {
             }
         }
 
+        const SINK_REJECTED_USER_MESSAGE: &str = "The sink rejected the chunk.";
+
         /// Delivers in `commit_write` like the capture sink, recording each send rate and abort.
         /// `on_send` runs during a delivery, which is where an operator change races the worker.
         struct RecordingEmitter {
@@ -1653,7 +1711,8 @@ mod tests {
                     hook(index).await;
                 }
                 if self.emitter.fail_sends {
-                    return Err(Error::msg("sink rejected the chunk"));
+                    return Err(Error::msg("sink rejected the chunk")
+                        .context(UserError::new(SINK_REJECTED_USER_MESSAGE)));
                 }
                 Ok(Duration::ZERO)
             }
@@ -1690,6 +1749,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     is_cookieless_mode: false,
                     historical_migration: true,
+                    options: None,
                 };
                 Ok(Parsed {
                     consumed: bytes.len(),
@@ -1987,6 +2047,21 @@ mod tests {
             assert!(run.sends.lock().unwrap().is_empty());
             let stored = test_db::read_job(&run.context.db, run.id).await;
             assert_eq!(stored.status, "running");
+            assert_eq!(offsets(&stored), vec![0, 0, 0]);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_failed_send_pauses_with_the_sink_user_message() {
+            let run = run_job(no_hook, no_op, true).await;
+
+            assert!(run.result.is_err());
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "paused");
+            assert_eq!(
+                stored.display_status_message.as_deref(),
+                Some(SINK_REJECTED_USER_MESSAGE)
+            );
             assert_eq!(offsets(&stored), vec![0, 0, 0]);
             test_db::delete_job(&run.context.db, run.id).await;
         }

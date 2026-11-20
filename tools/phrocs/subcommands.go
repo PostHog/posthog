@@ -16,9 +16,14 @@ import (
 // socketGracePeriod gives the detached phrocs a chance to come up after
 // `bin/start --detach` returns — useful when `hogli wait` is run immediately
 // after.
-const socketGracePeriod = 30 * time.Second
+var socketGracePeriod = 30 * time.Second
 
 var queryDetached = query
+
+func isTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
 
 // runWait polls status_all on an interval until every process is ready
 // (exit 0), any process has crashed (exit 1, prints tail logs), or the
@@ -32,6 +37,14 @@ func runWait(timeoutSec int, asJSON bool) int {
 
 	for {
 		resp, err := queryDetached(map[string]any{"cmd": "status_all"}, 2*time.Second)
+		if err != nil && sawResponse && isTimeout(err) {
+			// phrocs answered before, so a slow reply means it is busy, not gone.
+			if time.Now().After(deadline) {
+				return waitTimeout(asJSON, lastNotReady)
+			}
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
 		if err != nil {
 			// The detached process may not have bound yet — allow a grace
 			// period before failing.

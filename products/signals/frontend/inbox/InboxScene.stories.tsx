@@ -44,6 +44,7 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
         '/api/projects/:id/integrations/github/available_installations/': {
             discovery_id: '11111111-1111-4111-8111-111111111111',
             discovered_at: '2026-06-11T00:00:00Z',
@@ -191,6 +192,36 @@ export const ReportsNarrow: Story = {
         await userEvent.click(await canvas.findByLabelText('Filters'))
         // The panel renders in a popover outside the story root, and fades in after the click.
         await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
+    },
+}
+
+const TAGGED_REPORT_TAGS = ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact']
+const taggedReports = allReports.map((report, index) =>
+    index === 0 ? { ...report, tags: TAGGED_REPORT_TAGS } : report
+)
+
+export const ReportsTagFilter: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_TAG_FILTER]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/tag_options/': () => [
+                    200,
+                    { tags: [...TAGGED_REPORT_TAGS, 'docs-gap', 'onboarding'] },
+                ],
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: taggedReports, count: taggedReports.length, next: null, previous: null },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Tags: any'))
+        await waitFor(() => expect(within(document.body).getByText('docs-gap')).toBeVisible())
     },
 }
 
@@ -385,7 +416,7 @@ export const SettingsWithSpendBilling: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('$12.34')).toBeVisible()
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
         await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
         await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
     },

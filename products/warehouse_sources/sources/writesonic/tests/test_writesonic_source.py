@@ -30,6 +30,10 @@ class TestWritesonicSource:
             ("platforms", False),
             ("websites", False),
             ("prompts", False),
+            ("content_optimize_pages", False),
+            ("content_optimize_issues", False),
+            ("content_optimize_recommendations", False),
+            ("content_optimize_issues_summary", False),
         ]
     )
     def test_incremental_capability_per_endpoint(self, name, incremental):

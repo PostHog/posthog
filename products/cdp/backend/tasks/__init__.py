@@ -1,3 +1,3 @@
-from . import hog_functions
+from . import abuse_classification, hog_functions, invocation_replay
 
-__all__ = ["hog_functions"]
+__all__ = ["abuse_classification", "hog_functions", "invocation_replay"]

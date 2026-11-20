@@ -1,12 +1,16 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_warehouse.backend.presentation.views.data_modeling_job import DataModelingJobPagination
 
 
 class TestDataModelingJob(APIBaseTest):
@@ -218,6 +222,25 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.json()["saved_query_name"], "Test saved query")
         self.assertTrue(response.json()["saved_query_deleted"])
 
+    def test_unrestricted_list_hides_runs_of_a_hard_deleted_model_without_reading_models(self):
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=None,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now(),
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(
+            {job["id"] for job in response.json()["results"]}, {str(self.job1.id), str(self.job2.id), str(self.job3.id)}
+        )
+        count_sql = next(q["sql"] for q in queries.captured_queries if "COUNT(*)" in q["sql"])
+        self.assertNotIn(DataWarehouseSavedQuery._meta.db_table, count_sql)
+
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
         for _ in range(12):
@@ -232,6 +255,7 @@ class TestDataModelingJob(APIBaseTest):
 
         first_page = self.client.get(f"{base_url}&limit=10&offset=0").json()
         self.assertEqual(first_page["count"], 12)
+        self.assertFalse(first_page["count_is_capped"])
         self.assertEqual(len(first_page["results"]), 10)
 
         second_page = self.client.get(f"{base_url}&limit=10&offset=10").json()
@@ -241,6 +265,27 @@ class TestDataModelingJob(APIBaseTest):
         first_ids = {job["id"] for job in first_page["results"]}
         second_ids = {job["id"] for job in second_page["results"]}
         self.assertEqual(first_ids & second_ids, set())
+
+    def test_count_stops_at_the_cap_and_pages_continue_past_it(self):
+        paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
+        for _ in range(12):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=paged_query,
+                status=DataModelingJob.Status.COMPLETED,
+                last_run_at=timezone.now(),
+            )
+        base_url = f"/api/environments/{self.team.pk}/data_modeling_jobs/?saved_query_id={paged_query.id}"
+
+        with patch.object(DataModelingJobPagination, "count_cap", 5):
+            first_page = self.client.get(f"{base_url}&limit=10&offset=0").json()
+            page_past_the_cap = self.client.get(f"{base_url}&limit=10&offset=10").json()
+
+        self.assertEqual((first_page["count"], first_page["count_is_capped"]), (5, True))
+        self.assertEqual(len(first_page["results"]), 10)
+        self.assertIsNotNone(first_page["next"])
+        self.assertEqual(len(page_past_the_cap["results"]), 2)
+        self.assertIsNone(page_past_the_cap["next"])
 
     def test_recent_reports_a_skip_over_the_older_success(self):
         query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Blocked saved query")

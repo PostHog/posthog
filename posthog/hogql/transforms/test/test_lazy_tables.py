@@ -29,7 +29,14 @@ from posthog.hogql.database.database import (
     _use_person_properties_from_events,
 )
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.models import LazyJoin, VirtualTable
+from posthog.hogql.database.models import (
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyTable,
+    LazyTableToAdd,
+    TableNode,
+    VirtualTable,
+)
 from posthog.hogql.database.schema.traffic_type import create_is_bot_field
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -164,6 +171,70 @@ BUILT_IN_FIELDS = (
 )
 
 
+class _ProbeLazyTable(LazyTable):
+    fields: dict = {
+        "x": IntegerDatabaseField(name="x"),
+        "v___x": IntegerDatabaseField(name="v___x"),
+        "v": VirtualTable(fields={"x": IntegerDatabaseField(name="x")}),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return ast.SelectQuery(
+            select=[ast.Alias(alias=name, expr=ast.Constant(value=name)) for name in table_to_add.fields_accessed]
+        )
+
+    def to_printed_clickhouse(self, context):
+        return "probe"
+
+    def to_printed_hogql(self):
+        return "probe"
+
+
+class TestVirtualFieldExports(SimpleTestCase):
+    @parameterized.expand([("bare", "probe", "probe"), ("aliased", "probe AS p", "p")])
+    def test_virtual_field_export_never_takes_the_name_of_another_export(
+        self, _name: str, source: str, prefix: str
+    ) -> None:
+        database = Database()
+        database.tables.children["probe"] = TableNode(name="probe", table=_ProbeLazyTable())
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=database,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(
+                parse_select(f"SELECT {prefix}.x, {prefix}.v.x, {prefix}.v___x FROM {source}"), context, "clickhouse"
+            )
+
+        values = re.findall(r"%\(hogql_val_\d+\)s AS (`?\w+`?)", printed)
+        assert sorted(name.strip("`") for name in values) == ["v___x", "v___x_2", "x"]
+        assert printed.startswith(f"SELECT {prefix}.x, {prefix}.v___x_2 AS x, {prefix}.v___x AS v___x FROM")
+
+    def test_virtual_field_read_through_a_wrapped_lazy_join_names_the_column_the_wrapper_exports(self) -> None:
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=Database(),
+            enable_select_queries=True,
+            apply_events_retention_floor=False,
+            use_new_events_schema=False,
+        )
+        query = (
+            "SELECT r.events.poe.created_at, r.events.created_at FROM events AS e "
+            "JOIN raw_session_replay_events AS r ON r.events.event = e.event"
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        assert printed.startswith("SELECT r.events___poe___created_at, r.events___created_at AS created_at FROM")
+        assert "AS events___poe___created_at" in printed
+
+
 class TestWrappedEventJoins(SimpleTestCase):
     @parameterized.expand([("legacy", False), ("native", True)])
     def test_reads_exported_columns(self, _name: str, native: bool) -> None:
@@ -241,7 +312,7 @@ class TestWrappedEventJoins(SimpleTestCase):
             assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
             assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
             assert self._export_counts(printed, "joined", native) == {"properties___a": 2, "properties___amount": 2}
-            assert "toJSONString(joined.properties.^a)" in inner, printed
+            assert "toJSONString(joined.properties.a)" in inner, printed
             assert "JSONExtractKeysAndValuesRaw" not in inner, printed
         else:
             assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
@@ -274,8 +345,8 @@ class TestWrappedEventJoins(SimpleTestCase):
                 "properties___label",
                 "properties___arr",
             }
-            assert "toString(joined.properties.a)" in inner, printed
-            assert "toString(joined.properties.arr)" not in inner, printed
+            assert "CAST(joined.properties.a, 'Nullable(String)') AS properties___a" in inner, printed
+            assert "CAST(joined.properties.arr, 'Nullable(String)') AS properties___arr" not in inner, printed
         else:
             assert "JSONExtractString(joined.properties, %(hogql_val_" in outer, printed
             assert self._exports(printed, "joined", native) == {"properties___a", "properties", "properties___arr"}

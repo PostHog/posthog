@@ -700,6 +700,11 @@ export interface DataQualityCheckTypeApi {
     config_schema: DataQualityCheckTypeApiConfigSchema
 }
 
+export interface DataQualityFailingCheckCountApi {
+    /** Enabled checks whose last run reported a failure. */
+    count: number
+}
+
 /**
  * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
  */

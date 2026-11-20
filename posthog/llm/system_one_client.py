@@ -14,13 +14,12 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 
 import httpx
-import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe.client import system_one
 from posthog.egress.typesafe.transport import typesafe_allowed
-from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
+from posthog.llm.gateway_client import ai_gateway_headers, resolve_https_ai_gateway_config, team_distinct_id
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
     ChoiceQuestion,
@@ -32,8 +31,6 @@ from posthog.llm.system_one import (
     build_system_one_body,
     parse_system_one_response,
 )
-
-logger = structlog.get_logger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -133,20 +130,8 @@ def _system_one_url(gateway_url: str) -> str:
     return urlunparse(parsed._replace(path=path + SYSTEM_ONE_PATH, params="", query="", fragment=""))
 
 
-def _usable_gateway() -> AIGatewayConfig | None:
-    """The gateway config, unless its key would travel in clear to a host off this machine."""
-    gateway = resolve_ai_gateway_config()
-    if gateway is None:
-        return None
-    parsed = urlparse(gateway.url)
-    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
-        logger.warning("system_one_gateway_url_not_https")
-        return None
-    return gateway
-
-
 def system_one_configured(typesafe_fallback: TypeSafeFallback | None = None) -> bool:
-    if _usable_gateway() is not None:
+    if resolve_https_ai_gateway_config() is not None:
         return True
     return typesafe_fallback is not None and typesafe_allowed() and bool(settings.TYPESAFE_API_KEY)
 
@@ -161,32 +146,37 @@ def build_system_one_client(
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    privacy_mode: bool = False,
 ) -> SystemOneClient:
     """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe in local
     development when the caller passes ``typesafe_fallback``.
 
     ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. ``team_id``
-    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. Raises
+    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. With
+    ``privacy_mode``, the gateway's event keeps no state or answers. Raises
     :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
     if not ai_product:
         raise ValueError("ai_product is required")
     if team_id is not None and team_id <= 0:
         raise ValueError(f"team_id must be positive, got {team_id}")
-    gateway = _usable_gateway()
+    gateway = resolve_https_ai_gateway_config()
     if gateway is not None:
         labels = dict(properties or {})
         if team_id is not None:
             labels["team_id"] = str(team_id)
         if not distinct_id and team_id is not None:
             distinct_id = team_distinct_id(team_id)
+        headers = (
+            ai_gateway_headers(ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id)
+            or {}
+        )
+        if privacy_mode:
+            headers = {**headers, "X-PostHog-Privacy-Mode": "true"}
         return GatewaySystemOneClient(
             url=_system_one_url(gateway.url),
             api_key=gateway.api_key,
-            headers=ai_gateway_headers(
-                ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id
-            )
-            or {},
+            headers=headers,
             model=model,
             timeout=timeout,
         )

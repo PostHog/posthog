@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 
+from products.signals.backend.facade.api import set_sources
 from products.slack_app.backend.logic.feature_tips.state import get_state
 from products.slack_app.backend.logic.onboarding import dispatch
 from products.slack_app.backend.logic.onboarding.card import (
@@ -25,8 +26,10 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
 from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
-from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
+    onboarding_status_label,
+    reset_onboarding,
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
     resolve_onboarding,
@@ -48,6 +51,7 @@ CLICKS = "products.slack_app.backend.logic.onboarding.interactivity"
 STEP = "products.slack_app.backend.logic.onboarding.step"
 MODEL_STEP = "products.slack_app.backend.logic.onboarding.model_step"
 INBOX_STEP = "products.slack_app.backend.logic.onboarding.inbox_channel_step"
+AI_STEP = "products.slack_app.backend.logic.onboarding.ai_consent_step"
 LINK_SCOPES = "chat:write,users:read,users:read.email"
 ADMIN_SCOPES = f"{LINK_SCOPES},channels:manage,channels:read,groups:read"
 
@@ -135,6 +139,7 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
 
     root, step = _posts(slack_client)
     assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
+    assert f"Hey <@{SLACK_USER_ID}>, I'm PostHog" in all_block_text(root["blocks"])
     assert "▱▱▱  0/3 done" in all_block_text(root["blocks"])
     assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
     assert f"<@{SLACK_USER_ID}> Step 1/3" in all_block_text(step["blocks"])
@@ -145,6 +150,7 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
         "slack app onboarding started",
         "slack app onboarding step shown",
     ]
+    assert capture.call_args_list[0].kwargs["planned_steps"] == ["link_account", "model", "replies_in_threads"]
 
 
 @pytest.mark.django_db
@@ -195,13 +201,20 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     assert ready["thread_ts"] == "100.1"
     assert "You skipped: Your model" in all_block_text(ready["blocks"])
     assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
-    assert "Hey, I'm PostHog" in edits["100.1"] and "Setup done" in edits["100.1"]
+    assert edits["100.1"].startswith(f":tada: You're all set, <@{SLACK_USER_ID}>!")
     capture.assert_called_once_with(
         integration, "slack app onboarding completed", slack_user_id=SLACK_USER_ID, skipped_steps=["model"]
     )
     posts_before = slack_client.chat_postMessage.call_count
     assert _refresh(integration) is True
     assert slack_client.chat_postMessage.call_count == posts_before
+
+    # Staff can reset a person from Django admin, and the next trigger then starts a new thread.
+    settings = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
+    assert onboarding_status_label(settings.onboarding) == "Done"
+    assert reset_onboarding([settings.id]) == 1
+    _refresh(integration)
+    assert "thread_ts" not in _posts(slack_client)[posts_before]
 
 
 @pytest.mark.django_db
@@ -296,6 +309,8 @@ def test_a_model_that_cannot_be_saved_tells_the_person_why(org_team_user) -> Non
         ("open", True, True, True, False),
         # A start that failed after the state was stored has no thread yet, so the next mention tries again.
         ("failed_start", True, True, True, True),
+        # The work focus stores its outcome in the same field, which is not an onboarding that started.
+        ("work_focus_only", True, False, False, False),
     ],
 )
 def test_only_people_with_onboarding_left_start_the_workflow(
@@ -309,6 +324,8 @@ def test_only_people_with_onboarding_left_start_the_workflow(
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, completed_reason="finished")
     elif stored == "failed_start":
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
+    elif stored == "work_focus_only":
+        update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, work_focus_outcome="sent")
 
     with (
         patch.object(dispatch, "is_slack_app_onboarding_enabled", return_value=flag_on),
@@ -386,7 +403,7 @@ def test_steps_done_before_the_thread_are_left_out_of_the_numbering(
     assert "0/1 done" in all_block_text(root["blocks"])
     assert f"<@{SLACK_USER_ID}> Step 1/1" in all_block_text(link_step["blocks"])
     assert finished is True and ready["thread_ts"] == "100.1"
-    assert "Setup done" in _edits(slack_client)["100.1"]
+    assert "You're all set" in _edits(slack_client)["100.1"]
 
 
 @pytest.mark.django_db
@@ -481,6 +498,7 @@ def test_an_org_admin_who_links_later_gets_ai_consent_at_the_end(
         ("sources", True, False, None),
         ("sources_no_access", True, False, NO_PROJECT_ACCESS_TEXT),
         ("continue", True, True, None),
+        ("continue_done", True, True, None),
     ],
 )
 def test_workspace_step_clicks(
@@ -499,6 +517,8 @@ def test_workspace_step_clicks(
         OrganizationMembership.objects.filter(user=user, organization=org).update(organization=other_org)
     link_user(user)
     integration = _install(team, scope=ADMIN_SCOPES)
+    if action == "continue_done":
+        set_sources(team.id, user.id, ["error_tracking"])
     if action.startswith("sources"):
         payload = _click(integration, "slack_onboarding:sources")
         payload["actions"] = [
@@ -509,16 +529,18 @@ def test_workspace_step_clicks(
             }
         ]
     else:
-        payload = _click(integration, f"slack_onboarding:{action.removesuffix('_fails')}", step="sources")
+        action_id = action.removesuffix("_fails").removesuffix("_done")
+        payload = _click(integration, f"slack_onboarding:{action_id}", step="sources")
 
     with (
         patch(f"{CLICKS}.request_onboarding") as refresh,
         patch(f"{CLICKS}.post_response_url") as reply,
         patch(f"{CLICKS}.capture_slack_event"),
-        patch(f"{STEP}.capture_slack_event"),
+        patch(f"{STEP}.capture_slack_event") as capture_completed,
+        patch(f"{AI_STEP}.start_work_focus") as work_focus,
         patch(f"{INBOX_STEP}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
         patch(f"{INBOX_STEP}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
-        patch("products.signals.backend.facade.api.set_sources") as set_sources,
+        patch("products.signals.backend.facade.api.set_sources") as set_sources_mock,
     ):
         handle_onboarding_action(payload)
 
@@ -527,13 +549,20 @@ def test_workspace_step_clicks(
     if action == "ai_consent":
         org.refresh_from_db()
         assert org.is_ai_data_processing_approved is org_admin
+        # The work focus waits for consent, so allowing it starts the work focus for the admin.
+        assert work_focus.called is org_admin
     if action == "inbox_join":
         invite.assert_called_once_with(integration, "C_INBOX", SLACK_USER_ID)
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used
     if action == "sources":
-        set_sources.assert_called_once_with(team.id, user.id, ["session_replay"])
+        set_sources_mock.assert_called_once_with(team.id, user.id, ["session_replay"])
     if action == "sources_no_access":
-        set_sources.assert_not_called()
+        set_sources_mock.assert_not_called()
+    completed = [(c.args[1], c.kwargs["step"], c.kwargs.get("sources")) for c in capture_completed.call_args_list]
     if action == "continue":
         # Continue with no signal ticked closes the step, so the thread moves on.
         assert _skipped() == ("sources",)
+        assert completed == []
+    if action == "continue_done":
+        assert _skipped() == ()
+        assert completed == [("slack app onboarding step completed", "sources", ["error_tracking"])]

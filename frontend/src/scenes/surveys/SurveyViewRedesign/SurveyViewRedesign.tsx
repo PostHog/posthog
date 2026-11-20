@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconCode, IconCopy, IconDownload, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -21,9 +21,9 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { UseMaxToolReturn } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
-import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyFollowUpWorkflowButton } from 'scenes/surveys/components/SurveyFollowUpWorkflowButton'
@@ -48,7 +48,6 @@ import { transformSurveyResponseRows } from 'scenes/surveys/utils'
 import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,
@@ -71,32 +70,29 @@ import {
     ActivityScope,
     ExporterFormat,
     ProgressStatus,
-    SidePanelTab,
     Survey,
     SurveyEventName,
     SurveyQuestionType,
 } from '~/types'
 
 import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
+import { SurveyDraftReview } from 'products/surveys/frontend/draftReview/SurveyDraftReview'
 
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
 import { QuillSurveyStatusAction } from './QuillSurveyStatusAction'
-import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyResponseExpandedRow } from './SurveyResponseExpandedRow'
 import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
-export function SurveyViewRedesign(): JSX.Element {
+export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['openMax'] }): JSX.Element {
     const { survey, surveyLoading, activeTab, surveyNotifications } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
@@ -111,7 +107,6 @@ export function SurveyViewRedesign(): JSX.Element {
     const isDraft = isSurveyDraft(survey)
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
-    const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const panelTabSearchParam = 'survey_panel_tab'
@@ -170,70 +165,6 @@ export function SurveyViewRedesign(): JSX.Element {
             router.actions.replace(location.pathname, nextSearchParams, hashParams)
         }
     }, [hashParams, location.pathname, panelTabKey, searchParams, setPanelTab, validPanelTabKeys])
-
-    const openDraftDetails = useCallback((): void => {
-        setPanelTab('details')
-        if (isRemovingSidePanel) {
-            openSidePanel(SidePanelTab.Info)
-            setScenePanelOpen(false)
-        } else {
-            setScenePanelOpen(true)
-        }
-    }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
-
-    useEffect(() => {
-        if (isUnsavedSurvey) {
-            return
-        }
-
-        if (!isDraft) {
-            const autoOpenedSurveyId = autoOpenedDraftPanelForSurveyIdRef.current
-            if (autoOpenedSurveyId) {
-                if (isRemovingSidePanel) {
-                    if (sidePanelOpen && selectedSidePanelTab === SidePanelTab.Info) {
-                        closeSidePanel(SidePanelTab.Info)
-                    }
-                    setScenePanelOpen(false)
-                } else {
-                    setScenePanelOpen(false)
-                }
-            }
-            autoOpenedDraftPanelForSurveyIdRef.current = null
-            return
-        }
-
-        const surveyId = survey?.id ? String(survey.id) : null
-        if (!surveyId || autoOpenedDraftPanelForSurveyIdRef.current === surveyId) {
-            return
-        }
-
-        autoOpenedDraftPanelForSurveyIdRef.current = surveyId
-
-        const tabFromUrl = searchParams[panelTabSearchParam]
-        const draftTab =
-            typeof tabFromUrl === 'string' && validPanelTabKeys.includes(tabFromUrl) ? tabFromUrl : 'details'
-        setPanelTab(draftTab, false)
-
-        if (isRemovingSidePanel) {
-            openSidePanel(SidePanelTab.Info)
-            setScenePanelOpen(false)
-        } else {
-            setScenePanelOpen(true)
-        }
-    }, [
-        isDraft,
-        isUnsavedSurvey,
-        isRemovingSidePanel,
-        closeSidePanel,
-        openSidePanel,
-        selectedSidePanelTab,
-        searchParams,
-        setPanelTab,
-        setScenePanelOpen,
-        sidePanelOpen,
-        survey?.id,
-        validPanelTabKeys,
-    ])
 
     if (isInitialSurveyLoad) {
         return <LemonSkeleton />
@@ -492,7 +423,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             key: 'summary',
                             label: 'Summary',
                             content: isDraft ? (
-                                <SurveyDraftContent onSeeSurveyDetails={openDraftDetails} />
+                                <SurveyDraftReview openMax={openMax} />
                             ) : (
                                 <SurveySummaryContent onViewResponses={() => setActiveTab(SurveyTab.RESPONSES)} />
                             ),
@@ -563,11 +494,8 @@ function SurveyStatusAction(): JSX.Element | null {
     }
     const status = getSurveyStatus(survey)
 
-    if (status === ProgressStatus.Draft) {
-        return <LaunchSurveyButton />
-    }
-
-    if (survey.archived) {
+    // Drafts launch from the review's launch bar, so the header keeps one primary action.
+    if (status === ProgressStatus.Draft || survey.archived) {
         return null
     }
 

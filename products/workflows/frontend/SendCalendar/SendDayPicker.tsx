@@ -34,7 +34,7 @@ export function SendDayPicker(): JSX.Element {
         selectedDay,
         suggestion,
         rule,
-        isTransactional,
+        ignoresCap,
         effectiveTimezone,
         sendAt,
     } = useValues(logic)
@@ -74,7 +74,7 @@ export function SendDayPicker(): JSX.Element {
                     {days.map((day, index) => {
                         const sends = sendsByDay[day] ?? []
                         const isPast = day < today
-                        const crowded = !isTransactional && !isPast && crowdedDays[day]
+                        const crowded = !ignoresCap && !isPast && crowdedDays[day]
                         const suggested = !isPast && day === suggestedDay && day !== selectedDay
                         return (
                             <Tooltip

@@ -12,8 +12,11 @@ import {
 } from '../editWidgetModalBuilders'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
+    METRICS_TABLE_MAX_GROUP_BY,
     METRICS_TABLE_MAX_LIMIT,
+    type MetricsTableAggregation,
     type MetricsTableColumn,
+    metricsTableGroupByLabels,
     parseMetricsTableWidgetConfig,
 } from './metricsTableWidgetConfigValidation'
 
@@ -26,11 +29,12 @@ const DEFAULT_QUANTILE = 0.95
 const NEW_COLUMN: MetricsTableColumn = { label: 'Value', metricName: '', aggregation: 'avg' }
 
 export interface editMetricsTableWidgetModalLogicValues {
+    columnMetricTypes: (string | null)[]
     columns: MetricsTableColumn[]
     config: MetricsTableWidgetConfig
     dateFrom: WidgetDateFromValue
     defaultTitle: string
-    groupBy: string
+    groupBy: string[]
     interval: MetricsTableInterval | null
     limit: number
     onClose: () => void
@@ -46,8 +50,13 @@ export interface editMetricsTableWidgetModalLogicActions {
     addColumn: () => { value: true }
     loadConfig: (config: MetricsTableWidgetConfig) => { config: MetricsTableWidgetConfig }
     removeColumn: (index: number) => { index: number }
+    selectColumnMetric: (
+        index: number,
+        metricName: string,
+        metricType?: string
+    ) => { index: number; metricName: string; metricType: string | null }
     setDateFrom: (dateFrom: WidgetDateFromValue) => { dateFrom: WidgetDateFromValue }
-    setGroupBy: (groupBy: string) => { groupBy: string }
+    setGroupBy: (groupBy: string[]) => { groupBy: string[] }
     setInterval: (interval: MetricsTableInterval | null) => { interval: MetricsTableInterval | null }
     setLimit: (limit: number) => { limit: number }
     setOrderByColumn: (orderByColumn: number) => { orderByColumn: number }
@@ -71,6 +80,38 @@ export type editMetricsTableWidgetModalLogicType = MakeLogicType<
     EditMetricsTableWidgetModalLogicProps
 >
 
+// Ingestion flattens an exponential histogram into explicit buckets, so a percentile works on both.
+const HISTOGRAM_METRIC_TYPES = new Set(['histogram', 'exponential_histogram'])
+
+/** Why a calculation does not fit a metric of this type. Only a histogram has buckets for a percentile. */
+export function metricsTableAggregationDisabledReason(
+    metricType: string | null | undefined,
+    aggregation: MetricsTableAggregation
+): string | undefined {
+    if (!metricType) {
+        return undefined
+    }
+    if (HISTOGRAM_METRIC_TYPES.has(metricType)) {
+        return aggregation === 'histogram_quantile' ? undefined : 'A histogram metric needs a percentile'
+    }
+    return aggregation === 'histogram_quantile' ? 'A percentile needs a histogram metric' : undefined
+}
+
+function fittingAggregation(column: MetricsTableColumn, metricType: string): MetricsTableAggregation {
+    const { aggregation } = column
+    // A new column starts as an average, and the average of a running counter total means nothing.
+    if (metricType === 'sum' && !column.metricName && aggregation === NEW_COLUMN.aggregation) {
+        return 'rate'
+    }
+    if (!metricsTableAggregationDisabledReason(metricType, aggregation)) {
+        return aggregation
+    }
+    if (HISTOGRAM_METRIC_TYPES.has(metricType)) {
+        return 'histogram_quantile'
+    }
+    return metricType === 'sum' ? 'rate' : 'avg'
+}
+
 /** A histogram quantile needs a quantile, and every other aggregation must not have one. */
 function withQuantileRule(column: MetricsTableColumn): MetricsTableColumn {
     if (column.aggregation === 'histogram_quantile') {
@@ -86,7 +127,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
     actions({
         ...widgetEditModalTileActions,
         loadConfig: (config: MetricsTableWidgetConfig) => ({ config }),
-        setGroupBy: (groupBy: string) => ({ groupBy }),
+        setGroupBy: (groupBy: string[]) => ({ groupBy }),
         setDateFrom: (dateFrom: WidgetDateFromValue) => ({ dateFrom }),
         setInterval: (interval: MetricsTableInterval | null) => ({ interval }),
         setLimit: (limit: number) => ({ limit }),
@@ -94,6 +135,11 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
         setOrderDirection: (orderDirection: MetricsTableOrderDirection) => ({ orderDirection }),
         addColumn: true,
         removeColumn: (index: number) => ({ index }),
+        selectColumnMetric: (index: number, metricName: string, metricType?: string) => ({
+            index,
+            metricName,
+            metricType: metricType || null,
+        }),
         updateColumn: (index: number, patch: Partial<MetricsTableColumn>) => ({ index, patch }),
         submit: true,
         submitSuccess: true,
@@ -101,10 +147,15 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
     }),
     reducers({
         groupBy: [
-            '',
+            [] as string[],
             {
-                loadConfig: (_state: string, { config }: { config: MetricsTableWidgetConfig }) => config.groupBy ?? '',
-                setGroupBy: (_state: string, { groupBy }: { groupBy: string }) => groupBy,
+                loadConfig: (_state: string[], { config }: { config: MetricsTableWidgetConfig }) =>
+                    metricsTableGroupByLabels(config.groupBy),
+                setGroupBy: (_state: string[], { groupBy }: { groupBy: string[] }) =>
+                    [...new Set(groupBy.map((label) => label.trim()).filter(Boolean))].slice(
+                        0,
+                        METRICS_TABLE_MAX_GROUP_BY
+                    ),
             },
         ],
         dateFrom: [
@@ -170,6 +221,35 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                     state.map((column, columnIndex) =>
                         columnIndex === index ? withQuantileRule({ ...column, ...patch }) : column
                     ),
+                selectColumnMetric: (
+                    state: MetricsTableColumn[],
+                    { index, metricName, metricType }: { index: number; metricName: string; metricType: string | null }
+                ) =>
+                    state.map((column, columnIndex) =>
+                        columnIndex === index
+                            ? withQuantileRule({
+                                  ...column,
+                                  metricName,
+                                  aggregation: metricType ? fittingAggregation(column, metricType) : column.aggregation,
+                              })
+                            : column
+                    ),
+            },
+        ],
+        // The picker knows a metric's type. A saved column has no type here until the user picks its metric again.
+        columnMetricTypes: [
+            [] as (string | null)[],
+            {
+                loadConfig: (_state: (string | null)[], { config }: { config: MetricsTableWidgetConfig }) =>
+                    (config.columns ?? []).map(() => null),
+                addColumn: (state: (string | null)[]) =>
+                    state.length < METRICS_TABLE_MAX_COLUMNS ? [...state, null] : state,
+                removeColumn: (state: (string | null)[], { index }: { index: number }) =>
+                    state.filter((_, columnIndex) => columnIndex !== index),
+                selectColumnMetric: (
+                    state: (string | null)[],
+                    { index, metricType }: { index: number; metricType: string | null }
+                ) => state.map((type, columnIndex) => (columnIndex === index ? metricType : type)),
             },
         ],
         tileName: ['', { setTileName: (_state: string, { tileName }: { tileName: string }) => tileName }],
@@ -187,7 +267,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
         config: [
             (s) => [s.groupBy, s.columns, s.dateFrom, s.interval, s.limit, s.orderByColumn, s.orderDirection],
             (
-                groupBy: string,
+                groupBy: string[],
                 columns: MetricsTableColumn[],
                 dateFrom: WidgetDateFromValue,
                 interval: MetricsTableInterval | null,
@@ -195,7 +275,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                 orderByColumn: number,
                 orderDirection: MetricsTableOrderDirection
             ): MetricsTableWidgetConfig => ({
-                groupBy: groupBy.trim() || null,
+                groupBy: groupBy.length ? groupBy : null,
                 columns: columns.map((column) => ({ ...column, metricName: column.metricName.trim() })),
                 dateRange: { date_from: dateFrom },
                 interval,
@@ -208,7 +288,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
             (s) => [s.config],
             (config: MetricsTableWidgetConfig): string | undefined => {
                 if (!config.groupBy) {
-                    return 'Enter a label to make one row per value'
+                    return 'Enter at least one label to make the rows'
                 }
                 const columns: MetricsTableColumn[] = config.columns ?? []
                 if (!columns.length) {

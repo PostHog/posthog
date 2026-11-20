@@ -12,6 +12,7 @@ PAGE_SIZE = 1000
 REPO_LIST_PARAMS: dict[str, Any] = {"sort": "createdAt", "direction": 1, "limit": PAGE_SIZE, "full": "true"}
 
 REPO_KINDS = ("models", "datasets", "spaces")
+REPO_TYPES = {"models": "model", "datasets": "dataset", "spaces": "space"}
 
 
 @dataclass(frozen=True)
@@ -26,9 +27,9 @@ class HuggingFaceEndpointConfig:
     # in the path or the endpoint is Hub-wide.
     author_param: str | None = "author"
     params: dict[str, Any] = field(default_factory=lambda: dict(REPO_LIST_PARAMS))
-    # "list" pages a list endpoint, "tags" flattens a tags-by-type lookup, "discussions" fans out
-    # over every repo of the namespace.
-    kind: Literal["list", "tags", "discussions"] = "list"
+    # "list" pages a list endpoint, "tags" flattens a tags-by-type lookup, "discussions" and
+    # "commits" fan out over every repo of the namespace.
+    kind: Literal["list", "tags", "discussions", "commits"] = "list"
     # Endpoints that filter rows after paging (likes, collections) can return a short or empty page
     # while a next link remains, so they must follow the Link header to its end.
     stop_on_empty_page: bool = True
@@ -53,6 +54,27 @@ HUGGING_FACE_ENDPOINTS: dict[str, HuggingFaceEndpointConfig] = {
         params={},
         kind="discussions",
         flatten_repo=True,
+    ),
+    "commits": HuggingFaceEndpointConfig(
+        name="commits",
+        # Every Hub repo has a `main` branch; it is the history the repo listings describe.
+        path="/api/{repo_kind}/{repo_id}/commits/main",
+        partition_key="date",
+        # A duplicated repo keeps the commit ids of its source, so `id` is only unique within a repo.
+        primary_keys=["repo_type", "repo_name", "id"],
+        author_param=None,
+        params={"limit": PAGE_SIZE},
+        kind="commits",
+    ),
+    "organization_members": HuggingFaceEndpointConfig(
+        name="organization_members",
+        path="/api/organizations/{author}/members",
+        partition_key=None,
+        primary_keys=["_id"],
+        author_param=None,
+        params={"limit": PAGE_SIZE},
+        # Members only exist for organizations, so a user namespace answers 404.
+        ignore_not_found=True,
     ),
     "collections": HuggingFaceEndpointConfig(
         name="collections",

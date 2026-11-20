@@ -1,7 +1,7 @@
 import './TodayShell.scss'
 
-import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useRef } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
@@ -15,28 +15,61 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
+import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
+import { todayRecentsLogic } from './todayRecentsLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_CLOSE_THRESHOLD,
+    TodayRailPane,
+    clampSidebarWidth,
+    todayShellLogic,
+} from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayTour } from './TodayTour'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
-    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
+    import('products/today/frontend/analytics/TodayAnalyticsSidebar').then((m) => ({
+        default: m.TodayAnalyticsSidebar,
+    }))
+)
+const TodayMonitorSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/monitor/TodayMonitorSidebar').then((m) => ({
+        default: m.TodayMonitorSidebar,
+    }))
+)
+const TodayPeopleSidebar = lazyWithRetry(() =>
+    import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
 const TodayProductsPane = lazyWithRetry(() =>
     import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
 )
+const ReleaseSidebar = lazyWithRetry(() =>
+    import('products/release/frontend/ReleaseSidebar').then((m) => ({ default: m.ReleaseSidebar }))
+)
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+    spaces: { Sidebar: TodaySpacesPane },
+    analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
+    monitor: { Sidebar: TodayMonitorSidebar, previews: true },
+    people: { Sidebar: TodayPeopleSidebar, previews: true },
+    release: { Sidebar: ReleaseSidebar },
+    settings: { Sidebar: TodaySettingsSidebar },
+    products: { Sidebar: TodayProductsPane },
+}
+
 const NewSpaceDialog = lazyWithRetry(() =>
-    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+    import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
@@ -44,6 +77,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
+    useMountedLogic(todayRecentsLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
@@ -88,19 +123,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
+    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? null : activePane === 'spaces' ? (
-                <TodaySpacesPane />
-            ) : activePane === 'analytics' ? (
-                <TodayPreviewCardProvider disabled={phoneLayout}>
-                    <TodayAnalyticsSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'settings' ? (
-                <TodaySettingsSidebar />
-            ) : (
-                <TodayProductsPane />
-            )}
+            {paneSidebar &&
+                (paneSidebar.previews ? (
+                    <TodayPreviewCardProvider disabled={phoneLayout}>
+                        <paneSidebar.Sidebar />
+                    </TodayPreviewCardProvider>
+                ) : (
+                    <paneSidebar.Sidebar />
+                ))}
         </Suspense>
     )
 
@@ -121,14 +154,23 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 }
                 actions={PaneAction && <PaneAction />}
             />
+            {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
+            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )
 
-    const newSpaceDialog = activePane === 'spaces' && (
-        <Suspense fallback={null}>
-            <NewSpaceDialog />
-        </Suspense>
+    const overlays = (
+        <>
+            {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+            {activePane === 'spaces' && (
+                <Suspense fallback={null}>
+                    <NewSpaceDialog />
+                </Suspense>
+            )}
+            <TodayNavSwitchDialog />
+            <TodayTour />
+        </>
     )
 
     if (phoneLayout) {
@@ -149,7 +191,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
-                    {newSpaceDialog}
+                    {overlays}
                 </div>
             </ToastProvider>
         )
@@ -201,8 +243,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     )
                 )}
-                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                {newSpaceDialog}
+                {overlays}
             </div>
         </ToastProvider>
     )

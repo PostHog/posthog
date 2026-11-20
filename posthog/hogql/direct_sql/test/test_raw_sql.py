@@ -11,7 +11,7 @@ from posthog.hogql.direct_sql.bigquery_adapter import ensure_read_only_raw_bigqu
 from posthog.hogql.direct_sql.clickhouse_adapter import ensure_read_only_raw_clickhouse_statement
 from posthog.hogql.direct_sql.motherduck_adapter import ensure_read_only_raw_motherduck_statement
 from posthog.hogql.direct_sql.mysql_adapter import ensure_read_only_raw_mysql_statement
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement, nestable_direct_statement
 from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redshift_statement
 from posthog.hogql.direct_sql.snowflake_adapter import ensure_read_only_raw_snowflake_statement
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
@@ -69,6 +69,30 @@ class TestDirectSQLQuoting(SimpleTestCase):
     def test_rejects_invalid_or_ambiguous_boundaries(self, dialect: str, sql: str) -> None:
         with self.assertRaises(ExposedHogQLError):
             ensure_single_direct_statement(sql, dialect=dialect)
+
+    @parameterized.expand(
+        [
+            ("semicolon", "SELECT 17;", "SELECT 17"),
+            ("comment_after_semicolon", "SELECT 17; -- done;", "SELECT 17"),
+            ("comment_on_last_line", "SELECT 17 -- done", "SELECT 17"),
+            ("parenthesis_in_literal", "SELECT ')' AS label", "SELECT ')' AS label"),
+            ("parenthesis_in_comment", "SELECT /* ) */ (17)", "SELECT /* ) */ (17)"),
+        ]
+    )
+    def test_nestable_statement_ends_at_its_last_token(self, _name: str, sql: str, expected: str) -> None:
+        self.assertEqual(nestable_direct_statement(sql, dialect="bigquery"), expected)
+
+    @parameterized.expand(
+        [
+            ("closes_the_wrapper", "SELECT 17) UNION ALL SELECT (29", "unbalanced parentheses"),
+            ("unclosed", "SELECT (17", "unbalanced parentheses"),
+            ("only_a_comment", "-- nothing here", "Raw query is empty"),
+            ("two_statements", "SELECT 17; SELECT 29", "single statement"),
+        ]
+    )
+    def test_nestable_statement_rejects_text_that_escapes_parentheses(self, _name: str, sql: str, message: str) -> None:
+        with self.assertRaisesMessage(ExposedHogQLError, message):
+            nestable_direct_statement(sql, dialect="bigquery")
 
     @parameterized.expand([("postgres",), ("redshift",), ("mysql",)])
     def test_requires_consistent_session_quoting(self, dialect: str) -> None:

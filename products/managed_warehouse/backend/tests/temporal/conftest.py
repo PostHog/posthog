@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 TEST_ROOT_BUCKET = "test-ducklake"
 SESSION = aioboto3.Session()
@@ -49,7 +50,7 @@ async def aorganization():
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -60,7 +61,7 @@ async def ateam(aorganization):
 
     yield team
 
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest.fixture

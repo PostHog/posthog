@@ -24,6 +24,9 @@ import type { BarLayout, ChartKind, ChartVariant } from './types'
 /** One visible series in canvas coordinates. */
 export interface PlottedSeries {
     key: string
+    kind: ChartKind
+    area?: boolean
+    authoredColor?: boolean
     color: string
     dotted: boolean
     compare: boolean
@@ -86,7 +89,8 @@ export function MetricChartRenderer({
         [count]
     )
     const handlerConfig = useMemo(() => gestureHandlerConfig(variant), [variant])
-    const current = series.filter((s) => !s.compare)
+    const bars = series.filter((s) => s.kind === 'bar' && !s.compare)
+    const lines = series.filter((s) => s.kind === 'line')
 
     return (
         <CartesianChart
@@ -117,19 +121,18 @@ export function MetricChartRenderer({
                         strokeWidth={1}
                     />
                     <RangeShade selection={selection} xs={xs} plot={plot} />
-                    {kind === 'bar' ? (
+                    {bars.length ? (
                         <Bars
-                            series={current}
+                            series={bars}
                             layout={barLayout}
                             geometry={geometry}
                             accent={accent}
                             selection={selection}
                             variant={variant}
                         />
-                    ) : (
-                        <Lines series={series} plot={plot} />
-                    )}
-                    {kind === 'line' ? <Markers series={series} xs={xs} plot={plot} selection={selection} /> : null}
+                    ) : null}
+                    {lines.length ? <Lines series={lines} plot={plot} /> : null}
+                    {lines.length ? <Markers series={lines} xs={xs} plot={plot} selection={selection} /> : null}
                 </>
             )}
         >
@@ -143,7 +146,11 @@ function Lines({ series, plot }: { series: PlottedSeries[]; plot: PlotRect }): R
     const only = current.length === 1 ? current[0] : undefined
     return (
         <>
-            {only ? <Area points={only.points} y0={plot.bottom} color={only.color} opacity={AREA_OPACITY} /> : null}
+            {series
+                .filter((s) => s.area === true || (s === only && s.area === undefined))
+                .map((s) => (
+                    <Area key={s.key} points={s.points} y0={plot.bottom} color={s.color} opacity={AREA_OPACITY} />
+                ))}
             {series.map((s) => (
                 <SeriesLine key={s.key} series={s} />
             ))}
@@ -308,7 +315,7 @@ function Bars({
                 return {
                     key: s.key,
                     path: builder.detach(),
-                    color: single && variant !== 'compact' ? colors.barNeutral : s.color,
+                    color: single && variant !== 'compact' && !s.authoredColor ? colors.barNeutral : s.color,
                 }
             }),
         [series, zeroY, groupWidth, barWidth, single, colors, variant, layout]

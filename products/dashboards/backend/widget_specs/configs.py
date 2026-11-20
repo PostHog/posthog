@@ -20,6 +20,7 @@ from products.dashboards.backend.constants import (
     METRICS_TABLE_DEFAULT_LIMIT,
     METRICS_TABLE_MAX_COLUMNS,
     METRICS_TABLE_MAX_FILTERS,
+    METRICS_TABLE_MAX_GROUP_BY,
     METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES,
 )
 from products.dashboards.backend.widget_specs.common import (
@@ -32,6 +33,7 @@ from products.dashboards.backend.widget_specs.common import (
     WidgetListConfigBase,
     WidgetOrderDirection,
 )
+from products.metrics.backend.facade.contracts import DERIVED_METRIC_PREFIX
 
 ACTIVITY_EVENTS_LIST_WIDGET_TYPE = "activity_events_list"
 ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
@@ -409,6 +411,14 @@ class MetricsTableColumn(BaseModel):
         description="Label filters for this column only, e.g. 5xx status codes for an errors column.",
     )
 
+    @field_validator("metricName")
+    @classmethod
+    def validate_not_derived(cls, value: str) -> str:
+        # A tile runs without the tracing and logs access checks that derived series need.
+        if value.startswith(DERIVED_METRIC_PREFIX):
+            raise ValueError("Derived metrics (posthog.derived.*) are not supported in metrics tables yet.")
+        return value
+
     @model_validator(mode="after")
     def validate_quantile(self) -> Self:
         if (self.aggregation == "histogram_quantile") != (self.quantile is not None):
@@ -416,12 +426,27 @@ class MetricsTableColumn(BaseModel):
         return self
 
 
+MetricsTableGroupByLabel = Annotated[str, Field(min_length=1, max_length=200)]
+
+
+def metrics_table_group_by_labels(group_by: str | list[str] | None) -> list[str]:
+    """The group-by labels of a config. Tiles saved before multi-label grouping store one label as a string."""
+    if group_by is None:
+        return []
+    return [group_by] if isinstance(group_by, str) else list(group_by)
+
+
 class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
-    groupBy: str | None = Field(
+    groupBy: (
+        MetricsTableGroupByLabel
+        | Annotated[list[MetricsTableGroupByLabel], Field(min_length=1, max_length=METRICS_TABLE_MAX_GROUP_BY)]
+        | None
+    ) = Field(
         default=None,
-        min_length=1,
-        max_length=200,
-        description="Label that makes one row per value, e.g. `http.route`. Null until the user sets it.",
+        description=(
+            'Labels that make one row per combination of their values, e.g. `["http.route", "http.request.method"]`. '
+            "A single label can also be a string. Null until the user sets it."
+        ),
     )
     columns: list[MetricsTableColumn] = Field(
         default_factory=list,
@@ -440,6 +465,14 @@ class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
     limit: MetricsTableWidgetLimit = Field(
         default=METRICS_TABLE_DEFAULT_LIMIT, description="Maximum number of rows to show."
     )
+
+    @field_validator("groupBy")
+    @classmethod
+    def validate_unique_group_by(cls, value: str | list[str] | None) -> str | list[str] | None:
+        labels = metrics_table_group_by_labels(value)
+        if len(set(labels)) != len(labels):
+            raise ValueError("Each group-by label can appear only once.")
+        return value
 
     @model_validator(mode="after")
     def validate_order_by_column(self) -> Self:

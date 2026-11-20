@@ -38,10 +38,3 @@ export function normalizeMessage(input: unknown, defaultRole: string): CompatMes
 export function normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): NormalizationResult {
     return recipeNormalizer.normalizeMessages(input, defaultRole, tools)
 }
-
-export function captureNormalizationFailure(input: unknown): void {
-    posthog.capture('llma message normalization failed', {
-        message_keys: typeof input === 'object' && input !== null ? Object.keys(input) : [],
-        message_type: typeof input,
-    })
-}

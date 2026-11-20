@@ -20,6 +20,7 @@ from posthog.dataclasses import frozen
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.sdk_calls import FLAG_SDK_CALLS
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
+from products.feature_flags.backend.task_profiles import CODE
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
@@ -316,7 +317,7 @@ def start_code_analysis(
             team=flag.team,
             title=prompt.title,
             description=prompt.description,
-            origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
+            profile=CODE,
             user_id=user.id,
             repository=target.repository,
             create_pr=False,

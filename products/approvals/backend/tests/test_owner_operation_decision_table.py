@@ -27,7 +27,7 @@ from posthog.constants import AvailableFeature
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import flag_owner_kind
 from products.product_tours.backend.models import ProductTour
@@ -189,7 +189,7 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
 
     def _apply_owner(self, owner: str, flag: FeatureFlag) -> None:
         if owner == "experiment":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+            create_experiment(team_id=self.team.id, name="exp", feature_flag_id=flag.id)
         elif owner == "survey_owned":
             Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
         elif owner == "survey_linked":

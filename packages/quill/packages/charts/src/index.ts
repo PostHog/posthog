@@ -133,6 +133,21 @@ export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
 export { StackedBarList } from './charts/BarList/StackedBarList'
 export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
 
+// Flame graph
+export { FlameGraph } from './charts/FlameGraph/FlameGraph'
+export type {
+    FlameBundleDatum,
+    FlameChange,
+    FlameChangeKind,
+    FlameDiffConfig,
+    FlameGraphConfig,
+    FlameGraphProps,
+    FlameHit,
+    FlameNode,
+    FlameNodeDatum,
+    FlameTooltipContext,
+} from './charts/FlameGraph/types'
+
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
 export type {
@@ -240,6 +255,7 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { ChartHoverSync } from './core/hover-sync'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueBand } from './overlays/ValueBand'

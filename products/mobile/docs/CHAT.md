@@ -14,7 +14,14 @@ exemptions. **New chat** starts the version selected for the current project. De
 its local Tasks fixtures.
 
 Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
-and approving or rejecting a requested change. Generated charts and insights link to the web.
+approving or rejecting a requested change, clarification forms, and inline chart and notebook previews.
+Unsupported chart and notebook content keeps an option to open it on the web.
+Assistant commentary that leads into tool calls, tool activity, and provider thinking share collapsed activity rows.
+The final standalone answer stays visible outside those rows.
+Clarification forms replace the composer until you submit answers or dismiss the form.
+They support single and multiple selections, custom answers when allowed, and composite text, number, dropdown, and toggle fields.
+Slider fields use numeric inputs with the requested bounds and step. Skip question leaves that question out of the response.
+Failed submissions keep your answers for another attempt. Unknown question or field types offer the web chat and Dismiss.
 Its composer omits the model and permission controls that only the Tasks runtime supports.
 The Chats list combines unlinked conversations and tasks. Conversations with a linked task use the task row. Classic
 conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
@@ -38,6 +45,10 @@ web URL. Archive returns to the previous page after success and keeps the chat o
 Unsaved new chats hide both right-side controls until the first message creates a task.
 Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
+
+Messages show their recorded time beside the copy and feedback actions, in the device’s local time and 12-hour or 24-hour clock format.
+A date label appears above the first dated message and whenever the local calendar day changes.
+Messages without a valid recorded timestamp leave these labels hidden.
 
 ## Files
 
@@ -70,11 +81,11 @@ Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuse
 
 ## AI consent
 
-The same approval rules cover Chat, Create PR/task handoff, and replay summarization. The chat composer and decision panel remain hidden until approval is known.
+The same approval rules cover Chat, Create PR/task handoff, and replay summarization. Pending access checks keep the chat composer available without a loading indicator. Known organization restrictions and personal consent still gate the composer; every AI action checks current approval before sending.
 
 - **Organization approval.** The selected project's organization must have `is_ai_data_processing_approved: true`. The app reads the requesting user's `membership_level` from `OrganizationSerializer` in `/api/users/@me/` and `/api/organizations/{id}/`: 8 is an administrator and 15 is an owner. Only those confirmed roles see Open settings; other members and unknown roles see instructions to ask an admin or owner. The settings link opens the organization's existing web approval control; mobile never changes that setting itself.
 - **Personal consent.** The shared sheet explains that messages, reports, attached files and photos, selected recordings, and project data used by the agent can go to PostHog AI and third-party model providers. It links to the privacy policy. Continue records the disclosure on this device for this host and user; Not now sends nothing. The broader disclosure invalidates consent saved by older versions of the chat-only sheet. Sign-out and session expiry clear consent.
-- **Fresh checks.** Every submitted message (including queue delivery), handoff, decision answer, and replay summary first reads the organization's current approval. The chat also rechecks on foreground before showing role-specific controls. Unknown approval, a failed read, and removed project access stop the action. Changing host, user, project or session, or leaving the originating screen while the sheet is open, cancels its pending action.
+- **Fresh checks.** Every submitted message (including queue delivery), handoff, decision answer, and replay summary first reads the organization's current approval. The chat also rechecks on foreground without replacing the composer during the read. Unknown approval, a failed read, and removed project access stop the action. Changing host, user, project or session, or leaving the originating screen while the sheet is open, cancels its pending action.
 - Demo mode skips approval and sends no live requests.
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
@@ -83,6 +94,13 @@ Classic chat refreshes history whenever it opens, even while the cached response
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
 If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
 Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Backgrounding classic chat detaches its stream without canceling the server's reply or clearing received messages.
+Returning to the app reloads saved messages and reattaches to a reply still in progress, without resending the prompt.
+Connection recovery makes two silent attempts, one second apart, before showing a reconnect error.
+Uncheckpointed reply text stays visible while recovery retries. A first message interrupted before acceptance remains sendable if the server has no conversation to recover.
+Disconnected readers preserve the shared server stream for reattachment; its existing expiry bounds retention.
+Backgrounding or leaving the chat cancels a pending retry. Authorization and missing-conversation errors appear immediately.
+Pending approvals and forms remain available for an answer instead of restarting the stream.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
 If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
@@ -112,10 +130,31 @@ Picked files are not part of a draft. They stay in memory and go when the sheet 
 
 ## Rich replies
 
+Sent messages have an icon-only copy button in both chat versions and report discussions. For AI replies, Copy appears below the last message of each turn.
+It copies the full message text, preserving Markdown and code blocks, and shows a checkmark after the clipboard confirms success.
+The button waits until an AI reply finishes streaming and stays hidden for empty messages.
+A failed copy shows an error beside the button and allows another attempt.
+`mobile_chat_message_copy_pressed`, `mobile_chat_message_copied` and `mobile_chat_message_copy_failed` record the action with `message_role`, `text_length` and the standard action context.
+
+The last message or chart of a completed AI turn also offers **Good answer** and **Bad answer** as icon-only buttons.
+Text replies show them beside Copy. Notebook replies copy their combined text and chart links.
+Other chart replies show ratings without a copy button.
+Classic replies show ratings when the final message has a trace ID.
+A thumbs-down saves the rating and opens an optional comment sheet that moves above the keyboard.
+Skip closes the sheet, and tapping the selected thumbs-down reopens it until a comment is sent.
+Ratings persist on the device, scoped to the account and project, and clear on sign-out.
+The app uses the web's `$ai_metric` quality ratings and `$ai_feedback` comment events, with the answer's trace, task, run and turn identifiers where available, through its configured mobile analytics project.
+Demo mode keeps ratings on the device.
+
 PostHog object tags render as inline links to the selected host and project. Standalone
-`display="block"` insight tags show the saved name and description; SQL tags show a three-line
-preview with Show all. Insight summaries use `refresh=force_cache`, so opening a reply does not
-run its insight queries. A reply renders at most ten cards, then uses inline links. Unknown
+`display="block"` insight tags show an inline chart with the saved name and description.
+SQL tags show query results and a three-line query preview with Show all and Open SQL editor.
+Saved insight cards load their results; supported generated queries run when no result is supplied.
+Offscreen cards wait until they enter the viewport. Chart reads share a two-request queue, and native charts share a six-canvas budget.
+Saved insight cards check cached metadata before computing, so unsupported chart types do not trigger a query.
+Inline previews support trend lines and bars, big numbers, ranked totals, SQL tables and supported SQL charts, funnel steps, and retention grids.
+Other chart types open on the web without running an unsupported query in the app.
+A reply renders at most ten cards, then uses inline links. Unknown
 object kinds keep their labels, tags inside code stay literal, and unfinished tags stay hidden
 while the reply streams. The object registry is generated from `posthog/object_tags/kinds.py`
 into this app so standalone builds do not depend on the desktop app.
@@ -127,12 +166,12 @@ uses the code fallback. Adding this renderer requires a new native build with
 `react-native-webview` before distributing an update that uses it.
 `mobile_chat_diagram_failed` is captured once per diagram with `reason` (`timeout`, `render_error`, `load_error`, `process_gone` or `open_window`).
 
-A tap on an object link, an insight card, a SQL card or a markdown link opens it in the browser.
+A tap on an object link, Open insight, Open chart on web, Open SQL editor, or a markdown link opens it in the browser.
 `mobile_chat_link_opened` is captured after the system opens it, with `source` (`object_chip`, `insight_card`, `query_card` or `markdown`),
 `object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
 
-Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
-and the server's mobile OAuth application must allow the scope.
+Saved insights need the `insight:read` OAuth scope, and generated queries need `query:read`.
+Existing sessions missing either scope need a new sign-in, and the server's mobile OAuth application must allow it.
 
 ## Starting a chat
 
@@ -430,10 +469,10 @@ New chat drops it.
 
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
-- The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- The status line shows the current stage or tool, or "Thinking…". Automatic reconnection stays quiet; confirmed failures still show recovery controls.
 - Compacting and clearing each show one active spinner, even when the stream repeats the start.
   Completion removes that spinner, so a later compaction or clear can show a new one.
-- Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. Its spinner stops when the session is no longer working, including after a stop or connection loss. Opening or closing an activity row pauses automatic scrolling so the details stay in view. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
   Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
   Expanding or collapsing a notice pauses automatic scrolling so it stays in view.

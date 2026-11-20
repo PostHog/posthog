@@ -1,0 +1,39 @@
+[project]
+# ok: posthog-sdk-major-pin-python
+name = "posthog"
+dependencies = [
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics>=7.91.1",
+    # ruleid: posthog-sdk-major-pin-python
+    "posthog>=7",
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics",
+    # ok: posthog-sdk-major-pin-python
+    "posthoganalytics==7.91.1",
+    # ok: posthog-sdk-major-pin-python
+    "posthog>=7.91.1,<8",
+    # ruleid: posthog-sdk-major-pin-python
+    'posthoganalytics>=7.91.1',
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics>=7.91.1; python_version < '4'",
+    # ok: posthog-sdk-major-pin-python
+    'posthoganalytics>=7.91.1,<8',
+    # ok: posthog-sdk-major-pin-python
+    "posthoganalytics>=7.91.1,<8; python_version < '4'",
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics (>=7.91.1)",
+    # ok: posthog-sdk-major-pin-python
+    "posthoganalytics (>=7.91.1,<8)",
+]
+
+[tool.poetry.dependencies]
+# ruleid: posthog-sdk-major-pin-python
+posthoganalytics = "*"
+# ok: posthog-sdk-major-pin-python
+posthog = "^7.91"
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    # ok: posthog-sdk-major-pin-python
+    "posthog",
+]

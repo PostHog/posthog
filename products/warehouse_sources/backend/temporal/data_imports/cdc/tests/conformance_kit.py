@@ -28,6 +28,7 @@ from botocore.exceptions import ClientError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import CDCExtractActivity, CDCExtractInput
@@ -554,6 +555,8 @@ class ConformanceKit:
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
             patch.object(ExternalDataSchema, "save", save_schema),
             patch.object(ExternalDataSource, "save", save_source),
+            # The source lives only in memory, so it has no credentials row to read.
+            read_unsaved_source_inputs_as_stored(),
             # The lanes read their position from the in-memory tables instead of Delta.
             patch(f"{_CDC}.source_manager.DeltaTableRef", _LaneTableRef),
             patch(f"{_CDC}.source_manager.ensure_position_stats", _keep_position_stats),

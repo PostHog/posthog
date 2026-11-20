@@ -830,6 +830,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                             model=RESOLUTION_MODEL,
                             reasoning_effort=RESOLUTION_REASONING_EFFORT,
                             initial_permission_mode=RESOLUTION_INITIAL_PERMISSION_MODE,
+                            can_push=True,
                         )
                         await database_sync_to_async(_append_task_run, thread_sensitive=False)(
                             input, prepared.report_id, session

@@ -61,10 +61,7 @@ pub async fn seed(
     writer_group: &str,
     cluster: Option<&str>,
 ) -> anyhow::Result<ChangelogConfig> {
-    let cluster = match cluster {
-        Some(name) => Some(config.changelog_cluster(name)?),
-        None => config.current_changelog_cluster()?,
-    };
+    let cluster = seed_cluster(config, cluster)?;
     let partitions =
         topic_partition_count(&config.changelog_kafka(cluster.as_ref()), topic).await?;
     let created = store(client, prefix)
@@ -78,6 +75,25 @@ pub async fn seed(
         cluster,
         ..ChangelogConfig::new(topic, partitions)
     })
+}
+
+/// The cluster a seed records. With `CHANGELOG_KAFKA_CLUSTERS` set, a seed must name one,
+/// because a config without a cluster sends every service to its own `KAFKA_HOSTS`.
+fn seed_cluster(
+    config: &Config,
+    requested: Option<&str>,
+) -> anyhow::Result<Option<ClusterEndpoint>> {
+    if let Some(name) = requested {
+        return Ok(Some(config.changelog_cluster(name)?));
+    }
+    let names = config.changelog_cluster_names()?;
+    if !names.is_empty() {
+        bail!(
+            "name the cluster to seed on; CHANGELOG_KAFKA_CLUSTERS lists {}",
+            names.join(", ")
+        );
+    }
+    Ok(None)
 }
 
 pub async fn record_cluster(
@@ -559,6 +575,21 @@ mod tests {
             Some(endpoint("dedicated"))
         );
         assert!(target_cluster(None, Some(endpoint("dedicated")), true).is_err());
+    }
+
+    #[test]
+    fn a_seed_names_its_cluster_once_clusters_are_listed() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        assert_eq!(seed_cluster(&config, None).unwrap(), None);
+
+        config.changelog_kafka_clusters =
+            r#"{"dedicated": {"hosts": "d:9092", "tls": true}}"#.to_string();
+        assert!(seed_cluster(&config, None).is_err());
+        assert_eq!(
+            seed_cluster(&config, Some("dedicated")).unwrap(),
+            Some(config.changelog_cluster("dedicated").unwrap())
+        );
+        assert!(seed_cluster(&config, Some("unknown")).is_err());
     }
 
     async fn empty_store(name: &str) -> PersonhogStore {

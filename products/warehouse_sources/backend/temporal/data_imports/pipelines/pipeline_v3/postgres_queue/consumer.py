@@ -219,6 +219,10 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     *DELETION_ERROR_PATTERNS,
     # a destination the customer configured refuses the connection, which only they can fix
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    # a batch aged out of its claim window and loaded out of order (see _refuse_incomplete_run) —
+    # self-healing by design, the next scheduled sync retries automatically, and
+    # INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL already tracks how often it fires
+    INCOMPLETE_RUN_ERROR,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.

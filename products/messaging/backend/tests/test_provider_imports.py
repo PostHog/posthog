@@ -4,7 +4,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,6 +18,7 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportProviderUnavailable
+from products.messaging.backend.services import imported_data
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 
 SERVICE = "products.messaging.backend.services.customerio_import_service"
@@ -295,7 +297,10 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == expected_run_status
         assert [run.progress[step]["status"] for step in run.steps] == expected_step_statuses
         assert run.finished_at is not None
-        assert report.call_count == 1
+        assert [call.args[1] for call in report.call_args_list] == [
+            "messaging provider import finished",
+            "workflows import run",
+        ]
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)
     def test_reading_an_expired_run_fails_it_and_its_unfinished_steps(
@@ -311,3 +316,23 @@ class TestProviderImportRuns(BaseTest):
         assert expired is not None
         assert expired.status == "failed"
         assert expired.progress["suppressions"]["status"] == "failed"
+
+
+class TestOptOutCarrying(BaseTest):
+    def test_a_long_address_list_is_looked_up_and_written_in_parts(self) -> None:
+        addresses = [f"Person{i}@example.com" for i in range(5)]
+        MessageRecipientPreference.objects.bulk_create(
+            MessageRecipientPreference(
+                team_id=self.team.id, identifier=address.lower(), preferences={"$all": "OPTED_OUT"}
+            )
+            for address in addresses
+        )
+
+        with patch.object(imported_data, "LOOKUP_CHUNK_SIZE", 2), CaptureQueriesContext(connection) as queries:
+            carried = imported_data.carry_opt_outs(self.team.id, addresses, created_by_id=None)
+
+        assert carried == 5
+        # Postgres refuses a query with more than 65,535 values, so no single query may name the whole list.
+        assert max(query["sql"].lower().count("@example.com") for query in queries.captured_queries) <= 4
+        stored = MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=addresses)
+        assert stored.count() == 5

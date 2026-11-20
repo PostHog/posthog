@@ -80,7 +80,7 @@ describe('SceneExportDropdownMenu', () => {
         await expectLogic(logic).toDispatchActions(['startExport'])
     })
 
-    it('downloads the browser-rendered PNG in one click, without opening the editor', async () => {
+    it('downloads the browser-rendered PNG after choosing its size, without opening the editor', async () => {
         const target = { selector: '[data-attr="insights-graph"]', screenshotKey: 'test', name: 'Weekly pageviews' }
         render(
             <>
@@ -100,6 +100,7 @@ describe('SceneExportDropdownMenu', () => {
 
         await userEvent.click(screen.getByText('.png'))
 
+        await userEvent.click(await screen.findByText('Export PNG', { selector: '.LemonButton__content' }))
         await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1))
         expect(jest.mocked(downloadFile).mock.calls[0][0].name).toBe('weekly-pageviews.png')
         expect(screen.queryByText('Edit Screenshot')).not.toBeInTheDocument()

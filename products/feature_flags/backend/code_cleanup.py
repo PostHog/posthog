@@ -33,6 +33,7 @@ from products.feature_flags.backend.code_analysis import (
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
+from products.feature_flags.backend.task_profiles import CODE
 from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
@@ -296,7 +297,7 @@ def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None =
             team=flag.team,
             title=prompt.title,
             description=prompt.description,
-            origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
+            profile=CODE,
             user_id=user.id,
             repository=target.repository,
             create_pr=True,

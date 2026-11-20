@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from posthoganalytics import Posthog
 
 from ..engines.base import EvalEngine
-from .cli import SkillDelivery
+from .cli import DEFAULT_EVAL_SURFACE, EvalSurface, SkillDelivery
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
@@ -58,7 +58,7 @@ class EvalContext:
     when no selected suite requires demo data."""
 
     posthog_client: Posthog | None
-    """Analytics client for eval traces, with the default capture guards."""
+    """Analytics client for eval traces, honoring OPT_OUT_CAPTURE."""
 
     sandbox_slots: asyncio.Semaphore | None
     """The one global limiter on concurrently live sandboxes, shared by every
@@ -103,3 +103,6 @@ class EvalContext:
 
     service_tier: str | None = None
     """OpenAI request tier for the sandboxed agent; ``None`` sends the request untiered."""
+
+    surface: EvalSurface = DEFAULT_EVAL_SURFACE
+    """``app`` runs cases without their own interaction origin as PostHog AI in the app."""

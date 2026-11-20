@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -39,11 +41,18 @@ describe('importProjectHomepage', () => {
         expect(loadedModules.sort()).toEqual([content, 'ProjectHomepage'].sort())
     })
 
-    it('loads only the scene before the app mounts the flag logic', async () => {
+    it.each([
+        [true, 'TodayHome'],
+        [false, 'AiFirstHomepage'],
+    ])('loads the home content before the app mounts the flag logic (today on: %s)', async (todayOn, content) => {
         initKeaTests(false)
+        jest.spyOn(posthog, 'isFeatureEnabled').mockImplementation(
+            (flag) => flag === FEATURE_FLAGS.TODAY_RAIL_NAV && todayOn
+        )
 
         await importProjectHomepage()
 
-        expect(loadedModules).toEqual(['ProjectHomepage'])
+        expect(loadedModules.sort()).toEqual([content, 'ProjectHomepage'].sort())
+        expect(featureFlagLogic.findMounted()).toBeNull()
     })
 })

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -18,10 +18,10 @@ from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
 from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
@@ -30,7 +30,9 @@ from products.tasks.backend.logic.services.startup_failure import (
     SandboxRunFailed as SandboxRunFailed,
     read_startup_failure,
 )
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.storage import read_run_log
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -171,6 +173,7 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -180,6 +183,7 @@ class CustomPromptSandboxContext:
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
     ``docs-search`` from a non-PostHog support draft."""
+    custom_image_id: str | None = None
 
 
 class TurnPollTimeout(RuntimeError):
@@ -246,19 +250,6 @@ class EmptyAgentTurnError(RuntimeError):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
-
-
-# Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
-# packages/agent/packages/agent/src/adapters/error-classification.ts, which is the source of
-# truth. A category added there must be added here too, or a retryable failure reads as permanent.
-UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
-    {
-        "upstream_stream_terminated",
-        "upstream_connection_error",
-        "upstream_timeout",
-        "upstream_provider_failure",
-    }
-)
 
 
 class AgentTurnFailed(RuntimeError):
@@ -332,14 +323,10 @@ async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     *,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
     source: TaskSource | None = None,
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
-    internal: bool = False,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
     workflow_id_prefix: str | None = None,
@@ -355,33 +342,14 @@ async def _create_task_and_trigger(
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    task_kwargs: dict[str, Any]
-    if profile is not None:
-        task_kwargs = {
-            "profile": profile,
-            "source": source,
-            "options": TaskRunOptions(
-                adapter=context.runtime_adapter,
-                model=context.model,
-                reasoning_effort=context.reasoning_effort,
-                output_schema=output_schema,
-                mcp_scopes=context.posthog_mcp_scopes,
-                permission_mode=context.initial_permission_mode,
-            ),
-        }
-    else:
-        task_kwargs = {
-            "origin_product": origin_product or Task.OriginProduct.USER_CREATED,
-            "signal_report_id": signal_report_id,
-            "internal": internal,
-            "mcp_builtin_agent_key": mcp_builtin_agent_key,
-            "posthog_mcp_scopes": context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
-            "model": context.model,
-            "runtime_adapter": context.runtime_adapter,
-            "reasoning_effort": context.reasoning_effort,
-            "initial_permission_mode": context.initial_permission_mode,
-            "output_schema": output_schema,
-        }
+    options = TaskRunOptions(
+        adapter=context.runtime_adapter,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        output_schema=output_schema,
+        mcp_scopes=context.posthog_mcp_scopes,
+        permission_mode=context.initial_permission_mode,
+    )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:
         extra_run_state["systemPrompt"] = context.system_prompt
@@ -397,6 +365,8 @@ async def _create_task_and_trigger(
         extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
+    if context.custom_image_id is not None:
+        extra_run_state["custom_image_id"] = context.custom_image_id
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
@@ -424,6 +394,7 @@ async def _create_task_and_trigger(
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
+        github_token_scope=context.github_token_scope,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,
@@ -431,7 +402,9 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
-        **task_kwargs,
+        profile=profile,
+        source=source,
+        options=options,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -444,14 +417,10 @@ async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     *,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
     source: TaskSource | None = None,
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
-    internal: bool = False,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
     workflow_id_prefix: str | None = None,
@@ -468,10 +437,6 @@ async def create_task_and_trigger(
         branch=branch,
         step_name=step_name,
         source=source,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
-        internal=internal,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
@@ -1036,7 +1001,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
@@ -1168,7 +1135,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
     if not log_content.strip():
         return TurnLogState(
             agent_finished=False,

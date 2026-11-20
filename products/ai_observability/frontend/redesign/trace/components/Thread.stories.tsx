@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { anthropicMessagesThinkingToolUse } from '../sampleFixtures/anthropicMessagesThinkingToolUse'
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
-import { FIXTURE_GENERATION_MESSAGES, FIXTURE_TURN, withWidth } from '../storyFixtures'
+import { messagesSides } from '../sampleFixtures/sampleContent'
+import { FIXTURE_GENERATION_INPUT, FIXTURE_TURN, withWidth } from '../storyFixtures'
 import { ConversationTurn } from '../types'
 import { Thread } from './Thread'
 
@@ -35,10 +36,20 @@ export const LoadError: Story = {
     },
     decorators: [withWidth(720)],
 }
-export const Empty: Story = { args: ready([{ ...FIXTURE_TURN, messages: [] }]) }
-export const SystemOnly: Story = { args: ready([{ ...FIXTURE_TURN, messages: [FIXTURE_GENERATION_MESSAGES[0]] }]) }
+export const Empty: Story = { args: ready([{ ...FIXTURE_TURN, ...messagesSides([], []) }]) }
+export const SystemOnly: Story = {
+    args: ready([{ ...FIXTURE_TURN, ...messagesSides([FIXTURE_GENERATION_INPUT[0]], []) }]),
+}
 export const ErrorWithoutMessages: Story = {
-    args: ready([{ ...FIXTURE_TURN, messages: [], error: 'APIConnectionError: Connection reset by peer' }]),
+    args: ready([{ ...FIXTURE_TURN, ...messagesSides([], []), error: 'APIConnectionError: Connection reset by peer' }]),
+}
+export const JsonOutput: Story = {
+    args: ready([
+        {
+            ...FIXTURE_TURN,
+            output: { kind: 'json', value: { plan: 'Teams', seatsAdded: 2, invoiceChangeUsd: 40 } },
+        },
+    ]),
 }
 export const AnthropicThinkingAndTools: Story = { args: { conversation: anthropicMessagesThinkingToolUse.thread } }
 export const ImageInputWithError: Story = { args: { conversation: langchainCerebrasImageError.thread } }

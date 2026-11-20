@@ -49,7 +49,7 @@ describe('commentsLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/comments': { results: [] },
-                '/api/organizations/@current/members/': { results: [] },
+                '/api/organizations/:organization_id/members/': { results: [] },
             },
             post: {
                 '/api/projects/:team_id/comments': async ({ request }) => {
@@ -325,7 +325,9 @@ describe('commentsLogic', () => {
         })
         await expectLogic(logic, () => {
             logic.actions.loadComments()
-        }).toDispatchActions(['loadCommentsSuccess'])
+        })
+            .toDispatchActions(['loadCommentsSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
 
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
 

@@ -57,6 +57,13 @@ _FAN_OUT_PARENTS: dict[str, _FanOutParent] = {
         resolve_param="asset_id",
         include={"_id": "asset_id", "created_at": "asset_created_at"},
     ),
+    "knowledge_stores": _FanOutParent(
+        resource_name="knowledge_stores_list",
+        path="/knowledge-stores",
+        params={"page_limit": PAGE_LIMIT, "sort_by": "created_at", "sort_option": "asc"},
+        resolve_param="knowledge_store_id",
+        include={"_id": "knowledge_store_id"},
+    ),
 }
 
 # Twelve Labs list endpoints paginate with page/page_limit and report the page count as
@@ -116,6 +123,8 @@ def _build_params(
     without any client-side watermark termination.
     """
     params: dict[str, Any] = {"page_limit": PAGE_LIMIT}
+    if not config.sortable:
+        return params
 
     # `sort_by` defaults to the endpoint's advertised cursor field but always honors the user's
     # selection. Ascending sort makes the pipeline watermark advance correctly (sort_mode="asc").
@@ -221,7 +230,7 @@ def _fan_out_resource(
     job_id: str,
     manager: ResumableSourceManager[TwelveLabsResumeConfig],
 ) -> Resource:
-    """Fan out over every parent index or asset, injecting the parent id into each child row.
+    """Fan out over every parent index, asset, or knowledge store, injecting the parent id into each child row.
 
     The parent id is part of the primary key, so rows from different parents never collide and
     merge dedupes cleanly.
@@ -412,9 +421,10 @@ def twelve_labs_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        # Every list endpoint is requested with sort_option=asc, so rows arrive oldest-first and the
-        # pipeline can checkpoint the incremental watermark after each batch.
-        sort_mode="asc",
+        # Sortable list endpoints are requested with sort_option=asc, so rows arrive oldest-first and
+        # the pipeline can checkpoint the incremental watermark after each batch. The others return the
+        # newest rows first and sync by full refresh only.
+        sort_mode="asc" if config.sortable else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

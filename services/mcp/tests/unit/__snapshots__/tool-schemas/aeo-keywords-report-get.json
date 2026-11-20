@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "branded": {
+            "default": "all",
+            "description": "Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n* `all` - All\n* `branded` - Branded\n* `non_branded` - Non-branded",
+            "enum": ["all", "branded", "non_branded"],
+            "type": "string"
+        },
+        "days": {
+            "default": 7,
+            "description": "Length of the window in days, ending today in the project's timezone. Default 7, at most 90.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        },
+        "engine": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        },
+        "topic": {
+            "anyOf": [
+                {
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic."
+        }
+    },
+    "type": "object"
+}
