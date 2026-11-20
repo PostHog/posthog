@@ -12,6 +12,9 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+// Large organizations have thousands of members, so the list shows the top matches only.
+const MAX_MEMBER_RESULTS = 100
+
 export function QuillMemberSelectMultiple({
     options,
     value,
@@ -30,6 +33,7 @@ export function QuillMemberSelectMultiple({
             multiple
             autoHighlight
             items={options.map((option) => option.key)}
+            limit={MAX_MEMBER_RESULTS}
             itemToStringLabel={(key: string) => labelsByKey[key] ?? key}
             value={value}
             onValueChange={(next: string[]) => onChange(next ?? [])}
