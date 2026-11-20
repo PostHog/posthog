@@ -34,6 +34,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -4942,6 +4943,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             actions.setDraftActionPending('publish')
+            if (!(await latestEmailEditSaved())) {
+                actions.setDraftActionPending(null)
+                return
+            }
             let preview
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token

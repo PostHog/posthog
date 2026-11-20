@@ -25,7 +25,8 @@ function previewHtml(html: string, liquid: boolean | undefined): { html: string;
         return { html, rendered: false }
     }
     const rendered = renderEmailPreview(html, PREVIEW_PERSON)
-    return showsAnything(rendered) || !showsAnything(html)
+    // An unchanged result means Liquid couldn't parse the email, so nothing ran.
+    return rendered !== html && (showsAnything(rendered) || !showsAnything(html))
         ? { html: rendered, rendered: true }
         : { html, rendered: false }
 }

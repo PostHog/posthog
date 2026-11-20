@@ -158,7 +158,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                     onDiscardChanges={() => discardChanges()}
                     onUpdateTemplate={showSaveAsTemplateModal}
                     onSave={() => void saveWithLatestEmailEdit(submitWorkflow)}
-                    onPublish={() => void saveWithLatestEmailEdit(publishDraft)}
+                    onPublish={() => publishDraft()}
                     onDiscardDraft={() => discardDraft()}
                 />
             ) : (
@@ -230,7 +230,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                         data-attr="workflow-publish"
                                         type={hasStagedDraft && !hasUnsavedChanges ? 'primary' : 'secondary'}
                                         size="small"
-                                        onClick={() => void saveWithLatestEmailEdit(publishDraft)}
+                                        onClick={() => publishDraft()}
                                         loading={draftActionPending === 'publish'}
                                         disabledReason={publishDisabledReason}
                                         // Discarding is rare and destructive, so it sits in the

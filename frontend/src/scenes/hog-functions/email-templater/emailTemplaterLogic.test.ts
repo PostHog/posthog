@@ -891,9 +891,8 @@ describe('emailTemplaterLogic', () => {
             editorListeners['design:updated']()
             await jest.advanceTimersByTimeAsync(500)
 
-            expect(logic.values.latestEditUnsaved).toBe(true)
             expect(parent.email.design).not.toEqual(DESIGN_EDITED)
-            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
 
             await saveWithLatestEmailEdit(save)
             expect(save).not.toHaveBeenCalled()
@@ -903,8 +902,33 @@ describe('emailTemplaterLogic', () => {
             jest.useRealTimers()
 
             expect(save).toHaveBeenCalledTimes(1)
-            expect(logic.values.latestEditUnsaved).toBe(false)
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            toast.mockRestore()
+        })
+
+        it('lets a save through once the editor that held a failed edit is gone', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            await saveWithLatestEmailEdit(save)
+            expect(save).not.toHaveBeenCalled()
+
+            logic.actions.setEmailEditorRef(null)
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
             toast.mockRestore()
         })
 
@@ -926,7 +950,7 @@ describe('emailTemplaterLogic', () => {
             jest.useRealTimers()
 
             expect(logic.values.isModalOpen).toBe(true)
-            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
             toast.mockRestore()
         })
 

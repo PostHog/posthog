@@ -1063,6 +1063,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
                 cache.pendingDesignEdit = false
+                // A failed edit went with its editor, so there is nothing left to retry.
+                actions.setLatestEditUnsaved(false)
                 return
             }
 
@@ -1077,7 +1079,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 // The edit stays pending, so the next edit or a flush tries again.
                 posthog.captureException(error)
                 if (!values.latestEditUnsaved) {
-                    lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+                    showEmailSaveFailed()
                 }
                 actions.setLatestEditUnsaved(true)
                 return
@@ -1197,7 +1199,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             await asyncActions.flushPendingDesignEdit()
             // The edits stay in the open editor, so a failed save never closes it without a word.
             if (cache.flushFailed) {
-                lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+                showEmailSaveFailed()
                 return
             }
             actions.setIsModalOpen(false)
@@ -1207,14 +1209,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             posthog.captureException(error)
-            lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+            showEmailSaveFailed()
         },
 
         flushPendingDesignEdit: async () => {
             const editor = values.emailEditorRef?.editor
             // An inline new editor commits edits as they happen too, and flushes them when it loses focus.
             const commitsLive = props.liveChanges || (props.layout === 'inline' && values.documentEditorOffered)
-            if (!commitsLive || !values.isEmailEditorReady || !editor) {
+            if (!editor) {
+                actions.setLatestEditUnsaved(false)
+                return
+            }
+            if (!commitsLive || !values.isEmailEditorReady) {
                 return
             }
             while (cache.pendingDesignEdit) {
@@ -1465,13 +1471,25 @@ function escapeHTMLStringCurlies(htmlString: string): string {
  * editor, the save would store an older email, so it doesn't run and the person is told.
  */
 export async function saveWithLatestEmailEdit(save: () => void): Promise<void> {
-    const templater = emailTemplaterLogic.findMounted()
-    if (templater) {
-        await templater.asyncActions.flushPendingDesignEdit()
-        if (templater.values.latestEditUnsaved) {
-            lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
-            return
-        }
+    if (await latestEmailEditSaved()) {
+        save()
     }
-    save()
+}
+
+/** False, after telling the person, when the open email editor holds an edit that can't be read out yet. */
+export async function latestEmailEditSaved(): Promise<boolean> {
+    const templater = emailTemplaterLogic.findMounted()
+    if (!templater) {
+        return true
+    }
+    await templater.asyncActions.flushPendingDesignEdit()
+    if (templater.values.latestEditUnsaved) {
+        showEmailSaveFailed()
+        return false
+    }
+    return true
+}
+
+function showEmailSaveFailed(): void {
+    lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE, { toastId: 'email-save-failed' })
 }
