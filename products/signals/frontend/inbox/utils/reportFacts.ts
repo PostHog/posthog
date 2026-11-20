@@ -93,13 +93,13 @@ export function reportOwnerLabel(
         case 'none':
             return suggestedName ? `Suggested for ${suggestedName}` : 'No owner'
         case 'me':
-            return 'Claimed by you'
+            return 'Assigned to you'
         case 'my-agent':
-            return 'Claimed by your agent'
+            return 'Assigned to your agent'
         case 'teammate':
-            return `Claimed by ${holderName}`
+            return `Assigned to ${holderName}`
         case 'teammate-agent':
-            return `Claimed by ${holderName}'s agent`
+            return `Assigned to ${holderName}'s agent`
     }
 }
 

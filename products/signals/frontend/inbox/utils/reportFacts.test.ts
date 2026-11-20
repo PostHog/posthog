@@ -112,7 +112,7 @@ describe('reportFacts', () => {
             [{ ...reviewer, user: null, github_name: null }],
             'Suggested for octocat',
         ],
-        ['a teammate claim and a reviewer', 'teammate' as const, 'Ada Byron', [reviewer], 'Claimed by Ada Byron'],
+        ['a teammate claim and a reviewer', 'teammate' as const, 'Ada Byron', [reviewer], 'Assigned to Ada Byron'],
     ])('%s gives the owner label', (_name, kind, holderName, reviewers, expected) => {
         expect(reportOwnerLabel(kind, holderName, suggestedOwnerName(reviewers))).toBe(expected)
     })

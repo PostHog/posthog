@@ -58,7 +58,7 @@ export function QuillReportOwner({ claim }: { claim: QuillReportClaim }): JSX.El
                             render={<div />}
                             className="flex items-center gap-1 px-2 py-1.5"
                         >
-                            <span>{claim.canUnclaim ? 'You claimed this report' : claim.ownerLabel}</span>
+                            <span>{claim.ownerLabel}</span>
                             <TZLabel time={claim.claimedAt} />
                         </Text>
                         <DropdownMenuSeparator />

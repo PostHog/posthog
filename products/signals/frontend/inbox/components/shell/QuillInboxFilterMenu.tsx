@@ -43,7 +43,7 @@ const ANY_TIME = 'any'
 const SCOPE_OPTIONS: FilterOption<InboxScope>[] = [
     { value: INBOX_SCOPE_ENTIRE_PROJECT, label: 'All reports' },
     { value: INBOX_SCOPE_FOR_YOU, label: 'For you' },
-    { value: INBOX_SCOPE_CLAIMED_BY_YOU, label: 'Claimed by you' },
+    { value: INBOX_SCOPE_CLAIMED_BY_YOU, label: 'Assigned to you' },
 ]
 
 const TIME_OPTIONS: FilterOption<InboxCreatedWindow | typeof ANY_TIME>[] = [
