@@ -334,6 +334,12 @@ describe('statusOf', () => {
             'cdp-processed-events exited (code 137) without a valve causing it, while pg.failover on cyclotron was applied',
         ],
         [
+            'a role that writes to Cyclotron exited with an error 3 seconds after the fail-back finished',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 35)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
             'a role that writes to Cyclotron exited with an error well after the fail-back',
             { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 40)] },
             'failed',
