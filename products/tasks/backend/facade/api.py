@@ -151,7 +151,11 @@ from products.tasks.backend.logic.log_slice import (
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_command import send_set_config_option
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
-from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    GATEWAY_FAMILY_MODELS_STATE_KEY,
+    GATEWAY_PRODUCT_STATE_KEY,
+    pinned_run_allows_model,
+)
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
@@ -3396,6 +3400,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "billing_product",
         # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
         GATEWAY_PRODUCT_STATE_KEY,
+        GATEWAY_FAMILY_MODELS_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
         # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
         "ai_agent_name",

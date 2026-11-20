@@ -45,6 +45,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     gateway_pin,
     pinned_run_allows_model,
 )
+from products.tasks.backend.logic.services.gateway_models import GatewayModel
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task, TaskRun
 from products.tasks.backend.temporal.process_task import utils
@@ -194,6 +195,9 @@ class TestSandboxProductRouted:
 
     def test_whitespace_and_blank_entries_tolerated(self):
         assert sandbox_product_routed("signals_custom_agent", "custom_agent", " , signals_custom_agent , ")
+
+
+_NEW_SOL_LISTING = (GatewayModel(id="gpt-6.3-sol", owned_by="openai", context_window=1050000, family="gpt-sol"),)
 
 
 @pytest.fixture
@@ -973,17 +977,27 @@ class TestProvisioningBoundaries:
                 utils.run_gateway_env_vars(self._ctx(), task)
         record_routing.assert_not_called()
 
-    def test_pinned_mint_is_stamped_on_the_run(self, mint_settings):
-        env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+    @pytest.mark.parametrize(
+        "minted_family,stamps",
+        [
+            ({}, {"ai_gateway_product": "slack_app"}),
+            (
+                {"_AI_GATEWAY_FAMILY_MODELS": '["gpt-6.3-sol"]'},
+                {"ai_gateway_product": "slack_app", "ai_gateway_family_models": ["gpt-6.3-sol"]},
+            ),
+        ],
+        ids=["catalog_models_only", "with_family_versions"],
+    )
+    def test_pinned_mint_is_stamped_on_the_run(self, mint_settings, minted_family, stamps):
+        env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app", **minted_family}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch.object(utils, "record_gateway_routing"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
-            utils.run_gateway_env_vars(self._ctx(), self._task())
-        update.assert_called_once_with(
-            "00000000-0000-4000-8000-000000000007", updates={"ai_gateway_product": "slack_app"}
-        )
+            sandbox_env = utils.run_gateway_env_vars(self._ctx(), self._task())
+        update.assert_called_once_with("00000000-0000-4000-8000-000000000007", updates=stamps)
+        assert "_AI_GATEWAY_FAMILY_MODELS" not in sandbox_env
 
     def test_unpinned_mint_is_not_stamped(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
@@ -1228,6 +1242,14 @@ class TestSlackAppMint:
     def _mint_response(self):
         return MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
 
+    def test_a_run_on_a_new_family_version_carries_the_minted_versions(self, mint_settings):
+        with patch(
+            "products.tasks.backend.logic.services.gateway_model_pin.list_gateway_models",
+            return_value=_NEW_SOL_LISTING,
+        ):
+            env, _ = self._env(mint_settings, model="gpt-6.3-sol")
+        assert env["_AI_GATEWAY_FAMILY_MODELS"] == '["gpt-6.3-sol"]'
+
     def test_stamped_slack_run_mints(self, mint_settings):
         env, mint = self._env(mint_settings)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
@@ -1414,13 +1436,31 @@ class TestSlackAppMint:
             assert _team_credit_refusal(team.id, "ai_credits") == "org_deactivated"
         quota.assert_not_called()
 
-    def test_mint_carries_the_first_party_pin(self, mint_settings):
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+    @pytest.mark.parametrize(
+        "listing,mint_kwargs,family_versions",
+        [
+            ((), {}, []),
+            (_NEW_SOL_LISTING, {}, ["gpt-6.3-sol"]),
+            ((), {"family_models": ("gpt-6.3-sol",)}, ["gpt-6.3-sol"]),
+            (_NEW_SOL_LISTING, {"family_models": ()}, []),
+        ],
+        ids=[
+            "catalog_models_only",
+            "new_version_of_an_allowed_family",
+            "versions_the_caller_resolved",
+            "caller_resolved_no_versions",
+        ],
+    )
+    def test_mint_carries_the_first_party_pin(self, mint_settings, listing, mint_kwargs, family_versions):
+        with (
+            patch("products.tasks.backend.logic.services.gateway_model_pin.list_gateway_models", return_value=listing),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+        ):
             post.return_value = self._mint_response()
-            assert mint_scoped_token(ai_product="slack_app", team_id=2) == "phe_abc"
+            assert mint_scoped_token(ai_product="slack_app", team_id=2, **mint_kwargs) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "slack_app"
-        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["slack_app"]
+        assert body["allowed_models"] == [*_PRODUCT_ALLOWED_MODELS["slack_app"], *family_versions]
 
     def test_pin_covers_every_routed_catalog_model(self):
         routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}

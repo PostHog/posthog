@@ -104,6 +104,9 @@ Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medi
 The bundled Codex 0.165.0 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
+A product also names the model families it allows, such as `gpt-sol` or `claude-opus`.
+A model the gateway lists in one of those families can run without a catalog row. Its name, reasoning levels, and price come from the gateway listing.
+Pickers offer the two newest versions of each family. Older versions leave the pickers, and a run's gateway token can still call them.
 Adding the model does not change the default model or the capability slider.
 
 ## Event delivery

@@ -28,6 +28,7 @@ from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
+from products.tasks.backend.logic.services.gateway_models import GatewayModel
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -174,12 +175,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
         [
             ("codex", "gpt-5.6-terra", "codex", "openai"),
             ("claude", "claude-sonnet-5", "claude", "anthropic"),
+            ("new_version_of_an_allowed_family", "gpt-6.3-sol", "codex", "openai"),
         ]
     )
     def test_derives_the_runtime_adapter_from_the_selected_model(
         self, _name: str, model: str, expected_adapter: str, expected_provider: str
     ) -> None:
-        response = self._post({"model": model, "reasoning_effort": "high"})
+        listing = (GatewayModel(id="gpt-6.3-sol", owned_by="openai", context_window=1050000, family="gpt-sol"),)
+        with (
+            patch("products.tasks.backend.logic.services.gateway_model_pin.list_gateway_models", return_value=listing),
+            patch("products.tasks.backend.logic.services.model_catalogue.cached_gateway_models", return_value=listing),
+        ):
+            response = self._post({"model": model, "reasoning_effort": "high"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])

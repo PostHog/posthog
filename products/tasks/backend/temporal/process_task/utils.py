@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -63,8 +64,10 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 )
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
+    GATEWAY_FAMILY_MODELS_STATE_KEY,
     GATEWAY_PRODUCT_STATE_KEY,
     PRODUCT_ALLOWED_MODELS,
+    admitted_family_models,
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
@@ -1746,7 +1749,8 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             run_id=str(ctx.run_id),
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
-        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+        family_models = json.loads(env_vars.pop(_FAMILY_MODELS_ENV, "[]"))
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned, family_models):
             if requires_pi_scout:
                 raise ProcessTaskTransientError(
                     "Could not record the Pi scout's gateway model pin.",
@@ -1794,20 +1798,30 @@ def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | 
 
 # Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
 _PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
+_FAMILY_MODELS_ENV = "_AI_GATEWAY_FAMILY_MODELS"
 
 
-def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
+def _record_pinned_gateway_product(
+    run_id: str, state: dict | None, minted_product: str | None, family_models: list[str] | None = None
+) -> bool:
     """Stamp the run with the pinned product of its token. False leaves a pinned run unstamped."""
     from products.tasks.backend.models import TaskRun  # noqa: PLC0415
 
+    recorded = state or {}
     pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
-    if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
+    stamps = {
+        GATEWAY_PRODUCT_STATE_KEY: pinned,
+        GATEWAY_FAMILY_MODELS_STATE_KEY: (family_models or None) if pinned else None,
+    }
+    if all(recorded.get(key) == value for key, value in stamps.items()):
         return True
+    changes: dict[str, Any] = {}
+    if updates := {key: value for key, value in stamps.items() if value}:
+        changes["updates"] = updates
+    if remove_keys := [key for key, value in stamps.items() if not value and key in recorded]:
+        changes["remove_keys"] = remove_keys
     try:
-        if pinned:
-            TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
-        else:
-            TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
+        TaskRun.update_state_atomic(run_id, **changes)
     except Exception:
         logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
         return pinned is None
@@ -1912,6 +1926,9 @@ def ai_gateway_env_vars(
         if free_pin is not None:
             mint_kwargs["allowed_models"] = free_pin
         mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+    family_models = () if "allowed_models" in mint_kwargs else admitted_family_models(ai_product)
+    if family_models:
+        mint_kwargs["family_models"] = family_models
     if run_id:
         mint_kwargs["run_id"] = run_id
     token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
@@ -1926,6 +1943,8 @@ def ai_gateway_env_vars(
     }
     if "allowed_models" in mint_kwargs:
         env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
+    if family_models:
+        env_vars[_FAMILY_MODELS_ENV] = json.dumps(family_models)
     if ai_stage:
         env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars

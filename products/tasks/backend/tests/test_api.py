@@ -16826,6 +16826,39 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args[1]["json"]["params"]["value"], "claude-opus-5")
 
+    @parameterized.expand(
+        [
+            ("with_the_flag", True, status.HTTP_200_OK),
+            ("without_the_flag", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY, DEBUG=False)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled")
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    def test_command_switches_to_a_gated_model_only_with_its_flag(
+        self, _name, flag_enabled, expected_status, _mock_required_flag, mock_feature_enabled, mock_post
+    ):
+        reset_sandbox_jwt_key_cache()
+        mock_feature_enabled.return_value = flag_enabled
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-gated", "result": {"updated": True}})
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "moonshotai/kimi-k3"},
+                "id": "req-gated",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_post.called, flag_enabled)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_proxies_mcp_response_with_payload(self, mock_post):

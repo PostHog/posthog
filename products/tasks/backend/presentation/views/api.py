@@ -121,6 +121,7 @@ from products.tasks.backend.facade.run_config import (
     RunSource,
     TaskArtifactAdapter,
     TaskArtifactType,
+    get_model_access_error,
 )
 from products.tasks.backend.facade.streams import (
     MAX_IDENTIFIER_CHARS,
@@ -4039,15 +4040,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ):
                 return access_response
 
-        if (
-            method == "set_config_option"
-            and params.get("configId") == "model"
-            and tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, params.get("value"))
-        ):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "This run's gateway token does not allow that model."}).data,
-                status=status.HTTP_400_BAD_REQUEST,
+        if method == "set_config_option" and params.get("configId") == "model":
+            model = params.get("value")
+            model_error = (
+                "This run's gateway token does not allow that model."
+                if tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, model)
+                else get_model_access_error(model, distinct_id=request.user.distinct_id)
             )
+            if model_error:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": model_error}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id
