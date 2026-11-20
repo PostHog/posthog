@@ -24862,6 +24862,7 @@ export namespace Schemas {
       readonly action_names: CachedTileInsightResultActionNames;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings: _InsightResultWarnings | null;
+      query?: _InsightQuerySchema | null;
     }
 
     /**
@@ -35638,6 +35639,22 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
+    export interface DashboardStreamCachedTile {
+      /** Dashboard tile ID. */
+      id: number;
+      /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+       *
+       * * `hit` - Hit
+       * * `miss` - Miss
+       * * `forbidden` - Forbidden
+       * * `not_found` - Not found */
+      status: CachedTileStatusEnum;
+      /** The cached result. Present only when status is 'hit'. */
+      insight?: CachedTileInsightResult;
+      /** Present on hits: whether the cached result is past its target age. */
+      stale?: boolean;
+    }
+
     /**
      * * `shared` - Shared
      * * `separate` - Separate
@@ -35681,8 +35698,12 @@ export namespace Schemas {
     }
 
     export interface DashboardQuerySharingEvent {
-      /** SSE event type: tile, complete, or error. */
+      /** SSE event type: cached, tile, complete, or error. */
       type: string;
+      /** On the cached event: every requested tile's cached result, in request order. */
+      tiles?: DashboardStreamCachedTile[];
+      /** On the cached event: the tiles that will each get a tile event, in compute order. */
+      pending?: number[];
       /** Independently completed dashboard tile. */
       tile?: DashboardTile;
       /** Present only when debug is requested. */
@@ -139107,6 +139128,10 @@ export namespace Schemas {
 
     export type DashboardsStreamQueryResultsRetrieveParams = {
     /**
+     * Send every tile's cached result in one `cached` event first, stale results included and marked. Then compute only the tiles whose result is missing or stale, or every tile with force_blocking.
+     */
+    cached_first?: boolean;
+    /**
      * Cancellation ID for this dashboard refresh batch.
      */
     client_query_id: string;
@@ -139128,9 +139153,9 @@ export namespace Schemas {
      */
     refresh: DashboardsStreamQueryResultsRetrieveRefresh;
     /**
-     * Comma-separated insight tile IDs, at most 32.
+     * Comma-separated insight tile IDs, at most 100. Visible tiles first: tiles compute in this order.
      * @minLength 1
-     * @maxLength 512
+     * @maxLength 1024
      */
     tile_ids: string;
     /**
