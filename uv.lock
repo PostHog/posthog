@@ -35,6 +35,7 @@ deltalite = false
 django = false
 google-ads = false
 grpcio = false
+hoglint = false
 hogql-parser = false
 hogql-parser-rs = false
 modal = false
@@ -513,20 +514,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fe/65/3718f646fea42cac9a6120621d5ed067d6c00476d47bf329cf80331e965e/azure_ai_agents-1.0.0.tar.gz", hash = "sha256:ccedf84bfafa59db79bb7adcfb0eb2970edc6dff58490d946bb3c0432b19b75f", size = 298143, upload-time = "2025-05-16T01:38:56.826Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/6e/94aed845af9f2e6b1498cd5b43635ba6510c9260229e0700448bb24edfb0/azure_ai_agents-1.0.0-py3-none-any.whl", hash = "sha256:89a522b966380018c0f6a46ada62555a65b70d980ce9a22dee00d84efdf91f32", size = 187045, upload-time = "2025-05-16T01:38:58.41Z" },
-]
-
-[[package]]
-name = "azure-ai-inference"
-version = "1.0.0b9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "azure-core" },
-    { name = "isodate" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/6a/ed85592e5c64e08c291992f58b1a94dab6869f28fb0f40fd753dced73ba6/azure_ai_inference-1.0.0b9.tar.gz", hash = "sha256:1feb496bd84b01ee2691befc04358fa25d7c344d8288e99364438859ad7cd5a4", size = 182408, upload-time = "2025-02-15T00:37:28.464Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/0f/27520da74769db6e58327d96c98e7b9a07ce686dff582c9a5ec60b03f9dd/azure_ai_inference-1.0.0b9-py3-none-any.whl", hash = "sha256:49823732e674092dad83bb8b0d1b65aa73111fab924d61349eb2a8cdc0493990", size = 124885, upload-time = "2025-02-15T00:37:29.964Z" },
 ]
 
 [[package]]
@@ -3408,6 +3395,21 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "hoglint"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orjson" },
+    { name = "pyyaml" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/a8/ad5d806f57d635042f181eb740c2a72a08f45d5dc374c09918d31764e4a7/hoglint-0.2.3-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2f32d9f4f5c343d431e6b4ee64414b366135c14c799095da20ce5814de53276d", size = 5771087, upload-time = "2026-11-18T20:35:59.087Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/a5/0432d62a0739544a7da9bb0840508ffa82f37930087a15ae4a4a053d6c8a/hoglint-0.2.3-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:d9175b599c475663bc37c543ed2d637ff5162e4ddfbe281d2a978aac8fc1d544", size = 5523873, upload-time = "2026-11-18T20:36:00.867Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/86/500b9749c2a97c8cdd98e1f25e3f4d055ce8d29c0652278cf06b74fea7f2/hoglint-0.2.3-cp312-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:a7a29a1b8dcd04b63e474ff21198cda28df6da76514be1a8aefa7c752367bd58", size = 5604680, upload-time = "2026-11-18T20:36:02.483Z" },
+    { url = "https://files.pythonhosted.org/packages/24/30/fd49904cc18c8e91baf2074caef675c90a240641722c9557d59409583c17/hoglint-0.2.3-cp312-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:13c936682b4d7b920fb8c4614a7301be8d838bbb233ef13bd926e6ba7e300bda", size = 5951791, upload-time = "2026-11-18T20:36:04Z" },
+]
+
+[[package]]
 name = "hogql-parser"
 version = "1.3.85"
 source = { registry = "https://pypi.org/simple" }
@@ -6042,7 +6044,6 @@ dependencies = [
     { name = "anthropic" },
     { name = "asgiref" },
     { name = "asyncstdlib" },
-    { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "azure-storage-blob" },
     { name = "babel" },
@@ -6266,6 +6267,7 @@ dev = [
     { name = "flameprof" },
     { name = "grpcio-tools" },
     { name = "hogli" },
+    { name = "hoglint" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "libcst" },
@@ -6347,7 +6349,6 @@ requires-dist = [
     { name = "anthropic", specifier = "==0.80.0" },
     { name = "asgiref", specifier = "==3.13.0" },
     { name = "asyncstdlib", specifier = "==3.14.0" },
-    { name = "azure-ai-inference", specifier = "~=1.0.0b9" },
     { name = "azure-ai-projects", specifier = "~=1.0.0" },
     { name = "azure-storage-blob", specifier = "~=12.27.1" },
     { name = "babel", specifier = "==2.18.0" },
@@ -6486,7 +6487,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.91.1" },
+    { name = "posthoganalytics", specifier = "==7.91.4" },
     { name = "protobuf", specifier = "~=6.33.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.13" },
     { name = "psycopg2-binary", specifier = "==2.9.13" },
@@ -6571,6 +6572,7 @@ dev = [
     { name = "flameprof", specifier = "~=0.4" },
     { name = "grpcio-tools", specifier = "~=1.75.1" },
     { name = "hogli", editable = "tools/hogli" },
+    { name = "hoglint", specifier = "==0.2.3" },
     { name = "hypothesis", specifier = "~=6.151.14" },
     { name = "import-linter", specifier = "~=2.15" },
     { name = "libcst", specifier = ">=1.9.0,<2.0.0" },
@@ -6656,7 +6658,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.91.1"
+version = "7.91.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6664,9 +6666,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/1c/28aa50017e82fa72011cc5e0dfe70d7c7f0d34cda67e6a1438acddb93420/posthoganalytics-7.91.1.tar.gz", hash = "sha256:3a904c0a4604694b5a05928bab74b11a1956ed4119d344ce41249ad20000a2ec", size = 1000318, upload-time = "2026-11-13T14:24:02.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/35/b0f3cfccae7ed9c00c700d39425fc594b6baec79b01dcfc0869adfa51513/posthoganalytics-7.91.4.tar.gz", hash = "sha256:436dda312a2f239d14daef1583b59c911c7e16730dfbbc45af671e65e32ee3bd", size = 1005247, upload-time = "2026-11-17T16:40:17.044Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/68/96bd5b4dc4c370d58ed279f1a0191656e54919ee553eecb89e43685b0184/posthoganalytics-7.91.1-py3-none-any.whl", hash = "sha256:033f6720c1244b53aa7e24542fe4f3a1db4df1c3d0d91bf8428b311a376c08fe", size = 1156636, upload-time = "2026-11-13T14:24:00.483Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/ea/0fe5ca8b4268184ac9b69b043a31f3838945def3522e1a5b7e22bcbb24b2/posthoganalytics-7.91.4-py3-none-any.whl", hash = "sha256:75ffb1b56a6da6f65afc43a603cf4241cd58d942f320f10b40773ccfd23e4eff", size = 1161665, upload-time = "2026-11-17T16:40:15.264Z" },
 ]
 
 [[package]]

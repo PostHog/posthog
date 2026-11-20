@@ -27,7 +27,7 @@ import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
 import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
@@ -523,7 +523,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /** Identity's answer without properties, for reads the leader cannot serve. */
     private identityDocument(identity: PersonIdentity): InternalPerson {
-        return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
+        return { ...identity, properties: {} }
     }
 
     private resolveDistinctIds(
@@ -630,8 +630,6 @@ export class PersonhogPersonsStore implements PersonsStore {
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        _propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        _propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         _isUserId: number | null,
         isIdentified: boolean,

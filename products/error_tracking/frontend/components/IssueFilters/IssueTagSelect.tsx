@@ -5,7 +5,7 @@ import type { ErrorTrackingIssueTagFilter } from '~/queries/schema/schema-genera
 import type { ErrorTrackingIssueTagDefinitionApi } from '../../generated/api.schemas'
 
 function appliedOptionText(applied: boolean): string {
-    return applied ? 'Has label' : "Doesn't have label"
+    return applied ? 'Has tag' : "Doesn't have tag"
 }
 
 // LemonSelect takes only primitive values. The applied part never holds a colon, so the last colon splits the two.
@@ -30,13 +30,13 @@ export function IssueTagSelect({
     onChange: (issueTag: ErrorTrackingIssueTagFilter | null) => void
 }): JSX.Element {
     const labelOf = (key: string): string => definitions.find((definition) => definition.key === key)?.label ?? key
-    const buttonText = issueTag ? `${appliedOptionText(issueTag.applied)}: ${labelOf(issueTag.key)}` : 'Any label'
+    const buttonText = issueTag ? `${appliedOptionText(issueTag.applied)}: ${labelOf(issueTag.key)}` : 'Any tag'
 
     return (
         <LemonSelect
             allowClear
             size="small"
-            aria-label={`Label filter: ${buttonText}`}
+            aria-label={`Tag filter: ${buttonText}`}
             data-attr="error-tracking-issue-tag-filter"
             loading={loading}
             value={issueTag ? toOptionValue(issueTag) : null}

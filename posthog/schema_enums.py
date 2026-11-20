@@ -2449,6 +2449,12 @@ class MetricsQueryLanguage(StrEnum):
     SQL = "sql"
 
 
+class MetricsQueryProvenanceMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"
+
+
 class MetricsRangeFunction(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
@@ -3077,6 +3083,12 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class YAxisPosition2(StrEnum):
+    AUTO = "auto"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class ResultCustomizationBy(StrEnum):

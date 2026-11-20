@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 FlagNotFoundError = contracts.FlagNotFoundError
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
+TooManyMetricsError = contracts.TooManyMetricsError
 InvalidMergeError = contracts.InvalidMergeError
 ImportFlag = contracts.ImportFlag
 
@@ -73,7 +74,7 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     flag_ids = sorted({flag_id for obj in releases for flag_id in obj.feature_flag_ids})
     broadcast_ids = sorted({broadcast_id for obj in releases for broadcast_id in obj.broadcast_ids}, key=str)
     survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
-    insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
+    insight_ids = sorted({insight_id for obj in releases for insight_id in [*obj.insight_ids, *obj.metric_insight_ids]})
     broadcasts = lookups.broadcasts(broadcast_ids)
     surveys = lookups.surveys(survey_ids)
     insights = lookups.insights(insight_ids)
@@ -93,6 +94,7 @@ def _shows_restricted_name(release: Release, hidden_flags: frozenset[int]) -> bo
 
 
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
+    metric_insight_ids = [insight_id for insight_id in obj.metric_insight_ids if insight_id not in hidden.insights]
     has_hidden_flags = any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids)
     return contracts.ReleaseDTO(
         id=obj.id,
@@ -119,6 +121,10 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             for insight_id in obj.insight_ids
             if insight_id not in hidden.insights and insight_id in hidden.insight_summaries
         ],
+        metric_insight_ids=metric_insight_ids,
+        metric_goals=[
+            contracts.MetricGoalDTO(**goal) for goal in obj.metric_goals if goal["insight_id"] in metric_insight_ids
+        ],
         created_at=obj.created_at,
     )
 
@@ -140,11 +146,31 @@ def _checked(field: str, noun: str, submitted: list[T], linked: list[T], lookup:
     return [*submitted, *(item for item in linked if item in visibility.hidden)]
 
 
+def _goal(goal: contracts.MetricGoalDTO | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(goal, contracts.MetricGoalDTO):
+        goal = {"insight_id": goal.insight_id, "direction": goal.direction, "value": goal.value}
+    return {"insight_id": goal["insight_id"], "direction": str(goal["direction"]), "value": goal["value"]}
+
+
+def _checked_goals(
+    submitted: list[Any], metric_ids: list[int], lookup: InsightVisibilityLookup
+) -> tuple[list[dict[str, Any]], frozenset[int]]:
+    hidden = lookup(sorted(set(metric_ids))).hidden
+    goals = [_goal(goal) for goal in submitted]
+    unknown = sorted(
+        {goal["insight_id"] for goal in goals if goal["insight_id"] not in metric_ids or goal["insight_id"] in hidden}
+    )
+    if unknown:
+        raise contracts.UnknownLinkedObjectsError("metric_goals", "metrics", unknown)
+    return goals, frozenset(hidden)
+
+
 _LINKED_FIELDS: tuple[tuple[str, str], ...] = (
     ("feature_flag_ids", "flags"),
     ("broadcast_ids", "broadcasts"),
     ("survey_ids", "surveys"),
     ("insight_ids", "insights"),
+    ("metric_insight_ids", "insights"),
 )
 
 
@@ -286,13 +312,14 @@ def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contrac
         name=input.name,
         description=input.description,
         owner_id=input.owner_id,
+        metric_goals=_checked_goals(list(input.metric_goals), checked["metric_insight_ids"], lookups.insights)[0],
         **checked,
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 
 
 def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: LinkLookups) -> contracts.ReleaseDTO:
-    if {field for field, _ in _LINKED_FIELDS} & changes.keys():
+    if {"metric_goals", *(field for field, _ in _LINKED_FIELDS)} & changes.keys():
         current = logic.get_release(team_id, release_id)
         changes = dict(changes)
         for field, noun in _LINKED_FIELDS:
@@ -300,6 +327,15 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
                 changes[field] = _checked(
                     field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
                 )
+        if len(changes.get("metric_insight_ids", [])) > contracts.MAX_METRICS:
+            raise contracts.TooManyMetricsError()
+        if "metric_goals" in changes:
+            changes["metric_goals"], hidden_goals = _checked_goals(
+                list(changes["metric_goals"]),
+                list(changes.get("metric_insight_ids", current.metric_insight_ids)),
+                lookups.insights,
+            )
+            return _visible_dto(logic.update_release(team_id, release_id, changes, hidden_goals), lookups)
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
 
@@ -339,6 +375,7 @@ def releases_enabled(
     email: str | None,
     raise_on_error: bool = False,
     only_evaluate_locally: bool = False,
+    for_area: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -348,6 +385,7 @@ def releases_enabled(
         email=email,
         raise_on_error=raise_on_error,
         only_evaluate_locally=only_evaluate_locally,
+        flag_key=feature_flags.RELEASES_AREA_FLAG if for_area else feature_flags.RELEASE_OBJECTS_FLAG,
     )
 
 

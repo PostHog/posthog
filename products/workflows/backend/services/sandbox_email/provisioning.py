@@ -59,7 +59,9 @@ def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSender
     )
 
 
-ORGANIZATION_BLOCKED = "This organization can't use the sandbox sender. Verify a domain to send email from workflows."
+ORGANIZATION_BLOCKED = (
+    "This organization can't use the PostHog test sender. Verify a domain to send email from workflows."
+)
 
 
 def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:

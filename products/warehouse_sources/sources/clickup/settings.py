@@ -12,6 +12,8 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 #   "list_children"       -> fan-out: every list, then GET /list/{list_id}/<resource>
 #   "time_entries"        -> GET /team/{workspace_id}/time_entries walked in date windows
 #   "task_time_in_status" -> fan-out: every task id, then the bulk time-in-status endpoint
+#   "task_children"       -> fan-out: every task id, then GET /task/{task_id}/<resource>
+#   "task_comments"       -> fan-out: every task id, then GET /task/{task_id}/comment paged by start/start_id
 EndpointKind = Literal[
     "workspaces",
     "team_scoped",
@@ -21,6 +23,8 @@ EndpointKind = Literal[
     "list_children",
     "time_entries",
     "task_time_in_status",
+    "task_children",
+    "task_comments",
 ]
 
 
@@ -33,7 +37,7 @@ class ClickUpEndpointConfig:
     # response is not a wrapped array. The bulk time-in-status endpoint answers with a map keyed
     # by task id, which `clickup.py` reshapes itself.
     data_key: Optional[str] = None
-    # Resource path segment for team_scoped / space_children / list_children endpoints.
+    # Resource path segment for team_scoped / space_children / list_children / task_children endpoints.
     resource_path: Optional[str] = None
     # Stable (never-changing) datetime field used for datetime partitioning.
     partition_key: Optional[str] = None
@@ -134,6 +138,45 @@ CLICKUP_ENDPOINTS: dict[str, ClickUpEndpointConfig] = {
         # One row per (list, field): a field defined above the list is accessible to every list
         # under it, so the field id alone repeats across the table.
         primary_keys=["_list_id", "id"],
+        should_sync_default=False,
+    ),
+    "custom_task_types": ClickUpEndpointConfig(
+        name="custom_task_types",
+        kind="team_scoped",
+        resource_path="custom_item",
+        data_key="custom_items",
+        primary_keys=["id"],
+    ),
+    "space_tags": ClickUpEndpointConfig(
+        name="space_tags",
+        kind="space_children",
+        resource_path="tag",
+        data_key="tags",
+        # Tags carry no id and are unique by name only within their space.
+        primary_keys=["_space_id", "name"],
+    ),
+    "list_members": ClickUpEndpointConfig(
+        name="list_members",
+        kind="list_children",
+        resource_path="member",
+        data_key="members",
+        primary_keys=["_list_id", "id"],
+        should_sync_default=False,
+    ),
+    "task_members": ClickUpEndpointConfig(
+        name="task_members",
+        kind="task_children",
+        resource_path="member",
+        data_key="members",
+        primary_keys=["_task_id", "id"],
+        should_sync_default=False,
+    ),
+    "task_comments": ClickUpEndpointConfig(
+        name="task_comments",
+        kind="task_comments",
+        data_key="comments",
+        primary_keys=["_task_id", "id"],
+        partition_key="date",
         should_sync_default=False,
     ),
 }

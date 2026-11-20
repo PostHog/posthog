@@ -1,8 +1,9 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -11,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program
+from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -29,19 +32,51 @@ from products.error_tracking.backend.logic.issue_tags.correction import UnknownI
 from products.error_tracking.backend.logic.issue_tags.enabled import (
     _reads_restricted_property,
     enabled_issue_tag_definitions,
+    readable_issue_tag_keys,
 )
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
+from products.error_tracking.backend.logic.issue_tags.sync import sync_issue_tag_to_clickhouse
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
 from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, compile_filter_bytecode
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueTag,
+    ErrorTrackingIssueTagRule,
+)
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    tag_issue_created_merge_target_activity,
+)
+from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
+    IssueCreatedSnapshot,
+    IssueCreatedWorkflowInputs,
+)
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 
 Source = ErrorTrackingIssueTag.Source
 
 DECIDE = "products.error_tracking.backend.logic.issue_tags.taggers.jev.ml_inference.decide_when_available"
+FETCH_EVENT_PROPERTIES = (
+    "products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties"
+)
 
 # No $exception_list, so the event has no stack trace.
 BIG_UNHANDLED_ORDER: dict[str, object] = {"revenue": 25, "$exception_handled": False, "$lib": "posthog-python"}
+REVENUE = RestrictedProperty(name="revenue", property_type=PropertyDefinition.Type.EVENT)
+# A stack trace, so Jev calls the model if it runs on this event.
+BIG_UNHANDLED_ORDER_WITH_TRACE: dict[str, object] = {
+    **BIG_UNHANDLED_ORDER,
+    "$exception_list": [
+        {
+            "type": "TypeError",
+            "value": "cart is undefined",
+            "stacktrace": {
+                "type": "resolved",
+                "frames": [{"resolved_name": "pay", "source": "src/cart.py", "line": 3}],
+            },
+        }
+    ],
+}
 
 
 def _program(source: str) -> list[Any]:
@@ -57,8 +92,7 @@ def _event_filter(key: str, operator: str, value: Any) -> dict[str, Any]:
     return {"type": "AND", "values": [{"type": "AND", "values": [leaf]}]}
 
 
-@patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
-class TestIssueTagRules(BaseTest):
+class _IssueTagRuleTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         for name, property_type in (("revenue", PropertyType.Numeric), ("$exception_handled", PropertyType.Boolean)):
@@ -68,6 +102,42 @@ class TestIssueTagRules(BaseTest):
         self.big_order = self._rule("Big order", _event_filter("revenue", "gt", 10), order_key=1, version=2)
         self.unhandled = self._rule("Unhandled", _event_filter("$exception_handled", "exact", ["false"]), order_key=2)
 
+    def _restrict_revenue_for_the_member(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(PropertyDefinition.objects.get(team=self.team, name="revenue").id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+
+    def _rule(
+        self,
+        label: str,
+        filters: dict[str, Any],
+        *,
+        order_key: int,
+        version: int = 1,
+        bytecode: list[Any] | None = None,
+    ) -> ErrorTrackingIssueTagRule:
+        return ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
+            team=self.team,
+            label=label,
+            filters=filters,
+            bytecode=compile_filter_bytecode(self.team.id, filters) if bytecode is None else bytecode,
+            order_key=order_key,
+            version=version,
+        )
+
+
+@patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
+class TestIssueTagRules(_IssueTagRuleTest):
     @parameterized.expand(
         [
             ("both_match", BIG_UNHANDLED_ORDER, ["big_order", "unhandled"]),
@@ -255,41 +325,93 @@ class TestIssueTagRules(BaseTest):
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False), self.assertNumQueries(0):
             definitions = enabled_issue_tag_definitions(self.team.id, self.user)
             result = run_issue_taggers(self.team.id, issue.id, _no_event_read)
+            readable_keys = readable_issue_tag_keys(self.team.id, {REVENUE})
 
-        assert (definitions, result) == ((), IssueTaggingSkipReason.DISABLED)
+        code_keys = frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS)
+        assert (definitions, result, readable_keys) == ((), IssueTaggingSkipReason.DISABLED, code_keys)
 
-    def _restrict_revenue_for_the_member(self) -> None:
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        upsert_property_access_control(
+    def test_an_exception_that_merges_at_creation_adds_rule_labels_to_the_target_issue(self) -> None:
+        target = self._issue_with_fingerprint("merged-in")
+        self._issue_with_fingerprint("unrelated")
+        correct_issue_tag(
+            self.team.id, target.id, self.big_order.key, applied=False, user=self.user, was_impersonated=False
+        )
+
+        with patch(FETCH_EVENT_PROPERTIES, return_value=BIG_UNHANDLED_ORDER_WITH_TRACE), patch(DECIDE) as decide:
+            tag_issue_created_merge_target_activity(self._merged_inputs("merged-in"))
+
+        decide.assert_not_called()
+        tags = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=target)
+        assert set(tags.values_list("key", "value", "source")) == {
+            (self.big_order.key, False, Source.MANUAL),
+            (self.unhandled.key, True, Source.RULE),
+        }
+
+    def test_a_merged_exception_reads_no_issue_and_no_event_when_the_team_has_no_rules(self) -> None:
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).delete()
+        self._issue_with_fingerprint("merged-in")
+
+        with patch(FETCH_EVENT_PROPERTIES) as fetch_event_properties, self.assertNumQueries(3):
+            tag_issue_created_merge_target_activity(self._merged_inputs("merged-in"))
+
+        fetch_event_properties.assert_not_called()
+
+    def _issue_with_fingerprint(self, fingerprint: str) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
+    def _merged_inputs(self, fingerprint: str) -> IssueCreatedWorkflowInputs:
+        # The merge deleted the issue that cymbal created for the exception, so issue_id names no issue.
+        return IssueCreatedWorkflowInputs(
+            notification_id=str(uuid4()),
             team_id=self.team.id,
-            created_by_id=self.user.id,
-            input=UpsertPropertyAccessControlInput(
-                property_definition_id=str(PropertyDefinition.objects.get(team=self.team, name="revenue").id),
-                access_level=PropertyAccessLevel.NONE,
-                organization_member_id=self.organization_membership.id,
+            issue_id=str(uuid4()),
+            issue=IssueCreatedSnapshot(
+                name="TypeError", description=None, status="active", created_at="2026-07-21T12:00:00Z"
             ),
+            fingerprint=fingerprint,
+            event_uuid=str(uuid4()),
+            event_timestamp="2026-07-21T12:00:00Z",
         )
 
-    def _rule(
-        self,
-        label: str,
-        filters: dict[str, Any],
-        *,
-        order_key: int,
-        version: int = 1,
-        bytecode: list[Any] | None = None,
-    ) -> ErrorTrackingIssueTagRule:
-        return ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
-            team=self.team,
-            label=label,
-            filters=filters,
-            bytecode=compile_filter_bytecode(self.team.id, filters) if bytecode is None else bytecode,
-            order_key=order_key,
-            version=version,
+
+class TestIssueTagRowsInHogQL(ClickhouseTestMixin, _IssueTagRuleTest):
+    @parameterized.expand(
+        [
+            ("restricted_member", True, True, {"code_tag", "unhandled"}),
+            ("member_without_restrictions", False, True, {"code_tag", "big_order", "unhandled", "deleted_rule"}),
+            ("issue_tags_off", True, False, {"code_tag"}),
+        ]
+    )
+    def test_hides_the_rows_of_a_rule_from_a_member_who_may_not_read_its_property(
+        self, _name: str, restricted: bool, issue_tags_on: bool, expected: set[str]
+    ) -> None:
+        keys = {
+            "code_tag": registry.ISSUE_TAG_DEFINITIONS[0].key,
+            "big_order": self.big_order.key,
+            "unhandled": self.unhandled.key,
+            "deleted_rule": f"rule_{uuid4().hex}",
+        }
+        issue_id = uuid4()
+        for key in keys.values():
+            sync_issue_tag_to_clickhouse(
+                team_id=self.team.pk, issue_id=issue_id, key=key, value=True, updated_at=datetime.now(UTC)
+            )
+        self._restrict_revenue_for_the_member()
+        member = (
+            self.user
+            if restricted
+            else User.objects.create_and_join(self.organization, "other@example.com", "password")
         )
+
+        with patch.object(team_flags, "feature_enabled_or_false", return_value=issue_tags_on):
+            response = execute_hogql_query(
+                "SELECT key FROM posthog.raw_error_tracking_issue_tags", self.team, user=member
+            )
+
+        names = {key: name for name, key in keys.items()}
+        assert {names[key] for (key,) in response.results} == expected
 
 
 NONE: dict[str, frozenset[str]] = {"event": frozenset(), "person": frozenset()}
