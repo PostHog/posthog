@@ -61,6 +61,7 @@ import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevMod
 import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
+import { SupportChannelsSettings } from 'products/conversations/frontend/components/SupportChannelsSettings/SupportChannelsSettings'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
@@ -1660,22 +1661,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-general',
                 title: 'General',
                 component: <GeneralSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support', 'general', 'enable'],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                component: <SupportChannelsSettings />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: [
                     'conversation',
-                    'ticket',
-                    'message',
                     'support',
-                    'general',
-                    'api',
-                    'domain',
-                    'identity',
-                    'secret',
                     'channel',
                     'widget',
                     'email',
                     'slack',
                     'teams',
                     'microsoft',
+                    'github',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
                 ],
             },
             {
