@@ -96,7 +96,13 @@ export function QuillPathCleaningRulesDebugger({
                         <ItemContent>
                             <ItemTitle>Final result:</ItemTitle>
                             <ItemDescription>
-                                <code className="block truncate font-mono" title={String(finalResult)} translate="no">
+                                <code
+                                    className="block truncate font-mono"
+                                    title={
+                                        typeof finalResult === 'string' ? finalResult : debugSteps.at(-1)?.outputPath
+                                    }
+                                    translate="no"
+                                >
                                     {finalResult}
                                 </code>
                             </ItemDescription>

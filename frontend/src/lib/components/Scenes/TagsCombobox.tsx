@@ -18,6 +18,8 @@ import {
 const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
+    /** Id of the text input, so a field label can point at it. */
+    id?: string
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
@@ -54,6 +56,7 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 }
 
 function TagsComboboxInner({
+    id,
     value,
     onChange,
     onOpen,
@@ -124,6 +127,7 @@ function TagsComboboxInner({
             }}
         >
             <TagsComboboxBody
+                id={id}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 disabled={disabled}
@@ -144,6 +148,7 @@ function TagsComboboxInner({
 }
 
 function TagsComboboxBody({
+    id,
     placeholder,
     autoFocus,
     disabled,
@@ -159,6 +164,7 @@ function TagsComboboxBody({
     onScrollEnd,
     loadingMore,
 }: {
+    id?: string
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
@@ -189,6 +195,7 @@ function TagsComboboxBody({
                                     </ComboboxChip>
                                 ))}
                             <ComboboxChipsInput
+                                id={id}
                                 placeholder={placeholder}
                                 autoFocus={autoFocus}
                                 disabled={disabled}

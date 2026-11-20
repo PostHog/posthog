@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { ExperimentStatsMethod } from '~/types'
 
@@ -19,7 +19,7 @@ export function DefaultExperimentStatsMethod(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleChange = (value: ExperimentStatsMethod): void => {
         updateExperimentsConfig({ default_experiment_stats_method: value })

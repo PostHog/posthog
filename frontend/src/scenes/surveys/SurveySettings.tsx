@@ -8,8 +8,8 @@ import { Button, Field, FieldLabel, Switch } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,7 +27,7 @@ export function SurveyEnableToggle(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
     const switchId = useId()
 
     const handleChange = (checked: boolean): void => {
@@ -80,7 +80,7 @@ export function SurveyDefaultAppearance(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const [editableSurveyConfig, setEditableSurveyConfig] = useState({
         ...defaultSurveyAppearance,

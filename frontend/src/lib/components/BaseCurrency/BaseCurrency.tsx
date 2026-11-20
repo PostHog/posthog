@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -26,7 +26,7 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const handleChange = (currency: CurrencyCode | null): void => {
         updateCurrentTeam({ base_currency: currency ?? undefined })

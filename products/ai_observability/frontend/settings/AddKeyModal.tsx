@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import { FoundryEndpointField } from './FoundryEndpointField'
@@ -55,7 +55,7 @@ export function AddKeyModal(): JSX.Element {
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const [provider, setProvider] = useState<LLMProvider>('openai')
     const [name, setName] = useState('')

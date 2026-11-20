@@ -41,7 +41,14 @@ export function QuillScopeTargetCombobox({
             multiple
             items={options.map((option) => option.value)}
             value={value}
-            onValueChange={(next) => onChange(next ?? [])}
+            onValueChange={(next, eventDetails) => {
+                // Escape with the list closed would otherwise clear every selection.
+                if (eventDetails.reason === 'escape-key') {
+                    eventDetails.allowPropagation()
+                    return
+                }
+                onChange(next ?? [])
+            }}
             itemToStringLabel={(optionValue: string) => optionByValue.get(optionValue)?.label ?? optionValue}
         >
             <QuillScopeTargetChips

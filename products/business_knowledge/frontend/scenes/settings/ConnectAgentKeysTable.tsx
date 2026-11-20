@@ -4,8 +4,8 @@ import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import type { KnowledgeKeyApi } from '../../generated/api.schemas'
@@ -14,7 +14,7 @@ import { QuillRetryText } from './QuillRetryText'
 
 function KeyReads({ apiKey }: { apiKey: KnowledgeKeyApi }): JSX.Element {
     const { libraryNames } = useValues(connectAgentLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (!apiKey.is_limited) {
         return <>All business knowledge</>
@@ -32,7 +32,7 @@ function KeyReads({ apiKey }: { apiKey: KnowledgeKeyApi }): JSX.Element {
 export function ConnectAgentKeysTable(): JSX.Element | null {
     const { listedKeys: keys, keysLoading, fixedLibraryId } = useValues(connectAgentLogic)
     const { loadKeys } = useActions(connectAgentLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (!keys && todayRailNav) {
         return keysLoading ? null : <QuillRetryText message="Couldn't load the keys." onRetry={() => loadKeys()} />

@@ -5,8 +5,8 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTextArea } from '@posthog
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { CORE_MEMORY_MAX_CHARACTERS, maxSettingsLogic } from './maxSettingsLogic'
@@ -20,7 +20,7 @@ export function MaxMemorySettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     const placeholder = `What should PostHog AI know about ${
         currentProject ? currentProject.name : 'your company or this product'

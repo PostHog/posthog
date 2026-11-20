@@ -16,8 +16,8 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { ALL_KNOWLEDGE, MAX_KEY_LABEL_LENGTH, connectAgentLogic } from './connectAgentLogic'
@@ -29,7 +29,7 @@ export function ConnectAgentKeyForm(): JSX.Element {
     const { libraries, librariesLoading, reads, label, creating, createDisabledReason, fixedLibraryId } =
         useValues(connectAgentLogic)
     const { loadLibraries, setReads, setLabel, createKey } = useActions(connectAgentLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (!fixedLibraryId && !libraries && todayRailNav) {
         return librariesLoading ? (
