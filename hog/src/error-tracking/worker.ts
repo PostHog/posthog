@@ -6,10 +6,8 @@ import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import { parseOrThrow, type Schema } from '@/core/schema'
 
-// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output. It
-// runs the code posthog-cli runs, so the bytes match, and it holds a large build in a fraction of
-// the memory a JavaScript heap needs. hog starts one worker per command, sends it one JSON line per
-// request and reads one JSON line back. hog/worker/src/main.rs describes the requests.
+// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
+// the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
 
 // Must equal PROTOCOL in hog/worker/src/main.rs. hog and the worker are two files, so an upgrade
 // that replaced only one of them is caught here instead of in a request the other can't read.
@@ -55,7 +53,6 @@ const PairState = z.object({
     mapReleaseId: z.string().nullable(),
     mapDebugId: z.string().nullable(),
 })
-// A bundle and its sourcemap, held by the worker. hog keeps only what its decisions read.
 export type PairState = z.output<typeof PairState>
 
 const Detected = z.object({ sourcemap: z.array(z.number()), composed: z.array(z.number()) })
@@ -156,8 +153,7 @@ export class Worker {
         const failure = { code: 'worker_failed', context: 'hog-worker sent' }
         const message = parseJson(line.value, Answer, failure)
         if (!message.ok) {
-            // A request hog built wrong is a bug in hog. Every other failure is a file the worker
-            // could not read or write, reported as hog reported it when it did the work itself.
+            // Every failure other than a bug in hog is a file the worker could not read or write.
             if (message.error.code === 'bad_request') {
                 throw new HogError('worker_failed', `hog-worker refused a request: ${message.error.message}`)
             }
@@ -166,8 +162,6 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    // Which files discovery counts: bundles whose sourcemap exists, and maps the Hermes compiler
-    // composed. Both answers need the file's contents.
     async detect(
         files: DetectCandidate[],
         publicPathPrefix: string | undefined
@@ -215,7 +209,6 @@ export class Worker {
         }
     }
 
-    // Closing stdin ends the worker. A worker that never started has nothing to close.
     async close(): Promise<void> {
         const running = await this.running?.catch(() => undefined)
         if (running) {
@@ -225,8 +218,6 @@ export class Worker {
     }
 }
 
-// Runs a command's file work with one worker, and ends the worker when the work is over, however
-// it ends.
 export async function withWorker<T>(work: (worker: Worker) => Promise<T>): Promise<T> {
     const worker = new Worker()
     try {

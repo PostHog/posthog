@@ -1,25 +1,14 @@
-// hog-worker does the file work of `hog error-tracking`: it reads, rewrites and writes build
-// output, so hog keeps its flags, releases, uploads and output while the bytes come from the same
-// Rust code posthog-cli runs.
-//
-// hog starts one worker per command and talks to it in JSON lines over stdin and stdout. The
-// worker speaks first, then answers each request with one line, in order:
-//
-//   worker -> {"type":"hello","protocol":1,"version":"0.1.0"}
-//   hog    -> {"op":"detect","files":[{"path":"dist/a.js","bundle":true,"map":false}],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"sourcemap":[0],"composed":[]}}
-//   hog    -> {"op":"read_pairs","paths":["/abs/dist/a.js"],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"pairs":[{"id":0,"sourcePath":"/abs/dist/a.js", ...}]}}
-//   hog    -> {"op":"inject","ids":[0],"mode":"event","releaseId":null,"newChunkIds":[]}
-//   worker -> {"ok":true,"result":{"outcomes":[{"action":"injected","chunkId":"...","warnings":[],"pair":{...}}]}}
-//   hog    -> {"op":"save","ids":[0]}
-//   worker -> {"ok":true,"result":{}}
-//
-// A request that fails answers {"ok":false,"error":{"code":"...","message":"..."}} and the worker
-// keeps running. The pairs a `read_pairs` returns stay in memory under their ids until hog closes
-// stdin, which ends the worker. hog owns every decision: which files to look at, which pairs an
-// ignore pattern drops, and the release. PROTOCOL changes whenever a request or an answer does,
-// because hog and the worker ship as two files and must refuse to work with a stranger.
+// hog-worker does the file work of `hog error-tracking` with the Rust code posthog-cli runs, so
+// both write the same bytes. hog starts one worker per command and talks to it in JSON lines over
+// stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
+// each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
+// and keeps running after a failure. R for each `op`:
+//   detect      {"sourcemap":[index],"composed":[index]}
+//   read_pairs  {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
+//   inject      {"outcomes":[{"action":"injected","chunkId":"...","warnings":[],"pair":{...}}]}
+//   drop, save  {}
+// Pairs stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL
+// changes whenever a request or an answer does, because hog and the worker ship as two files.
 
 mod constant;
 mod memory;
@@ -40,11 +29,8 @@ use trace::Trace;
 
 const PROTOCOL: u32 = 1;
 
-// The request could not be read, or names a pair the worker does not hold. A bug in hog.
 const BAD_REQUEST: &str = "bad_request";
-// The injection itself failed, for example on a sourcemap the decoder rejects.
 const INJECT_FAILED: &str = "inject_failed";
-// A file could not be written. hog reports the message as it reported its own write failures.
 const WRITE_FAILED: &str = "write_failed";
 
 #[derive(Deserialize)]
@@ -80,9 +66,7 @@ enum Request {
 #[derive(Deserialize)]
 struct Candidate {
     path: String,
-    // Named like a bundle, so discovery asks whether its sourcemap exists.
     bundle: bool,
-    // Named like a sourcemap, so discovery asks whether the Hermes compiler composed it.
     map: bool,
 }
 
@@ -115,11 +99,9 @@ enum Answer {
 enum PairAnswer {
     Read(PairState),
     Skipped { skipped: String },
-    // The bundle has no sourcemap after all. hog leaves it out without a message.
     Missing(()),
 }
 
-// What hog needs to know about a pair to decide what happens to it next.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PairState {
@@ -364,8 +346,7 @@ impl Worker {
         }
     }
 
-    // Every pair is written, changed or not, which puts every map in canonical form as posthog-cli
-    // does.
+    // Unchanged pairs are written too, so every map ends in posthog-cli's canonical form.
     fn save(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
         let pairs = self.take_all(ids)?;
 

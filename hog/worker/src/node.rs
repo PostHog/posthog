@@ -1,5 +1,4 @@
-// File reads whose failures read the way they did when hog read the files itself with Bun, because
-// hog shows these messages to people and scripts match on them.
+// Read failures carry Bun's messages, because hog shows them to people and scripts match on them.
 
 use std::{fs, io, path::Path};
 
@@ -23,8 +22,6 @@ const DESCRIPTIONS: [(i32, &str, &str); 12] = [
     (libc::EBUSY, "EBUSY", "resource busy or locked"),
 ];
 
-// `ENOENT: no such file or directory, open '/build/a.js'`. An error outside the table keeps the
-// operating system's own text.
 #[cfg(unix)]
 pub fn message(error: &io::Error, syscall: &str, path: &Path) -> String {
     let known = DESCRIPTIONS
@@ -52,7 +49,6 @@ pub fn read(path: &Path) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|error| message(&error, "open", path))
 }
 
-// A byte order mark stays in the text, as it does for hog's sourcemap reader.
 pub fn read_text(path: &Path) -> Result<String, String> {
     String::from_utf8(read(path)?).map_err(|_| INVALID_UTF8.to_string())
 }

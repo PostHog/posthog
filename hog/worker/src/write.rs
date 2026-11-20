@@ -1,6 +1,5 @@
-// Replaces a set of files so that either all of them change or none does. A bundle injected while
-// its map keeps the old offsets can't be repaired by running again, so a full disk or a read-only
-// target has to fail before any target changes.
+// Replaces a set of files so that either all of them change or none does, because a bundle
+// injected while its map keeps the old offsets can't be repaired by running again.
 
 use rayon::prelude::*;
 use std::{
@@ -48,7 +47,6 @@ fn check_writable(target: &Path) -> io::Result<()> {
     Ok(())
 }
 
-// Writes the new contents next to the target, with the target's permissions.
 pub fn stage(path: &Path, contents: &[u8]) -> Result<Staged, String> {
     let target = dunce::canonicalize(path).map_err(|error| node::message(&error, "lstat", path))?;
     check_writable(&target).map_err(|error| node::message(&error, "access", &target))?;
@@ -77,12 +75,10 @@ pub fn discard(staged: &[Staged]) {
     });
 }
 
-// Puts every staged file in place. Where the file system can swap two paths in one call, each
-// staged file trades places with its target, so the staged path holds the old contents until the
-// end and a failure swaps them back. Elsewhere `commit_with_backups` does the same with a hard
-// link per target. When two bundles share a map, the files go in order, so the last pair wins;
-// otherwise they go in parallel, because one metadata operation per file in a row is what a large
-// build waits on.
+// Where the file system can swap two paths in one call, each staged file trades places with its
+// target, so the staged path holds the old contents and a failure swaps them back. When two
+// bundles share a map, the files go in order, so the last pair wins. Otherwise they go in
+// parallel, because a large build waits on one metadata operation per file.
 pub fn commit(staged: Vec<Staged>, trace: &Trace) -> Result<(), String> {
     let Some(first) = staged.first() else {
         return Ok(());
