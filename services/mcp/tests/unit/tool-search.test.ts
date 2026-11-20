@@ -81,6 +81,13 @@ describe('tool-search', () => {
             expect(searchToolsRegex(tools, '^(x+)+Z')).toEqual([])
         })
 
+        it.each([
+            ['a repeat count above the cap', '(ab){1000}', /repeats more than 100 times/],
+            ['a program above the cap', '(?s)' + '.{100}'.repeat(15) + '\\x00', /too complex/],
+        ])('refuses %s before it runs over the catalog', (_case, pattern, message) => {
+            expect(() => searchToolsRegex(TOOLS, pattern)).toThrow(message)
+        })
+
         it('throws on an invalid regex so callers can surface their own message', () => {
             expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/parsing regexp/)
         })

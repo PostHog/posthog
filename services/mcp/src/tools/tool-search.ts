@@ -32,10 +32,24 @@ export function isRegexPattern(pattern: string): boolean {
     return REGEX_METACHARACTER.test(pattern)
 }
 
-/** Compiles an agent's search pattern with RE2, whose matching time is linear in the input, because a
- *  backtracking `RegExp` can block the process on a short pattern such as `(.*)+Z`. Throws on invalid syntax. */
+const MAX_REPEAT_COUNT = 100
+const MAX_PROGRAM_SIZE = 1000
+const COUNTED_REPEAT = /\{\s*(\d+)\s*(?:,\s*(\d*)\s*)?\}/g
+
+/** Compiles an agent's search pattern with RE2 so that a short pattern such as `(.*)+Z` cannot backtrack.
+ *  RE2 cost grows with the compiled program, which a counted repeat such as `{1000}` multiplies, so large
+ *  repeat counts are refused before compiling and large programs after. Throws on invalid syntax too. */
 export function compileSearchPattern(pattern: string): RE2JS {
-    return RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE)
+    for (const [, min, max] of pattern.matchAll(COUNTED_REPEAT)) {
+        if (Number(min) > MAX_REPEAT_COUNT || Number(max || 0) > MAX_REPEAT_COUNT) {
+            throw new Error(`search pattern repeats more than ${MAX_REPEAT_COUNT} times`)
+        }
+    }
+    const regex = RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE)
+    if (regex.programSize() > MAX_PROGRAM_SIZE) {
+        throw new Error('search pattern is too complex')
+    }
+    return regex
 }
 
 /** The `exec search` predicate for regex patterns, ordered by the field that matched so a name

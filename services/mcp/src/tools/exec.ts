@@ -2041,8 +2041,11 @@ export function createExecTool(
                             matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
                             matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, query)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        } catch (error) {
+                            throw new ExecCommandError(
+                                `Invalid regex pattern: "${query}": ${(error as Error).message}`,
+                                'invalid_regex'
+                            )
                         }
                         // A guessed name such as `project-update` matches nothing as a regex,
                         // but its words usually name the tool the agent wants.
