@@ -9,10 +9,7 @@ verdict without a lock around a GitHub request.
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 
@@ -23,7 +20,7 @@ from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
 from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
 from ..models import Repo, Run
-from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating, github_api, ledger_recheck, retention
+from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating, github_api, ledger_recheck
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +28,7 @@ logger = structlog.get_logger(__name__)
 MAX_ROUNDS = 3
 
 NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
-NO_RUN_DESCRIPTION = "No visual run for this commit"
+NO_SETUP_CHECK_DESCRIPTION = "No setup check given"
 NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
 RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
 
@@ -430,45 +427,35 @@ def report_no_run_needed(repo: Repo, report: NoRunNeededInput) -> NoRunNeededOut
 
 
 def _setup_check_skipped(repo: Repo, commit_sha: str, setup_check: str) -> bool:
-    """Whether CI skipped the job that creates the run on this commit, so no run was needed."""
+    """Whether CI skipped the job that creates the run on this commit, so no run was needed.
+
+    Lets `GITHUB_READ_REFUSED` through: a refused read is no evidence either way.
+    """
     conclusions = github_api.check_run_conclusions(repo, commit_sha, setup_check, Priority.BATCH)
     if not conclusions:
         return False
     return all(conclusion == "skipped" for conclusion in conclusions)
 
 
-def _younger_than_retention(repo: Repo, commit_sha: str) -> bool:
-    """Whether the commit is too young for retention to have deleted a run of it."""
-    committed_at = github_api.commit_committed_at(repo, commit_sha, Priority.BATCH)
-    cutoff = timezone.now() - timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS)
-    return committed_at is not None and committed_at >= cutoff
-
-
 def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str) -> StatusVerdict:
-    """The status of a commit that has no run. It passes only on evidence that no run is missing.
+    """The status of a commit that has no run. It passes only when CI skipped the job that creates the run.
 
-    Retention deletes the latest run of a quiet branch, also one that failed, so a missing run
-    proves nothing. With `setup_check`, the evidence is CI skipping the job that creates the run.
-    Without it, the commit must be too young for retention to have deleted a run.
+    Retention deletes runs, also failed ones, so a missing run proves nothing, and neither does the
+    commit's age. Lets `GITHUB_READ_REFUSED` through.
     """
-    try:
-        if setup_check:
-            no_run_missing = _setup_check_skipped(repo, commit_sha, setup_check)
-        else:
-            no_run_missing = _younger_than_retention(repo, commit_sha)
-    except github_api.GITHUB_READ_REFUSED:
-        no_run_missing = False
-    if not no_run_missing:
+    if not setup_check:
+        return StatusVerdict(state="pending", description=NO_SETUP_CHECK_DESCRIPTION)
+    if not _setup_check_skipped(repo, commit_sha, setup_check):
         return StatusVerdict(state="pending", description=RUN_GONE_DESCRIPTION)
-    description = NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION if setup_check else NO_RUN_DESCRIPTION
-    return StatusVerdict(state="success", description=description)
+    return StatusVerdict(state="success", description=NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION)
 
 
 def ledger_verdict(repo: Repo, commit_sha: str, run_type: str, setup_check: str = "") -> StatusVerdict:
     """The status a commit gets under `ledger` rules, in any mode. Posts nothing.
 
     The recheck command shows it before the switch, to count what the switch turns red or pending.
-    `setup_check` names the CI job that creates the run of this run type.
+    `setup_check` names the CI job that creates the run of this run type. Lets `GITHUB_READ_REFUSED`
+    through, so the caller can tell a refused read from a verdict.
     """
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
@@ -485,7 +472,11 @@ def publish_after_switch(repo: Repo, commit_sha: str, run_type: str, setup_check
     It decides as `ledger_verdict` does, so the recheck command posts what its dry run showed.
     """
     if _newest_run(repo, commit_sha, run_type) is None:
-        verdict = _verdict_without_run(repo, commit_sha, setup_check)
+        try:
+            verdict = _verdict_without_run(repo, commit_sha, setup_check)
+        except github_api.GITHUB_READ_REFUSED:
+            # A refused read means GitHub or the egress budget sheds load, so the caller stops.
+            return False
         posted = ci_status._send_commit_status(
             repo,
             commit_sha,

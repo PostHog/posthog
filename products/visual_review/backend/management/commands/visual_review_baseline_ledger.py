@@ -93,7 +93,7 @@ class Command(BaseCommand):
             "--setup-check",
             default="",
             help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it. "
-            "Needs exactly one --run-type.",
+            "Needs exactly one --run-type. --apply needs it.",
         )
         recheck.add_argument(
             "--pause",
@@ -333,7 +333,10 @@ class Command(BaseCommand):
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
         for head in heads:
             for run_type in run_types:
-                verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type, setup_check)
+                try:
+                    verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type, setup_check)
+                except github_api.GITHUB_READ_REFUSED:
+                    verdict = commit_status.StatusVerdict(state="unknown", description="read refused")
                 # Counts and the partial-run note would give almost every head a line of its own.
                 reason = _COUNT_RE.sub("N", verdict.description.removesuffix(" (partial run)"))
                 pull_requests_by_reason.setdefault((run_type, verdict.state, reason), set()).add(head.pr_number)
@@ -370,8 +373,14 @@ class Command(BaseCommand):
                 "--apply posts the gate's status, so it needs the commit status gate. "
                 "Without --apply the command only shows the statuses."
             )
-        run_types = self._run_types(repo, options.get("run_types"))
         setup_check = options["setup_check"]
+        # Without it every head without a run would get a pending status.
+        if apply and not setup_check:
+            raise CommandError(
+                "--apply needs --setup-check, the CI job that creates the run, to tell a head that needs no run "
+                "from one whose run is gone. Nothing was posted."
+            )
+        run_types = self._run_types(repo, options.get("run_types"))
         # Each run type has its own CI job that creates its run.
         if setup_check and len(run_types) != 1:
             raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")

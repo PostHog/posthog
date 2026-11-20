@@ -11,6 +11,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, NoRunNeededInput, SnapshotManifestItem
@@ -38,7 +40,6 @@ from products.visual_review.backend.logic import (
     ledger_recheck,
     quarantine,
     repos,
-    retention,
     runs,
     toleration,
 )
@@ -988,15 +989,12 @@ def _serve_heads(
     mocker,
     pull_requests: dict[int, str],
     merge_queue: dict[int, str],
-    committed_ago: timedelta | None = timedelta(0),
-    setup_check_conclusions: list[str] | None = None,
+    setup_check_conclusions: list[str] | None | Exception = None,
 ) -> None:
-    mocker.patch.object(
-        github_api,
-        "commit_committed_at",
-        return_value=None if committed_ago is None else timezone.now() - committed_ago,
-    )
-    mocker.patch.object(github_api, "check_run_conclusions", return_value=setup_check_conclusions)
+    if isinstance(setup_check_conclusions, Exception):
+        mocker.patch.object(github_api, "check_run_conclusions", side_effect=setup_check_conclusions)
+    else:
+        mocker.patch.object(github_api, "check_run_conclusions", return_value=setup_check_conclusions)
     mocker.patch.object(
         github_api,
         "open_pull_request_heads",
@@ -1009,7 +1007,9 @@ def _serve_heads(
     )
 
 
-def _recheck_command(repo: Repo, *flags: str) -> str:
+def _recheck_command(repo: Repo, *flags: str, setup_check: str = "Create Visual Review run") -> str:
+    if setup_check:
+        flags = (*flags, "--setup-check", setup_check)
     output = StringIO()
     call_command(
         "visual_review_baseline_ledger",
@@ -1026,8 +1026,6 @@ def _recheck_command(repo: Repo, *flags: str) -> str:
     return output.getvalue()
 
 
-YOUNG_COMMIT = timedelta(hours=1)
-OLD_COMMIT = timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS, hours=1)
 RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
 
 
@@ -1443,48 +1441,36 @@ class TestLedgerRecheck:
         )
         _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {3: "queue-3"})
 
-        output = _recheck_command(repo)
+        output = _recheck_command(repo, setup_check="")
 
         assert output.splitlines()[1:] == [
             "Dry run, nothing was posted. Pull requests per run type, state and reason:",
             "storybook failure (1) Tested before the switch to ledger mode. Enqueue again: #3",
+            "storybook pending (1) No setup check given: #4",
             "storybook pending (1) Re-run Visual Review: N snapshot needs the new baseline: #1",
             "storybook success (1) No visual changes: #2",
-            "storybook success (1) No visual run for this commit: #4",
         ]
         assert sender.call_count == 0
         with pytest.raises(CommandError, match="needs the commit status gate"):
             _recheck_command(repo, "--apply")
 
     @pytest.mark.parametrize(
-        ("setup_check", "committed_ago", "conclusions", "without_run"),
+        ("conclusions", "without_run"),
         [
             pytest.param(
-                True,
-                OLD_COMMIT,
-                ["skipped"],
-                ("success", commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION),
-                id="setup_job_skipped",
+                ["skipped"], ("success", commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION), id="setup_job_skipped"
             ),
-            pytest.param(
-                True, YOUNG_COMMIT, ["success"], ("pending", RUN_GONE), id="setup_job_ran_and_the_run_is_gone"
-            ),
-            pytest.param(True, YOUNG_COMMIT, [], ("pending", RUN_GONE), id="no_setup_job"),
-            pytest.param(True, YOUNG_COMMIT, None, ("pending", RUN_GONE), id="setup_job_unknown"),
-            pytest.param(False, YOUNG_COMMIT, None, ("success", commit_status.NO_RUN_DESCRIPTION), id="young_commit"),
-            pytest.param(False, OLD_COMMIT, None, ("pending", RUN_GONE), id="commit_older_than_retention"),
-            pytest.param(False, None, None, ("pending", RUN_GONE), id="commit_date_unknown"),
+            pytest.param(["success"], ("pending", RUN_GONE), id="setup_job_ran_and_the_run_is_gone"),
+            pytest.param([], ("pending", RUN_GONE), id="no_setup_job"),
+            pytest.param(None, ("pending", RUN_GONE), id="setup_job_unknown"),
         ],
     )
-    def test_the_recheck_posts_on_every_head(
-        self, repo, sender, mocker, setup_check, committed_ago, conclusions, without_run
-    ) -> None:
+    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker, conclusions, without_run) -> None:
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
         _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
-        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, committed_ago, conclusions)
-        flags = ("--setup-check", "Create Visual Review run") if setup_check else ()
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, conclusions)
 
-        _recheck_command(repo, "--apply", *flags)
+        _recheck_command(repo, "--apply")
 
         posted = {call.args[1]: _posted_one(call) for call in sender.call_args_list}
         assert posted == {
@@ -1501,3 +1487,27 @@ class TestLedgerRecheck:
             _recheck_command(repo, "--apply")
 
         assert sender.call_count == 2
+
+    def test_the_recheck_apply_needs_the_setup_check(self, repo, sender, mocker) -> None:
+        _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])
+
+        with pytest.raises(CommandError, match="needs --setup-check"):
+            _recheck_command(repo, "--apply", setup_check="")
+
+        assert sender.call_count == 0
+
+    def test_a_refused_evidence_read_is_unknown_in_the_dry_run_and_stops_the_apply(self, repo, sender, mocker) -> None:
+        _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
+        _serve_heads(
+            mocker, {1: "head-1", 4: "head-4", 5: "head-5"}, {}, GitHubEgressBudgetExhausted("shed", scope="1")
+        )
+
+        output = _recheck_command(repo)
+        with pytest.raises(CommandError, match="1 of 3 statuses posted, 2 remain"):
+            _recheck_command(repo, "--apply")
+
+        assert output.splitlines()[2:] == [
+            "storybook pending (1) Re-run Visual Review: N snapshot needs the new baseline: #1",
+            "storybook unknown (2) read refused: #4, #5",
+        ]
+        assert _posted(sender) == [(self.GATING, RERUN_ONE.state, RERUN_ONE.description)]
