@@ -349,7 +349,7 @@ def send_accepted_transactional_email_batch(
 def _post_transactional_email_batch(path: str, token: str, payload: dict, timeout: float) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + path,
-        data=json.dumps(payload, ensure_ascii=False).encode(),
+        data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
         timeout=timeout,
     )
