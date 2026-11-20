@@ -46,7 +46,9 @@ import {
     mergeAppCellOutput,
     moveAppBlock,
     newAppBlock,
+    normalizeAppLayout,
     pinAppCell,
+    pinAppCells,
 } from './notebookAppLayout'
 
 export interface NotebookAppLogicProps {
@@ -326,10 +328,11 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                     if (source.values.notebookLoading || source.values.localContent !== null) {
                         throw new Error('Wait for the notebook to finish saving, then try again.')
                     }
+                    const layout = normalizeAppLayout(values.layout)
                     const result = await notebooksPartialUpdate(String(ApiConfig.getCurrentTeamId()), props.shortId, {
                         app_revision: values.savedNotebook?.app_revision ?? 0,
-                        app_draft: values.layout,
-                        ...(publish ? { app_published: values.layout } : {}),
+                        app_draft: layout,
+                        ...(publish ? { app_published: layout } : {}),
                     })
                     posthog.capture(publish ? 'notebook app published' : 'notebook app saved', {
                         short_id: props.shortId,
@@ -588,17 +591,19 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
             })
         },
         useNotebookLayout: () => {
-            let markdown = values.markdownEditorValue
-            const blocks = values.cells.slice(0, 100).map((cell) => {
-                const pinned = pinAppCell(markdown, cell.id)
-                markdown = pinned.markdown
+            const cells = values.cells.slice(0, 100)
+            const pinned = pinAppCells(
+                values.markdownEditorValue,
+                cells.map((cell) => cell.id)
+            )
+            const blocks = cells.map((cell, index) => {
                 return newAppBlock('cell', values.activeTab, {
-                    node_id: pinned.nodeId,
+                    node_id: pinned.nodeIds[index],
                     title: appCellTitle(cell),
                     display: 'output',
                 })
             })
-            notebookLogic({ shortId: props.shortId }).actions.handleMarkdownEditorChange(markdown)
+            notebookLogic({ shortId: props.shortId }).actions.handleMarkdownEditorChange(pinned.markdown)
             notebookLogic({ shortId: props.shortId }).actions.saveNotebookNow()
             actions.changeLayout({ ...values.layout, blocks })
         },
@@ -622,7 +627,10 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
     }),
     beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) =>
-            values.dirty && newLocation?.pathname !== router.values.location.pathname,
+            values.dirty &&
+            (!newLocation ||
+                newLocation.pathname !== router.values.location.pathname ||
+                newLocation.searchParams.view !== router.values.searchParams.view),
         message: 'Leave this notebook? Unsaved app layout changes will be discarded.',
     })),
 ])

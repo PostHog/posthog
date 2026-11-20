@@ -45,6 +45,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -108,10 +109,11 @@ def _flatten_item(item: dict[str, Any], account_id: str | None) -> dict[str, Any
     """
     # `id` is the primary key, so read it directly: a malformed item without one should fail loudly
     # rather than seed a row under a `None` key that later merges multi-match or duplicate.
-    row: dict[str, Any] = {"id": item["id"], "type": item.get("type")}
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        row.update(attributes)
+    row = flatten_jsonapi(
+        {"id": item["id"], "type": item.get("type"), "attributes": item.get("attributes")},
+        relationships_as_ids=False,
+        on_clash="nested",
+    )
     if account_id is not None:
         row["account_id"] = account_id
     return row

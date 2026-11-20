@@ -1,14 +1,20 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, Suspense, useEffect } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
 
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { NotebookAppAgentIntegration } from './NotebookAppAgentIntegration'
-import { NotebookAppBuilder } from './NotebookAppBuilder'
+
+const NotebookAppBuilder = lazyWithRetry(() =>
+    import('./NotebookAppBuilder').then(({ NotebookAppBuilder }) => ({ default: NotebookAppBuilder }))
+)
 
 export function NotebookAppScene({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -65,7 +71,13 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
     return (
         <>
             <NotebookAppAgentIntegration shortId={shortId} />
-            {view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}
+            {view === 'notebook' ? (
+                children
+            ) : (
+                <Suspense fallback={<Spinner />}>
+                    <NotebookAppBuilder shortId={shortId} published={view === 'app'} />
+                </Suspense>
+            )}
         </>
     )
 }

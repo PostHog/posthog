@@ -54,6 +54,15 @@ AUTOMATION_FANOUT = DependentEndpointConfig(
     parent_params={"sort": "+zylo_created_at"},
 )
 
+# Functionalities are only listable per application. Rows already carry `application_id`.
+APPLICATION_FANOUT = DependentEndpointConfig(
+    parent_name="Applications",
+    resolve_param="applicationId",
+    resolve_field="id",
+    include_from_parent=[],
+    parent_params={"sort": "+zylo_created_at"},
+)
+
 
 # Every resource except AutomationExecutions is a top-level list endpoint.
 ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
@@ -160,6 +169,26 @@ ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
         name="Views",
         path="/v2/views",
         table_name="views",
+    ),
+    "PendingContractLineItems": ZyloEndpointConfig(
+        name="PendingContractLineItems",
+        path="/v2/pendingContractLineItems",
+        table_name="pending_contract_line_items",
+    ),
+    # The docs do not say that a functionality id is unique across applications, so the key
+    # includes the parent application.
+    "ApplicationFunctionalities": ZyloEndpointConfig(
+        name="ApplicationFunctionalities",
+        path="/v2/applications/{applicationId}/functionalities",
+        table_name="application_functionalities",
+        primary_keys=["application_id", "id"],
+        fanout=APPLICATION_FANOUT,
+    ),
+    # Requires the `admin` scope.
+    "CustomFields": ZyloEndpointConfig(
+        name="CustomFields",
+        path="/v2/customFields",
+        table_name="custom_fields",
     ),
 }
 

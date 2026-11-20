@@ -791,6 +791,7 @@ describe('Inbox setup', () => {
                 created_at: '2026-10-14T12:00:00Z',
                 updated_at: '2026-10-14T12:00:00Z',
                 status: null,
+                filter_status: null,
             },
         ]
         useMocks({

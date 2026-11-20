@@ -1,6 +1,14 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 
-import { appSourceCells, emptyAppLayout, mergeAppCellOutput, moveAppBlock, pinAppCell } from './notebookAppLayout'
+import {
+    appSourceCells,
+    emptyAppLayout,
+    mergeAppCellOutput,
+    moveAppBlock,
+    normalizeAppLayout,
+    pinAppCell,
+    pinAppCells,
+} from './notebookAppLayout'
 
 it('keeps an app source attached to a text cell after its content changes', () => {
     const markdown = '## Original title\n\nSome context'
@@ -17,6 +25,55 @@ it('preserves executable cell identifiers and code when linking a source', () =>
     expect(appSourceCells(markdown)[0].id).toBe('query-1')
     expect(appSourceCells(markdown.replace('select 1', 'select 2'))[0].id).toBe('query-1')
     expect(pinAppCell(markdown, 'query-1')).toEqual({ markdown, nodeId: 'query-1' })
+})
+
+it('persists a new identifier for multiline cells so app results merge back into the source', () => {
+    const markdown = '<SQLV2 code="select 1"\n  height={600}\n/>'
+    const pinned = pinAppCell(markdown, appSourceCells(markdown)[0].id)
+    expect(appSourceCells(pinned.markdown)[0]).toMatchObject({
+        id: pinned.nodeId,
+        props: { nodeId: pinned.nodeId, code: 'select 1', height: 600 },
+    })
+    const output = `<SQLV2 nodeId="${pinned.nodeId}" code="select 1" runStatus="done" result={{"first_page":[[1]]}} />`
+    expect(appSourceCells(mergeAppCellOutput(pinned.markdown, pinned.nodeId, output))[0]).toMatchObject({
+        props: { nodeId: pinned.nodeId, height: 600, runStatus: 'done', result: { first_page: [[1]] } },
+    })
+})
+
+it('preserves malformed cell source when pinning it or receiving a run result', () => {
+    const markdown = '<SQLV2 code="select 1" "unparseable />'
+    const pinned = pinAppCell(markdown, appSourceCells(markdown)[0].id)
+    expect(pinned.markdown).toContain(markdown)
+    expect(appSourceCells(pinned.markdown)[0].id).toBe(pinned.nodeId)
+
+    const source = '<SQLV2 nodeId="query-1" code="select 1" "unparseable />'
+    const output = '<SQLV2 nodeId="query-1" code="select 1" runStatus="done" />'
+    expect(mergeAppCellOutput(source, 'query-1', output)).toBe(source)
+})
+
+it('links repeated paragraphs to distinct persistent sources in bulk', () => {
+    const markdown = 'Repeated paragraph\n\nRepeated paragraph\n\n<SQLV2 nodeId="query-1" code="select 1" />'
+    const cells = appSourceCells(markdown)
+    const pinned = pinAppCells(
+        markdown,
+        cells.map((cell) => cell.id)
+    )
+    expect(new Set(pinned.nodeIds).size).toBe(3)
+    expect(appSourceCells(pinned.markdown).map((cell) => cell.id)).toEqual(pinned.nodeIds)
+    expect(pinned.nodeIds.slice(0, 2).every((id) => id.startsWith('phb-'))).toBe(true)
+    expect(pinned.nodeIds[2]).toBe('query-1')
+    expect(pinAppCells(pinned.markdown, pinned.nodeIds)).toEqual(pinned)
+})
+
+it('normalizes dropdown options at save time without changing the editable lines', () => {
+    const layout = {
+        ...emptyAppLayout(),
+        blocks: [
+            { id: 'region', kind: 'input' as const, tab_id: 'overview', options: [' Europe ', '', '  ', 'Asia', ''] },
+        ],
+    }
+    expect(normalizeAppLayout(layout).blocks[0].options).toEqual(['Europe', 'Asia'])
+    expect(layout.blocks[0].options).toEqual([' Europe ', '', '  ', 'Asia', ''])
 })
 
 it.each(['select 1', 'select 2'])('merges app execution output without overwriting source edits: %s', (code) => {

@@ -22,6 +22,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="notebook",
             name="app_revision",
-            field=models.PositiveIntegerField(default=0),
+            field=models.PositiveIntegerField(default=0, db_default=0),
         ),
     ]

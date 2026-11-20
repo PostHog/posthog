@@ -23,7 +23,7 @@ def notebook_app_builder_enabled(user: User, team: Team) -> bool:
             groups=identity.groups,
             group_properties=identity.group_properties,
             person_properties=identity.person_properties,
-            only_evaluate_locally=False,
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     )

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-19 10:04:21 UTC
+// Generated at: 2026-11-20 10:04:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -204,6 +204,7 @@ export type CanonicalProvider =
     | 'primalabs'
     | 'primalabs-fp8'
     | 'primalabs-mxfp4'
+    | 'primalabs-nvfp4'
     | 'primeintellect'
     | 'primeintellect-bf16'
     | 'primeintellect-fp4'
@@ -233,7 +234,6 @@ export type CanonicalProvider =
     | 'tencent-fp4'
     | 'tencent-fp8'
     | 'tenstorrent-fp8'
-    | 'thinkingmachines-nvfp4'
     | 'together'
     | 'typesafe'
     | 'unbiased'
