@@ -215,10 +215,8 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
     "reject_on_worker_lost": False,
 }
 
-# The parent publishes one capture_report task per organization, far faster than the
-# usage_reports workers run them. Without a limit the whole run (hundreds of thousands of
-# tasks, tens of KB each) sits in the broker at once. The parent waits for the queue
-# instead; the run takes as long as before, because the workers set the pace either way.
+# The parent publishes far faster than the workers consume, so it waits rather than parking the
+# whole run in the broker. The workers set the finish time either way.
 USAGE_REPORT_QUEUE_MAX_DEPTH = 20_000
 USAGE_REPORT_QUEUE_CHECK_INTERVAL = 1_000
 USAGE_REPORT_QUEUE_POLL_SECONDS = 5

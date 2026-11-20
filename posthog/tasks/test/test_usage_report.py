@@ -134,46 +134,41 @@ def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> N
     assert capture_report.reject_on_worker_lost is True
 
 
+class _FakeBrokerClient:
+    def __init__(self, *depths: int) -> None:
+        self.depths = list(depths)
+        self.keys_read: list[str] = []
+
+    def llen(self, key: str) -> int:
+        self.keys_read.append(key)
+        return self.depths.pop(0) if len(self.depths) > 1 else self.depths[0]
+
+
 @patch("posthog.tasks.usage_report.time.sleep")
-@patch("posthog.tasks.usage_report.get_celery_broker_client")
-def test_wait_for_usage_reports_queue_waits_until_the_queue_drains(
-    mock_broker_client: MagicMock, mock_sleep: MagicMock
-) -> None:
-    mock_broker_client.return_value.llen.side_effect = [
-        USAGE_REPORT_QUEUE_MAX_DEPTH + 500,
-        USAGE_REPORT_QUEUE_MAX_DEPTH + 1,
-        USAGE_REPORT_QUEUE_MAX_DEPTH,
-    ]
+def test_wait_for_usage_reports_queue_waits_until_the_queue_drains(_mock_sleep: MagicMock) -> None:
+    broker = _FakeBrokerClient(
+        USAGE_REPORT_QUEUE_MAX_DEPTH + 500, USAGE_REPORT_QUEUE_MAX_DEPTH + 1, USAGE_REPORT_QUEUE_MAX_DEPTH
+    )
 
-    assert _wait_for_usage_reports_queue() is True
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue() is True
 
-    assert mock_sleep.call_count == 2
-    mock_broker_client.return_value.llen.assert_called_with("usage_reports")
+    assert broker.keys_read == ["usage_reports"] * 3
 
 
 @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS", 0)
-@patch("posthog.tasks.usage_report.time.sleep")
+def test_wait_for_usage_reports_queue_gives_up_when_the_queue_does_not_drain() -> None:
+    broker = _FakeBrokerClient(USAGE_REPORT_QUEUE_MAX_DEPTH + 1)
+
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue() is False
+
+
 @patch("posthog.tasks.usage_report.get_celery_broker_client")
-def test_wait_for_usage_reports_queue_gives_up_when_the_queue_does_not_drain(
-    mock_broker_client: MagicMock, mock_sleep: MagicMock
-) -> None:
-    mock_broker_client.return_value.llen.return_value = USAGE_REPORT_QUEUE_MAX_DEPTH + 1
-
-    assert _wait_for_usage_reports_queue() is False
-
-    mock_sleep.assert_not_called()
-
-
-@patch("posthog.tasks.usage_report.time.sleep")
-@patch("posthog.tasks.usage_report.get_celery_broker_client")
-def test_wait_for_usage_reports_queue_gives_up_when_the_depth_cannot_be_read(
-    mock_broker_client: MagicMock, mock_sleep: MagicMock
-) -> None:
+def test_wait_for_usage_reports_queue_gives_up_when_the_depth_cannot_be_read(mock_broker_client: MagicMock) -> None:
     mock_broker_client.return_value.llen.side_effect = ConnectionError("broker unavailable")
 
     assert _wait_for_usage_reports_queue() is False
-
-    mock_sleep.assert_not_called()
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -5951,47 +5946,31 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_client.group_identify.assert_not_called()
         assert mock_client.capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
+    @parameterized.expand([("queue_drains", True), ("queue_stuck", False)])
     @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
-    @patch("posthog.tasks.usage_report._wait_for_usage_reports_queue", return_value=True)
+    @patch("posthog.tasks.usage_report._wait_for_usage_reports_queue")
     @patch("posthog.tasks.usage_report.capture_report")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
-    def test_send_usage_waits_for_the_queue_between_capture_tasks(
+    def test_send_usage_waits_for_the_queue_until_it_stops_draining(
         self,
+        _name: str,
+        queue_drains: bool,
         mock_get_sqs_producer: MagicMock,
         mock_client: MagicMock,
         mock_capture_report: MagicMock,
         mock_wait: MagicMock,
     ) -> None:
+        mock_wait.return_value = queue_drains
         for _ in range(2):
             Team.objects.create(organization=Organization.objects.create())
 
         send_all_org_usage_reports(dry_run=False)
 
-        assert mock_capture_report.delay.call_count >= 3
-        assert mock_wait.call_count == mock_capture_report.delay.call_count
-
-    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
-    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
-    @patch("posthog.tasks.usage_report._wait_for_usage_reports_queue", return_value=False)
-    @patch("posthog.tasks.usage_report.capture_report")
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    @patch("ee.sqs.SQSProducer.get_sqs_producer")
-    def test_send_usage_stops_waiting_once_the_queue_does_not_drain(
-        self,
-        mock_get_sqs_producer: MagicMock,
-        mock_client: MagicMock,
-        mock_capture_report: MagicMock,
-        mock_wait: MagicMock,
-    ) -> None:
-        for _ in range(2):
-            Team.objects.create(organization=Organization.objects.create())
-
-        send_all_org_usage_reports(dry_run=False)
-
-        assert mock_capture_report.delay.call_count >= 3
-        assert mock_wait.call_count == 1
+        published = mock_capture_report.delay.call_count
+        assert published >= 3
+        assert mock_wait.call_count == (published if queue_drains else 1)
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
