@@ -209,7 +209,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
 
                 tabs.push(SidePanelTab.Max)
-                // The Today layout opens notebooks as a page, never in the side panel
                 if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                     tabs.push(SidePanelTab.Notebooks)
                 }
@@ -302,6 +301,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         },
         openSidePanel: ({ tab }) => {
             closeNotebooksUnderToday(tab, values, actions)
+        },
+        // The navigation switch turns the flag on in place, so no open or mount runs for a notebook panel left open
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (values.sidePanelOpen) {
+                closeNotebooksUnderToday(values.selectedTab, values, actions)
+            }
         },
     })),
     afterMount(({ actions, values }) => {

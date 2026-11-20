@@ -160,7 +160,6 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         Jupyter mode
                     </SceneMenuBarCheckboxItem>
                 )}
-                {/* The Today layout has no notebook side panel */}
                 {!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
                     <>
                         <SceneMenuBarSeparator />
