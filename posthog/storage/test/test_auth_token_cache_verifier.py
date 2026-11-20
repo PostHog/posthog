@@ -601,7 +601,7 @@ class TestAuthTokenCacheVerifier(TestCase):
     # --- Redis delete error ---
 
     def test_redis_delete_error_increments_delete_errors(self):
-        # Insert a stale entry (team_id that doesn't exist)
+        # Stale because no PSAK matches this hash
         self._set_cache(
             "sha256$stale_for_delete_error",
             {"type": "project_secret", "team_id": 999999999, "key_id": "none", "scopes": []},
@@ -752,20 +752,22 @@ class TestAuthTokenCacheVerifier(TestCase):
 
     # --- Unknown token type increments parse_errors ---
 
-    def test_unknown_token_type_increments_parse_errors(self):
-        key = self._set_cache(
-            "sha256$unknown_future_type_counters",
-            {
-                "type": "unknown_future_type",
-                "data": "something",
-            },
-        )
+    @parameterized.expand(
+        [
+            ("future_type", {"type": "unknown_future_type", "data": "something"}),
+            # A leftover legacy entry has no branch of its own any more and must fall here.
+            ("legacy_secret", {"type": "secret", "team_id": 1}),
+        ]
+    )
+    def test_unknown_token_type_increments_parse_errors(self, _name, data):
+        key = self._set_cache("sha256$unknown_future_type_counters", data)
 
         result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
 
         assert not self.redis.exists(key)
         assert result.parse_errors >= 1
         assert result.stale_found >= 1
+        assert result.stale_by_type["unknown"] >= 1
 
     # --- Non-integer team_id entries ---
 
