@@ -214,7 +214,7 @@ export const DISPLAY_OPTIONS = [
     {
         name: 'annotations',
         label: 'Annotations',
-        info: 'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
+        info: 'Annotations are saved on an insight, a dashboard, the project, the organization, or for only you. Choose which of those to show here.',
         group: 'display',
         advanced: true,
         control: 'select',
@@ -225,6 +225,7 @@ export const DISPLAY_OPTIONS = [
             { value: AnnotationScope.Dashboard, label: 'Dashboard' },
             { value: AnnotationScope.Project, label: 'Project' },
             { value: AnnotationScope.Organization, label: 'Organization' },
+            { value: AnnotationScope.User, label: 'Only me' },
         ],
     },
     { name: 'unit', label: 'Unit', stacked: true, group: 'display', control: 'custom' },

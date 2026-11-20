@@ -111,6 +111,23 @@ class TestChangeFeed(APIBaseTest):
 
         assert [change["kind"] for change in feed["results"]] == ["annotation"]
 
+    @time_machine.travel(NOW, tick=False)
+    def test_personal_annotations_reach_only_their_creator(self) -> None:
+        Annotation.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            content="My own note",
+            date_marker=NOW - timedelta(minutes=30),
+            scope=AnnotationScope.USER,
+        )
+        member = User.objects.create_and_join(self.organization, "change-feed-member@example.com", "password")
+
+        assert [change["name"] for change in self._list()["results"]] == ["My own note"]
+
+        self.client.force_login(member)
+        assert self._list()["results"] == []
+
     @parameterized.expand(
         [
             ("annotation_scope_only", ["annotation:read"], ["annotation"]),

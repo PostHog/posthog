@@ -431,7 +431,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.13
@@ -555,7 +557,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   ORDER BY "posthog_annotation"."date_marker" DESC,
            "posthog_annotation"."id" DESC
   LIMIT 1000
@@ -855,7 +859,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.18
@@ -979,7 +985,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   ORDER BY "posthog_annotation"."date_marker" DESC,
            "posthog_annotation"."id" DESC
   LIMIT 1000
@@ -1055,7 +1063,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.4
@@ -1352,7 +1362,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.8
@@ -1476,7 +1488,9 @@
                   AND "posthog_annotation"."scope" = 'dashboard')
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 99999))
+              OR "posthog_annotation"."team_id" = 99999)
+         AND (NOT ("posthog_annotation"."scope" = 'user')
+              OR "posthog_annotation"."created_by_id" = 99999))
   ORDER BY "posthog_annotation"."date_marker" DESC,
            "posthog_annotation"."id" DESC
   LIMIT 1000

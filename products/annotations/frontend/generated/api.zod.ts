@@ -46,13 +46,13 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording', 'user'])
         .describe(
-            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. `user` makes the annotation personal: only the user who created it sees it, on every chart in the project. Only the creator can set `user`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         ),
     emoji: zod
         .string()
@@ -104,13 +104,13 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording', 'user'])
         .describe(
-            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. `user` makes the annotation personal: only the user who created it sees it, on every chart in the project. Only the creator can set `user`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         ),
     emoji: zod
         .string()
@@ -162,13 +162,13 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Soft-delete flag. Set to true to hide the annotation, or false to restore it.'),
     scope: zod
-        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
+        .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording', 'user'])
         .describe(
-            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. `user` makes the annotation personal: only the user who created it sees it, on every chart in the project. Only the creator can set `user`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording\n\* `user` - user'
         ),
     emoji: zod
         .string()

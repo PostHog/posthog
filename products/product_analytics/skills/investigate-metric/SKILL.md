@@ -192,6 +192,8 @@ The chart explanation already holds the chart, the chapters, their causes and th
 
 Without the chart explanation, use the format below. Offer to save key charts via `posthog:insight-create`.
 If a cause is found and no annotation marks it, offer `posthog:annotation-create`.
+Use `scope: project` for a cause the whole team should see, such as a release or an incident.
+Use `scope: user` for notes that only matter to this user's analysis, so they do not clutter the team's charts.
 See [common-causes.md](./references/common-causes.md) for the cause taxonomy.
 
 ```markdown

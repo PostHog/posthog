@@ -16049,6 +16049,7 @@ export namespace Schemas {
      * * `project` - project
      * * `organization` - organization
      * * `recording` - recording
+     * * `user` - user
      */
     export type AnnotationScopeEnum = typeof AnnotationScopeEnum[keyof typeof AnnotationScopeEnum];
 
@@ -16059,6 +16060,7 @@ export namespace Schemas {
       Project: 'project',
       Organization: 'organization',
       Recording: 'recording',
+      User: 'user',
     } as const;
 
     export interface Annotation {
@@ -16121,13 +16123,14 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
-      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. `user` makes the annotation personal: only the user who created it sees it, on every chart in the project. Only the creator can set `user`. `recording` is deprecated and rejected.
        *
        * * `dashboard_item` - insight
        * * `dashboard` - dashboard
        * * `project` - project
        * * `organization` - organization
-       * * `recording` - recording */
+       * * `recording` - recording
+       * * `user` - user */
       scope?: AnnotationScopeEnum;
       /**
          * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
@@ -89594,13 +89597,14 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
-      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `user`. `user` makes the annotation personal: only the user who created it sees it, on every chart in the project. Only the creator can set `user`. `recording` is deprecated and rejected.
        *
        * * `dashboard_item` - insight
        * * `dashboard` - dashboard
        * * `project` - project
        * * `organization` - organization
-       * * `recording` - recording */
+       * * `recording` - recording
+       * * `user` - user */
       scope?: AnnotationScopeEnum;
       /**
          * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.

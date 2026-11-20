@@ -37,6 +37,7 @@ export function AnnotationModal({
         isAnnotationModalSubmitting,
         onSavedInsight,
         timezone,
+        user,
     } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
@@ -91,6 +92,15 @@ export function AnnotationModal({
         {
             value: AnnotationScope.Organization,
             label: annotationScopeToName[AnnotationScope.Organization],
+        },
+        {
+            value: AnnotationScope.User,
+            label: annotationScopeToName[AnnotationScope.User],
+            tooltip: 'Only you can see this annotation. It shows on every insight in this project.',
+            disabledReason:
+                existingModalAnnotation && existingModalAnnotation.created_by?.id !== user?.id
+                    ? 'Only the person who created this annotation can make it private'
+                    : undefined,
         },
     ]
 

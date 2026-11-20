@@ -8,6 +8,7 @@ from posthog.models.activity_logging.utils import activity_visibility_manager
 
 from products.annotations.backend.facade.contracts import Change, ChangeFeed, ChangeWindow, KindVisibility
 from products.annotations.backend.facade.enums import AnnotationScope, ChangeKind
+from products.annotations.backend.logic.annotations import personal_visibility
 from products.annotations.backend.models.annotation import Annotation
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -94,11 +95,18 @@ def _release_changes(*, team_id: int, window: ChangeWindow, limit: int) -> list[
 
 
 def _annotation_changes(
-    *, team_id: int, organization_id: UUID, window: ChangeWindow, visibility: KindVisibility, limit: int
+    *,
+    team_id: int,
+    organization_id: UUID,
+    viewer_id: int | None,
+    window: ChangeWindow,
+    visibility: KindVisibility,
+    limit: int,
 ) -> list[Change]:
     queryset = (
         Annotation.objects.select_related("created_by")
         .filter(Q(scope=AnnotationScope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id))
+        .filter(personal_visibility(viewer_id))
         .filter(deleted=False, date_marker__gte=window.start, date_marker__lte=window.end)
         # Matches the annotations list: a note on a soft-deleted insight or dashboard is hidden.
         .exclude(scope=AnnotationScope.INSIGHT, dashboard_item__deleted=True)
@@ -130,6 +138,7 @@ def list_changes(
     team_id: int,
     organization_id: UUID,
     user_is_staff: bool,
+    viewer_id: int | None,
     window: ChangeWindow,
     visibility: dict[ChangeKind, KindVisibility],
     limit: int,
@@ -156,6 +165,7 @@ def list_changes(
             changes += _annotation_changes(
                 team_id=team_id,
                 organization_id=organization_id,
+                viewer_id=viewer_id,
                 window=window,
                 visibility=kind_visibility,
                 limit=limit + 1,
