@@ -4888,6 +4888,83 @@ jobs:
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
 
+    # Lists the tests Trunk quarantined that still failed, which the green shards hide. Warn-only:
+    # nothing needs this job, so it cannot change the gate, and each step swallows its own failure.
+    report-quarantined-failures:
+        name: Report quarantined failures
+        needs: [django, turbo-tests]
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        if: >-
+            !cancelled() &&
+            github.event_name == 'pull_request' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            vars.TRUNK_QUARANTINE_ENABLED == 'true' &&
+            (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/post-quarantined-failures-section.mjs
+                      frontend/bin/ci-report
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+            - name: Check for the section script
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/post-quarantined-failures-section.mjs ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Section script not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download shard JUnit results
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: '{junit-results-backend,product-junit-results}-*'
+                  path: /tmp/junit-quarantine/
+            - name: Keep only each shard's latest attempt
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-quarantine 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
+            - name: Get app token for CI report
+              if: steps.reporter.outputs.available == 'true'
+              id: ci-report-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.ci-report-app-token.outputs.token != ''
+              continue-on-error: true
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+            - name: Post to CI report comment
+              if: steps.ci-report-app-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+                  DJANGO_RESULT: ${{ needs.django.result }}
+                  TURBO_RESULT: ${{ needs.turbo-tests.result }}
+              run: node .github/scripts/post-quarantined-failures-section.mjs /tmp/junit-quarantine
+
     backend-coverage-report:
         name: Backend coverage report
         needs: [changes, django, turbo-tests, django_tests, turbo-discover]

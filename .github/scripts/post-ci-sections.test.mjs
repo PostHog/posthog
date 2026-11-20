@@ -5,6 +5,12 @@ import { buildDependencyScanSection } from './post-dependency-scan-section.mjs'
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
 import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
+import {
+    buildQuarantinedFailuresSection,
+    collectFailures,
+    failedTestIds,
+    testJobsPassed,
+} from './post-quarantined-failures-section.mjs'
 import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
@@ -254,5 +260,67 @@ describe('CI report section builders', () => {
         assert.match(ready.body, /https:\/\/hobby\.example\.com/)
         assert.equal(failed.status, 'fail')
         assert.match(failed.body, /line 2/)
+    })
+})
+
+describe('quarantined failures section', () => {
+    const report = `<?xml version="1.0"?><testsuites><testsuite name="pytest">
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_passes" file="posthog/api/test/test_a.py"/>
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_fails" file="posthog/api/test/test_a.py"><failure message="assert 400 == 201">boom</failure></testcase>
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_errors[a&amp;b]" file="posthog/api/test/test_a.py"><error message="setup">boom</error></testcase>
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_flaky" file="posthog/api/test/test_a.py"><failure message="first try">x</failure></testcase>
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_flaky" file="posthog/api/test/test_a.py"/>
+        <testcase classname="posthog.api.test.test_a.TestA" name="test_skipped" file="posthog/api/test/test_a.py"><skipped message="s"/></testcase>
+    </testsuite></testsuites>`
+
+    it('lists tests whose final result is a failure or error, and not a rerun that passed', () => {
+        assert.deepEqual(failedTestIds(report), [
+            'posthog/api/test/test_a.py::test_fails',
+            'posthog/api/test/test_a.py::test_errors[a&b]',
+        ])
+    })
+
+    it('refuses a report that declares entities', () => {
+        assert.deepEqual(failedTestIds(`<!DOCTYPE x [<!ENTITY a "b">]>${report}`), [])
+    })
+
+    it('reads shard and product reports from artifact directories', async () => {
+        const fs = await import('node:fs')
+        const os = await import('node:os')
+        const path = await import('node:path')
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'junit-'))
+        fs.mkdirSync(path.join(dir, 'junit-results-backend-core-4'))
+        fs.writeFileSync(path.join(dir, 'junit-results-backend-core-4', 'junit-core.xml'), report)
+        fs.mkdirSync(path.join(dir, 'product-junit-results-0'))
+        fs.writeFileSync(path.join(dir, 'product-junit-results-0', 'junit-product-surveys.xml'), report)
+        const failures = collectFailures(dir)
+        assert.deepEqual(
+            failures.map((failure) => `${failure.shard} ${failure.test}`),
+            [
+                'core-4 posthog/api/test/test_a.py::test_errors[a&b]',
+                'core-4 posthog/api/test/test_a.py::test_fails',
+                'products/surveys products/surveys/posthog/api/test/test_a.py::test_errors[a&b]',
+                'products/surveys products/surveys/posthog/api/test/test_a.py::test_fails',
+            ]
+        )
+        assert.deepEqual(collectFailures(path.join(dir, 'missing')), [])
+    })
+
+    it('warns with the count of failures and shards', () => {
+        const section = buildQuarantinedFailuresSection([
+            { shard: 'core-4', test: 'a.py::one' },
+            { shard: 'core-4', test: 'a.py::two' },
+            { shard: 'core-5', test: 'b.py::three' },
+        ])
+        assert.equal(section.status, 'warn')
+        assert.equal(section.summary, '3 quarantined failures in 2 shards')
+        assert.match(section.body, /\| core-5 \| `b\.py::three` \|/)
+    })
+
+    it('trusts the failures only when no test job failed or was cancelled', () => {
+        assert.equal(testJobsPassed(['success', 'skipped']), true)
+        assert.equal(testJobsPassed(['success', 'failure']), false)
+        assert.equal(testJobsPassed(['cancelled', 'success']), false)
+        assert.equal(testJobsPassed([undefined, 'success']), false)
     })
 })
