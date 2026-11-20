@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 
 import { EXIT_FAILURE, HogError, wrapFailure } from '@/core/errors'
@@ -13,25 +12,13 @@ import type { KeySession } from '@/posthog/key-session'
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
 
-interface SymbolSet {
+export interface SymbolSetFile {
     chunkId: string
     releaseId: string | null
-}
-
-export interface SymbolSetFile extends SymbolSet {
     // Null in a dry run, which writes and sends nothing.
     file: string | null
     size: number
     contentHash: string
-}
-
-type Hashed = SymbolSetFile & { hash: string }
-
-async function containerBytes(upload: SymbolSetFile): Promise<Uint8Array> {
-    if (upload.file === null) {
-        throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
-    }
-    return readFile(upload.file)
 }
 
 export type UploadStatus = 'uploaded' | 'already_present' | 'too_large'
@@ -229,15 +216,14 @@ export class SymbolSetClient {
     private async uploadOnce(uploads: SymbolSetFile[], options: UploadOptions, runId: string): Promise<UploadOutcome> {
         const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
-        const kept: Hashed[] = []
+        const kept: SymbolSetFile[] = []
         for (const upload of uploads) {
             if (upload.size > MAX_FILE_SIZE) {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = upload.contentHash
-            contentHashes.set(upload.chunkId, hash)
-            kept.push({ ...upload, hash })
+            contentHashes.set(upload.chunkId, upload.contentHash)
+            kept.push(upload)
         }
 
         const needed = await this.check(kept, options)
@@ -256,7 +242,7 @@ export class SymbolSetClient {
         return { status, contentHashes }
     }
 
-    private entry(upload: Hashed): {
+    private entry(upload: SymbolSetFile): {
         chunk_id: string
         release_id: string | null
         content_hash: string
@@ -265,14 +251,14 @@ export class SymbolSetClient {
         return {
             chunk_id: upload.chunkId,
             release_id: upload.releaseId,
-            content_hash: upload.hash,
+            content_hash: upload.contentHash,
             content_length: upload.size,
         }
     }
 
     // Asks which chunks the server still needs. A failed check is not fatal: every chunk from the
     // failed slice onward is sent, and the start call decides.
-    private async check(uploads: Hashed[], options: UploadOptions): Promise<Set<string>> {
+    private async check(uploads: SymbolSetFile[], options: UploadOptions): Promise<Set<string>> {
         const needed = new Set<string>()
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
@@ -308,7 +294,7 @@ export class SymbolSetClient {
     }
 
     private async uploadBatch(
-        batch: Hashed[],
+        batch: SymbolSetFile[],
         options: UploadOptions,
         runId: string
     ): Promise<Map<string, UploadStatus>> {
@@ -357,7 +343,7 @@ export class SymbolSetClient {
         })
         const finishHashes: Record<string, string> = {}
         for (const [chunkId, entry] of entries) {
-            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.hash
+            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.contentHash
             results.set(chunkId, 'uploaded')
         }
         try {
@@ -405,11 +391,9 @@ export class SymbolSetClient {
         await withRetries(this.runtime, fallback ? 4 : 3, async () => {
             const useFallback = fallback !== undefined && (this.preferFallback || primaryTransportErrors >= 2)
             const target = useFallback ? fallback! : primary
-            // Read for each attempt and dropped after it, so only the containers in flight are in memory.
-            const data = await containerBytes(upload)
             let response: Response
             try {
-                response = await this.send(data, target)
+                response = await this.send(upload, target)
             } catch (error) {
                 if (useFallback) {
                     fallbackTransportErrors++
@@ -437,12 +421,20 @@ export class SymbolSetClient {
         })
     }
 
-    private send(data: Uint8Array, target: Target): Promise<Response> {
+    // The container is read from disk as it is sent, so an upload holds none of it in memory.
+    private send(upload: SymbolSetFile, target: Target): Promise<Response> {
+        if (upload.file === null) {
+            throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
+        }
+        const file = Bun.file(upload.file)
         if (target.kind === 'put') {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
-                body: data as BodyInit,
-                timeoutMs: transferTimeout(data.length),
+                // A file as the body would add a Content-Type header. Its stream needs the length, or
+                // the request goes out chunked, which object storage refuses.
+                body: file.stream(),
+                headers: { 'Content-Length': String(upload.size) },
+                timeoutMs: transferTimeout(upload.size),
                 skipRateLimit: true,
             })
         }
@@ -451,11 +443,11 @@ export class SymbolSetClient {
             form.append(key, value)
         }
         // SeaweedFS and MinIO need a filename on the file part.
-        form.append('file', new Blob([data as BlobPart]), 'file')
+        form.append('file', file, 'file')
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            timeoutMs: transferTimeout(data.length),
+            timeoutMs: transferTimeout(upload.size),
             skipRateLimit: true,
         })
     }

@@ -1,10 +1,13 @@
-import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+
+import type { Context } from '@/core/context'
+import { canonical } from '@/core/paths'
 
 import { isDsymBundle, isIgnored, type Artifact, type Root } from './discover'
 import type { Skip } from './kinds/js'
 import { MAX_FILE_SIZE, type SymbolSetFile } from './upload'
-import type { NativeBinary, NativeProblem, PackItem, Worker } from './worker'
+import { commandWorker, type NativeBinary, type NativeProblem, type PackItem, type Worker } from './worker'
 
 const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
     no_debug_info: 'it has no debug info. Build with debug info, and upload before stripping it.',
@@ -21,14 +24,6 @@ const DSYM_BINARIES = join('Contents', 'Resources', 'DWARF')
 // Kernel-backed files hold no source code, but some hold secrets, like /proc/self/environ. Their
 // bytes change with every process, so posthog-cli can never upload the same ones.
 const VIRTUAL_FILESYSTEMS = ['/proc/', '/sys/', '/dev/']
-
-const canonical = (path: string): string => {
-    try {
-        return realpathSync(path)
-    } catch {
-        return path
-    }
-}
 
 const isVirtual = (path: string): boolean => {
     const real = canonical(path)
@@ -49,11 +44,11 @@ interface NativeFile {
 
 // A binary and its `objcopy --only-keep-debug` companion share a debug ID. The larger file holds
 // at least as much debug data, so it uploads.
-export function dedupeNativeFiles<File extends { binary: Pick<NativeBinary, 'debugId' | 'size'> }>(
-    files: File[],
-    onDuplicate: (dropped: File, kept: File) => void
-): File[] {
-    const kept = new Map<string, File>()
+function dedupeNativeFiles(
+    files: NativeFile[],
+    onDuplicate: (dropped: NativeFile, kept: NativeFile) => void
+): NativeFile[] {
+    const kept = new Map<string, NativeFile>()
     for (const file of files) {
         const existing = kept.get(file.binary.debugId)
         if (!existing) {
@@ -70,20 +65,20 @@ export function dedupeNativeFiles<File extends { binary: Pick<NativeBinary, 'deb
 
 // `merge_uploads_prefer_dsym`: dSYM symbol sets that fit go first, so they win over a native file
 // with the same ID, then native files, then oversized dSYMs. The first set per chunk ID stays.
-export function mergePreferDsym<Upload extends Pick<SymbolSetFile, 'chunkId' | 'size'>>(
-    dsyms: Upload[],
-    natives: Upload[],
-    onDuplicate: (dropped: Upload) => void
-): Upload[] {
-    const fits = (upload: Upload): boolean => upload.size <= MAX_FILE_SIZE
-    const ordered = [...dsyms.filter(fits), ...natives, ...dsyms.filter((upload) => !fits(upload))]
+function mergePreferDsym(
+    dsyms: NativeUpload[],
+    natives: NativeUpload[],
+    onDuplicate: (dropped: NativeUpload) => void
+): NativeUpload[] {
+    const fits = ({ upload }: NativeUpload): boolean => upload.size <= MAX_FILE_SIZE
+    const ordered = [...dsyms.filter(fits), ...natives, ...dsyms.filter((dsym) => !fits(dsym))]
     const seen = new Set<string>()
-    return ordered.filter((upload) => {
-        if (seen.has(upload.chunkId)) {
-            onDuplicate(upload)
+    return ordered.filter((native) => {
+        if (seen.has(native.upload.chunkId)) {
+            onDuplicate(native)
             return false
         }
-        seen.add(upload.chunkId)
+        seen.add(native.upload.chunkId)
         return true
     })
 }
@@ -185,7 +180,7 @@ export interface NativeUpload {
 }
 
 export async function packageNative(
-    worker: Worker,
+    ctx: Context,
     artifacts: Artifact[],
     cwd: string,
     includeSource: boolean,
@@ -193,6 +188,7 @@ export async function packageNative(
     skipped: Skip[],
     warnings: string[]
 ): Promise<NativeUpload[]> {
+    const worker = commandWorker(ctx)
     const loose = artifacts.filter((artifact) => !isDsymBundle(artifact.path))
     const parsed = await worker.nativeCandidates(loose.map((artifact) => artifact.path))
     const files: NativeFile[] = []
@@ -245,61 +241,48 @@ export async function packageNative(
     }
     const found = await worker.sourcePaths([...plans.values()].map(({ id }) => id))
 
-    const outcomes: ({ failed: string } | { sources: number } | null)[] = []
     const sourceLists: string[][] = []
     const listOf = new Map<string, number>()
     for (const [index, [sourceKey, plan]] of [...plans].entries()) {
         const answer = found[index]!
         if ('failed' in answer) {
-            outcomes.push({ failed: answer.failed })
             continue
         }
 
         const ignored = sourceIgnored(plan.root, plan.folder)
         const paths = answer.paths.filter((path) => !ignored(path) && !isVirtual(path))
-        if (paths.length === 0) {
-            outcomes.push(null)
-            continue
+        if (paths.length > 0) {
+            listOf.set(sourceKey, sourceLists.length)
+            sourceLists.push(paths)
         }
-
-        listOf.set(sourceKey, sourceLists.length)
-        outcomes.push({ sources: sourceLists.length })
-        sourceLists.push(paths)
     }
 
     const items: PackItem[] = packables.map(({ id, sourceKey }) => ({ id, sources: listOf.get(sourceKey) ?? null }))
     const packed = await worker.packNative(sourceLists, items, folder)
 
-    for (const outcome of outcomes) {
-        if (outcome === null) {
-            continue
-        }
-        if ('failed' in outcome) {
+    for (const [index, sourceKey] of [...plans.keys()].entries()) {
+        const answer = found[index]!
+        if ('failed' in answer) {
             warnings.push(
-                `hog couldn't read the source paths from the DWARF, so it uploads without sources: ${outcome.failed}`
+                `hog couldn't read the source paths from the DWARF, so it uploads without sources: ${answer.failed}`
             )
             continue
         }
-        for (const { path, message } of packed.unreadable[outcome.sources]!) {
+        const list = listOf.get(sourceKey)
+        for (const { path, message } of list === undefined ? [] : packed.unreadable[list]!) {
             warnings.push(`hog couldn't read the source file ${path}, so it isn't bundled: ${message}`)
         }
     }
 
-    const uploads = packables.map(({ artifact, chunkId }, index) => {
+    const uploads: NativeUpload[] = packables.map(({ artifact, chunkId }, index) => {
         const { path, ...container } = packed.containers[index]!
-        return {
-            artifact,
-            chunkId,
-            size: container.size,
-            upload: { chunkId, releaseId: null, ...container, file: path },
-        }
+        return { artifact, upload: { chunkId, releaseId: null, ...container, file: path } }
     })
-    const merged = mergePreferDsym(uploads.slice(natives.length), uploads.slice(0, natives.length), (dropped) =>
+    return mergePreferDsym(uploads.slice(natives.length), uploads.slice(0, natives.length), (dropped) =>
         skipped.push({
             path: dropped.artifact.display,
-            reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
+            reason: `a dSYM bundle has the same UUID ${dropped.upload.chunkId}, so hog uploads the bundle.`,
             intended: true,
         })
     )
-    return merged.map(({ artifact, upload }) => ({ artifact, upload }))
 }

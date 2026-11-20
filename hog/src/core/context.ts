@@ -45,6 +45,7 @@ export class Context {
     private tools?: Promise<ApiToolLibrary>
     private skillsLibrary?: Promise<SkillsLibrary>
     private stepUpRunning?: Promise<boolean>
+    private readonly closers: (() => Promise<void>)[] = []
 
     constructor(
         readonly runtime: Runtime,
@@ -69,6 +70,15 @@ export class Context {
     async posthog(): Promise<PostHogApi> {
         this.api ??= new PostHogApi(await this.session(), this.runtime.fetch, (scopes) => this.stepUp(scopes))
         return this.api
+    }
+
+    // For what a command opens and has to close whether it fails or not, such as a child process.
+    onClose(close: () => Promise<void>): void {
+        this.closers.push(close)
+    }
+
+    async close(): Promise<void> {
+        await Promise.all(this.closers.splice(0).map((close) => close()))
     }
 
     // Called once a command knows what it will write, so a step-up comes before the first write.

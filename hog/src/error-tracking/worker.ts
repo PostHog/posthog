@@ -1,10 +1,14 @@
-import { realpathSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { z } from 'zod'
 
+import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
+import { canonical } from '@/core/paths'
+import { FROM_SOURCE, type Runtime } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
+
+import type { ReleaseMode } from './kinds/js'
 
 // hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
 // the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
@@ -18,21 +22,15 @@ const WINDOWS_SUFFIX = '.exe'
 // Where `pnpm --filter hog build:worker` puts the worker, for a hog that runs from source.
 const SOURCE_BUILD = join(import.meta.dir, '..', '..', 'worker', 'target', 'release')
 
-const isBun = (execPath: string): boolean => basename(execPath).replace(/\.exe$/i, '') === 'bun'
-
 // The worker sits next to the hog binary, and hog never looks anywhere else: a `hog-worker` found
 // through PATH could be any program. A symlinked hog, as Homebrew installs it, resolves first.
-export function workerPath(execPath: string = process.execPath, platform: NodeJS.Platform = process.platform): string {
-    const name = platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
-    if (isBun(execPath)) {
+export function workerPath(runtime: Pick<Runtime, 'isDevelopment' | 'execPath' | 'platform'>): string {
+    const name = runtime.platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
+    if (runtime.isDevelopment) {
         return join(SOURCE_BUILD, name)
     }
-
-    let resolved = execPath
-    try {
-        resolved = realpathSync(execPath)
-    } catch {}
-    return join(dirname(resolved), name)
+    const path = runtime.platform === 'win32' ? win32 : posix
+    return path.join(path.dirname(canonical(runtime.execPath)), name)
 }
 
 const Hello = z.object({ type: z.literal('hello'), protocol: z.number(), version: z.string() })
@@ -156,20 +154,21 @@ const Packed = z.object({
 })
 const Wrapped = z.object({ contentHash: z.string(), size: z.number() })
 
+export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
-export type PairAnswer = z.output<typeof Pairs>['pairs'][number]
-export type PreparedPair = z.output<typeof Prepared>['prepared'][number]
-export type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
-export type CleanupReport = z.output<typeof Cleaned>
-export type ProguardContainer = z.output<typeof ProguardContainer>
+type PairAnswer = z.output<typeof Pairs>['pairs'][number]
+type PreparedPair = z.output<typeof Prepared>['prepared'][number]
+type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
+type CleanupReport = z.output<typeof Cleaned>
+type ProguardContainer = z.output<typeof ProguardContainer>
 export type MapAnswer = z.output<typeof Maps>['maps'][number]
-export type MapContainer = z.output<typeof MapContainers>['containers'][number]
-export type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
-export type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
-export type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
-export type PackedNative = z.output<typeof Packed>
-export type NativeContainer = z.output<typeof NativeContainer>
-export type WrappedPayload = z.output<typeof Wrapped>
+type MapContainer = z.output<typeof MapContainers>['containers'][number]
+type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
+type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
+type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
+type PackedNative = z.output<typeof Packed>
+type NativeContainer = z.output<typeof NativeContainer>
+type WrappedPayload = z.output<typeof Wrapped>
 
 export interface PackItem {
     id: number
@@ -178,7 +177,7 @@ export interface PackItem {
 
 export type ContainerKind = 'proguard' | 'hermes' | 'dsym' | 'elf'
 
-export interface DetectCandidate {
+interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
@@ -198,14 +197,21 @@ async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<st
     const decoder = new TextDecoder()
     let buffered = ''
     for await (const chunk of stream) {
-        buffered += decoder.decode(chunk, { stream: true })
-
-        let newline = buffered.indexOf('\n')
-        while (newline >= 0) {
-            yield buffered.slice(0, newline)
-            buffered = buffered.slice(newline + 1)
-            newline = buffered.indexOf('\n')
+        const text = decoder.decode(chunk, { stream: true })
+        let newline = text.indexOf('\n')
+        if (newline < 0) {
+            buffered += text
+            continue
         }
+
+        let start = 0
+        while (newline >= 0) {
+            yield buffered + text.slice(start, newline)
+            buffered = ''
+            start = newline + 1
+            newline = text.indexOf('\n', start)
+        }
+        buffered = text.slice(start)
     }
     if (buffered) {
         yield buffered
@@ -220,7 +226,13 @@ interface Running {
 export class Worker {
     private running: Promise<Running> | undefined
 
-    constructor(private readonly path: string = workerPath()) {}
+    constructor(
+        private readonly path: string = workerPath({
+            isDevelopment: FROM_SOURCE,
+            execPath: process.execPath,
+            platform: process.platform,
+        })
+    ) {}
 
     // Started by the first request, so a command that fails on its arguments never starts one.
     private start(): Promise<Running> {
@@ -232,7 +244,7 @@ export class Worker {
                 throw new HogError(
                     'worker_missing',
                     `hog couldn't start hog-worker at ${this.path}: ${(error as Error).message}`,
-                    isBun(process.execPath)
+                    FROM_SOURCE
                         ? 'Run `pnpm --filter hog build:worker` to build it.'
                         : 'hog-worker ships next to hog. Install hog again to get both.'
                 )
@@ -256,7 +268,12 @@ export class Worker {
         return this.running
     }
 
-    private async call<T>(request: Record<string, unknown>, result: Schema<T>): Promise<T> {
+    // `empty` answers a request whose list of ids, paths, files or items is empty, so it never starts the worker.
+    private async call<T>(request: Record<string, unknown>, result: Schema<T>, empty?: T): Promise<T> {
+        const list = request.ids ?? request.paths ?? request.files ?? request.items
+        if (empty !== undefined && Array.isArray(list) && list.length === 0) {
+            return empty
+        }
         const { child, lines } = await this.start()
         child.stdin.write(`${JSON.stringify(request)}\n`)
         child.stdin.flush()
@@ -282,12 +299,10 @@ export class Worker {
 
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
         const asked = files.filter((file) => file.bundle || file.map || file.mapping || file.native)
-        if (asked.length === 0) {
-            return { sourcemap: new Set(), composed: new Set(), mapping: new Set(), elf: new Set(), macho: new Set() }
-        }
         const found = await this.call(
             { op: 'detect', files: asked, publicPathPrefix: publicPathPrefix ?? null },
-            Detected
+            Detected,
+            { sourcemap: [], composed: [], mapping: [], elf: [], macho: [] }
         )
         const paths = (indices: number[]): Set<string> => new Set(indices.map((index) => asked[index]!.path))
         return {
@@ -300,64 +315,49 @@ export class Worker {
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
-        if (paths.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs)).pairs
+        return (
+            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs, {
+                pairs: [],
+            })
+        ).pairs
     }
 
     async drop(ids: number[]): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'drop', ids }, Done)
-        }
+        await this.call({ op: 'drop', ids }, Done, {})
     }
 
     async inject(
         ids: number[],
-        mode: 'event' | 'symbol-set',
+        mode: ReleaseMode,
         releaseId: string | null,
         newChunkIds: string[] = []
     ): Promise<InjectOutcome[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes)).outcomes
+        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes, { outcomes: [] }))
+            .outcomes
     }
 
     async save(ids: number[]): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'save', ids }, Done)
-        }
+        await this.call({ op: 'save', ids }, Done, {})
     }
 
     async fingerprint(ids: number[]): Promise<number[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'fingerprint', ids }, Targets)).targets
+        return (await this.call({ op: 'fingerprint', ids }, Targets, { targets: [] })).targets
     }
 
     async setRelease(ids: number[], releaseId: string): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'set_release', ids, releaseId }, Done)
-        }
+        await this.call({ op: 'set_release', ids, releaseId }, Done, {})
     }
 
     // The worker lets the pairs go, so this is the last request that names them.
-    async prepare(ids: number[], mode: 'event' | 'symbol-set', folder: string | null): Promise<PreparedPair[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared)).prepared
+    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPair[]> {
+        return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared, { prepared: [] })).prepared
     }
 
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
-        if (files.length === 0) {
-            return []
-        }
         const found = await this.call(
             { op: 'css_candidates', files, publicPathPrefix: publicPathPrefix ?? null },
-            CssCandidates
+            CssCandidates,
+            { candidates: [] }
         )
         return found.candidates.filter((candidate) => candidate !== null)
     }
@@ -371,10 +371,7 @@ export class Worker {
     }
 
     async loadMaps(paths: string[]): Promise<MapAnswer[]> {
-        if (paths.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'load_maps', paths }, Maps)).maps
+        return (await this.call({ op: 'load_maps', paths }, Maps, { maps: [] })).maps
     }
 
     async cloneMetadata(from: number, to: number): Promise<MapState> {
@@ -382,52 +379,36 @@ export class Worker {
     }
 
     async setMapRelease(ids: number[], releaseId: string | null): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'set_map_release', ids, releaseId }, Done)
-        }
+        await this.call({ op: 'set_map_release', ids, releaseId }, Done, {})
     }
 
     async writeMaps(ids: number[]): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'write_maps', ids }, Done)
-        }
+        await this.call({ op: 'write_maps', ids }, Done, {})
     }
 
     async prepareMaps(ids: number[], folder: string | null): Promise<MapContainer[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers)).containers
+        return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers, { containers: [] })).containers
     }
 
     async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {
-        if (paths.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'native_candidates', paths }, NativeFiles)).files
+        return (await this.call({ op: 'native_candidates', paths }, NativeFiles, { files: [] })).files
     }
 
     async dsymSlices(paths: string[]): Promise<DsymMemberAnswer[]> {
-        if (paths.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'dsym_slices', paths }, DsymMembers)).members
+        return (await this.call({ op: 'dsym_slices', paths }, DsymMembers, { members: [] })).members
     }
 
     // A dSYM slice answers for its whole file.
     async sourcePaths(ids: number[]): Promise<SourcePathsAnswer[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'source_paths', ids }, SourcePaths)).sources
+        return (await this.call({ op: 'source_paths', ids }, SourcePaths, { sources: [] })).sources
     }
 
     // The worker lets every binary go, so this is the last request that names one.
     async packNative(sources: string[][], items: PackItem[], folder: string | null): Promise<PackedNative> {
-        if (items.length === 0) {
-            return { unreadable: sources.map(() => []), containers: [] }
-        }
-        return this.call({ op: 'pack_native', sources, items, folder }, Packed)
+        return this.call({ op: 'pack_native', sources, items, folder }, Packed, {
+            unreadable: sources.map(() => []),
+            containers: [],
+        })
     }
 
     async wrap(path: string, kind: ContainerKind, out: string | null): Promise<WrappedPayload> {
@@ -443,11 +424,15 @@ export class Worker {
     }
 }
 
-export async function withWorker<T>(work: (worker: Worker) => Promise<T>): Promise<T> {
-    const worker = new Worker()
-    try {
-        return await work(worker)
-    } finally {
-        await worker.close()
+const workers = new WeakMap<Context, Worker>()
+
+export function commandWorker(ctx: Context): Worker {
+    let worker = workers.get(ctx)
+    if (!worker) {
+        const created = new Worker()
+        ctx.onClose(() => created.close())
+        workers.set(ctx, created)
+        worker = created
     }
+    return worker
 }
