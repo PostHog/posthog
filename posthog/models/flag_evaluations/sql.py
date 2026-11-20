@@ -4,8 +4,15 @@ from pathlib import Path
 
 from django.conf import settings
 
+from posthog.clickhouse.events_json import (
+    EVENTS_JSON_DATA_TABLE_INDEXES,
+    EVENTS_JSON_INSERT_SETTINGS,
+    EVENTS_JSON_SERIALIZATION_SETTINGS,
+    TEMPORARY_PROPERTIES_JSON_TYPE,
+)
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_FLAG_EVALUATIONS,
+    CONSUMER_GROUP_FLAG_EVALUATIONS_JSON,
     KAFKA_COLUMNS_WITH_PARTITION,
     kafka_engine,
     trim_quotes_expr,
@@ -14,6 +21,17 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
+from posthog.models.event.sql import (
+    EVENTS_JSON_CLEANED_ALIAS,
+    EVENTS_JSON_CLEANER,
+    EVENTS_JSON_ELEMENTS_COLUMNS,
+    EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS,
+    EVENTS_JSON_TABLE_BASE_SQL,
+    EVENTS_PROPERTIES_JSON_TYPE,
+    PERSON_PROPERTIES_JSON_TYPE,
+    _cast_cleaned_properties,
+    _cast_temporary_properties,
+)
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
@@ -306,16 +324,16 @@ DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
 )
 
 
-KAFKA_FLAG_EVALUATIONS_TABLE_SQL = lambda: (
-    f"""
-CREATE TABLE IF NOT EXISTS {KAFKA_FLAG_EVALUATIONS_TABLE}
+def _kafka_flag_evaluations_table_sql(table_name: str, group: str) -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     {FLAG_EVALUATIONS_KAFKA_COLUMNS}
 )
 ENGINE = {
         kafka_engine(
             topic=KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
-            group=CONSUMER_GROUP_FLAG_EVALUATIONS,
+            group=group,
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
@@ -332,6 +350,10 @@ SETTINGS
     kafka_num_consumers = 1,
     kafka_skip_broken_messages = 100
 """
+
+
+KAFKA_FLAG_EVALUATIONS_TABLE_SQL = lambda: _kafka_flag_evaluations_table_sql(
+    KAFKA_FLAG_EVALUATIONS_TABLE, CONSUMER_GROUP_FLAG_EVALUATIONS
 )
 
 # The CREATE below uses this SELECT. A migration that runs ALTER ... MODIFY QUERY
@@ -371,3 +393,198 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_MV_TABLE}
 TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_WRITABLE_TABLE}
 AS {FLAG_EVALUATIONS_MV_SELECT_SQL()}"""
 )
+
+
+# The same flag calls on the native-JSON events schema (see sharded_events_json). Each table is the
+# events_json table with the changes sharded_flag_evaluations makes to sharded_events: a flag_key-first
+# sort key, a 92-day TTL, and flag_key, response and request_id as DEFAULT columns that read JSON paths.
+FLAG_EVALUATIONS_JSON_TABLE = f"{FLAG_EVALUATIONS_TABLE}_json"
+FLAG_EVALUATIONS_JSON_DATA_TABLE = f"sharded_{FLAG_EVALUATIONS_JSON_TABLE}"
+FLAG_EVALUATIONS_JSON_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_JSON_TABLE}"
+KAFKA_FLAG_EVALUATIONS_JSON_TABLE = f"kafka_{FLAG_EVALUATIONS_JSON_TABLE}"
+FLAG_EVALUATIONS_JSON_MV_TABLE = f"{FLAG_EVALUATIONS_JSON_TABLE}_mv"
+
+# DEFAULT rather than MATERIALIZED, for the reason given on _FLAG_EVALUATIONS_TYPED_COLUMNS.
+# response reads a JSON null as 'null', because the cleaner drops a null field and lists its path in
+# properties_null_keys. An absent key reads as ''. request_id reads temporary_properties, and its value
+# stays after that column's TTL clears the source.
+_FLAG_EVALUATIONS_JSON_TYPED_COLUMNS = """
+    , flag_key String DEFAULT toString(properties.`$feature_flag`) COMMENT 'column_materializer::properties::$feature_flag'
+    , response LowCardinality(String) DEFAULT if(has(properties_null_keys, '$feature_flag_response'), 'null', toString(properties.`$feature_flag_response`)) COMMENT 'column_materializer::properties::$feature_flag_response'
+    , request_id String DEFAULT toString(temporary_properties.`$feature_flag_request_id`) COMMENT 'column_materializer::temporary_properties::$feature_flag_request_id'
+"""
+
+_FLAG_EVALUATIONS_JSON_PROXY_TYPED_COLUMNS = """
+    , flag_key String COMMENT 'column_materializer::properties::$feature_flag'
+    , response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response'
+    , request_id String COMMENT 'column_materializer::temporary_properties::$feature_flag_request_id'
+"""
+
+# The columns the flag topic does not carry. The MV leaves them out, so each takes its type default on insert.
+FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC = frozenset(
+    {
+        "elements_chain",
+        "group0_properties",
+        "group1_properties",
+        "group2_properties",
+        "group3_properties",
+        "group4_properties",
+        "group0_created_at",
+        "group1_created_at",
+        "group2_created_at",
+        "group3_created_at",
+        "group4_created_at",
+        "consumer_breadcrumbs",
+        "historical_migration",
+    }
+)
+
+
+# The events_json columns, with inserted_at defaulting to the row's own timestamp, as on sharded_flag_evaluations.
+# Only the storage table carries codecs and the temporary_properties TTL.
+def _flag_evaluations_json_table_sql(
+    table_name: str,
+    engine: object,
+    *,
+    storage: bool = False,
+    elements_columns: str = "",
+    compatibility_columns: str = "",
+    indexes: str = "",
+) -> str:
+    return EVENTS_JSON_TABLE_BASE_SQL.format(
+        table_name=table_name,
+        on_cluster_clause="",
+        engine=engine,
+        properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
+        person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
+        temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
+        inserted_at_default="timestamp",
+        temporary_properties_storage=" TTL toDateTime(inserted_at) + INTERVAL 60 DAY" if storage else "",
+        gcd_codec=" CODEC(GCD, Default)" if storage else "",
+        t64_codec=" CODEC(T64, Default)" if storage else "",
+        elements_columns=elements_columns,
+        compatibility_columns=compatibility_columns,
+        indexes=indexes,
+    )
+
+
+# The events_json indexes plus the flag lookups.
+def _flag_evaluations_json_indexes() -> str:
+    added = [
+        "INDEX bloom_filter_session_id properties.`$session_id` TYPE bloom_filter(0.01) GRANULARITY 1",
+        "INDEX bloom_filter_request_id request_id TYPE bloom_filter(0.01) GRANULARITY 1",
+    ]
+    return EVENTS_JSON_DATA_TABLE_INDEXES() + "".join(f"\n    , {index}" for index in added)
+
+
+def FLAG_EVALUATIONS_JSON_DATA_TABLE_ENGINE() -> MergeTreeEngine:
+    return ReplacingMergeTree(
+        FLAG_EVALUATIONS_JSON_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    )
+
+
+FLAG_EVALUATIONS_JSON_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), timestamp, uuid)"
+FLAG_EVALUATIONS_JSON_PRIMARY_KEY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
+
+FLAG_EVALUATIONS_JSON_TABLE_SQL = lambda: (
+    _flag_evaluations_json_table_sql(
+        FLAG_EVALUATIONS_JSON_DATA_TABLE,
+        FLAG_EVALUATIONS_JSON_DATA_TABLE_ENGINE(),
+        storage=True,
+        elements_columns=EVENTS_JSON_ELEMENTS_COLUMNS,
+        compatibility_columns=_FLAG_EVALUATIONS_JSON_TYPED_COLUMNS,
+        indexes=_flag_evaluations_json_indexes(),
+    )
+    + f"""PARTITION BY clamp(toYYYYMM(timestamp), 202001, 203512)
+PRIMARY KEY {FLAG_EVALUATIONS_JSON_PRIMARY_KEY}
+ORDER BY {FLAG_EVALUATIONS_JSON_ORDER_BY}
+SAMPLE BY cityHash64(distinct_id)
+{ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, {EVENTS_JSON_SERIALIZATION_SETTINGS}
+"""
+)
+
+
+def _flag_evaluations_json_distributed_engine() -> Distributed:
+    return Distributed(data_table=FLAG_EVALUATIONS_JSON_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)
+
+
+# The writable table omits the derived and typed columns, so the shard computes them.
+WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL = lambda: _flag_evaluations_json_table_sql(
+    FLAG_EVALUATIONS_JSON_WRITABLE_TABLE, _flag_evaluations_json_distributed_engine()
+)
+
+DISTRIBUTED_FLAG_EVALUATIONS_JSON_TABLE_SQL = lambda: _flag_evaluations_json_table_sql(
+    FLAG_EVALUATIONS_JSON_TABLE,
+    _flag_evaluations_json_distributed_engine(),
+    compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS + _FLAG_EVALUATIONS_JSON_PROXY_TYPED_COLUMNS,
+)
+
+KAFKA_FLAG_EVALUATIONS_JSON_TABLE_SQL = lambda: _kafka_flag_evaluations_table_sql(
+    KAFKA_FLAG_EVALUATIONS_JSON_TABLE, CONSUMER_GROUP_FLAG_EVALUATIONS_JSON
+)
+
+
+def DROP_FLAG_EVALUATIONS_JSON_PROXY_TABLES_SQL() -> list[str]:
+    return [
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_JSON_TABLE}",
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_JSON_WRITABLE_TABLE}",
+    ]
+
+
+def DROP_FLAG_EVALUATIONS_JSON_TABLE_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_JSON_DATA_TABLE} SYNC"
+
+
+# Written out rather than built from the Kafka column list, so each projected column is visible. The
+# JSON columns come from the cleaner, which also lists the null paths the JSON type cannot store.
+# captured_at is created_at because the flag topic does not carry it. An empty person_properties maps to
+# '{}' before the cleaner, as in the legacy MV.
+FLAG_EVALUATIONS_JSON_MV_SELECT_SQL = lambda: (
+    f"""SELECT
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
+uuid,
+event,
+{_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())} AS properties,
+{_cast_temporary_properties("temporary_properties")} AS temporary_properties,
+{EVENTS_JSON_CLEANED_ALIAS}.properties_null_keys AS properties_null_keys,
+{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties_null_keys AS temporary_properties_null_keys,
+now64() AS inserted_at,
+timestamp,
+team_id,
+distinct_id,
+created_at,
+person_id,
+{_cast_cleaned_properties("person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE())} AS person_properties,
+{EVENTS_JSON_CLEANED_ALIAS}.person_properties_null_keys AS person_properties_null_keys,
+person_created_at,
+person_mode,
+created_at AS captured_at,
+_timestamp,
+_offset,
+_partition
+FROM
+(
+SELECT
+*,
+_timestamp,
+_offset,
+_partition,
+{EVENTS_JSON_CLEANER}(properties, {FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR}) AS {EVENTS_JSON_CLEANED_ALIAS}
+FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_JSON_TABLE}
+) AS source
+)
+SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
+"""
+)
+
+
+def FLAG_EVALUATIONS_JSON_MV_SQL(target_table: str = FLAG_EVALUATIONS_JSON_WRITABLE_TABLE) -> str:
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_JSON_MV_TABLE}
+TO {settings.CLICKHOUSE_DATABASE}.{target_table}
+AS {FLAG_EVALUATIONS_JSON_MV_SELECT_SQL()}"""
