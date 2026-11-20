@@ -3813,6 +3813,12 @@ jobs:
                       echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
+                  # The quarantine base check re-runs failing tests with these effective values.
+                  {
+                      echo "PERSON_ON_EVENTS_V2_ENABLED=$PERSON_ON_EVENTS_V2_ENABLED"
+                      echo "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=$CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
+                      echo "PYTEST_ARGS=${PYTEST_ARGS:-}"
+                  } > "$RUNNER_TEMP/core-test-settings.env"
                   # Unsupported pytest-split flags abort collection, so probe the installed plugin.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
@@ -4176,6 +4182,27 @@ jobs:
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
+            # The gate above turns a failing shard green when Trunk has quarantined every failing test,
+            # which also hides a PR that breaks a test that was quarantined for an older flake. This step
+            # re-runs those tests on the PR's base and fails unless each one fails there too. Its `if:`
+            # equals the condition under which the gate masks a failure, so no masked failure skips it,
+            # and `Fail on test failure` treats any outcome but success as a failure. It checks the
+            # workspace out at the base, so it must stay after every step that reads the PR's files.
+            # Only Core has it; the Temporal and product gates mask failures the same way.
+            - name: Check quarantined failures against the base (Core)
+              id: quarantine_base_check_core
+              continue-on-error: true
+              timeout-minutes: 20
+              if: ${{ !cancelled() && steps.run-core-tests.outcome == 'failure' && vars.TRUNK_QUARANTINE_ENABLED == 'true' && steps.quarantine_gate_core.outcome == 'success' }}
+              shell: bash
+              run: |
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
+                  cp .github/scripts/quarantine_base_check.py "$RUNNER_TEMP/quarantine_base_check.py"
+                  python "$RUNNER_TEMP/quarantine_base_check.py" \
+                      --junit junit-core.xml \
+                      --settings "$RUNNER_TEMP/core-test-settings.env" \
+                      --out-dir "$RUNNER_TEMP/quarantine-base-check"
+
             - name: Quarantine gate (Temporal)
               id: quarantine_gate_temporal
               continue-on-error: true
@@ -4195,7 +4222,7 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Fail on test failure
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
+              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success' || steps.quarantine_base_check_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
