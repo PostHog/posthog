@@ -48,6 +48,7 @@ it signed. Three limits remain:
 import re
 import hashlib
 from collections.abc import Callable, Iterable, Mapping
+from uuid import UUID
 
 from django.db import router
 
@@ -150,7 +151,7 @@ def seen_entries(runs: Mapping[str, RunOrder]) -> list[dict]:
     ]
 
 
-def seen_on_head(team_id: int, *, repo_config_id: object, pr_number: int, head_sha: str) -> dict[str, RunOrder]:
+def seen_on_head(team_id: int, *, repo_config_id: UUID, pr_number: int, head_sha: str) -> dict[str, RunOrder]:
     """The newest run of each workflow publisher that any run of this PR head stored, read from the writer."""
     stored = (
         ReviewRun.objects.for_team(team_id)
