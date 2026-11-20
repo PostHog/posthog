@@ -419,6 +419,64 @@ def merged_pull_requests_for_commit(
     ]
 
 
+@frozen
+class BranchHead:
+    """The commit a branch points at, and the pull request the branch belongs to."""
+
+    commit_sha: str
+    pr_number: int
+
+
+_PULL_REQUEST_PAGE_SIZE = 100
+_MAX_PULL_REQUEST_PAGES = 50
+
+
+def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | None:
+    """The head commit of every open pull request that targets `base_branch`, or None when GitHub cannot say."""
+    heads: list[BranchHead] = []
+    for page in range(1, _MAX_PULL_REQUEST_PAGES + 1):
+        items = _read_json(
+            "visual_review.open_pull_requests_fetch_failed",
+            partial(
+                _github_api_request,
+                "GET",
+                repo,
+                "pulls",
+                params={"state": "open", "base": base_branch, "per_page": _PULL_REQUEST_PAGE_SIZE, "page": page},
+            ),
+            repo_id=str(repo.id),
+            page=page,
+        )
+        if items is None:
+            return None
+        heads.extend(BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"]) for item in items)
+        if len(items) < _PULL_REQUEST_PAGE_SIZE:
+            return heads
+    # A cut list would leave heads without a status, so the caller must not act on it.
+    logger.warning("visual_review.open_pull_requests_too_many", repo_id=str(repo.id))
+    return None
+
+
+def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
+    """The head commit of every merge-queue branch that exists now, or None when GitHub cannot say.
+
+    The queue deletes a branch once its test is decided, so the branches that exist are the tests in progress.
+    """
+    refs = _read_json(
+        "visual_review.merge_queue_branches_fetch_failed",
+        partial(_github_api_request, "GET", repo, "git/matching-refs/heads/trunk-merge"),
+        repo_id=str(repo.id),
+    )
+    if refs is None:
+        return None
+    heads: list[BranchHead] = []
+    for ref in refs:
+        match = _MERGE_QUEUE_BRANCH_RE.match(ref["ref"].removeprefix("refs/heads/"))
+        if match is not None:
+            heads.append(BranchHead(commit_sha=ref["object"]["sha"], pr_number=int(match.group("pr_number"))))
+    return heads
+
+
 # Ten pages of the compare endpoint. Past that the default branch went unwatched for long enough
 # that an operator re-seeds the ledger, and one call must not spend the rate limit on a long walk.
 MAX_COMPARE_COMMITS = 1000

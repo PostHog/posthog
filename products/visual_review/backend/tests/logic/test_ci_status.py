@@ -1,10 +1,14 @@
 """Unit tests for logic/ci_status.py — Commit statuses and CI job reruns."""
 
+from dataclasses import replace
 from datetime import timedelta
+from io import StringIO
 
 import pytest
 from unittest.mock import MagicMock
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.utils import timezone
 
 from products.visual_review.backend.db import WRITER_DB
@@ -19,6 +23,7 @@ from products.visual_review.backend.facade.enums import (
     RunStatus,
     RunType,
     SnapshotResult,
+    ToleratedReason,
 )
 from products.visual_review.backend.logic import (
     approvals,
@@ -26,14 +31,23 @@ from products.visual_review.backend.logic import (
     ci_status,
     commit_status,
     errors,
+    github_api,
     ledger,
+    ledger_recheck,
     quarantine,
     repos,
     runs,
     toleration,
 )
-from products.visual_review.backend.logic.baseline_record import METADATA_KEY
-from products.visual_review.backend.models import BaselineApproval, QuarantinedIdentifier, Repo, Run, RunSnapshot
+from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
+from products.visual_review.backend.models import (
+    BaselineApproval,
+    QuarantinedIdentifier,
+    Repo,
+    Run,
+    RunSnapshot,
+    ToleratedHash,
+)
 from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ledger_fakes import (
@@ -658,6 +672,7 @@ def _run(repo: Repo, *, minute: int = 0, **fields) -> Run:
         "pr_number": 1,
         "purpose": RunPurpose.REVIEW,
         "status": RunStatus.PROCESSING,
+        "metadata": {METADATA_KEY: make_record().to_json()},
     }
     run = Run.objects.create(repo=repo, team_id=repo.team_id, **{**defaults, **fields})
     # Two runs created in a row can share a timestamp, and the newest run decides the status.
@@ -679,8 +694,12 @@ def _snapshot(run: Run, identifier: str, result: str, review_state: str = "") ->
     )
 
 
+def _posted_one(call) -> tuple[str, str, str]:
+    return (call.kwargs["context"], call.kwargs["state"], call.kwargs["description"])
+
+
 def _posted(sender) -> list[tuple[str, str, str]]:
-    return [(c.kwargs["context"], c.kwargs["state"], c.kwargs["description"]) for c in sender.call_args_list]
+    return [_posted_one(call) for call in sender.call_args_list]
 
 
 def _facts(**fields) -> commit_status.RunFacts:
@@ -700,8 +719,13 @@ def _verdict(state: str, description: str) -> commit_status.StatusVerdict:
     return commit_status.StatusVerdict(state=state, description=description)
 
 
+def _recheck(unsure: int = 0, clamped: bool = False, has_record: bool = True) -> ledger_recheck.LedgerRecheck:
+    return ledger_recheck.LedgerRecheck(unsure=unsure, clamped=clamped, has_record=has_record)
+
+
 STALE_ONE = _verdict("failure", "Baseline changed after approval: 1 snapshot. Update the branch and review again")
 CHANGES_DETECTED = _verdict("failure", "Visual changes detected: 1 changed")
+RERUN_ONE = _verdict("pending", "Re-run Visual Review: 1 snapshot needs the new baseline")
 
 
 class TestStatusVerdict:
@@ -797,6 +821,36 @@ class TestStatusVerdict:
                 _verdict("success", "Tracking only: no visual changes"),
                 id="partial_default_branch_run",
             ),
+            pytest.param(
+                _facts(ledger_recheck=_recheck()),
+                _verdict("success", "No visual changes"),
+                id="run_from_before_the_switch_the_ledger_agrees_with",
+            ),
+            pytest.param(
+                _facts(ledger_recheck=_recheck(unsure=2)),
+                _verdict("pending", "Re-run Visual Review: 2 snapshots need the new baseline"),
+                id="run_from_before_the_switch_with_unsure_snapshots",
+            ),
+            pytest.param(
+                _facts(ledger_recheck=_recheck(unsure=1, clamped=True)),
+                _verdict("pending", "Merge master, then re-run Visual Review"),
+                id="unsure_run_older_than_the_ledger",
+            ),
+            pytest.param(
+                _facts(ledger_recheck=_recheck(has_record=False)),
+                _verdict("pending", "Re-run Visual Review: this run has no ledger baseline"),
+                id="run_without_a_ledger_record",
+            ),
+            pytest.param(
+                _facts(changes_summary="1 changed", unresolved=1, ledger_recheck=_recheck(unsure=1)),
+                CHANGES_DETECTED,
+                id="an_unapproved_change_comes_before_an_unsure_snapshot",
+            ),
+            pytest.param(
+                _facts(purpose=RunPurpose.OBSERVE, ledger_recheck=_recheck(unsure=1)),
+                _verdict("failure", "Tested before the switch to ledger mode. Enqueue again"),
+                id="unsure_merge_queue_run",
+            ),
         ],
     )
     def test_status_table(self, facts, expected) -> None:
@@ -852,6 +906,61 @@ def _no_push(repo: Repo, run: Run) -> None:
     pass
 
 
+SHADOW_RECORD = make_record(mode=BaselineMode.SHADOW)
+
+
+def _shadow_run(
+    repo: Repo,
+    current_hash: str,
+    stored_baseline: str = "y0",
+    record: BaselineRecord | None = SHADOW_RECORD,
+    result: str = SnapshotResult.UNCHANGED,
+    **fields,
+) -> Run:
+    metadata = {} if record is None else {METADATA_KEY: record.to_json()}
+    run = _run(repo, status=RunStatus.COMPLETED, metadata=metadata, **fields)
+    RunSnapshot.objects.create(
+        run=run,
+        team_id=run.team_id,
+        identifier="Button",
+        result=result,
+        current_hash=current_hash,
+        baseline_hash=stored_baseline,
+    )
+    return run
+
+
+def _nothing(repo: Repo) -> None:
+    pass
+
+
+def _approve_in_own_pull_request(repo: Repo) -> None:
+    approve(repo, 1, "Button", "Button-new")
+
+
+def _approve_in_another_pull_request(repo: Repo) -> None:
+    approve(repo, 2, "Button", "Button-new")
+
+
+def _tolerate_against_the_ledger(repo: Repo) -> None:
+    ToleratedHash.objects.create(
+        repo=repo,
+        team_id=repo.team_id,
+        identifier="Button",
+        baseline_hash="b0",
+        alternate_hash="Button-alt",
+        reason=ToleratedReason.HUMAN,
+    )
+
+
+def _recompute(run: Run) -> None:
+    runs.recompute_run(run.id, team_id=run.team_id)
+
+
+def _retry_task(run: Run) -> None:
+    tasks.publish_visual_review_commit_status.apply(args=(run.team_id, str(run.repo_id), run.commit_sha, run.run_type))
+
+
 def _push_again(repo: Repo, run: Run) -> None:
     newer = _run(repo, commit_sha="c2", branch="feat-pushed-again")
     Run.objects.filter(id=run.id).update(superseded_by=newer)
@@ -859,7 +968,8 @@ def _push_again(repo: Repo, run: Run) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestStatusByCommit:
-    GATING = "PostHog Visual Review / storybook"
+    GATING = "Visual Review gate / storybook"
+    GATE_OFF = "PostHog Visual Review / storybook"
     NO_RUN_NEEDED = (GATING, "success", commit_status.NO_RUN_NEEDED_DESCRIPTION)
 
     @pytest.fixture
@@ -916,19 +1026,19 @@ class TestStatusByCommit:
             pytest.param(
                 {"is_partial": True},
                 SnapshotResult.UNCHANGED,
-                (f"{GATING} (partial)", "success", "No visual changes (partial run)"),
+                (f"{GATE_OFF} (partial)", "success", "No visual changes (partial run)"),
                 id="partial_pull_request_run",
             ),
             pytest.param(
                 {"purpose": RunPurpose.OBSERVE, "branch": "trunk-merge/q1", "pr_number": None},
                 SnapshotResult.CHANGED,
-                (f"{GATING} (tracking)", "success", "Tracking only: 1 changed recorded"),
+                (f"{GATE_OFF} (tracking)", "success", "Tracking only: 1 changed recorded"),
                 id="queue_run_with_drift",
             ),
             pytest.param(
                 {"purpose": RunPurpose.OBSERVE, "branch": "master", "pr_number": None},
                 SnapshotResult.CHANGED,
-                (f"{GATING} (tracking)", "success", "Tracking only: 1 changed recorded"),
+                (f"{GATE_OFF} (tracking)", "success", "Tracking only: 1 changed recorded"),
                 id="default_branch_run_with_drift",
             ),
         ],
@@ -1125,3 +1235,153 @@ class TestStatusByCommit:
         )
 
         assert _posted(sender)[-1] == (self.GATING, "pending", "Visual review in progress")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestLedgerRecheck:
+    GATING = "Visual Review gate / storybook"
+
+    @pytest.fixture
+    def git(self, mocker) -> FakeGit:
+        return FakeGit(mocker, SEED)
+
+    @pytest.fixture
+    def repo(self, team, git) -> Repo:
+        repo = repos.create_repo(team_id=team.id, repo_external_id=55602, repo_full_name="org/ledger-recheck")
+        ledger.seed(repo, SEED, {RunType.STORYBOOK: {"Button": "b0"}})
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        return repo
+
+    @pytest.fixture
+    def sender(self, mocker):
+        return mocker.patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED)
+
+    @pytest.mark.parametrize(
+        ("current_hash", "stored_baseline", "record", "arrange", "expected"),
+        [
+            pytest.param("b0", "y0", SHADOW_RECORD, _nothing, _recheck(), id="render_is_the_ledger_hash"),
+            pytest.param(
+                "Button-new", "y0", SHADOW_RECORD, _approve_in_own_pull_request, _recheck(), id="render_is_approved"
+            ),
+            pytest.param(
+                "Button-alt", "y0", SHADOW_RECORD, _tolerate_against_the_ledger, _recheck(), id="render_is_tolerated"
+            ),
+            pytest.param("Button-x", "b0", SHADOW_RECORD, _nothing, _recheck(), id="ledger_agrees_on_the_baseline"),
+            pytest.param("Button-x", "y0", SHADOW_RECORD, _nothing, _recheck(unsure=1), id="ledger_cannot_tell"),
+            pytest.param(
+                "Button-new",
+                "y0",
+                SHADOW_RECORD,
+                _approve_in_another_pull_request,
+                _recheck(unsure=1),
+                id="approval_of_a_pull_request_the_run_did_not_contain",
+            ),
+            pytest.param(
+                "Button-x",
+                "y0",
+                replace(SHADOW_RECORD, clamped_to_seed=True),
+                _nothing,
+                _recheck(unsure=1, clamped=True),
+                id="merge_base_older_than_the_ledger",
+            ),
+            pytest.param("b0", "y0", None, _nothing, _recheck(has_record=False), id="no_record"),
+            pytest.param("Button-x", "y0", make_record(), _nothing, None, id="the_ledger_classified_the_run"),
+        ],
+    )
+    def test_recheck_from_stored_hashes(self, repo, current_hash, stored_baseline, record, arrange, expected) -> None:
+        arrange(repo)
+        run = _shadow_run(repo, current_hash, stored_baseline, record)
+
+        assert ledger_recheck.recheck_run(run) == expected
+
+    @pytest.mark.parametrize("publish", [_recompute, _retry_task])
+    def test_after_the_switch_no_publisher_posts_a_pass_the_ledger_cannot_confirm(
+        self, repo, sender, django_capture_on_commit_callbacks, publish
+    ) -> None:
+        run = _shadow_run(repo, "y0")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            publish(run)
+
+        assert _posted(sender) == [(self.GATING, RERUN_ONE.state, RERUN_ONE.description)]
+
+    def test_finalizing_a_run_from_before_the_switch_puts_its_approval_in_the_check(
+        self, repo, git, sender, user, django_capture_on_commit_callbacks
+    ) -> None:
+        git.open_pull_request(1, "c1")
+        record = replace(SHADOW_RECORD, differences={"Button": "b0"})
+        run = _shadow_run(repo, "Button-new", record=record, result=SnapshotResult.CHANGED, changed_count=1)
+        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="Button-new", storage_path="p/new")
+        commit_status.publish(repo, run.commit_sha, run.run_type)
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            approvals.finalize_run(run.id, user.id, approve_all=True, commit_to_github=False)
+
+        assert _posted(sender) == [
+            (self.GATING, CHANGES_DETECTED.state, CHANGES_DETECTED.description),
+            (self.GATING, "success", "Visual changes approved"),
+        ]
+
+    def _serve_heads(self, mocker, pull_requests: dict[int, str], merge_queue: dict[int, str]) -> None:
+        mocker.patch.object(
+            github_api,
+            "open_pull_request_heads",
+            return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in pull_requests.items()],
+        )
+        mocker.patch.object(
+            github_api,
+            "merge_queue_branch_heads",
+            return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in merge_queue.items()],
+        )
+
+    def _recheck_command(self, repo: Repo, *flags: str) -> str:
+        output = StringIO()
+        call_command(
+            "visual_review_baseline_ledger",
+            "recheck",
+            "--repo",
+            repo.repo_full_name,
+            "--run-type",
+            RunType.STORYBOOK,
+            "--pause",
+            "0",
+            *flags,
+            stdout=output,
+        )
+        return output.getvalue()
+
+    def test_the_recheck_dry_run_shows_the_ledger_verdicts_and_posts_nothing(self, repo, sender, mocker) -> None:
+        set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
+        _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
+        _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
+        _shadow_run(
+            repo, "y0", commit_sha="queue-3", pr_number=None, purpose=RunPurpose.OBSERVE, branch="trunk-merge/pr-3/x"
+        )
+        self._serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {3: "queue-3"})
+
+        output = self._recheck_command(repo)
+
+        assert output.splitlines()[1:] == [
+            "Dry run, nothing was posted. Pull requests per run type, state and reason:",
+            "storybook failure (1) Tested before the switch to ledger mode. Enqueue again: #3",
+            "storybook pending (1) Re-run Visual Review: N snapshot needs the new baseline: #1",
+            "storybook success (1) No visual changes: #2",
+            "storybook success (1) No visual run for this commit: #4",
+        ]
+        assert sender.call_count == 0
+        with pytest.raises(CommandError, match="needs ledger mode"):
+            self._recheck_command(repo, "--apply")
+
+    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker) -> None:
+        _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
+        _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
+        self._serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {})
+
+        self._recheck_command(repo, "--apply")
+
+        posted = {call.args[1]: _posted_one(call) for call in sender.call_args_list}
+        assert posted == {
+            "head-1": (self.GATING, RERUN_ONE.state, RERUN_ONE.description),
+            "head-2": (self.GATING, "success", "No visual changes"),
+            "head-4": (self.GATING, "success", commit_status.NO_RUN_DESCRIPTION),
+        }

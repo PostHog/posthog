@@ -30,7 +30,7 @@ It may not ship a visual change on its own: `finalize-create` commits the baseli
 `posthog:visual-review-runs-retrieve` returns `gate`, fixed when the run was created.
 
 - `ci_job`: the CI job is the gate. The rest of this skill describes this case.
-- `commit_status`: the status `PostHog Visual Review / <run type>` is the required check, and the CI job passes on unresolved snapshots.
+- `commit_status`: the status `Visual Review gate / <run type>` is the required check, and the CI job passes on unresolved snapshots.
   The status turns green on finalize, and on a toleration or quarantine that resolves the last snapshot.
   Nothing is committed, no recompute is needed, and nothing in CI re-runs.
   `recompute-create` still recounts and publishes the status, with `ci_rerun_triggered: false`, which is expected.

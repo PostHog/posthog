@@ -102,7 +102,7 @@ describe('reportRunOutcome', () => {
         expect(result).toBe(exitCode)
         expect(output).toContain('Visual changes detected')
         expect(output).toContain('changed: story--light (12.07% diff)')
-        expect(output.includes('"PostHog Visual Review / storybook" turns green')).toBe(gate === 'commit_status')
+        expect(output.includes('"Visual Review gate / storybook" turns green')).toBe(gate === 'commit_status')
     })
 
     it.each([

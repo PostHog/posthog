@@ -179,3 +179,32 @@ def test_a_refused_ancestry_read_propagates_and_commit_contains_answers_false(re
         with pytest.raises(type(refusal)):
             github_api.commit_ancestry(repo, "merge-base", "seed")
         assert github_api.commit_contains(repo, "merge-base", "seed") is False
+
+
+def test_branch_heads_read_every_page_of_pull_requests_and_only_merge_queue_branches() -> None:
+    def respond(method, path, *, params=None, **kwargs):
+        response = MagicMock(status_code=200)
+        if path.endswith("/pulls"):
+            first = (params["page"] - 1) * params["per_page"]
+            count = max(0, min(params["per_page"], 101 - first))
+            response.json.return_value = [
+                {"number": first + i, "head": {"sha": f"pr-head-{first + i}"}} for i in range(count)
+            ]
+        else:
+            response.json.return_value = [
+                {"ref": "refs/heads/trunk-merge/pr-7/abc", "object": {"sha": "queue-head-7"}},
+                {"ref": "refs/heads/trunk-merge-notes", "object": {"sha": "other"}},
+            ]
+        return response
+
+    github = MagicMock()
+    github.api_request.side_effect = respond
+    repo = Repo(repo_full_name="org/repo")
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        pull_requests = github_api.open_pull_request_heads(repo, "master")
+        merge_queue = github_api.merge_queue_branch_heads(repo)
+
+    assert pull_requests is not None and len(pull_requests) == 101
+    assert pull_requests[-1] == github_api.BranchHead(commit_sha="pr-head-100", pr_number=100)
+    assert merge_queue == [github_api.BranchHead(commit_sha="queue-head-7", pr_number=7)]

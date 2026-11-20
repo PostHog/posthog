@@ -1,6 +1,7 @@
 """Seed, repair, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
 
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from posthog.models.scoping import team_scope
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api, contracts
 from products.visual_review.backend.facade.enums import BaselineMode, RunGate, RunPurpose, RunStatus
-from products.visual_review.backend.logic import baselines, errors, github_api, ledger
+from products.visual_review.backend.logic import baselines, commit_status, errors, github_api, ledger
 from products.visual_review.backend.management.commands.visual_review_debt_digest import find_repo
 from products.visual_review.backend.models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run
 
@@ -22,6 +23,8 @@ _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _DEFAULT_PATH_KEY = "default"
 
 _MAX_LISTED_PULL_REQUESTS = 50
+
+_COUNT_RE = re.compile(r"\d+")
 
 
 def _add_repo_arguments(parser: CommandParser) -> None:
@@ -77,6 +80,24 @@ class Command(BaseCommand):
         status = subcommands.add_parser("status", help="Summarize the ledger, its approvals and unresolved commits.")
         _add_repo_arguments(status)
 
+        recheck = subcommands.add_parser(
+            "recheck",
+            help="Show the ledger verdict of every open pull request head and merge-queue head. --apply posts it.",
+        )
+        _add_repo_arguments(recheck)
+        recheck.add_argument(
+            "--run-type", action="append", dest="run_types", help="Check only this run type. Repeat for more."
+        )
+        recheck.add_argument(
+            "--apply", action="store_true", help="Post the statuses. Needs ledger mode and the commit status gate."
+        )
+        recheck.add_argument(
+            "--pause",
+            type=float,
+            default=1.0,
+            help="Seconds to wait between two posts, to stay below GitHub's limit for writes.",
+        )
+
     def handle(self, *args: Any, **options: Any) -> None:
         repo = find_repo(options["repo"], options.get("team_id"))
         with team_scope(repo.team_id):
@@ -93,6 +114,17 @@ class Command(BaseCommand):
                     self._status_gate(repo, options.get("new_status_gate"))
                 case "status":
                     self._status(repo)
+                case "recheck":
+                    self._recheck(repo, options)
+
+    def _run_types(self, repo: Repo, named: list[str] | None) -> list[str]:
+        configured = [run_type for run_type in (repo.baseline_file_paths or {}) if run_type != _DEFAULT_PATH_KEY]
+        run_types = sorted(set(named or configured))
+        if not run_types:
+            raise CommandError(
+                f"{repo.repo_full_name} names no run type in its baseline file paths. Name the run types with --run-type."
+            )
+        return run_types
 
     def _commit_to_seed(self, repo: Repo, commit: str | None) -> str:
         if commit is None:
@@ -114,14 +146,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Seeded {count} entries at {commit} from the ledger.")
             return
 
-        configured = [run_type for run_type in (repo.baseline_file_paths or {}) if run_type != _DEFAULT_PATH_KEY]
-        run_types = sorted(set(options.get("run_types") or configured))
-        if not run_types:
-            raise CommandError(
-                f"{repo.repo_full_name} names no run type in its baseline file paths. "
-                "Name the run types to seed with --run-type."
-            )
-
+        run_types = self._run_types(repo, options.get("run_types"))
         github = github_api.get_github_integration_for_repo(repo)
         baselines_by_run_type: dict[str, dict[str, str]] = {}
         for run_type in run_types:
@@ -284,3 +309,65 @@ class Command(BaseCommand):
         rest = len(pr_numbers) - _MAX_LISTED_PULL_REQUESTS
         more = f", and {rest} more" if rest > 0 else ""
         self.stdout.write(f"Pull requests whose run is gated by the commit status: {shown}{more}")
+
+    def _heads(self, repo: Repo) -> list[github_api.BranchHead]:
+        default_branch = github_api.default_branch_name(repo)
+        if default_branch is None:
+            raise CommandError("GitHub did not name the default branch. Nothing was posted.")
+        pull_requests = github_api.open_pull_request_heads(repo, default_branch)
+        merge_queue = github_api.merge_queue_branch_heads(repo)
+        if pull_requests is None or merge_queue is None:
+            raise CommandError(
+                "GitHub did not list the open pull requests or the merge-queue branches. Nothing was posted."
+            )
+        self.stdout.write(f"{len(pull_requests)} open pull requests, {len(merge_queue)} merge-queue branches.")
+        return pull_requests + merge_queue
+
+    def _show_verdicts(self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str]) -> None:
+        pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
+        for head in heads:
+            for run_type in run_types:
+                verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type)
+                # Counts and the partial-run note would give almost every head a line of its own.
+                reason = _COUNT_RE.sub("N", verdict.description.removesuffix(" (partial run)"))
+                pull_requests_by_reason.setdefault((run_type, verdict.state, reason), set()).add(head.pr_number)
+
+        self.stdout.write("Dry run, nothing was posted. Pull requests per run type, state and reason:")
+        for (run_type, state, reason), pr_numbers in sorted(pull_requests_by_reason.items()):
+            listed = sorted(pr_numbers)
+            shown = ", ".join(f"#{pr_number}" for pr_number in listed[:_MAX_LISTED_PULL_REQUESTS])
+            rest = len(listed) - _MAX_LISTED_PULL_REQUESTS
+            more = f", and {rest} more" if rest > 0 else ""
+            self.stdout.write(f"{run_type} {state} ({len(listed)}) {reason}: {shown}{more}")
+
+    def _post_verdicts(
+        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], pause: float
+    ) -> None:
+        commits = sorted({head.commit_sha for head in heads})
+        not_settled: list[str] = []
+        for index, (commit_sha, run_type) in enumerate((sha, run_type) for sha in commits for run_type in run_types):
+            if index > 0:
+                time.sleep(pause)
+            if not commit_status.publish_after_switch(repo, commit_sha, run_type):
+                not_settled.append(f"{commit_sha} {run_type}")
+
+        self.stdout.write(f"Posted the status of {len(commits)} commits for {', '.join(run_types)}.")
+        if not not_settled:
+            return
+        for line in not_settled:
+            self.stdout.write(f"Not settled: {line}")
+        raise CommandError(f"{len(not_settled)} statuses may not be settled. Run recheck --apply again.")
+
+    def _recheck(self, repo: Repo, options: dict[str, Any]) -> None:
+        apply = options["apply"]
+        if apply and not (repo.baseline_mode == BaselineMode.LEDGER and repo.commit_status_gate_enabled):
+            raise CommandError(
+                "--apply posts the statuses that ledger mode requires, so it needs ledger mode and the commit "
+                "status gate. Without --apply the command only shows them."
+            )
+        run_types = self._run_types(repo, options.get("run_types"))
+        heads = self._heads(repo)
+        if apply:
+            self._post_verdicts(repo, heads, run_types, options["pause"])
+        else:
+            self._show_verdicts(repo, heads, run_types)

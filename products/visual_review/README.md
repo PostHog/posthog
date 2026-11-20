@@ -324,15 +324,15 @@ Each run stores what it compared against in `metadata["baseline"]`: the mode it 
 
 Each run records what gates it, in `Run.gate`, when it is created:
 
-| `gate`          | Mode at creation   | What blocks the merge                                            |
-| --------------- | ------------------ | ---------------------------------------------------------------- |
-| `ci_job`        | `yaml` or `shadow` | The exit code of the CI job that completes the run               |
-| `commit_status` | `ledger`           | The commit status `PostHog Visual Review / <run type>` on GitHub |
+| `gate`          | Mode at creation   | What blocks the merge                                         |
+| --------------- | ------------------ | ------------------------------------------------------------- |
+| `ci_job`        | `yaml` or `shadow` | The exit code of the CI job that completes the run            |
+| `commit_status` | `ledger`           | The commit status `Visual Review gate / <run type>` on GitHub |
 
 For a `commit_status` run, finalizing turns the pull request green at once. Nothing is committed, and nothing in CI runs again.
 `vr run complete` exits 0 for such a run when snapshots still need review, and prints the link. It still fails for a run that failed, and for drift on a merge-queue run.
 
-When the repo's commit status gate is on (`Repo.commit_status_gate_enabled`), the status of a commit is the verdict of the newest run for that commit and run type:
+When the repo's commit status gate is on (`Repo.commit_status_gate_enabled`), the backend posts the context `Visual Review gate / <run type>`, and the status of a commit is the verdict of the newest run for that commit and run type:
 
 | The newest run                                        | Status                                        |
 | ----------------------------------------------------- | --------------------------------------------- |
@@ -363,7 +363,13 @@ CI reports that case with `vr run skip`, or with one `POST` to `runs/skip/` as t
 When a run exists for that commit and run type, the run owns the status and the report posts nothing.
 The report is not a run: it shows in no list and replaces no run.
 
-With the gate off, in any mode, none of this applies. Partial runs post to a `(partial)` context and observe runs to a `(tracking)` context.
+With the gate off, in any mode, none of this applies. Runs post the file's verdict to `PostHog Visual Review / <run type>`, partial runs to a `(partial)` context and observe runs to a `(tracking)` context.
+The gate has its own context name so that a pass from that publisher, still on a commit from before the switch, cannot satisfy the required check.
+
+In `ledger` mode, a run that the baseline file classified (created before the switch) passes only when the ledger agrees from the stored hashes.
+For each rendered snapshot whose ledger baseline differs from the stored one, the stored render must be the ledger hash, the hash of an open approval, or tolerated against one of them.
+Otherwise the status is `pending` and asks for a new run ("Merge master" when the run's merge-base is older than the ledger), and a merge-queue run fails so that the queue drops it.
+A run without a ledger record is `pending` as a whole. A real change that nobody approved fails as before.
 
 ### How an approval reaches the default branch
 
@@ -399,20 +405,22 @@ A revert pull request needs an approval for the pictures it restores.
 - `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
 - `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
 - `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is not approved and is still gated by the commit status.
+- `recheck` shows the `ledger`-mode status of every open pull request head and merge-queue head, and posts nothing. `--apply` posts it and needs `ledger` mode. `--run-type` limits it to some run types.
 
 To move a repo to the ledger:
 
 1. `seed`, then `mode --set shadow`. The repo keeps working as in `yaml` mode. `seed` stops when a configured run type has no verified baseline entries, for example an empty baseline file. Pass `--run-type` for the run types that have a baseline.
 2. Watch `metadata["baseline"]["comparison"]` on `shadow` runs. It counts the snapshots where the ledger verdict differs from the file verdict, and `gate_differs` says whether the gate would differ. A `shadow` run does not wait for the ledger: when its merge-base is newer than the ledger's newest commit, the run has no comparison and `metadata["baseline"]["unavailable_reason"]` says why. An approval finalized on such a run is not recorded, so the ledger misses that entry until the next `seed --replace`. Count these runs apart from real differences.
 3. Approvals made before the seed are not in the ledger. Once the pull requests that carried them have merged, run `seed --replace` once more and start counting from there.
-4. `status-gate --set on`. The commit status now follows the rules above, with the file's verdict, and a report of a commit without a visual run posts a status. In PostHog/posthog the jobs that send that report are off until the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` is `true`, so set it too.
-5. Check that the head of every open, ready pull request and the recent merge-queue branches carry the status `PostHog Visual Review / <run type>` for each run type.
-6. Require those statuses in the branch ruleset, from the GitHub App that posts them. Keep the CI jobs required: they prove that the render happened.
-7. `mode --set ledger`.
+4. `repair`: it adds ledger entries where the ledger differs from the baseline file, so that both agree at the default branch head.
+5. `recheck`. It posts nothing and shows, per run type, the status that every open pull request head and merge-queue head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
+6. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it. Keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8.
+7. `status-gate --set on`, set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` (PostHog/posthog sends the "no run needed" report only then), and `mode --set ledger`.
+8. `recheck --apply`. It posts the status on every open pull request head and merge-queue head, `success` "No visual run for this commit" where no run exists. `--pause` sets the seconds between posts. Run it again for what it reports as not settled.
 
 Do not skip a step or change the order. A required status that is not posted everywhere blocks every pull request without a visual run. `ledger` mode without the required status leaves a pull request with unreviewed changes blocked only by the merge queue.
 
-A run created in `shadow` mode keeps `gate = ci_job`. When it is finalized after step 7, nothing is committed, so finalize re-runs its CI job once and the job reads the new verdict.
+A run created in `shadow` mode keeps `gate = ci_job`. When it is finalized after step 7, nothing is committed, so finalize re-runs its CI job once and the job reads the new verdict. Its new approvals then count in the ledger check of its status.
 From step 7 on, the stale-approval rule covers such a run too.
 A run created in `yaml` mode has no ledger record, and `ledger` mode refuses to finalize it. Re-run CI on the commit and approve the new run.
 
