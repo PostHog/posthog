@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { pathCleaningSuggestionsLogic } from './pathCleaningSuggestionsLogic'
@@ -88,7 +89,7 @@ export function PathCleaningSuggestionsBanner(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayRailNav = useQuillSurface()
 
     if (!flagEnabled || suggestionsLoading || !latestSuggestion || latestSuggestion.rules.length === 0) {
         return null

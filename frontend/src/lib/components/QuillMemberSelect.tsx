@@ -18,6 +18,8 @@ import { fullName } from 'lib/utils/strings'
 import type { OrganizationMemberType, UserBasicType } from '~/types'
 
 const NONE_KEY = 'none'
+// ComboboxEmpty only shows for an empty list, and the none item keeps it non-empty, so the status becomes a row.
+const STATUS_KEY = 'status'
 const MEMBER_PREFIX = 'member:'
 const OPTION_PREFIX = 'option:'
 const EXTRA_PREFIX = 'extra:'
@@ -81,6 +83,19 @@ export function QuillMemberSelect({
         ...extrasByKey.keys(),
     ]
     const loading = options ? optionsLoading : membersLoading
+    if (allowNone && (loading || items.length === 1)) {
+        items.push(STATUS_KEY)
+    }
+    const status = loading ? (
+        <span className="flex items-center gap-2">
+            <Spinner />
+            Loading...
+        </span>
+    ) : searchValue ? (
+        'No matches'
+    ) : (
+        'No users'
+    )
 
     const selectItem = (key: string | null): void => {
         if (!key) {
@@ -137,20 +152,17 @@ export function QuillMemberSelect({
             </Button>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search" showTrigger={false} />
-                <ComboboxEmpty>
-                    {loading ? (
-                        <span className="flex items-center gap-2">
-                            <Spinner />
-                            Loading...
-                        </span>
-                    ) : searchValue ? (
-                        'No matches'
-                    ) : (
-                        'No users'
-                    )}
-                </ComboboxEmpty>
+                <ComboboxEmpty>{status}</ComboboxEmpty>
                 <ComboboxList>
                     {(key: string) => {
+                        if (key === STATUS_KEY) {
+                            return (
+                                <ComboboxItem key={key} value={key} disabled>
+                                    {status}
+                                </ComboboxItem>
+                            )
+                        }
+
                         if (key === NONE_KEY) {
                             return (
                                 <ComboboxItem key={key} value={key}>

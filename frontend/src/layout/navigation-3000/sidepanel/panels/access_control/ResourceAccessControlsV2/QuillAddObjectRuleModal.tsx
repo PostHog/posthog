@@ -133,8 +133,9 @@ export function QuillAddObjectRuleModal({
                             </Combobox>
                         </Field>
                         <Field>
-                            <FieldLabel>Access</FieldLabel>
+                            <FieldLabel htmlFor={`${id}-level`}>Access</FieldLabel>
                             <QuillLevelSelect
+                                id={`${id}-level`}
                                 value={level}
                                 options={objectRuleLevelOptions(
                                     resourceLevels?.available_access_levels ?? availableResourceLevels,

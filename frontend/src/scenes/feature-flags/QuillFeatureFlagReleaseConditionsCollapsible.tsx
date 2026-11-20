@@ -35,7 +35,8 @@ interface QuillFeatureFlagReleaseConditionsCollapsibleProps extends Omit<
     FeatureFlagReleaseConditionsLogicProps,
     'readOnly'
 > {
-    isDisabled?: boolean
+    /** Why the person can't save these conditions, shown above them. */
+    restrictedReason?: string | null
 }
 
 /**
@@ -47,7 +48,7 @@ export function QuillFeatureFlagReleaseConditionsCollapsible({
     id,
     filters,
     onChange,
-    isDisabled,
+    restrictedReason,
 }: QuillFeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const logicProps = { id, filters, onChange }
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic(logicProps)
@@ -118,13 +119,10 @@ export function QuillFeatureFlagReleaseConditionsCollapsible({
                     within the rollout percentage.
                 </Text>
 
-                {isDisabled && (
+                {restrictedReason && (
                     <Item tone="info" size="sm">
                         <ItemContent>
-                            <ItemDescription>
-                                This flag is currently <b>disabled</b>. These release conditions won't take effect until
-                                you enable it.
-                            </ItemDescription>
+                            <ItemDescription>{restrictedReason}</ItemDescription>
                         </ItemContent>
                     </Item>
                 )}

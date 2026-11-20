@@ -1,6 +1,20 @@
+import { useId } from 'react'
+
 import { Field, FieldDescription, FieldLabel } from '@posthog/quill'
 
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
+
+// A pasted "a.com, b.com" arrives as one entry, and the API rejects the whole list over it.
+function splitEntries(entries: string[]): string[] {
+    return Array.from(
+        new Set(
+            entries
+                .flatMap((entry) => entry.split(','))
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+        )
+    )
+}
 
 export function QuillFeatureFlagRequestBlocklist({
     blockedHosts,
@@ -17,13 +31,17 @@ export function QuillFeatureFlagRequestBlocklist({
     disabled: boolean
     disabledReason?: string | null
 }): JSX.Element {
+    const hostsId = useId()
+    const ipsId = useId()
+
     return (
         <div className="flex max-w-160 flex-col gap-4">
             <Field>
-                <FieldLabel>Blocked domains</FieldLabel>
+                <FieldLabel htmlFor={hostsId}>Blocked domains</FieldLabel>
                 <TagsCombobox
+                    id={hostsId}
                     value={blockedHosts}
-                    onChange={onBlockedHostsChange}
+                    onChange={(hosts) => onBlockedHostsChange(splitEntries(hosts))}
                     customValueNoun="domain"
                     dataAttr="feature-flag-blocked-hosts-select"
                     placeholder="example.com"
@@ -37,10 +55,11 @@ export function QuillFeatureFlagRequestBlocklist({
                 </FieldDescription>
             </Field>
             <Field>
-                <FieldLabel>Blocked IP addresses</FieldLabel>
+                <FieldLabel htmlFor={ipsId}>Blocked IP addresses</FieldLabel>
                 <TagsCombobox
+                    id={ipsId}
                     value={blockedIps}
-                    onChange={onBlockedIpsChange}
+                    onChange={(ips) => onBlockedIpsChange(splitEntries(ips))}
                     customValueNoun="IP address"
                     dataAttr="feature-flag-blocked-ips-select"
                     placeholder="203.0.113.7 or 198.51.100.0/24"

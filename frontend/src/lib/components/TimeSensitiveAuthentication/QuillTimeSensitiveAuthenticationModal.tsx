@@ -58,7 +58,8 @@ export function QuillTimeSensitiveAuthenticationModal({
                 }
             }}
         >
-            <DialogContent>
+            {/* Matches the Lemon re-auth modal's layer, so the prompt opens above any modal that triggered it. */}
+            <DialogContent className="[--quill-z-modal:1169]" overlayClassName="[--quill-z-overlay:1169]">
                 <DialogHeader>
                     <DialogTitle>Re-authenticate for security</DialogTitle>
                 </DialogHeader>
