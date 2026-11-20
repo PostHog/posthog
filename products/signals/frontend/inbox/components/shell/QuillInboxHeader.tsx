@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
+import { forYouCountLogic } from '../../logics/forYouCountLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { INBOX_TAB_DESCRIPTION, INBOX_TAB_KEYS, INBOX_TAB_LABEL, InboxTabKey } from '../../types'
 import { ScoutsRosterActions } from '../config/scouts/ScoutsRosterActions'
@@ -23,10 +24,14 @@ export function QuillInboxHeader(): JSX.Element {
     const { count: needsDecision } = useValues(reportListLogic(sectionListLogicProps('needs-decision')))
     const { count: monitoring } = useValues(reportListLogic(sectionListLogicProps('monitoring')))
     const openCount = needsDecision === null || monitoring === null ? null : needsDecision + monitoring
+    const { forYouCount } = useValues(forYouCountLogic)
     const subtitle =
         activeTab !== 'reports' || openCount === null
             ? INBOX_TAB_DESCRIPTION[activeTab]
-            : `${openCount} open ${openCount === 1 ? 'report' : 'reports'}`
+            : [
+                  `${openCount} open ${openCount === 1 ? 'report' : 'reports'}`,
+                  ...(forYouCount ? [`${forYouCount} for you`] : []),
+              ].join(' · ')
 
     return (
         <div className="Today shrink-0">

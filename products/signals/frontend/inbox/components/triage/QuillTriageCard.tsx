@@ -60,6 +60,7 @@ export function QuillTriageCard({ report, expanded }: { report: SignalReport; ex
         useActions(inboxTriageLogic)
     const { page, shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
     const myUuid = user?.uuid ?? null
+    const reviewers = report.suggested_reviewer_count ?? 0
     const evidence = expanded ? shownEvidence : shownEvidence.slice(0, CLOSED_EVIDENCE_ROWS)
 
     return (
@@ -84,10 +85,10 @@ export function QuillTriageCard({ report, expanded }: { report: SignalReport; ex
                         </>
                     )}
                     <span>{hasActiveReportPullRequest(report) ? 'Pull request open' : 'No pull request'}</span>
-                    {report.is_suggested_reviewer && (
+                    {reviewers > 0 && (
                         <>
                             <Separator />
-                            <span>Suggested for you</span>
+                            <span>{`${reviewers} suggested ${reviewers === 1 ? 'reviewer' : 'reviewers'}`}</span>
                         </>
                     )}
                 </Text>

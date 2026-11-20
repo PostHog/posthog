@@ -88,6 +88,17 @@ export function reportOwnerLabel(kind: ReportOwnerKind, holderName: string | nul
     }
 }
 
+/** Splits list rows into the "For you" group and the others. Each group keeps the order of the list. */
+export function groupForYou<Row extends { report: Parameters<typeof isForYouReport>[0] }>(
+    rows: Row[],
+    currentUserUuid: string | null
+): { forYou: Row[]; others: Row[] } {
+    return {
+        forYou: rows.filter(({ report }) => isForYouReport(report, currentUserUuid)),
+        others: rows.filter(({ report }) => !isForYouReport(report, currentUserUuid)),
+    }
+}
+
 const FOR_YOU_STATUSES: SignalReportStatus[] = [SignalReportStatus.READY, SignalReportStatus.PENDING_INPUT]
 
 /**

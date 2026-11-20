@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { userLogic } from 'scenes/userLogic'
 
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
@@ -28,6 +29,7 @@ import {
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
+import { groupForYou } from '../../utils/reportFacts'
 import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
@@ -297,6 +299,7 @@ export function ReportsTab(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
     const { selectedReportIds } = useValues(inboxBulkActionsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user } = useValues(userLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -339,10 +342,17 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+    const mergedRows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
         collapsePlans: linkStrips,
         selectedReportIds,
     })
+    // The Quill list shows the reports for the person as their own group, and only when the whole project is
+    // in the list. The rows take that order here, so range selection and impressions follow what is on screen.
+    const groups =
+        todayRailNav && scope === INBOX_SCOPE_ENTIRE_PROJECT && !hasActiveFilters
+            ? groupForYou(mergedRows, user?.uuid ?? null)
+            : { forYou: [], others: mergedRows }
+    const rows = [...groups.forYou, ...groups.others]
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
@@ -463,7 +473,8 @@ export function ReportsTab(): JSX.Element {
                     hasRows: rows.length > 0,
                     failed: anyLoadFailed,
                 })}
-                rows={rows}
+                forYou={groups.forYou}
+                others={groups.others}
                 totalCount={selectedSections.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)}
                 timestampField={timestampField}
                 emptyCopy={emptyListCopy(scope, narrowed)}

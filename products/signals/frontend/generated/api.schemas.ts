@@ -3527,6 +3527,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly personal_reason: string | null
+    /** How many reviewers the report's newest reviewer suggestion names. */
+    readonly suggested_reviewer_count: number
     /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with follow-up checks, or, with `view=monitoring_recent`, left Monitoring in the last 14 days. */
     readonly monitoring_summary: ReportMonitoringSummaryApi | null
     /** How Monitoring ended, for a resolved or closed report that went through it. Null otherwise, and when Monitoring is disabled. */
