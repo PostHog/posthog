@@ -769,18 +769,30 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         delete_cache_entry = hypercache.delete_cache_entry
         attempted: list[str] = []
 
-        def fail_first_delete(cache_hash: str, kinds: list[str]) -> None:
+        def fail_the_first_credential(cache_hash: str, kinds: list[str]) -> None:
             attempted.append(cache_hash)
-            if len(attempted) == 1:
+            if cache_hash == attempted[0]:
                 raise ConnectionError("redis down")
             delete_cache_entry(cache_hash, kinds=kinds)
 
-        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_first_delete):
+        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_the_first_credential):
             with self.assertRaises(ConnectionError):
                 reproject_organization_gateway_credentials_task(str(self.organization.pk))
 
         still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
         self.assertEqual(len(still_cached), 1)
+
+    @parameterized.expand([("organization_read", "_organization_deactivated"), ("team_lookup", "_team_for_credential")])
+    def test_reproject_organization_task_clears_a_credential_it_cannot_verify(self, _name, failing_read):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        with patch.object(gateway_credential_cache, failing_read, side_effect=OperationalError("primary down")):
+            with self.assertRaises(OperationalError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
 
     def test_reproject_organization_task_sweeps_live_oauth_tokens_newest_first(self):
         expiring_soon = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=1)
@@ -813,7 +825,7 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
             with self.assertRaises(ConnectionError):
                 reproject_organization_gateway_credentials_task(str(self.organization.pk))
 
-        self.assertEqual(len(attempted), gateway_credential_cache.REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES)
+        self.assertEqual(len(set(attempted)), gateway_credential_cache.REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES)
 
     @patch("posthog.tasks.gateway_credential.settings")
     def test_refresh_task_noop_without_redis_url(self, mock_settings):
