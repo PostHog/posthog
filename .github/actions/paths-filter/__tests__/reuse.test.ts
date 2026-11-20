@@ -205,6 +205,19 @@ describe('reuse of an earlier passing result', () => {
       'previous-not-green'
     ],
     [
+      'a newer head with other inputs failed after the earlier green head',
+      {},
+      {
+        filesAt: async (_base, sha) =>
+          sha === PREVIOUS_HEAD ? files({...appFile, sha: 'app-broken'}) : files(appFile),
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [{...green, conclusion: 'failure'}]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      },
+      'previous-not-green'
+    ],
+    [
       'no earlier head ran the suite',
       {},
       {
@@ -335,24 +348,20 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
   })
 
-  test.each<[string, Record<string, CheckRun[]>]>([
-    ['failed with other inputs', {[GATE]: [{...green, conclusion: 'failure'}]}],
-    ['passed with other inputs', {[GATE]: [green], [PROOF]: [green]}]
-  ])(
-    'a push that restores the inputs of an earlier green head reuses it when the previous head %s',
-    async (_, previousRuns) => {
-      const decision = await evaluate(
-        input(),
-        api({
-          filesAt: async (_base, sha) =>
-            sha === PREVIOUS_HEAD ? files({...appFile, sha: 'app-broken'}) : files(appFile),
-          checkRuns: runsByHead({[PREVIOUS_HEAD]: previousRuns, [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}})
+  test('a push that restores the inputs of an earlier green head reuses it when the previous head passed with other inputs', async () => {
+    const decision = await evaluate(
+      input(),
+      api({
+        filesAt: async (_base, sha) => (sha === PREVIOUS_HEAD ? files({...appFile, sha: 'app-v2'}) : files(appFile)),
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [green]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
         })
-      )
+      })
+    )
 
-      expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD, headsBehind: 1})
-    }
-  )
+    expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD, headsBehind: 1})
+  })
 
   test('an earlier head that cannot be compared stops the search before an older green head', async () => {
     const OLDEST_HEAD = 'e'.repeat(40)
@@ -465,7 +474,7 @@ describe('reuse of an earlier passing result', () => {
     ['names an unknown filter', {'reuse-proof-checks': PROOF, 'reuse-filters': 'frontend, fronted'}, 'fronted'],
     ['names no proof check', {}, 'reuse-proof-checks']
   ])('a configuration that %s fails the action', (_, inputs, message) => {
-    jest.mocked(core.getInput).mockImplementation(name => ({'reuse-checks': GATE, ...inputs}[name] ?? ''))
+    jest.mocked(core.getInput).mockImplementation(name => ({'reuse-checks': GATE, ...inputs})[name] ?? '')
 
     expect(() => loadConfig(filter, null)).toThrow(message)
   })

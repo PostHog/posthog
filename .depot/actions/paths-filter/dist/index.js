@@ -43169,6 +43169,16 @@ function isFailure(run) {
     var _a;
     return run.status === 'completed' && !isPassing(run) && !INCONCLUSIVE_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : '');
 }
+function firstFailure(config, shas, gatesByHead) {
+    for (const [index, gates] of gatesByHead.entries()) {
+        const failedGate = gates.findIndex(runs => runs.some(isFailure));
+        if (failedGate >= 0) {
+            const failed = gates[failedGate].find(isFailure);
+            return `${shas[index]} ${config.checks[failedGate]}: ${failed === null || failed === void 0 ? void 0 : failed.conclusion}`;
+        }
+    }
+    return null;
+}
 async function proveRun(input, api, current, before) {
     const { config } = input;
     const differingFromBefore = await differingFrom(input, api, current, before);
@@ -43177,6 +43187,7 @@ async function proveRun(input, api, current, before) {
     }
     const heads = await earlierHeads(input, api, before);
     const candidates = await headsWithSameContent(input, api, heads.shas, before, differingFromBefore, current);
+    let unchecked = 0;
     for (const sha of candidates) {
         if (sha !== before) {
             const differing = await differingFrom(input, api, current, sha);
@@ -43187,23 +43198,26 @@ async function proveRun(input, api, current, before) {
                 continue;
             }
         }
-        const [gates, proofs] = await Promise.all([
+        const position = heads.shas.indexOf(sha);
+        const newer = heads.shas.slice(unchecked, position);
+        unchecked = position + 1;
+        const [gates, proofs, newerGates] = await Promise.all([
             checkRunsFrom(input, api, sha, config.checks),
-            checkRunsFrom(input, api, sha, config.proofChecks)
+            checkRunsFrom(input, api, sha, config.proofChecks),
+            Promise.all(newer.map(async (other) => checkRunsFrom(input, api, other, config.checks)))
         ]);
-        const failedGate = gates.findIndex(runs => runs.some(isFailure));
+        const failure = firstFailure(config, [...newer, sha], [...newerGates, gates]);
+        if (failure) {
+            return miss('previous-not-green', failure, heads.listed);
+        }
         const allGatesPassed = gates.every(runs => runs.length > 0 && runs.every(isPassing));
         const proof = allGatesPassed ? proofs.flat().find(run => run.conclusion === 'success') : undefined;
-        if (failedGate < 0 && !proof) {
+        if (!proof) {
             continue;
         }
-        if (failedGate >= 0) {
-            const failed = gates[failedGate].find(isFailure);
-            return miss('previous-not-green', `${sha} ${config.checks[failedGate]}: ${failed === null || failed === void 0 ? void 0 : failed.conclusion}`, heads.listed);
-        }
-        const startedAt = proof ? earliestSuite([...gates.flat(), proof]) : null;
+        const startedAt = earliestSuite([...gates.flat(), proof]);
         return startedAt
-            ? { sha, startedAt, earlierHeads: heads.listed, headsBehind: heads.shas.indexOf(sha) }
+            ? { sha, startedAt, earlierHeads: heads.listed, headsBehind: position }
             : miss('error', `${sha}: a check run has no check suite time`, heads.listed);
     }
     return differingFromBefore.length > 0

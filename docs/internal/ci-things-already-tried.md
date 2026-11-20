@@ -335,7 +335,11 @@ One GraphQL query then compares a few blobs on all of those heads, so a push tha
 The replay did not count a head that a rebase or a force-push removed from the PR's commits, or a previous head whose run was superseded.
 The gain is therefore not re-measured: read `heads_behind` on the `posthog-ci-reuse-decision` events, where any value above 0 is a reuse this search added.
 
-_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push, reuse after a revert, reuse after a rebase or force-push
+A failed gate on any head newer than the green one stops the search, whatever that head's inputs.
+The failure can come from a file no scoped filter matches, such as a database init script the suite mounts, and that file may still be on the branch.
+So the search adds reuse after a cancelled, superseded or skipped head, but not after a red one.
+
+_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push (refused), reuse after a revert, reuse after a rebase or force-push
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 

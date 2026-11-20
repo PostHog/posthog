@@ -108,9 +108,10 @@ The action reuses a result only when every one of these holds, and runs the suit
   The earlier heads are the previous head plus every head the branch had in the last 24 hours, at most 30, read from the repository's branch activity and not from the pull request's commits.
   So a push that reverts a change, a rebase and a force-push can all reuse a run from before them.
   A gate that passed because the suite was skipped (a reused result, a bot push) is never the proven head.
-- A head with other inputs never counts, whatever its result, and neither does a head whose run was cancelled, is still running or posted no check.
+- A head with other inputs is never the proven head, and neither is a head whose run was cancelled, is still running or posted no check.
   The search moves past those to an older head.
-  A head with the same inputs where a `reuse-checks` check failed stops the search, because the same inputs failed more recently than they passed.
+  A `reuse-checks` check that failed on any head newer than the proven head stops the search, whatever that head's inputs.
+  A file no scoped filter matches can cause that failure, and it may still be on the branch.
 - The files the scoped filters match, plus the file that defines the filters, are the same set, with the same change status and the same content, on the proven head and this one.
   The comparison uses each file's blob SHA from the API, so a formatting-only edit counts as a change.
   Before it reads any check run, the action drops the heads where up to five of those files, the ones this push changed first, have another blob. A push that changes an input therefore costs three API calls.
