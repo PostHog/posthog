@@ -41,6 +41,7 @@ from products.replay.backend.temporal.export_recordings.activities import (
 )
 from products.replay.backend.temporal.export_recordings.quote import (
     Quote,
+    SelectionError,
     create_quote,
     playlist_session_ids,
     select_sessions,
@@ -309,6 +310,11 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         quote = self._quote(session_ids)
 
         assert self._listed_by_day(quote) == [["s5", "s7"], ["s6"]]
+        with (
+            patch("products.replay.backend.temporal.export_recordings.quote.MAX_LISTED_SESSIONS", 1),
+            pytest.raises(SelectionError),
+        ):
+            playlist_session_ids(self.team, playlist.short_id, quote.date_from, quote.date_to)
 
     @parameterized.expand([("complete_run", True, 0), ("run_with_skipped_shards", False, None)])
     def test_summary_keeps_our_cost_out_of_the_customer_bucket(

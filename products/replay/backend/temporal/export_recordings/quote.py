@@ -84,6 +84,7 @@ FROM (
         AND start_time < %(range_end)s
         AND expiry_time >= now()
 )
+LIMIT %(row_limit)s
 """
 
 
@@ -205,9 +206,15 @@ def select_sessions(
                 "range_start": _day_start(first),
                 "range_end": _day_start(last + timedelta(days=1)),
                 "session_ids": chunk,
+                # One row more than the day's shards can hold is enough to refuse the day.
+                "row_limit": shards_per_day * MAX_SESSIONS_PER_SHARD + 1,
             },
             workload=Workload.OFFLINE,
         )
+        if chunk is None and len(rows) > shards_per_day * MAX_SESSIONS_PER_SHARD:
+            raise SelectionError(
+                f"{first} has more sessions than {shards_per_day} shards hold. Raise --shards-per-day."
+            )
         for session_id, day, shard, *counters in rows:
             pending.setdefault((day, int(shard)), []).append(session_id)
             totals[0] += 1
@@ -316,6 +323,10 @@ def playlist_session_ids(team: Team, short_id: str, date_from: str, date_to: str
                 team=team, query=query, max_execution_time=PLAYLIST_QUERY_SECONDS, throw_on_timeout=True
             ).run()
             session_ids.update(row["session_id"] for row in result.results)
+            if len(session_ids) > MAX_LISTED_SESSIONS:
+                raise SelectionError(
+                    f"{short_id} matches more than {MAX_LISTED_SESSIONS:,} sessions. Quote a shorter range."
+                )
             if not result.has_more_recording or not result.next_cursor:
                 break
             query.after = result.next_cursor
