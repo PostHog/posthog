@@ -1,0 +1,144 @@
+name: Request mobile PR simulator
+run-name: iOS simulator request for PR ${{ github.event.issue.number }}
+
+on:
+    issue_comment:
+        types: [created]
+
+permissions: {}
+
+concurrency:
+    # Other comments must not replace a requester's pending simulator run.
+    group: >-
+        ios-smoke-${{ github.run_attempt == 1 && github.event.issue.pull_request && github.event.issue.state == 'open' &&
+        startsWith(github.event.comment.body, '/ios-smoke ') && format('requester-{0}', github.actor_id) || github.run_id }}
+    cancel-in-progress: false
+
+jobs:
+    authorize:
+        if: >-
+            github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' &&
+            github.event.issue.pull_request && github.event.issue.state == 'open' &&
+            startsWith(github.event.comment.body, '/ios-smoke ') &&
+            github.run_attempt == 1 && github.event.comment.user.type == 'User' &&
+            github.event.comment.user.id == github.actor_id && github.actor == github.triggering_actor
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read # compare the branch workflow with the reviewed version
+            pull-requests: read
+            actions: write # dispatch the simulator workflow to the verified PR branch
+        steps:
+            - name: Read the requested commit
+              id: request
+              env:
+                  COMMENT: ${{ github.event.comment.body }}
+              run: |
+                  if [[ "$COMMENT" =~ ^/ios-smoke[[:blank:]]([0-9a-f]{40})$ ]]; then
+                      echo "revision=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::error::Use /ios-smoke followed by the full commit SHA."
+                      exit 1
+                  fi
+
+            - name: Verify the PR source and requested commit
+              id: source
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.issue.number }}
+                  REVISION: ${{ steps.request.outputs.revision }}
+              shell: bash
+              run: |
+                  pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+                  if ! author=$(jq -er --arg repo "$GITHUB_REPOSITORY_ID" --arg sha "$REVISION" '
+                      select(.state == "open" and (.head.repo.id | tostring) == $repo and .head.sha == $sha)
+                      | select(.user.type == "User") | .user.login | strings | select(length > 0)
+                  ' <<< "$pr"); then
+                      echo "::error::Use the current commit of an open, member-authored PR from a branch in $GITHUB_REPOSITORY."
+                      exit 1
+                  fi
+                  branch=$(jq -er '.head.ref | strings | select(length > 0 and . != "master")' <<< "$pr")
+                  git check-ref-format "refs/heads/$branch"
+                  echo "author=$author" >> "$GITHUB_OUTPUT"
+                  echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: members
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  permission-members: read
+
+            - name: Verify the requester and PR author are active PostHog organization members
+              id: membership
+              env:
+                  GH_TOKEN: ${{ steps.members.outputs.token }}
+                  REQUESTER: ${{ github.actor }}
+                  AUTHOR: ${{ steps.source.outputs.author }}
+              run: |
+                  for login in "$REQUESTER" "$AUTHOR"; do
+                      state=$(gh api "orgs/PostHog/memberships/$login" --jq .state)
+                      [[ "$state" == active ]] || { echo "::error::Both accounts must be active PostHog members."; exit 1; }
+                  done
+
+            - name: Check the requester's simulator budget
+              id: budget
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REQUESTER_ID: ${{ github.actor_id }}
+              run: |
+                  since=$(date -u -d '24 hours ago' +%FT%TZ)
+                  name="ios-simulator-request-$REQUESTER_ID"
+                  runs=$(gh api --paginate --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" \
+                      -f "name=$name" -F per_page=100 | jq -r --arg since "$since" --arg repo "$GITHUB_REPOSITORY_ID" '
+                      .artifacts[] | select(.created_at > $since and .workflow_run.head_branch == "master" and
+                          (.workflow_run.head_repository_id | tostring) == $repo) | .workflow_run.id')
+                  count=0
+                  for run_id in $runs; do
+                      run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+                      if jq -e --arg actor "$REQUESTER_ID" '
+                          .path == ".github/workflows/mobile-pr-simulator.yml" and .event == "issue_comment" and
+                          (.actor.id | tostring) == $actor' <<< "$run" > /dev/null; then
+                          (( ++count ))
+                          if (( count >= 3 )); then
+                              echo "::error::Each requester can request three simulator builds in a rolling 24-hour period."
+                              exit 1
+                          fi
+                      fi
+                  done
+
+            - name: Start the simulator on the PR branch
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  BRANCH: ${{ steps.source.outputs.branch }}
+                  PR: ${{ github.event.issue.number }}
+                  REVISION: ${{ steps.request.outputs.revision }}
+                  REQUESTER_ID: ${{ github.actor_id }}
+              run: |
+                  workflow="repos/$GITHUB_REPOSITORY/contents/.github/workflows/mobile-pr-simulator-build.yml"
+                  trusted=$(gh api --method GET "$workflow" -f "ref=$GITHUB_SHA" --jq .sha)
+                  proposed=$(gh api --method GET "$workflow" -f "ref=$REVISION" --jq .sha)
+                  if [[ -z "$trusted" || "$proposed" != "$trusted" ]]; then
+                      echo "::error::Update the simulator build workflow from master before requesting a build."
+                      exit 1
+                  fi
+                  run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mobile-pr-simulator-build.yml/dispatches" \
+                      -f "ref=refs/heads/$BRANCH" -f "inputs[pr]=$PR" -f "inputs[revision]=$REVISION" \
+                      -f "inputs[scripts_revision]=$GITHUB_SHA" -f "inputs[requester_id]=$REQUESTER_ID" \
+                      -f "inputs[request_run_id]=$GITHUB_RUN_ID" -F return_run_details=true --jq .workflow_run_id)
+                  [[ "$run_id" =~ ^[1-9][0-9]*$ ]]
+                  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" | jq -e --arg branch "$BRANCH" --arg sha "$REVISION" '
+                      .path == ".github/workflows/mobile-pr-simulator-build.yml" and .event == "workflow_dispatch" and
+                      .head_branch == $branch and .head_sha == $sha' > /dev/null
+                  echo "$run_id" > "$RUNNER_TEMP/simulator-request"
+                  echo "Simulator build: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Authorize this build and record the request
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ios-simulator-request-${{ github.actor_id }}
+                  path: ${{ runner.temp }}/simulator-request
+                  retention-days: 2
+                  if-no-files-found: error

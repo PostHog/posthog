@@ -1,6 +1,19 @@
 # CI
 
-Three GitHub Actions workflows cover the app. They install the independent `products/mobile` workspace.
+The mobile CI, build, release and simulator workflows use the independent `products/mobile` workspace.
+
+## Test a mobile PR on iOS
+
+An active PostHog organization member can test an open PR authored by an active member from a branch in `PostHog/posthog`.
+For a fork PR, ask the contributor to run the [demo flows](TESTING.md#demo-flows-before-you-merge) in their own environment and share the results for the commit under review.
+Post a new comment on the PR containing only `/ios-smoke <full commit SHA>`.
+To get the current SHA, run `gh pr view <number> --repo PostHog/posthog --json headRefOid --jq .headRefOid`.
+GitHub checks the source, commit and both memberships before reserving a build. Each requester can reserve three builds across all PRs in a rolling 24-hour period. A dispatched build counts once GitHub records its authorization, including builds that later fail. Each requester can have one active build and one pending build. A newer build replaces their pending build.
+
+The **Request mobile PR simulator** run links to the branch’s **Test mobile PR on iOS** run. The PR branch must contain the same simulator build workflow as master. Update older branches from master before requesting a build. To retry, post a fresh command so GitHub rechecks the PR source, commit and both memberships.
+The job checks that the PR still points to that commit, then uses the build script from the default branch to compile that commit in an empty build directory on a fresh GitHub-hosted Mac. Both walkthroughs and the portrait capture use that run’s bundled app. Every request builds again, including retries of the same commit.
+Download the reports and screenshots from the run's artifacts within three days. Inspect the images before adding them to a PR.
+For your own changes, use the usual [local testing commands](TESTING.md).
 
 ## Mobile CI
 
@@ -56,7 +69,7 @@ Details:
 
 `@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
 
-The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
+Mobile CI runs automatically. Run the simulator demo flows locally or with [Test mobile PR on iOS](#test-a-mobile-pr-on-ios) before merging a screen change. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
 
 ## Mobile Build
 
@@ -97,5 +110,5 @@ From the main checkout:
 
 ```sh
 hogli lint:workflows
-actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml .github/workflows/mobile-release.yml
+actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml .github/workflows/mobile-release.yml .github/workflows/mobile-pr-simulator.yml .github/workflows/mobile-pr-simulator-build.yml
 ```

@@ -395,7 +395,7 @@ The step after each one waits for a stable element, so these warnings are expect
 
 ### Demo flows before you merge
 
-CI does not run the simulator flows. Run `demo-smoke` and `views-smoke` locally before you merge a change to a screen,
+Run `demo-smoke` and `views-smoke` locally or with the [manual iOS simulator workflow](CI.md#test-a-mobile-pr-on-ios) before you merge a change to a screen,
 navigation, the demo fixtures, or a flow. The `/running-mobile-demo-flows` skill in `.agents/skills/` walks an agent
 through the same steps and the result files.
 

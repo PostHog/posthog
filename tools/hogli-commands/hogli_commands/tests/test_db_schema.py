@@ -27,6 +27,7 @@ def _artifact(
 ) -> db_schema.SchemaArtifact:
     return db_schema.SchemaArtifact(
         id=artifact_id,
+        run_id=artifact_id,
         name=name,
         expired=expired,
         size_in_bytes=size_in_bytes,
@@ -91,27 +92,38 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
 
 
 class _FakeArtifactPage:
-    def __init__(self, artifacts: list[dict[str, Any]], *, has_next: bool) -> None:
-        self._artifacts = artifacts
+    status_code = 200
+
+    def __init__(self, payload: dict[str, Any], *, has_next: bool) -> None:
+        self._payload = payload
         self.links = {"next": {"url": "next"}} if has_next else {}
 
     def raise_for_status(self) -> None:
         pass
 
     def json(self) -> dict[str, Any]:
-        return {"artifacts": self._artifacts}
+        return self._payload
 
 
 class _FakeArtifactPagesSession:
-    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
+    def __init__(self, pages: list[list[dict[str, Any]]], runs: dict[int, dict[str, str]] | None = None) -> None:
         self._pages = pages
+        self._runs = runs or {}
         self.get_count = 0
 
-    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> _FakeArtifactPage:
+    def get(
+        self, url: str, *, headers: dict[str, str], timeout: int, params: dict[str, Any] | None = None
+    ) -> _FakeArtifactPage:
+        if params is None:
+            run_id = int(url.rsplit("/", 1)[1])
+            run = self._runs.get(
+                run_id, {"path": ".github/workflows/ci-backend-schema-mirror.yml", "event": "schedule"}
+            )
+            return _FakeArtifactPage(run, has_next=False)
         self.get_count += 1
         page = params["page"]
         return _FakeArtifactPage(
-            self._pages[page - 1] if page <= len(self._pages) else [],
+            {"artifacts": self._pages[page - 1] if page <= len(self._pages) else []},
             has_next=page < len(self._pages),
         )
 
@@ -125,6 +137,7 @@ def _raw_artifact(artifact_id: int, head_branch: str, *, head_repository_id: int
         "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
         "created_at": "2026-01-01T00:00:00Z",
         "workflow_run": {
+            "id": artifact_id,
             "head_sha": "sha",
             "head_branch": head_branch,
             "repository_id": 1,
@@ -141,6 +154,23 @@ def test_find_skips_artifacts_from_another_repository(head_repository_id: int | 
 
     artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
 
+    assert artifact is not None and artifact.id == 1
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        {"path": ".github/workflows/another.yml", "event": "workflow_dispatch"},
+        {"path": ".github/workflows/ci-backend-schema-mirror.yml", "event": "pull_request"},
+        {},
+    ],
+)
+def test_find_skips_other_producers(run: dict[str, str]) -> None:
+    session = _FakeArtifactPagesSession(
+        [[_raw_artifact(2, "master"), _raw_artifact(1, "master")]],
+        {2: run, 1: {"path": ".github/workflows/ci-backend-schema-mirror.yml", "event": "workflow_dispatch"}},
+    )
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session)  # type: ignore[arg-type]
     assert artifact is not None and artifact.id == 1
 
 

@@ -4,8 +4,7 @@ description: >
   Runs the PostHog mobile app's Argent demo flows (demo-smoke and views-smoke) on a local iOS simulator
   against a bundled Release build, and reads their results. Use before reporting a change under
   products/mobile that touches a screen, navigation, the demo fixtures, a testID, or a flow file as done,
-  and when asked to smoke-test the mobile app. CI does not run these flows, so the local run is the only
-  UI check a change gets.
+  and when asked to smoke-test the mobile app. Maintainers can also run the flows on a fresh GitHub-hosted Mac.
 ---
 
 # Running mobile demo flows
@@ -35,7 +34,9 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 
 ## Run the bundled flows
 
-From `products/mobile`:
+For a member-authored PR from a branch in `PostHog/posthog`, request a [hosted build of its exact commit](../../../products/mobile/docs/CI.md#test-a-mobile-pr-on-ios). For a fork PR, ask the contributor for demo results from their own environment at the reviewed commit.
+
+For your own changes, from `products/mobile`:
 
 ```sh
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"

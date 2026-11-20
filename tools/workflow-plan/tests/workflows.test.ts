@@ -1056,6 +1056,252 @@ describe('CI workflow run plans', () => {
 
     it.each([
         {
+            name: 'active organization member',
+            membership: 'success',
+            attempt: '1',
+            triggeringActor: 'operator',
+            runs: true,
+        },
+        { name: 'membership denied', membership: 'failure', attempt: '1', triggeringActor: 'operator', runs: false },
+        {
+            name: 'rerun by another user',
+            membership: 'success',
+            attempt: '2',
+            triggeringActor: 'other-user',
+            runs: false,
+        },
+        {
+            name: 'rerun by the requester',
+            membership: 'success',
+            attempt: '2',
+            triggeringActor: 'operator',
+            runs: false,
+        },
+    ] as const)('mobile simulator dispatch for $name', ({ name, membership, attempt, triggeringActor, runs }) => {
+        const wf = workflow('mobile-pr-simulator.yml')
+        expect(wf.on).toEqual({ issue_comment: { types: ['created'] } })
+        const plan = planWorkflow(wf, {
+            name,
+            github: {
+                ...workflowDispatch(),
+                event_name: 'issue_comment',
+                event: {
+                    issue: { state: 'open', number: 42, pull_request: { url: 'https://example.com/pulls/42' } },
+                    comment: { user: { type: 'User', id: 123 }, body: `/ios-smoke ${'a'.repeat(40)}` },
+                },
+                actor: 'operator',
+                actor_id: '123',
+                triggering_actor: triggeringActor,
+                run_attempt: attempt,
+            },
+            steps: { authorize: { membership: { outcome: membership } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs.authorize?.steps.find((step) => step.name === 'Start the simulator on the PR branch')?.runs ??
+                false
+        ).toBe(runs)
+    })
+
+    it.each([
+        ['current repository branch', { id: 42 }, 'open', 'a', true],
+        ['fork', { id: 21 }, 'open', 'a', false],
+        ['deleted source repository', null, 'open', 'a', false],
+        ['closed PR', { id: 42 }, 'closed', 'a', false],
+        ['changed head', { id: 42 }, 'open', 'b', false],
+    ] as const)('checks the simulator PR source for %s', (_name, repo, state, revision, allowed) => {
+        const script = workflow('mobile-pr-simulator.yml').jobs.authorize?.steps?.find(
+            (step) => step.id === 'source'
+        )?.run
+        const harness = `
+            gh() { echo "$PR_JSON"; }
+            GITHUB_OUTPUT=$(mktemp)
+            trap 'rm -f "$GITHUB_OUTPUT"' EXIT
+            ${script}
+            cat "$GITHUB_OUTPUT"
+        `
+        const gate = spawnSync('bash', ['-eu', '-c', harness], {
+            encoding: 'utf8',
+            env: {
+                PATH: process.env.PATH,
+                GITHUB_REPOSITORY: 'PostHog/posthog',
+                GITHUB_REPOSITORY_ID: '42',
+                PR: '1',
+                REVISION: 'a'.repeat(40),
+                PR_JSON: JSON.stringify({
+                    head: { repo, ref: 'topic', sha: revision.repeat(40) },
+                    state,
+                    user: { type: 'User', login: 'author' },
+                }),
+            },
+        })
+        expect(gate.status, gate.stderr).toBe(allowed ? 0 : 1)
+        expect(gate.stdout.includes('author=author')).toBe(allowed)
+    })
+
+    it.each([
+        ['active', 'active', 0],
+        ['pending', 'active', 1],
+        ['active', 'pending', 1],
+        ['active', 'missing', 1],
+    ] as const)('checks simulator memberships for requester %s and author %s', (requester, author, status) => {
+        const script = workflow('mobile-pr-simulator.yml').jobs.authorize?.steps?.find(
+            (step) => step.id === 'membership'
+        )?.run
+        const harness = `
+            gh() {
+                case "$2" in
+                    orgs/PostHog/memberships/operator) echo "$REQUESTER_STATE" ;;
+                    orgs/PostHog/memberships/contributor) [[ "$AUTHOR_STATE" != missing ]] && echo "$AUTHOR_STATE" ;;
+                    *) return 1 ;;
+                esac
+            }
+            ${script}
+        `
+        const gate = spawnSync('bash', ['-eu', '-c', harness], {
+            encoding: 'utf8',
+            env: { REQUESTER: 'operator', AUTHOR: 'contributor', REQUESTER_STATE: requester, AUTHOR_STATE: author },
+        })
+        expect(gate.status, gate.stderr).toBe(status)
+    })
+
+    it.each([
+        ['topic', 'github-actions[bot]', 'a', 1, true],
+        ['master', 'github-actions[bot]', 'a', 1, false],
+        ['topic', 'operator', 'a', 1, false],
+        ['topic', 'github-actions[bot]', 'b', 1, false],
+        ['topic', 'github-actions[bot]', 'a', 2, false],
+    ] as const)('gates the simulator worker on %s for %s at %s (attempt %i)', (branch, actor, sha, attempt, runs) => {
+        const verify = workflow('mobile-pr-simulator-build.yml').jobs['verify-request']
+        expect(
+            evaluateCondition(
+                verify?.if,
+                {
+                    github: { ...workflowDispatch(branch), ref_type: 'branch', actor, sha, run_attempt: attempt },
+                    inputs: { revision: 'a' },
+                },
+                planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        [2, 0],
+        [3, 1],
+    ] as const)('checks the budget after %i recent requests', (recent, status) => {
+        const script = workflow('mobile-pr-simulator.yml').jobs.authorize?.steps?.find(
+            (step) => step.id === 'budget'
+        )?.run
+        const artifact = (id: number, time: string) => ({
+            created_at: time,
+            workflow_run: { id, head_branch: 'master', head_repository_id: 42 },
+        })
+        const artifacts = [
+            ...Array.from({ length: recent }, (_, index) => artifact(index + 1, '2026-02-02T09:00:00Z')),
+            artifact(10, '2026-02-01T08:00:00Z'), // exactly 24 hours old
+            artifact(11, '2026-02-02T09:00:00Z'), // a different workflow
+            artifact(12, '2026-02-02T09:00:00Z'), // a different requester
+        ]
+        const harness = `
+            date() { echo 2026-02-01T08:00:00Z; }
+            gh() {
+                case "$*" in
+                    *actions/artifacts*) echo "$PAGE" ;;
+                    *runs/11) echo '{"path":"other","event":"issue_comment","actor":{"id":7}}' ;;
+                    *runs/12) echo '{"path":".github/workflows/mobile-pr-simulator.yml","event":"issue_comment","actor":{"id":8}}' ;;
+                    *actions/runs/*) echo '{"path":".github/workflows/mobile-pr-simulator.yml","event":"issue_comment","actor":{"id":7}}' ;;
+                    *) return 1 ;;
+                esac
+            }
+            ${script}
+        `
+        const gate = spawnSync('bash', ['-euo', 'pipefail', '-c', harness], {
+            encoding: 'utf8',
+            env: {
+                PATH: process.env.PATH,
+                PAGE: JSON.stringify({ artifacts }),
+                REQUESTER_ID: '7',
+                GITHUB_REPOSITORY: 'PostHog/posthog',
+                GITHUB_REPOSITORY_ID: '42',
+            },
+        })
+        expect(gate.status, gate.stderr).toBe(status)
+    })
+
+    it.each([
+        ['mobile-pr-simulator.yml', '246', 0],
+        ['mobile-pr-simulator.yml', '999', 1],
+        ['another.yml', '246', 1],
+    ] as const)('verifies the authorization from %s for run %s', (producer, build, status) => {
+        const script = workflow('mobile-pr-simulator-build.yml').jobs['verify-request']?.steps?.[0]?.run
+        const dir = mkdtempSync(path.join(tmpdir(), 'simulator-request-'))
+        const harness = `
+            echo "$AUTHORIZED_RUN" > simulator-request
+            zip -q receipt.zip simulator-request
+            gh() {
+                case "$2" in
+                    */actions/runs/1) echo "$RUN" ;;
+                    */actions/runs/1/artifacts) echo 42 ;;
+                    */actions/artifacts/42/zip) cat receipt.zip ;;
+                    *) return 1 ;;
+                esac
+            }
+            ${script}
+        `
+        try {
+            const gate = spawnSync('bash', ['-euo', 'pipefail', '-c', harness], {
+                cwd: dir,
+                encoding: 'utf8',
+                env: {
+                    PATH: process.env.PATH,
+                    GITHUB_REPOSITORY: 'PostHog/posthog',
+                    GITHUB_RUN_ID: '246',
+                    REQUEST_RUN_ID: '1',
+                    REQUESTER_ID: '7',
+                    SCRIPTS_REVISION: 'a',
+                    AUTHORIZED_RUN: build,
+                    RUN: JSON.stringify({
+                        path: '.github/workflows/' + producer,
+                        event: 'issue_comment',
+                        head_branch: 'master',
+                        head_sha: 'a',
+                        head_repository: { id: 42 },
+                        repository: { id: 42 },
+                        actor: { id: 7 },
+                    }),
+                },
+            })
+            expect(gate.status, gate.stderr).toBe(status)
+        } finally {
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('groups mobile simulator requests by requester and keeps ordinary comments out of the queue', () => {
+        const concurrency = workflow('mobile-pr-simulator.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (actorId: string, pr: number, runId: number, body = `/ios-smoke ${'a'.repeat(40)}`): unknown =>
+            evaluateValue(
+                concurrency?.group,
+                {
+                    github: {
+                        actor_id: actorId,
+                        run_id: runId,
+                        run_attempt: 1,
+                        event: { issue: { number: pr, state: 'open', pull_request: {} }, comment: { body } },
+                    },
+                },
+                functions
+            )
+        const first = groupFor('123', 42, 1)
+        expect(groupFor('123', 43, 2)).toBe(first)
+        expect(groupFor('456', 42, 3)).not.toBe(first)
+        expect(groupFor('123', 42, 4, 'Looks good')).not.toBe(first)
+        expect(concurrency?.['cancel-in-progress']).toBe(false)
+    })
+
+    it.each([
+        {
             name: 'mobile PR',
             github: pullRequest(),
             mobile: true,
