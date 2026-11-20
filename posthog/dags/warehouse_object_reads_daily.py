@@ -1,9 +1,8 @@
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, time
 
 from django.conf import settings
 
 import dagster
-import dagster_slack
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
@@ -17,26 +16,25 @@ from posthog.clickhouse.warehouse_object_reads import (
     ReadKind,
     SubjectKind,
 )
-from posthog.dags.common import JobOwners, settings_with_log_comment
-from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
+from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import SatelliteClickhouseClusterResource
-from posthog.dags.slack_alerts import notification_channel_per_team, send_slack_alert
-
-from products.web_analytics.dags.web_preaggregated_utils import (
-    get_partitions,
-    recreate_staging_table,
-    swap_partitions_from_staging,
-    sync_partitions_on_replicas,
+from posthog.dags.common.staged_daily_rollup import (
+    ONE_GIB,
+    build_catch_up_schedule,
+    build_overdue_sensor,
+    day_query_parameters,
+    publish_staged_day,
+    query_log_source as staged_rollup_query_log_source,
+    refuse_to_run_beside_another_rollup,
+    rollup_query_settings,
 )
 
+from products.web_analytics.dags.web_preaggregated_utils import recreate_staging_table
+
 TEMPORAL_QUERY_KIND = "temporal"
-DEPLOYED_CLOUD_REGIONS = ("US", "EU", "DEV")
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 30 * 60
-ONE_GIB = 1024**3
 MAX_MEMORY_USAGE_BYTES = 8 * ONE_GIB
-SPILL_GROUP_BY_AFTER_BYTES = 2 * ONE_GIB
-MAX_THREADS = 8
 ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
 ATTEMPT_HOURS_UTC = (5, 6, 7)
@@ -45,9 +43,7 @@ OVERDUE_AFTER_UTC = time(hour=10)
 OVERDUE_CHECK_INTERVAL_SECONDS = 60 * 60
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
 MAX_RUNTIME_SECONDS = 60 * 60
-STUCK_RUN_AGE = timedelta(hours=3)
 
-PARTITION_ID_FORMAT = "%Y%m%d"
 READ_SUBJECT_ID = "read_subject_id"
 DIRECTLY_READ_IDS = "JSONExtract(log_comment, 'directly_read_ids', 'Array(String)')"
 MATERIALIZED_SAVED_QUERY_ID = "JSONExtractString(log_comment, 'materialized_saved_query_id')"
@@ -85,20 +81,9 @@ REFRESH_ROW_FILTER = f"""position(log_comment, '"materialized_saved_query_id"') 
 daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DATE, timezone="UTC")
 
 
-def query_log_clusters() -> tuple[str, ...]:
-    # Warehouse reads run on the main, logs and endpoints clusters in the cloud. Local stacks have only the main one.
-    if settings.CLOUD_DEPLOYMENT in DEPLOYED_CLOUD_REGIONS:
-        return (settings.CLICKHOUSE_CLUSTER, "logs", "endpoints")
-    return (settings.CLICKHOUSE_CLUSTER,)
-
-
 def query_log_source() -> str:
     # It keeps 14 days, so a day older than that rolls up to nothing and the published day is kept.
-    branches = " UNION ALL ".join(
-        f"SELECT {QUERY_LOG_COLUMNS} FROM clusterAllReplicas('{cluster}', system.query_log)"
-        for cluster in query_log_clusters()
-    )
-    return f"({branches})"
+    return staged_rollup_query_log_source(QUERY_LOG_COLUMNS)
 
 
 def _source_branch_sql(
@@ -191,23 +176,6 @@ def count_rollup_source_rows_sql(source: str) -> str:
 TRUNCATE_STAGING_SQL = f"TRUNCATE TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}"
 
 
-def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
-    day_start = datetime.combine(day, time.min)
-    return {
-        "day": day,
-        "day_start": day_start,
-        "day_end": day_start + timedelta(days=1),
-    }
-
-
-def _rollup_query_settings(context: dagster.OpExecutionContext) -> dict[str, str | int]:
-    return {
-        **settings_with_log_comment(context),
-        "max_bytes_before_external_group_by": SPILL_GROUP_BY_AFTER_BYTES,
-        "max_threads": MAX_THREADS,
-    }
-
-
 def insert_rollup_into_staging(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
@@ -216,7 +184,7 @@ def insert_rollup_into_staging(
     def stage_day(client: Client) -> None:
         client.execute(TRUNCATE_STAGING_SQL)
         client.execute(
-            insert_rollup_sql(query_log_source()), _day_query_parameters(day), settings=_rollup_query_settings(context)
+            insert_rollup_sql(query_log_source()), day_query_parameters(day), settings=rollup_query_settings(context)
         )
 
     cluster.any_host_by_roles(stage_day, [ROLLUP_NODE_ROLE]).result()
@@ -226,55 +194,24 @@ def count_rollup_source_rows(context: dagster.OpExecutionContext, cluster: Click
     [[source_rows]] = cluster.any_host_by_roles(
         lambda client: client.execute(
             count_rollup_source_rows_sql(query_log_source()),
-            _day_query_parameters(day),
-            settings=_rollup_query_settings(context),
+            day_query_parameters(day),
+            settings=rollup_query_settings(context),
         ),
         [ROLLUP_NODE_ROLE],
     ).result()
     return source_rows
 
 
-def refuse_to_run_beside_another_rollup(context: dagster.OpExecutionContext) -> None:
-    others = describe_runs(
-        context.instance,
-        (context.job_name,),
-        statuses=EXECUTING_RUN_STATUSES,
-        created_after=datetime.now(UTC) - STUCK_RUN_AGE,
-        exclude_run_id=context.run_id,
-    )
-    if others:
-        raise dagster.Failure(
-            description=f"{'; '.join(others)} is executing, and every run shares one staging table. "
-            "Wait for that run to finish, then run this day again."
-        )
-
-
 def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster, day: date) -> None:
-    sync_partitions_on_replicas(
-        context, cluster, SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, node_role=ROLLUP_NODE_ROLE
-    )
-    staged_partitions = get_partitions(
+    if publish_staged_day(
         context,
         cluster,
-        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
-        filter_by_partition_window=True,
+        day,
+        table=SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
+        staging_table=SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
         node_role=ROLLUP_NODE_ROLE,
-    )
-    day_partition = day.strftime(PARTITION_ID_FORMAT)
-    if staged_partitions == [day_partition]:
-        swap_partitions_from_staging(
-            context,
-            cluster,
-            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
-            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
-            node_role=ROLLUP_NODE_ROLE,
-        )
+    ):
         return
-    if staged_partitions:
-        raise dagster.Failure(
-            description=f"Staging holds partitions {staged_partitions}, not only {day_partition}. "
-            "Nothing was published."
-        )
     source_rows = count_rollup_source_rows(context, cluster, day)
     if source_rows:
         raise dagster.Failure(
@@ -321,79 +258,20 @@ def warehouse_object_reads_daily_job() -> None:
     rollup_warehouse_object_reads_for_day()
 
 
-def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
-    return bool(
-        instance.get_run_records(
-            dagster.RunsFilter(
-                job_name=warehouse_object_reads_daily_job.name,
-                statuses=[dagster.DagsterRunStatus.SUCCESS],
-                tags={"dagster/partition": day.isoformat()},
-            ),
-            limit=1,
-        )
-    )
-
-
-def unpublished_days(instance: dagster.DagsterInstance, today: date) -> list[date]:
-    first_day = max(date.fromisoformat(ROLLUP_START_DATE), today - timedelta(days=CATCH_UP_DAYS))
-    days = (first_day + timedelta(days=offset) for offset in range((today - first_day).days))
-    return [day for day in days if not has_published_day(instance, day)]
-
-
-@dagster.schedule(
-    job=warehouse_object_reads_daily_job,
-    name=f"{warehouse_object_reads_daily_job.name}_schedule",
-    cron_schedule=f"0 {','.join(str(hour) for hour in ATTEMPT_HOURS_UTC)} * * *",
-    execution_timezone="UTC",
-    default_status=dagster.DefaultScheduleStatus.RUNNING,
+warehouse_object_reads_daily_schedule = build_catch_up_schedule(
+    warehouse_object_reads_daily_job,
+    start_date=ROLLUP_START_DATE,
+    attempt_hours_utc=ATTEMPT_HOURS_UTC,
+    catch_up_days=CATCH_UP_DAYS,
 )
-def warehouse_object_reads_daily_schedule(
-    context: dagster.ScheduleEvaluationContext,
-) -> dagster.RunRequest | dagster.SkipReason:
-    active_runs = describe_runs(
-        context.instance,
-        (warehouse_object_reads_daily_job.name,),
-        created_after=datetime.now(UTC) - STUCK_RUN_AGE,
-        exclude_run_id="",
-    )
-    if active_runs:
-        return dagster.SkipReason(f"{'; '.join(active_runs)} is queued or executing.")
-    missing_days = unpublished_days(context.instance, datetime.now(UTC).date())
-    if not missing_days:
-        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
-    return dagster.RunRequest(partition_key=missing_days[-1].isoformat())
 
-
-@dagster.sensor(
-    minimum_interval_seconds=OVERDUE_CHECK_INTERVAL_SECONDS,
-    default_status=dagster.DefaultSensorStatus.RUNNING,
+warehouse_object_reads_daily_overdue_sensor = build_overdue_sensor(
+    warehouse_object_reads_daily_job,
+    name="warehouse_object_reads_daily_overdue_sensor",
+    owner=JobOwners.TEAM_DATA_MODELING,
+    start_date=ROLLUP_START_DATE,
+    attempt_hours_utc=ATTEMPT_HOURS_UTC,
+    catch_up_days=CATCH_UP_DAYS,
+    overdue_after_utc=OVERDUE_AFTER_UTC,
+    check_interval_seconds=OVERDUE_CHECK_INTERVAL_SECONDS,
 )
-def warehouse_object_reads_daily_overdue_sensor(
-    context: dagster.SensorEvaluationContext, slack: dagster_slack.SlackResource
-) -> dagster.SkipReason | None:
-    now = datetime.now(UTC)
-    if now.time() < OVERDUE_AFTER_UTC:
-        return dagster.SkipReason(f"The rollup is not overdue before {OVERDUE_AFTER_UTC} UTC.")
-    today = now.date()
-    if context.cursor == today.isoformat():
-        return dagster.SkipReason(f"Already alerted about missing days on {today}.")
-    missing_days = unpublished_days(context.instance, today)
-    if not missing_days:
-        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
-    missing = ", ".join(day.isoformat() for day in missing_days)
-    if not settings.CLOUD_DEPLOYMENT:
-        return dagster.SkipReason(f"{missing} is missing, but alerts only go out in cloud deployments.")
-
-    attempt_times = ", ".join(f"{hour:02d}:00" for hour in ATTEMPT_HOURS_UTC)
-    job_url = f"https://{settings.DAGSTER_DOMAIN}/locations/clickhouse/jobs/{warehouse_object_reads_daily_job.name}"
-    message = (
-        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {missing} "
-        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. The schedule retries missing days at {attempt_times} UTC "
-        f"until they are {CATCH_UP_DAYS} days old. Check that its schedule is running and that no run is stuck in the queue: "
-        f"<{job_url}|View in Dagster>\nEnvironment: {settings.CLOUD_DEPLOYMENT}"
-    )
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
-    channel = notification_channel_per_team[JobOwners.TEAM_DATA_MODELING.value]
-    if send_slack_alert(context, slack.get_client(), channel, blocks, message):
-        context.update_cursor(today.isoformat())
-    return None

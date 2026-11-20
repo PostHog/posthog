@@ -11,3 +11,7 @@ rules:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
       owners: team-feature-flags
+    - match:
+          - '/endpoint_runs_hourly.py'
+          - '/tests/test_endpoint_runs_hourly.py'
+      owners: team-data-modeling

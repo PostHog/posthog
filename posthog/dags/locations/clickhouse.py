@@ -10,6 +10,7 @@ from posthog.dags import (
     data_deletion_requests,
     deletes,
     drop_materialized_column,
+    endpoint_runs_hourly,
     export_query_log_archive_to_s3,
     flag_evaluations_backfill,
     part_breaker,
@@ -55,6 +56,7 @@ defs = dagster.Definitions(
         data_deletion_requests.auto_approve_deletion_requests_job,
         part_breaker.break_oversized_parts,
         warehouse_object_reads_daily.warehouse_object_reads_daily_job,
+        endpoint_runs_hourly.endpoint_runs_hourly_job,
     ],
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
@@ -65,6 +67,7 @@ defs = dagster.Definitions(
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
         warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
+        endpoint_runs_hourly.endpoint_runs_hourly_schedule,
         deletes.monthly_retention_events_cleanup_schedule,
     ],
     sensors=[
@@ -75,6 +78,7 @@ defs = dagster.Definitions(
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
         warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,
+        endpoint_runs_hourly.endpoint_runs_hourly_overdue_sensor,
     ],
     loggers=loggers,
     resources=resources,
