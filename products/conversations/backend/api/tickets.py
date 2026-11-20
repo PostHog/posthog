@@ -874,6 +874,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
 
+    def _require_editor_access_to_all_tickets(self, request: Request) -> None:
+        # The viewset permission also admits a person whose only editor grant is on one existing
+        # ticket. A new ticket belongs to no such grant, so creating one needs editor access to all tickets.
+        if not is_service_auth(request) and not self.user_access_control.check_access_level_for_resource(
+            "ticket", "editor"
+        ):
+            raise PermissionDenied("You do not have editor access to tickets.")
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
@@ -2193,6 +2201,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         team = self.team
+        self._require_editor_access_to_all_tickets(request)
 
         if not team.conversations_enabled:
             return Response(
@@ -2344,12 +2353,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         team = self.team
 
-        # The viewset permission also admits a person whose only editor grant is on one existing
-        # ticket. A new ticket belongs to no such grant, so it needs editor access to all tickets.
-        if not is_service_auth(request) and not self.user_access_control.check_access_level_for_resource(
-            "ticket", "editor"
-        ):
-            raise PermissionDenied("You do not have editor access to tickets.")
+        self._require_editor_access_to_all_tickets(request)
 
         if not team.conversations_enabled:
             return Response({"detail": "Support is not enabled."}, status=drf_status.HTTP_400_BAD_REQUEST)

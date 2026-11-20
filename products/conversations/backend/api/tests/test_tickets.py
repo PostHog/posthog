@@ -3776,6 +3776,18 @@ class TestTicketAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 2 if expected_status == 201 else 1)
 
+    # This team has no email channel, so a request that passes the permission check stops at the 400.
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_400_BAD_REQUEST)])
+    def test_compose_needs_resource_level_editor(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/compose/",
+            {"recipient_email": "customer@example.com", "message": "Hello"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
     def test_user_access_level_reflects_resource_level(self) -> None:
         self._set_resource_level("viewer")
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
