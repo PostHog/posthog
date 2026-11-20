@@ -1,7 +1,11 @@
 import base64
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -10,7 +14,12 @@ from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.ai_observability.backend.facade import api
+from products.ai_observability.backend.presentation.views import trace_resource
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
@@ -137,3 +146,50 @@ def restrict_property(test: APIBaseTest, name: str) -> None:
 
 def encode_segment(trace_id: str) -> str:
     return base64.urlsafe_b64encode(trace_id.encode()).decode().rstrip("=")
+
+
+def post_page_read(
+    test: APIBaseTest, read: str, body: Mapping[str, object], *, scopes: list[str] | None = None
+) -> "_MonkeyPatchedResponse":
+    headers = {}
+    if scopes is not None:
+        test.client.logout()
+        headers["authorization"] = f"Bearer {test.create_personal_api_key_with_scopes(scopes)}"
+    return test.client.post(
+        f"/api/projects/{test.team.id}/ai_observability/traces/{read}/", body, format="json", headers=headers
+    )
+
+
+class QuerySlotRecorder:
+    def __init__(self) -> None:
+        self.holding = False
+        self.loaded_while_holding: list[bool] = []
+        self.built_while_holding: list[bool] = []
+
+    @contextmanager
+    def slot(self, _team: Team) -> Iterator[None]:
+        self.holding = True
+        try:
+            yield
+        finally:
+            self.holding = False
+
+    @contextmanager
+    def recording(self, load_name: str) -> Iterator["QuerySlotRecorder"]:
+        load = getattr(api, load_name)
+
+        def loading(*args: Any, **kwargs: Any) -> Callable[[], object]:
+            self.loaded_while_holding.append(self.holding)
+            build = load(*args, **kwargs)
+
+            def recording_build() -> object:
+                self.built_while_holding.append(self.holding)
+                return build()
+
+            return recording_build
+
+        with (
+            patch.object(trace_resource, "query_concurrency_slots", self.slot),
+            patch.object(api, load_name, side_effect=loading),
+        ):
+            yield self

@@ -18,6 +18,7 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("the list", "get", ""),
+            ("the list's previews", "post", "previews/"),
             ("the trace", "get", f"{TRACE}/"),
             ("a node", "get", f"{TRACE}/nodes/{TRACE}/"),
             ("its evaluations", "get", f"{TRACE}/evaluations/"),

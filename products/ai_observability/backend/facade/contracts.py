@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 
@@ -544,6 +545,40 @@ class TraceList(Contract):
     items: list[TraceListItem] = Field(description="A page of traces, newest first.")
     counts: TraceListCounts | None = Field(description="The selection's counts, on the first page only.")
     next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
+class TracePreviewMissingReason(LabeledStrEnum):
+    TOO_LARGE = "too_large"
+    TIMED_OUT = "timed_out"
+
+
+class TracePreview(Contract):
+    trace_id: str = Field(description="The trace the preview belongs to.")
+    input: str | None = Field(
+        description="The user's message the trace answered, cut at 200 characters. Null when there is nothing to "
+        "show, or when it could not be read and `inputMissingReason` says why."
+    )
+    output: str | None = Field(
+        description="The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could "
+        "not be read and `outputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means "
+        "there is nothing to show."
+    )
+
+
+class TracePreviewList(Contract):
+    items: list[TracePreview] = Field(
+        description="One preview per requested trace, in the order requested. A trace that is not found previews as "
+        "nulls."
+    )
 
 
 class TraceSearchMatch(Contract):

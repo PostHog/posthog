@@ -191,6 +191,8 @@ import type {
     TraceNodeParserTestApi,
     TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
+    TracePageRequestApi,
+    TracePreviewListApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
@@ -1245,6 +1247,26 @@ export const aiObservabilityTracesAvailabilityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceAvailabilityRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesPreviewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/previews/`
+}
+
+/**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreate = async (
+    projectId: string,
+    tracePageRequestApi: TracePageRequestApi,
+    options?: RequestInit
+): Promise<TracePreviewListApi> => {
+    return apiMutator<TracePreviewListApi>(getAiObservabilityTracesPreviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageRequestApi),
     })
 }
 

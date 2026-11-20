@@ -73,6 +73,8 @@ from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
+from ..logic.traces.preview_queries import load_preview_sources
+from ..logic.traces.previews import page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.step_content import StepReading, read_step, step_content
@@ -134,6 +136,7 @@ from ..logic.traces.trace_selection import (
 )
 from ..logic.traces.trace_selection_queries import SelectionCounts, load_selection_page
 from ..logic.traces.tree import TreeNode
+from ..logic.traces.turn import Turn, missing_reason, preview
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
@@ -229,6 +232,39 @@ def _list_items(
         )
         for trace_id in found
     ]
+
+
+def load_trace_previews(
+    team: Team, user: User | None, trace_ids: Sequence[str]
+) -> Callable[[], contracts.TracePreviewList]:
+    """Loads what the traces' input and output previews are built from, and returns the step that builds them, one per
+    requested trace in request order.
+
+    The step reads the team's recipes from Postgres and normalizes each trace's turn, but runs no ClickHouse query. So a
+    caller that holds a query concurrency slot for the load can release the slot before it runs the step. A side the
+    step cannot build within `PREVIEWS_TIME_LIMIT_SECONDS` for the whole page previews as null and timed out.
+    """
+    requested = list(dict.fromkeys(trace_ids))
+    sources = load_preview_sources(team, user, requested)
+    return lambda: _to_preview_list(
+        requested, page_turns(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+    )
+
+
+def _to_preview_list(trace_ids: Sequence[str], turns: Mapping[str, Turn]) -> contracts.TracePreviewList:
+    return contracts.TracePreviewList(items=[_to_preview(trace_id, turns.get(trace_id)) for trace_id in trace_ids])
+
+
+def _to_preview(trace_id: str, turn: Turn | None) -> contracts.TracePreview:
+    message = turn.message if turn else None
+    answer = turn.answer if turn else None
+    return contracts.TracePreview(
+        trace_id=trace_id,
+        input=preview(message),
+        output=preview(answer),
+        input_missing_reason=missing_reason(message),
+        output_missing_reason=missing_reason(answer),
+    )
 
 
 def load_trace_node_detail(

@@ -367,6 +367,21 @@ export const AiObservabilityTracesAvailabilityCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesPreviewsCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesPreviewsCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255

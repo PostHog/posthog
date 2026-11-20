@@ -39,6 +39,7 @@ from products.ai_observability.backend.presentation.views.trace_evaluations impo
 from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
 from products.ai_observability.backend.presentation.views.trace_feedback import TraceFeedbackViewSet
 from products.ai_observability.backend.presentation.views.trace_nodes import TraceNodeViewSet
+from products.ai_observability.backend.presentation.views.trace_previews import TracePreviewsViewSet
 from products.ai_observability.backend.presentation.views.trace_pull_request import TracePullRequestViewSet
 from products.ai_observability.backend.presentation.views.trace_resource import TRACE_LOOKUP
 from products.ai_observability.backend.presentation.views.trace_review import TraceReviewStatusViewSet
@@ -67,6 +68,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"ai_observability/instrumentation_checklist",
         AIObservabilityInstrumentationChecklistViewSet,
         "project_ai_observability_instrumentation_checklist",
+        ["team_id"],
+    )
+    # Registered before the traces, so that the trace route does not read "previews" as a trace id.
+    routers.projects.register(
+        r"ai_observability/traces/previews",
+        TracePreviewsViewSet,
+        "project_ai_observability_trace_previews",
         ["team_id"],
     )
     traces_router = routers.projects.register(

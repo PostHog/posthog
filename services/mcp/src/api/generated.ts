@@ -126778,6 +126778,41 @@ export namespace Schemas {
       source: string;
     }
 
+    export interface TracePageRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+    }
+
+    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
+
+
+    export const TracePreviewMissingReason = {
+      TooLarge: 'too_large',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface TracePreview {
+      /** The trace the preview belongs to. */
+      traceId: string;
+      /** The user's message the trace answered, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `inputMissingReason` says why. */
+      input: string | null;
+      /** The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `outputMissingReason` says why. */
+      output: string | null;
+      /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+      inputMissingReason: TracePreviewMissingReason | null;
+      /** Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means there is nothing to show. */
+      outputMissingReason: TracePreviewMissingReason | null;
+    }
+
+    export interface TracePreviewList {
+      /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
+      items: TracePreview[];
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
