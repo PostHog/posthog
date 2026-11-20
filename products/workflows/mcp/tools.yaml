@@ -261,6 +261,37 @@ tools:
             approved AI data processing or uses privacy mode: point the user to create a workflow in the Workflows
             editor instead.
         feature_flag: workflows-destination-suggestion
+    workflows-enable:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Enable workflow
+        description: >
+            Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it
+            first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your
+            own initiative. Once live, content edits stage as a draft you publish with workflows-publish.
+        agent_note: >
+            This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move
+            those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step
+            written in Hog can't switch: add a Liquid email step on that sender in its place.
+        exclude_params:
+            - status
+            - actions
+            - edges
+        include_params: []
+        inject_body:
+            status: active
+        ui_app: workflow
+        hooks: workflows/testSenderNoteHooks
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -575,6 +606,11 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
+        agent_note: >
+            The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's
+            message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email
+            describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.
+        hooks: workflows/testSenderNoteHooks
         response:
             exclude:
                 - workflow.actions.*.config.inputs

@@ -280,6 +280,30 @@ describe('runner', () => {
         )
     })
 
+    it.each([
+        ['a negative', -1],
+        ['a text', '1'],
+    ])('refuses to start on a run manifest whose reader minimum is %s value', (_story, readerMinAcu) => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+                readerIdleMaxAcu: 2.5,
+                readerMinAcu,
+            })
+        )
+
+        expect(() =>
+            createRunner(environment, { ...processEnv, XDG_CACHE_HOME: cacheHome, SCENARIO_RUN_MANIFEST: manifest })
+        ).toThrow(`The run manifest at ${manifest} has no valid readerMinAcu, so it is not used.`)
+    })
+
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
         let onDisk: unknown
         api.onCapture = ({ properties }) => {
