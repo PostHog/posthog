@@ -21,8 +21,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
 
-        self.assertTrue(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        self.assertTrue(retirement.replaced)
+        self.assertFalse(retirement.grace_window_ended)
         row.refresh_from_db()
         self.assertNotEqual(row.secret, "phs_leaked")
         self.assertTrue(row.rotated_independently)
@@ -42,9 +44,12 @@ class TestRetireLeakedSigningSecret(BaseTest):
             rotated_independently=True,
         )
 
-        # The active secret stays, so nothing was "replaced" for the exposure email.
-        self.assertFalse(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        # The active secret stays, so nothing was "replaced" for the exposure email, but
+        # the grace window ended and the email must say so.
+        self.assertFalse(retirement.replaced)
+        self.assertTrue(retirement.grace_window_ended)
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_rotated_fresh")
         self.assertIsNone(row.previous_secret)
@@ -54,8 +59,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_leaves_an_unrelated_row_untouched(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_unrelated")
 
-        self.assertFalse(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        self.assertFalse(retirement.replaced)
+        self.assertFalse(retirement.grace_window_ended)
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_unrelated")
         self.assertFalse(row.rotated_independently)

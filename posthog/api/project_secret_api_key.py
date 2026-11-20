@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -28,6 +28,9 @@ from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
+
+if TYPE_CHECKING:
+    from products.conversations.backend.services.signing_secrets import SigningSecretRetirement
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -271,10 +274,10 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     )
 
 
-def retire_leaked_team_secret_token(team_id: int, token: str) -> bool:
+def retire_leaked_team_secret_token(team_id: int, token: str) -> "SigningSecretRetirement":
     """Record a leaked legacy token's hash and replace a widget signing secret still
     carrying it. The hash keeps the pre-drop rerun of the #63111 backfill from minting a
-    fresh mirror row for the value. Returns whether the signing secret was replaced."""
+    fresh mirror row for the value. Returns what changed on the signing secret row."""
     # Lazy: conversations imports posthog.api modules at load time.
     from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
 
@@ -301,9 +304,13 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
                 project_secret_api_key.delete()
                 # In the same transaction: once the row is gone a retried report finds no
                 # PSAK and would never retire a signing secret still mirroring the value.
-                signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+                retirement = retire_leaked_team_secret_token(team.id, token)
             send_feature_flags_secure_api_key_exposed(
-                team.id, mask_key_value(token), more_info, signing_secret_replaced
+                team.id,
+                mask_key_value(token),
+                more_info,
+                signing_secret_replaced=retirement.replaced,
+                grace_window_ended=retirement.grace_window_ended,
             )
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)

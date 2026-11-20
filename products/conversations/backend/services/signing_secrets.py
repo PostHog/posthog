@@ -1,10 +1,19 @@
 from django.db import transaction
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.utils import generate_random_token, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
+
+
+@frozen
+class SigningSecretRetirement:
+    """What retiring a leaked token did to the team's signing secret row."""
+
+    replaced: bool
+    grace_window_ended: bool
 
 
 def log_signing_secret_change(team: Team, changes: list[Change], *, user: User | None, was_impersonated: bool) -> None:
@@ -22,7 +31,7 @@ def log_signing_secret_change(team: Team, changes: list[Change], *, user: User |
     )
 
 
-def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
+def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetirement:
     """Replace the widget identity verification secret when it still carries a leaked
     legacy team token (#63111).
 
@@ -30,15 +39,17 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
     the same value would keep verifying identity hashes signed with the leaked token.
     Mint a fresh secret with no grace window, so verification fails closed until an admin
     reads the new value from Conversations settings. Returns whether the active secret
-    was replaced.
+    was replaced, and whether a rotation grace window ended because the previous secret
+    held the token.
     """
     with transaction.atomic():
         row = SigningSecret.objects.for_team(team_id).select_related("team").select_for_update(of=("self",)).first()
         if row is None:
-            return False
+            return SigningSecretRetirement(replaced=False, grace_window_ended=False)
         changes = []
         update_fields = []
         replaced = False
+        grace_window_ended = False
         if row.secret == token:
             row.secret = generate_random_token()
             row.rotated_independently = True
@@ -66,10 +77,11 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
                     after=None,
                 )
             )
+            grace_window_ended = True
         if not update_fields:
-            return False
+            return SigningSecretRetirement(replaced=False, grace_window_ended=False)
         row.save(update_fields=update_fields)
         # user=None: the change is system-initiated by leak revocation, and the admin who
         # later finds a new secret needs this trail, same as the rotate endpoint writes.
         log_signing_secret_change(row.team, changes, user=None, was_impersonated=False)
-        return replaced
+        return SigningSecretRetirement(replaced=replaced, grace_window_ended=grace_window_ended)
