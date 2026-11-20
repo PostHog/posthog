@@ -166,8 +166,22 @@ describe('suppressionListLogic', () => {
             })
         })
 
-        it('steps back a page when another session already removed part of a selection that filled the last page', async () => {
-            let listed = ['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com']
+        it.each([
+            [
+                'steps back when another session already removed part of a selection that filled the last page',
+                { listed: 'abcd', startPage: 2, removedElsewhere: 'c', selected: 'cd', expected: [1, 'ab'] },
+            ],
+            [
+                'stays on a page that later rows move up into',
+                { listed: 'abcde', startPage: 2, removedElsewhere: '', selected: 'cd', expected: [2, 'e'] },
+            ],
+            [
+                'steps back when the removal empties the last page the user moved to while it ran',
+                { listed: 'abcde', startPage: 3, removedElsewhere: '', selected: 'c', expected: [2, 'de'] },
+            ],
+        ])('%s', async (_label, { listed: initial, startPage, removedElsewhere, selected, expected }) => {
+            const addresses = (names: string): string[] => [...names].map((name) => `${name}@example.com`)
+            let listed = addresses(initial)
             useMocks({
                 get: {
                     '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
@@ -200,20 +214,19 @@ describe('suppressionListLogic', () => {
             const logic = suppressionListLogic()
             logic.mount()
             await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
-            logic.actions.loadNextPage()
-            await waitFor(() => expect(logic.values.currentPage).toBe(2))
-            listed = listed.filter((id) => id !== 'c@example.com')
+            logic.actions.loadSuppressions(startPage)
+            await waitFor(() => expect(logic.values.currentPage).toBe(startPage))
+            listed = listed.filter((id) => !addresses(removedElsewhere).includes(id))
 
-            logic.actions.removeSuppressions({
-                identifiers: ['c@example.com', 'd@example.com'],
-                confirmComplaints: false,
-            })
-            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
+            logic.actions.removeSuppressions({ identifiers: addresses(selected), confirmComplaints: false })
 
-            expect([logic.values.currentPage, logic.values.suppressions.results.map((row) => row.identifier)]).toEqual([
-                1,
-                ['a@example.com', 'b@example.com'],
-            ])
+            const [expectedPage, expectedRows] = expected as [number, string]
+            await waitFor(() =>
+                expect([
+                    logic.values.currentPage,
+                    logic.values.suppressions.results.map((row) => row.identifier),
+                ]).toEqual([expectedPage, addresses(expectedRows)])
+            )
         })
     })
 })
