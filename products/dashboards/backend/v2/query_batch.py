@@ -267,7 +267,6 @@ def _is_stale(response: object, planned: PlannedQuery) -> bool:
         and runner.range_freshness_interval is not None
         and isinstance(last_refresh, datetime)
     ):
-        # The stored target age keeps the flat SQL rule, so the batch's range rule is applied here.
         target_age = runner.range_target_age(last_refresh)
     return not isinstance(target_age, datetime) or target_age <= now()
 

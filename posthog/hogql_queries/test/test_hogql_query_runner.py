@@ -758,7 +758,6 @@ class TestHogQLQueryRunnerRangeFreshness(BaseTest):
         last_refresh = datetime(2026, 10, 29, 15, 0, tzinfo=UTC) - age
 
         assert runner._is_stale_for_request(last_refresh=last_refresh) == expected_stale
-        # Stored with the entry and shared with callers that did not opt in, so it keeps the flat rule.
         assert (
             runner.cache_target_age(last_refresh)
             == last_refresh + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
