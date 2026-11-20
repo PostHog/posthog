@@ -168,6 +168,9 @@ jobs:
                         # The tables that file is generated from. A standard-library change
                         # must run the parity test that shows the file went stale.
                         - 'common/hogvm/typescript/src/**'
+                        # A jest test reads this to check Node's billed quota resource names, so a
+                        # contract change must run it.
+                        - 'posthog/billing/contract/entitlements_contract.json'
                         # Compose files only, no Dockerfile glob: these jobs run the suites from
                         # source via pnpm and the compose stack's only build contexts are rust/,
                         # so no app image is built here. Dockerfile.node is gated separately in
@@ -195,6 +198,7 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'posthog/billing/contract/entitlements_contract.json'
                         - 'products/messaging/backend/tests/fixtures/*render*.json'
                         - 'tools/deploy-requirements/examples/**'
                         - 'common/hogvm/typescript/src/**'
