@@ -31,7 +31,9 @@ export function TestSenderRow({
                         </span>
                     ) : null}
                     {stopped ? <span className="min-w-0 break-words text-warning">{stopped}</span> : null}
-                    <span className="min-w-0 break-words">Reload this page after you verify a sender.</span>
+                    <span className="min-w-0 break-words">
+                        Save your changes, then reload this page after you verify a sender.
+                    </span>
                 </div>
             </div>
             <LemonButton

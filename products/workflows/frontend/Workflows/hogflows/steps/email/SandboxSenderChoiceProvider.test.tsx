@@ -312,7 +312,9 @@ describe('SandboxSenderChoiceProvider', () => {
         const row = screen.getByTestId('workflow-email-test-sender')
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
         expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
-        expect(within(row).getByText('Reload this page after you verify a sender.')).toBeInTheDocument()
+        expect(
+            within(row).getByText('Save your changes, then reload this page after you verify a sender.')
+        ).toBeInTheDocument()
         expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/workflows\/channels$/)
