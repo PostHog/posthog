@@ -1,3 +1,7 @@
+import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
+
+import type { IntegrationType } from '~/types'
+
 import { type EmailSenderCandidate, isVerifiedEmailSender } from '../../../../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { type TeamUtmDefaults, matchesTeamUtmDefaults } from '../components/utmDefaults'
@@ -47,6 +51,12 @@ export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, 
 
 export function hasOwnSender(integrations: EmailSenderCandidate[] | null | undefined): boolean | null {
     return integrations ? integrations.some(isVerifiedEmailSender) : null
+}
+
+export function hasDeliverableSender(integrations: IntegrationType[] | null | undefined): boolean | null {
+    return integrations
+        ? integrations.some((sender) => isVerifiedEmailSender(sender) && !isSendingStopped(sender))
+        : null
 }
 
 export function sandboxRecipient(action: SandboxEmailAction): string {

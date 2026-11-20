@@ -12,12 +12,16 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { ConversationsSettings } from '~/types'
 
+import { QuillWidgetSection } from '../../components/QuillWidgetSection/QuillWidgetSection'
 import { WebAndApiAccessSummary } from '../../components/WebAndApiAccessSummary/WebAndApiAccessSummary'
 import { supportSettingsLogic } from './supportSettingsLogic'
+import { WIDGET_COLORS, WIDGET_POSITION_OPTIONS } from './widgetSettingsOptions'
 
 export function WidgetSection(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -41,6 +45,98 @@ export function WidgetSection(): JSX.Element {
         identificationFormDescriptionValue,
         placeholderTextValue,
     } = useValues(supportSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const greetingText =
+        greetingInputValue ??
+        currentTeam?.conversations_settings?.widget_greeting_text ??
+        'Hey, how can I help you today?'
+    const placeholderText =
+        placeholderTextValue ?? currentTeam?.conversations_settings?.widget_placeholder_text ?? 'Type your message...'
+    const identificationFormTitle =
+        identificationFormTitleValue ??
+        currentTeam?.conversations_settings?.widget_identification_form_title ??
+        'Before we start...'
+    const identificationFormDescription =
+        identificationFormDescriptionValue ??
+        currentTeam?.conversations_settings?.widget_identification_form_description ??
+        'Please provide your details so we can help you better.'
+
+    function handleWidgetEnabledChange(checked: boolean): void {
+        setWidgetEnabledLoading(true)
+        updateCurrentTeam({
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_enabled: checked,
+            },
+        })
+    }
+
+    function handleWidgetColorChange(color: string): void {
+        updateCurrentTeam({
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_color: color,
+            },
+        })
+    }
+
+    function handleWidgetPositionChange(value: NonNullable<ConversationsSettings['widget_position']>): void {
+        updateCurrentTeam({
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_position: value,
+            },
+        })
+    }
+
+    function handleRequireEmailChange(checked: boolean): void {
+        updateCurrentTeam({
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_require_email: checked,
+            },
+        })
+    }
+
+    function handleCollectNameChange(checked: boolean): void {
+        updateCurrentTeam({
+            conversations_settings: {
+                ...currentTeam?.conversations_settings,
+                widget_collect_name: checked,
+            },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillWidgetSection
+                settings={currentTeam?.conversations_settings}
+                widgetEnabledLoading={widgetEnabledLoading}
+                greetingText={greetingText}
+                placeholderText={placeholderText}
+                identificationFormTitle={identificationFormTitle}
+                identificationFormDescription={identificationFormDescription}
+                greetingInputValue={greetingInputValue}
+                placeholderTextValue={placeholderTextValue}
+                identificationFormTitleValue={identificationFormTitleValue}
+                identificationFormDescriptionValue={identificationFormDescriptionValue}
+                onWidgetEnabledChange={handleWidgetEnabledChange}
+                onWidgetColorChange={handleWidgetColorChange}
+                onWidgetPositionChange={handleWidgetPositionChange}
+                onRequireEmailChange={handleRequireEmailChange}
+                onCollectNameChange={handleCollectNameChange}
+                onGreetingInputChange={setGreetingInputValue}
+                onSaveGreeting={saveGreetingText}
+                onPlaceholderTextChange={setPlaceholderTextValue}
+                onSavePlaceholderText={savePlaceholderText}
+                onIdentificationFormTitleChange={setIdentificationFormTitleValue}
+                onSaveIdentificationFormTitle={saveIdentificationFormTitle}
+                onIdentificationFormDescriptionChange={setIdentificationFormDescriptionValue}
+                onSaveIdentificationFormDescription={saveIdentificationFormDescription}
+                onRegenerateToken={generateNewToken}
+            />
+        )
+    }
 
     return (
         <SceneSection
@@ -73,15 +169,7 @@ export function WidgetSection(): JSX.Element {
                     </div>
                     <LemonSwitch
                         checked={!!currentTeam?.conversations_settings?.widget_enabled}
-                        onChange={(checked) => {
-                            setWidgetEnabledLoading(true)
-                            updateCurrentTeam({
-                                conversations_settings: {
-                                    ...currentTeam?.conversations_settings,
-                                    widget_enabled: checked,
-                                },
-                            })
-                        }}
+                        onChange={handleWidgetEnabledChange}
                         loading={widgetEnabledLoading}
                     />
                 </div>
@@ -95,25 +183,9 @@ export function WidgetSection(): JSX.Element {
                                 <div className="flex items-center gap-4 py-2 justify-between">
                                     <label className="w-40 shrink-0 font-medium">Button color</label>
                                     <LemonColorPicker
-                                        colors={[
-                                            '#1d4aff',
-                                            '#00aaff',
-                                            '#00cc44',
-                                            '#ffaa00',
-                                            '#ff4444',
-                                            '#9b59b6',
-                                            '#1abc9c',
-                                            '#000000',
-                                        ]}
+                                        colors={WIDGET_COLORS}
                                         selectedColor={currentTeam?.conversations_settings?.widget_color || '#1d4aff'}
-                                        onSelectColor={(color) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_color: color,
-                                                },
-                                            })
-                                        }}
+                                        onSelectColor={handleWidgetColorChange}
                                         showCustomColor
                                     />
                                 </div>
@@ -122,20 +194,8 @@ export function WidgetSection(): JSX.Element {
                                     <label className="w-40 shrink-0 font-medium">Widget position</label>
                                     <LemonSelect
                                         value={currentTeam?.conversations_settings?.widget_position || 'bottom_right'}
-                                        onChange={(value) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_position: value,
-                                                },
-                                            })
-                                        }}
-                                        options={[
-                                            { value: 'bottom_right', label: 'Bottom right' },
-                                            { value: 'bottom_left', label: 'Bottom left' },
-                                            { value: 'top_right', label: 'Top right' },
-                                            { value: 'top_left', label: 'Top left' },
-                                        ]}
+                                        onChange={handleWidgetPositionChange}
+                                        options={WIDGET_POSITION_OPTIONS}
                                     />
                                 </div>
                                 <LemonDivider />
@@ -143,11 +203,7 @@ export function WidgetSection(): JSX.Element {
                                     <label className="w-40 shrink-0 font-medium">Greeting message</label>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
-                                            value={
-                                                greetingInputValue ??
-                                                currentTeam?.conversations_settings?.widget_greeting_text ??
-                                                'Hey, how can I help you today?'
-                                            }
+                                            value={greetingText}
                                             placeholder="Enter greeting message"
                                             onChange={setGreetingInputValue}
                                             fullWidth
@@ -168,11 +224,7 @@ export function WidgetSection(): JSX.Element {
                                     <label className="w-40 shrink-0 font-medium">Placeholder text</label>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
-                                            value={
-                                                placeholderTextValue ??
-                                                currentTeam?.conversations_settings?.widget_placeholder_text ??
-                                                'Type your message...'
-                                            }
+                                            value={placeholderText}
                                             placeholder="Enter placeholder text"
                                             onChange={setPlaceholderTextValue}
                                             fullWidth
@@ -201,14 +253,7 @@ export function WidgetSection(): JSX.Element {
                                     </div>
                                     <LemonSwitch
                                         checked={!!currentTeam?.conversations_settings?.widget_require_email}
-                                        onChange={(checked) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_require_email: checked,
-                                                },
-                                            })
-                                        }}
+                                        onChange={handleRequireEmailChange}
                                     />
                                 </div>
 
@@ -224,14 +269,7 @@ export function WidgetSection(): JSX.Element {
                                             </div>
                                             <LemonSwitch
                                                 checked={!!currentTeam?.conversations_settings?.widget_collect_name}
-                                                onChange={(checked) => {
-                                                    updateCurrentTeam({
-                                                        conversations_settings: {
-                                                            ...currentTeam?.conversations_settings,
-                                                            widget_collect_name: checked,
-                                                        },
-                                                    })
-                                                }}
+                                                onChange={handleCollectNameChange}
                                             />
                                         </div>
                                         <LemonDivider />
@@ -239,12 +277,7 @@ export function WidgetSection(): JSX.Element {
                                             <label className="w-40 shrink-0 font-medium">Form title</label>
                                             <div className="flex gap-2 flex-1">
                                                 <LemonInput
-                                                    value={
-                                                        identificationFormTitleValue ??
-                                                        currentTeam?.conversations_settings
-                                                            ?.widget_identification_form_title ??
-                                                        'Before we start...'
-                                                    }
+                                                    value={identificationFormTitle}
                                                     placeholder="Enter form title"
                                                     onChange={setIdentificationFormTitleValue}
                                                     fullWidth
@@ -265,12 +298,7 @@ export function WidgetSection(): JSX.Element {
                                             <label className="w-40 shrink-0 font-medium">Form description</label>
                                             <div className="flex gap-2 flex-1">
                                                 <LemonInput
-                                                    value={
-                                                        identificationFormDescriptionValue ??
-                                                        currentTeam?.conversations_settings
-                                                            ?.widget_identification_form_description ??
-                                                        'Please provide your details so we can help you better.'
-                                                    }
+                                                    value={identificationFormDescription}
                                                     placeholder="Enter form description"
                                                     onChange={setIdentificationFormDescriptionValue}
                                                     fullWidth

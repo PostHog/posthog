@@ -2,8 +2,8 @@ import { IconCheck, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Badge, Spinner as QuillSpinner } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 
 import type { InsightDataChecksStatus } from './insightDataChecksLogic'

@@ -21,7 +21,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { residentBacklogOf } from '../backlog/backlog'
-import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, stepsOf } from '../cards'
+import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
@@ -40,8 +40,9 @@ import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
+import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
-import { Convergence, InvariantResult, JournalEntry, createJudge } from '../judge/judge'
+import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
     Measurement,
@@ -55,6 +56,7 @@ import {
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, watchRamp } from '../judge/ramp'
+import { edgeTruth } from '../judge/truth'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
@@ -69,6 +71,19 @@ import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
 
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
+
+export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
+    probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
+    groups: ConsumerGroup[]
+    connect(): Promise<void>
+    seed(signal: AbortSignal): Promise<SeedState>
+    probes(teams: number[]): Promise<Probes>
+    offers(): Promise<OfferContext>
+    writeLogTails(evidenceDir: string): Promise<void>
+    close(): Promise<void>
+}
+
+export type RunTarget = { name: Target; open(loaded: LoadedCard, runId: string): TargetRun }
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
 
@@ -86,6 +101,7 @@ export type RunResult = {
     profileHash: string
     topologyHash?: string
     origin: 'local-agent'
+    target: Target
     units?: DriveSummary
     convergence?: Convergence
     janitorResets?: number
@@ -132,7 +148,7 @@ type Outcome = Pick<
     | 'ramp'
 >
 
-type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
+export type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
 
 async function startProbes(
     cyclotronUrl: string,
@@ -339,7 +355,77 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
-export type RunnerOptions = { seedWithinMs?: number; topologyWithinMs?: number; topologyEveryMs?: number }
+function localTarget(
+    environment: Environment,
+    env: NodeJS.ProcessEnv,
+    stateDir: string,
+    seedWithinMs: number,
+    aurora: boolean
+): RunTarget {
+    return {
+        name: 'local',
+        open(loaded) {
+            const { profile } = loaded
+            const edgeUrl = environment.edgeUrl()
+            const secrets = secretsOf(env)
+            const specs = roleSpecs(
+                env,
+                { url: edgeUrl },
+                secrets,
+                stateDir,
+                profile.settings,
+                undefined,
+                profile.replicas
+            )
+            const writeLogTails = keepLogTails(stateDir, specs)
+            const cdpApi = {
+                url: environment.role('cdp-api').url,
+                jwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+                    secrets.transactionalEmailJwtSecret
+                ),
+            }
+            const groups = consumerGroupsOf(specs)
+            const eventsTopic = groups[0].topics[0]
+            const cyclotronUrl = cyclotronUrlOf(specs[0])
+            const probe = createCyclotronProbe(cyclotronUrl)
+            let producer: KafkaProducerWrapper | undefined
+            return {
+                truth: edgeTruth(edgeUrl),
+                probe,
+                residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrl),
+                fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
+                groups,
+                async connect() {
+                    producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
+                },
+                seed: (signal) => seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs),
+                probes: (teams) => startProbes(cyclotronUrl, probe, teams, aurora),
+                async offers() {
+                    if (!producer) {
+                        throw new Error('the load producer is not connected')
+                    }
+                    const sesFeedback = await watchSesFeedback({
+                        edgeUrl,
+                        lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
+                    })
+                    return { emit: kafkaEmit(producer, eventsTopic), cdpApi, sesFeedback }
+                },
+                writeLogTails,
+                async close() {
+                    await producer?.disconnect()
+                },
+            }
+        },
+    }
+}
+
+export type RunnerOptions = {
+    seedWithinMs?: number
+    topologyWithinMs?: number
+    topologyEveryMs?: number
+    target?: RunTarget
+}
 
 export function createRunner(
     environment: Environment,
@@ -348,10 +434,12 @@ export function createRunner(
         seedWithinMs = SEED_WITHIN_MS,
         topologyWithinMs = TOPOLOGY_WITHIN_MS,
         topologyEveryMs = TOPOLOGY_EVERY_MS,
+        target,
     }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
     const manifest = runManifestOf(env)
+    const runTarget = target ?? localTarget(environment, env, stateDir, seedWithinMs, manifest !== undefined)
     let restartRequired: Error | undefined
     let ranManifest = false
 
@@ -427,37 +515,8 @@ export function createRunner(
             const runId = manifest?.runId ?? randomUUID()
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
-            const edgeUrl = environment.edgeUrl()
-            const secrets = secretsOf(env)
-            const specs = roleSpecs(
-                env,
-                { url: edgeUrl },
-                secrets,
-                stateDir,
-                profile.settings,
-                undefined,
-                profile.replicas
-            )
-            const writeLogTails = keepLogTails(stateDir, specs)
-            const cdpApi = {
-                url: environment.role('cdp-api').url,
-                jwt: new ScopedServiceJwt(
-                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
-                    secrets.transactionalEmailJwtSecret
-                ),
-            }
-            const [
-                {
-                    topics: [eventsTopic],
-                },
-            ] = consumerGroupsOf(specs)
-            const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
-            const judge = createJudge({
-                edgeUrl,
-                probe,
-                residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrlOf(specs[0])),
-                fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
-            })
+            const opened = runTarget.open(loaded, runId)
+            const judge = createJudge(opened)
             const valves = createValves()
             using live = openLiveLog(evidenceDir)
             live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
@@ -478,9 +537,8 @@ export function createRunner(
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
-            let producer: KafkaProducerWrapper | undefined
             try {
-                producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
+                await opened.connect()
                 live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
                 await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
                     restartRequired = new Error(
@@ -489,21 +547,19 @@ export function createRunner(
                     throw error
                 })
                 live.write({ type: 'phase', at: Date.now(), phase: 'seed' })
-                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs).catch(
-                    (error: unknown) => {
-                        if (error instanceof SeedingCutShort) {
-                            restartRequired = new Error(
-                                `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
-                            )
-                        }
-                        throw error
+                const seeded = await opened.seed(signal).catch((error: unknown) => {
+                    if (error instanceof SeedingCutShort) {
+                        restartRequired = new Error(
+                            `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
+                        )
                     }
-                )
+                    throw error
+                })
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
                 const { wiring, nodes, missing } = await settledWiring(
                     card.valves.map(({ target }) => target),
-                    consumerGroupsOf(specs),
+                    opened.groups,
                     signal
                 )
                 recorded = wiring
@@ -516,7 +572,7 @@ export function createRunner(
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
-                probes = await startProbes(cyclotronUrlOf(specs[0]), probe, seeded.teamIds, manifest !== undefined)
+                probes = await opened.probes(seeded.teamIds)
                 const driveStartedAt = Date.now()
                 live.write({
                     type: 'phase',
@@ -531,19 +587,16 @@ export function createRunner(
                     queue: () => sampling.probes.queue(),
                     writer: () => sampling.probes.commits(),
                     journal: () => judge.evidence().journal,
-                    edgeUrl,
+                    truth: opened.truth,
                 })
                 await valves.start(card.valves, {
                     environment,
-                    probe,
+                    probe: opened.probe,
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
                 })
-                const sesFeedback = await watchSesFeedback({
-                    edgeUrl,
-                    lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
-                })
+                const offers = await opened.offers()
                 const windowOpen = new AbortController()
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
@@ -578,10 +631,7 @@ export function createRunner(
                       }
                     : judge
                 const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
-                    producer,
-                    eventsTopic,
-                    cdpApi,
-                    sesFeedback,
+                    ...offers,
                     runId,
                     halt: watch?.halt,
                     gate: watch?.gate,
@@ -684,7 +734,7 @@ export function createRunner(
                 sampled = (await sampler?.stop()) ?? sampled
                 await live.stop()
                 try {
-                    await producer?.disconnect()
+                    await opened.close()
                 } catch (error) {
                     restartRequired = new Error(
                         `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
@@ -705,6 +755,7 @@ export function createRunner(
                 profileHash: loaded.profileHash,
                 ...(recorded ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
+                target: runTarget.name,
                 timeline: valves.timeline(),
                 startedAt,
                 endedAt: new Date().toISOString(),
@@ -713,7 +764,7 @@ export function createRunner(
             const provenance = provenanceOf()
             const host = os.hostname()
             const evidenceError = await errorOf(async () => {
-                await writeLogTails(evidenceDir)
+                await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
