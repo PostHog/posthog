@@ -267,6 +267,18 @@ class TestReadSignature(SimpleTestCase):
 
         assert read_signature(parse_select(f"SELECT count() FROM {sources} WHERE {conditions}")) is None
 
+    def test_long_literal_copied_by_doubling_aliases_exceeds_the_work_budget(self):
+        aliases = ", ".join(f"concat(a{i - 1}, a{i - 1}) AS a{i}" for i in range(1, 11))
+        sql = f"WITH '{'x' * 50_000}' AS a0, {aliases} SELECT count() FROM events WHERE timestamp >= toDateTime(a10)"
+
+        assert read_signature(parse_select(sql)) is None
+
+    def test_wide_condition_scanned_for_every_source_exceeds_the_work_budget(self):
+        sources = " CROSS JOIN ".join(f"events AS e{i}" for i in range(100))
+        condition = " OR ".join(f"e0.properties.p{i} = {i}" for i in range(2000))
+
+        assert read_signature(parse_select(f"SELECT count() FROM {sources} WHERE {condition}")) is None
+
     def test_nested_scalar_subqueries_reusing_an_alias_are_read_once(self):
         sql = "SELECT count() FROM events WHERE event = 'x'"
         for _ in range(22):

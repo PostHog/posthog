@@ -38,6 +38,7 @@ type _Query = ast.SelectQuery | ast.SelectSetQuery
 
 # This runs after the compilation deadline lifts, and alias chains can grow exponentially when expanded.
 _WORK_BUDGET = 50_000
+_BYTES_PER_UNIT = 256
 
 
 class _BudgetExceeded(Exception):
@@ -52,6 +53,11 @@ class _Budget:
         self.remaining -= amount
         if self.remaining < 0:
             raise _BudgetExceeded
+
+    def spend_on_constant(self, node: ast.Constant) -> None:
+        # A long literal costs its length to copy and hash, so it is charged by size as well as by node.
+        if isinstance(node.value, str | bytes):
+            self.spend(len(node.value) // _BYTES_PER_UNIT)
 
 
 def _digest(text: str, length: int) -> str:
@@ -151,6 +157,10 @@ class _ExpandNames(CloningVisitor):
     def visit(self, node: ast.AST | None) -> ast.Expr:
         self.budget.spend()
         return super().visit(node)
+
+    def visit_constant(self, node: ast.Constant) -> ast.Expr:
+        self.budget.spend_on_constant(node)
+        return super().visit_constant(node)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         name = node.chain[0] if len(node.chain) == 1 else None
@@ -316,7 +326,7 @@ class _ReadCollector:
         return next((source for source in sources if source.alias == chain[0]), None)
 
     def _reads_only(self, conjunct: ast.Expr, source: _Source, sources: list[_Source]) -> bool:
-        fields = _FieldChains()
+        fields = _FieldChains(self.budget)
         fields.visit(conjunct)
         if not fields.chains:
             return False
@@ -386,7 +396,7 @@ class _ReadCollector:
                 event_filters.add(json.dumps(sorted(names), separators=(",", ":")))
                 continue
 
-            fields = _FieldChains()
+            fields = _FieldChains(self.budget)
             fields.visit(conjunct)
             if any(
                 self._is_events_field(ast.Field(chain=list(chain)), name, source, sources)
@@ -447,6 +457,10 @@ class _BudgetedClone(CloningVisitor):
         self.budget.spend()
         return super().visit(node)
 
+    def visit_constant(self, node: ast.Constant) -> ast.Expr:
+        self.budget.spend_on_constant(node)
+        return super().visit_constant(node)
+
 
 class _ReplaceColumns(_BudgetedClone):
     """Replace a set query's column names with one branch's outputs, leaving nested queries to their own scope."""
@@ -503,9 +517,14 @@ def _join_narrows(join_type: str | None, joined: str | None, preceding: frozense
 
 
 class _FieldChains(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, budget: _Budget) -> None:
         super().__init__()
+        self.budget = budget
         self.chains: list[list[str]] = []
+
+    def visit(self, node: ast.AST | None) -> None:
+        self.budget.spend()
+        super().visit(node)
 
     def visit_field(self, node: ast.Field) -> None:
         self.chains.append([str(part) for part in node.chain])
