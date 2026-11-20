@@ -89,6 +89,7 @@ posthog/temporal/ai_observability/test_run_trace_evaluation.py
 posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py
 products/autoresearch/backend/inference/test_person_property.py
 products/ai_observability/backend/test/test_backfill_candidates.py
+products/ai_observability/backend/test/test_tools_query.py
 products/analytics_platform/backend/lazy_computation/tests/test_lazy_computation_executor.py
 products/batch_exports/backend/tests/api/test_serializers.py
 products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py

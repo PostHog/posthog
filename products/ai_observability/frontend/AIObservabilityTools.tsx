@@ -205,7 +205,9 @@ export function AIObservabilityTools(): JSX.Element {
                                 return <span className="text-muted">–</span>
                             }
                             const pct = Number(x.value)
-                            return <span className={pct >= 10 ? 'text-danger font-semibold' : undefined}>{pct}%</span>
+                            return (
+                                <span className={pct >= 10 ? 'text-danger font-semibold' : undefined}>{`${pct}%`}</span>
+                            )
                         },
                     },
                     undefined_calls: {
@@ -268,7 +270,10 @@ export function AIObservabilityTools(): JSX.Element {
                             </Tooltip>
                         ),
                         render: function RenderSinglePct(x) {
-                            return <span>{String(x.value)}%</span>
+                            if (x.value === null || x.value === undefined) {
+                                return <span className="text-muted">–</span>
+                            }
+                            return <span>{`${x.value}%`}</span>
                         },
                     },
                     days_seen: {

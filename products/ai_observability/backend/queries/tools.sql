@@ -5,7 +5,8 @@
 -- A tool's calls come from $ai_tools_called on the generation that made them. Its results come from
 -- $ai_tool_results on the next generation, which received them, so a failure rate is failures over
 -- results, not over calls. Each generation becomes one row per (tool, kind) item, so the table is
--- read once.
+-- read once. $ai_tools_unknown lists each undefined tool once per generation, so undefined calls
+-- count the call items whose tool it names.
 */
 
 SELECT
@@ -14,7 +15,7 @@ SELECT
     if(countIf(tupleElement(item, 2) = 'result') > 0, round(countIf(tupleElement(item, 2) = 'error') * 100 / countIf(tupleElement(item, 2) = 'result'), 1), NULL) AS failure_pct,
     countIf(tupleElement(item, 2) = 'error') AS failures,
     countIf(tupleElement(item, 2) = 'result') AS results,
-    countIf(tupleElement(item, 2) = 'unknown') AS undefined_calls,
+    countIf(tupleElement(item, 2) = 'call' AND has(splitByChar(',', ifNull(properties.$ai_tools_unknown, '')), tupleElement(item, 1))) AS undefined_calls,
     argMaxIf(properties.$ai_tool_intent, timestamp, tupleElement(item, 2) = 'call' AND notEmpty(ifNull(properties.$ai_tool_intent, ''))) AS latest_intent,
     countDistinctIf(properties.$ai_trace_id, tupleElement(item, 2) = 'call' AND properties.$ai_trace_id != '') AS traces,
     uniqIf(distinct_id, tupleElement(item, 2) = 'call') AS users,
@@ -27,8 +28,7 @@ FROM events
 ARRAY JOIN arrayConcat(
     arrayMap(x -> tuple(x, 'call'), splitByChar(',', ifNull(properties.$ai_tools_called, ''))),
     arrayMap(x -> tuple(x, 'result'), splitByChar(',', ifNull(properties.$ai_tool_results, ''))),
-    arrayMap(x -> tuple(x, 'error'), splitByChar(',', ifNull(properties.$ai_tool_errors, ''))),
-    arrayMap(x -> tuple(x, 'unknown'), splitByChar(',', ifNull(properties.$ai_tools_unknown, '')))
+    arrayMap(x -> tuple(x, 'error'), splitByChar(',', ifNull(properties.$ai_tool_errors, '')))
 ) AS item
 WHERE event = '$ai_generation'
     AND (properties.$ai_tools_called != '' OR properties.$ai_tool_results != '')

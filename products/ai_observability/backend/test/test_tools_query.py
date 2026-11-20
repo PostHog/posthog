@@ -38,7 +38,7 @@ class TestToolsQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self._generation(1, **{"$ai_tool_results": "issue_refund", "$ai_tool_errors": "issue_refund"})
-        self._generation(1, **{"$ai_tools_called": "send_email", "$ai_tools_unknown": "send_email"})
+        self._generation(1, **{"$ai_tools_called": "send_email,send_email", "$ai_tools_unknown": "send_email"})
 
         tools = self._tools()
 
@@ -47,8 +47,8 @@ class TestToolsQuery(ClickhouseTestMixin, APIBaseTest):
         } == {
             "lookup_order": (1, 1, 0, 0),
             "issue_refund": (2, 2, 2, 100),
-            "send_email": (1, 0, 0, None),
+            "send_email": (2, 0, 0, None),
         }
         assert tools["issue_refund"]["latest_intent"] == "Retrying the refund."
-        assert tools["send_email"]["undefined_calls"] == 1
+        assert tools["send_email"]["undefined_calls"] == 2
         assert tools["lookup_order"]["undefined_calls"] == 0
