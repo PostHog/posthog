@@ -811,7 +811,7 @@ Both report-pipeline stages write here too, under the `pipeline:implementation` 
 
 `authority` and `tags` (with their backing GIN index) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`.
 
-`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry first hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); within its post-expiry grace the key stays taken and both `forget` and the `remember` upsert still find it. The daily `prune_expired_scratchpad_entries` janitor then hard-deletes rows whose expiry is more than `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, so lapsed entries cannot pile up forever; durable (`expires_at`-null) rows are never swept. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
+`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry first hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); within its post-expiry grace the key stays taken and both `forget` and the `remember` upsert still find it. The daily `prune_expired_scratchpad_entries` janitor then hard-deletes rows whose expiry is more than `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, so lapsed entries cannot pile up forever; durable (`expires_at`-null) rows are never swept by it. A separate daily `expire_dangling_report_pointers` sweep sets `expires_at` (never deletes, never touches `content` or `updated_at`) on an old durable `report:` entry whose one report id is missing from its team or `deleted`, so the janitor can then remove it; its write sits behind `SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS`, off by default. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
 
 HogQL reads the same rows as `system.scout_scratchpad`, so a scout pre-check, the SQL editor, or an agent can count and group memory without paging `scout-scratchpad-search`.
 The table has the same `signal_scout` access scope and resource-level rules as `system.scout_runs`, and returns `content` to the same audience the search tool already serves.
@@ -1701,6 +1701,38 @@ Every check fails open (metric `signals_daily_limit_check_failed_open_total`).
 No `enforced` property: every event is a real block.
 Unlike the billing gates, the ingestion and scout stages do emit (with `report_id=null`) — the limit is user-set and the volume is bounded by the team's own signal flow, and the events answer "why did nothing arrive today".
 Promotion-stage events keep the billing discipline of firing only when the signal would have promoted; both events fire independently when both limits bind.
+
+### Per-user report run limit
+
+Starting a run from a report (the inbox Implement button, a suggested prompt, `inbox-report-actions-run`, or a tasks create for a signal report) spends a per-user budget, because the run uses inference the customer does not pay for until a pull request lands.
+Two throttle pairs enforce it with one shared cache scope per window: `ReportTaskActionRunBurstThrottle` / `ReportTaskActionRunSustainedThrottle` in `backend/throttles.py` and `SignalReportTaskCreateBurstThrottle` / `SignalReportTaskCreateSustainedThrottle` in the tasks product.
+Both read the allowed number from `resolve_report_task_run_limits` in `backend/report_task_limits.py`, the tasks product through `facade/report_task_limits.py`, so the two paths cannot drift.
+
+The defaults are 20 runs an hour and 50 runs in a rolling 24 hours.
+The `signal-report-task-limits` flag raises them with no deploy. The flag stays on for everyone and its JSON payload is read for a fixed distinct id, like `signals-scout`. The payload is keyed by region, because internal flags are shared across US and EU and ids differ between them:
+
+```json
+{
+  "US": {
+    "default": { "per_hour": 20, "per_day": 50 },
+    "organizations": { "<organization id>": { "per_day": 150 } },
+    "teams": { "2": { "per_hour": 60, "per_day": 200 } },
+    "users": { "<user uuid>": { "per_day": 300 } }
+  },
+  "EU": {}
+}
+```
+
+- **Precedence:** each field resolves on its own, most specific first: user, team, organization, `default`, then the code constants. The request's team id and its parent project id are separate team layers, so a field the team entry does not set comes from the parent project's entry.
+- **The counter stays per user.** Only the allowed number changes, and it is the number for the user in the project the request is made in, so a raised project limit does not raise the same person's limit in other projects. A raised limit applies on the next request with no cache reset.
+- **Bounds:** a value is clamped to `MAX_RUNS_PER_HOUR` / `MAX_RUNS_PER_DAY`. A value that is not a positive integer is ignored and the next layer applies.
+- **Fail safe:** a missing flag, an unreadable payload, a missing region or a malformed entry falls back to the code constants, and the exception is captured.
+- **Local evaluation only.** The payload is read from the locally evaluated flag definitions on every run attempt, with no request to the flags service.
+- **Scout runs keep the defaults.** A sandbox token has its own bucket per task, and its scout's daily cap still bounds it.
+
+The 429 detail names the limit that was reached (hourly or daily) and its current value.
+When both limits are reached, the detail names the one with the longest wait, and `Retry-After` carries that wait.
+The Prometheus counter `signals_report_task_runs_throttled` (label `window`) counts refused runs.
 
 ### Self-driving free trial
 
