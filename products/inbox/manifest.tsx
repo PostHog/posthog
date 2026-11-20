@@ -24,7 +24,7 @@ export const manifest: ProductManifest = {
                 { name: 'Reports', href: urls.inbox('reports') },
                 { name: 'Scouts', href: urls.inbox('scouts') },
                 { name: 'Sources', href: urls.inbox('sources') },
-                { name: 'Settings', href: urls.settings('environment-self-driving') },
+                { name: 'Settings', href: urls.inbox('settings') },
             ],
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             sceneKey: 'Inbox',
