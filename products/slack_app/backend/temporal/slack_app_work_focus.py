@@ -31,6 +31,22 @@ _DAILY_RETRY = RetryPolicy(
 )
 
 
+async def _index_workspace(integration_id: int, slack_team_id: str, slack_user_ids: list[str]) -> None:
+    """One read of the workspace's channels for the daily summary. A failure costs the summary, never the run."""
+    try:
+        await workflow.execute_activity(
+            index_slack_app_daily_summary_activity,
+            SlackAppDailySummaryIndexInputs(
+                integration_id=integration_id, slack_team_id=slack_team_id, slack_user_ids=slack_user_ids
+            ),
+            start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
+            retry_policy=_INDEX_RETRY,
+            summary=f"index the channels of {slack_team_id}",
+        )
+    except ActivityError:
+        workflow.logger.warning("slack_app_daily_summary_index_failed", extra={"slack_team_id": slack_team_id})
+
+
 def slack_app_work_focus_workflow_id(slack_team_id: str, slack_user_id: str) -> str:
     return f"slack-app-work-focus-{slack_team_id}-{slack_user_id}"
 
@@ -52,24 +68,10 @@ class SlackAppWorkFocusWorkflow(PostHogWorkflow):
     async def run(self, inputs: SlackAppWorkFocusInputs) -> None:
         if inputs.start_delay_seconds > 0:
             await workflow.sleep(timedelta(seconds=inputs.start_delay_seconds))
-        if inputs.since is None:
-            # The first run after the link has no sweep before it, so it indexes the workspace's channels itself.
-            try:
-                await workflow.execute_activity(
-                    index_slack_app_daily_summary_activity,
-                    SlackAppDailySummaryIndexInputs(
-                        integration_id=inputs.integration_id,
-                        slack_team_id=inputs.slack_team_id,
-                        slack_user_ids=[inputs.slack_user_id],
-                    ),
-                    start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
-                    retry_policy=_INDEX_RETRY,
-                    summary="index the channels",
-                )
-            except ActivityError:
-                workflow.logger.warning(
-                    "slack_app_daily_summary_index_failed", extra={"slack_team_id": inputs.slack_team_id}
-                )
+        # The first run after the link has no sweep before it, so it indexes the workspace's channels itself. Runs
+        # that started before this step existed replay without it.
+        if inputs.since is None and workflow.patched("slack-app-work-focus-first-run-index"):
+            await _index_workspace(inputs.integration_id, inputs.slack_team_id, [inputs.slack_user_id])
         outcome = await workflow.execute_activity(
             find_slack_app_work_focus_activity,
             inputs,
@@ -105,23 +107,7 @@ class SlackAppDailyFocusSweepWorkflow(PostHogWorkflow):
 
     async def _run_workspace(self, people: list[SlackAppWorkFocusInputs]) -> int:
         first = people[0]
-        try:
-            await workflow.execute_activity(
-                index_slack_app_daily_summary_activity,
-                SlackAppDailySummaryIndexInputs(
-                    integration_id=first.integration_id,
-                    slack_team_id=first.slack_team_id,
-                    slack_user_ids=[inputs.slack_user_id for inputs in people],
-                ),
-                start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
-                retry_policy=_INDEX_RETRY,
-                summary=f"index the channels of {first.slack_team_id}",
-            )
-        except ActivityError:
-            # The people still get their suggestions; the summary waits for tomorrow's index.
-            workflow.logger.warning(
-                "slack_app_daily_summary_index_failed", extra={"slack_team_id": first.slack_team_id}
-            )
+        await _index_workspace(first.integration_id, first.slack_team_id, [inputs.slack_user_id for inputs in people])
         started = 0
         for inputs in people:
             try:

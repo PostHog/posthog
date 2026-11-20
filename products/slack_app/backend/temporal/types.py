@@ -37,7 +37,7 @@ class SlackAppDailySummaryIndexInputs:
     slack_team_id: str
     # The people in this workspace whose daily run the sweep is about to start. The index is built when one of them
     # gets the daily summary.
-    slack_user_ids: list[str] = field(default_factory=list)
+    slack_user_ids: list[str]
 
 
 @dataclass(frozen=True)

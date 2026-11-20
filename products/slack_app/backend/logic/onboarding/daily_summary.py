@@ -7,14 +7,17 @@ channels, and reads those few threads in full right before the writer sees them.
 """
 
 import re
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
+from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
 from posthog.dataclasses import frozen
@@ -25,7 +28,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.slack_app.backend.feature_flags import is_slack_app_daily_summary_enabled
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.slack_messages import mentions_slack_user, thread_permalink
 from products.slack_app.backend.services.slack_user_oauth import linked_posthog_distinct_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
@@ -44,14 +47,20 @@ ROOTS_PER_CHANNEL = 50
 ROOTS_SCORED_PER_WORKSPACE = 400
 INDEX_TTL_SECONDS = 36 * 3600
 BUILD_LOCK_SECONDS = 300
-# The channel reads are tier 3 calls, about 50 a minute, shared by every person's run in the workspace.
-HISTORY_BUDGET = Budget(burst=60, per_hour=1200)
+# The index build reads one history page per channel, and Slack allows about 50 of those a minute per workspace.
+# The burst covers one build of the largest index.
+HISTORY_BUDGET = Budget(burst=CHANNELS_PER_WORKSPACE, per_hour=1200)
+# A person in thousands of channels would page for minutes; the index's channels are found long before that.
+MEMBER_PAGES = 5
 
 ROOT_CHARS = 300
 THREADS_PER_PERSON = 5
 THREAD_TAIL_REPLIES = 6
 REPLY_CHARS = 300
 THREAD_CHARS = 2000
+SUMMARY_REPLIES_LIMIT = 100
+# Thread reads are tier 3 calls; a handful at once stays well inside the workspace's limit.
+READ_WORKERS = 5
 
 RANK_MODEL = DEFAULT_DECISION_MODEL
 RANK_TIMEOUT_SECONDS = 20.0
@@ -67,6 +76,9 @@ RANK_FALSE = (
 )
 
 _MENTION = re.compile(r"<@(U[A-Z0-9]+)")
+
+_Item = TypeVar("_Item")
+_Result = TypeVar("_Result")
 
 
 class DailySummaryRateLimited(Exception):
@@ -86,12 +98,12 @@ class RootRef:
     score: float = 0.0
 
     @property
-    def posted_at(self) -> float:
-        return float(self.ts)
-
-    @property
     def moved_at(self) -> float:
-        return max(self.posted_at, self.latest_reply)
+        return max(float(self.ts), self.latest_reply)
+
+    def involves(self, user_id: str | None) -> bool:
+        """The user started the thread, replied in it, or is mentioned in its root."""
+        return bool(user_id) and (self.author == user_id or user_id in self.reply_users or user_id in self.mentions)
 
 
 @frozen
@@ -104,26 +116,74 @@ class SummaryThread:
     permalink: str | None = None
 
 
+@frozen
+class ReadThread:
+    # The people's messages, root first, without bot posts and empty messages.
+    messages: list[dict[str, Any]]
+    # The app replied in the thread or was tagged in it, so the thread was a request to the app.
+    app_took_part: bool
+
+
 def wants_summary(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     return is_slack_app_daily_summary_enabled(
         integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     )
 
 
-def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime) -> list[SummaryThread]:
-    """The threads to summarise for this person, each read in full, most relevant first. Empty when the bot cannot
-    read channels, the sweep built no index today, or nothing moved."""
+def app_took_part(messages: Iterable[dict[str, Any]], bot_user_id: str | None) -> bool:
+    if not bot_user_id:
+        return False
+    return any(
+        message.get("user") == bot_user_id or mentions_slack_user(str(message.get("text") or ""), bot_user_id)
+        for message in messages
+    )
+
+
+def read_thread(
+    client: WebClient, channel_id: str, ts: str, *, bot_user_id: str | None, limit: int
+) -> ReadThread | None:
+    """One thread as the people wrote it. None when Slack will not return it."""
+    try:
+        response = client.conversations_replies(channel=channel_id, ts=ts, limit=limit)
+    except (SlackApiError, SlackClientError, OSError):
+        logger.warning("slack_app_daily_summary_thread_failed", channel=channel_id, exc_info=True)
+        return None
+    raw = response.get("messages") or []
+    return ReadThread(
+        messages=[m for m in raw if str(m.get("text") or "").strip() and not m.get("bot_id")],
+        app_took_part=app_took_part(raw, bot_user_id),
+    )
+
+
+def parallel_map(fn: Callable[[_Item], _Result], items: list[_Item]) -> list[_Result]:
+    """``fn`` over ``items`` a few at a time, in order. For Slack reads inside one activity, so the text they return
+    stays in this process."""
+    if len(items) < 2:
+        return [fn(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(READ_WORKERS, len(items))) as pool:
+        return list(pool.map(fn, items))
+
+
+def summary_threads(
+    integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime, bot_user_id: str | None
+) -> list[SummaryThread]:
+    """The threads to summarise for this person, each read in full, most relevant first. Empty when the flag is off,
+    the bot cannot read channels, the sweep built no index today, or nothing moved."""
+    if not wants_summary(integration, slack_user_id):
+        return []
     slack = SlackIntegration(integration)
     if slack.missing_scopes(CHANNEL_SCOPES):
         logger.info("slack_app_daily_summary_skipped", reason="missing_bot_scopes", integration_id=integration.id)
         return []
-    private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
     index = cached_index(integration)
     if not index:
         logger.info("slack_app_daily_summary_skipped", reason="no_index_today", integration_id=integration.id)
         return []
-    channels = _person_channels(slack, slack_user_id, private=private)
-    bot_user_id = get_cached_bot_user_id(slack, integration)
+    channels = set(
+        _member_channels(
+            slack.client, types=_channel_types(slack), user=slack_user_id, wanted={root.channel_id for root in index}
+        )
+    )
     kept = pick_threads(index, slack_user_id, channels, since=since, bot_user_id=bot_user_id)
     if not kept:
         logger.info(
@@ -133,7 +193,8 @@ def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, si
             person_channels=len(channels),
             indexed_roots=len(index),
         )
-    return [thread for root in kept if (thread := _read_thread(slack, root, slack_user_id, bot_user_id)) is not None]
+    read = parallel_map(lambda root: _summary_thread(slack, root, slack_user_id, bot_user_id), kept)
+    return [thread for thread in read if thread is not None]
 
 
 def pick_threads(
@@ -145,14 +206,13 @@ def pick_threads(
     moved = [
         root
         for root in roots
-        if root.channel_id in channels and root.moved_at >= since_at and not _app_in(root, bot_user_id)
+        if root.channel_id in channels and root.moved_at >= since_at and not root.involves(bot_user_id)
     ]
+    # A root the person posted counts as theirs once someone replied to it.
     own = [
         root
         for root in moved
-        if (root.author == slack_user_id and root.reply_count > 0 and root.latest_reply >= since_at)
-        or slack_user_id in root.reply_users
-        or slack_user_id in root.mentions
+        if root.involves(slack_user_id) and (root.author != slack_user_id or root.latest_reply >= since_at)
     ]
     own.sort(key=lambda root: root.moved_at, reverse=True)
     others = [
@@ -162,12 +222,6 @@ def pick_threads(
     ]
     others.sort(key=lambda root: (root.score, root.moved_at), reverse=True)
     return (own + others)[:THREADS_PER_PERSON]
-
-
-def _app_in(root: RootRef, bot_user_id: str | None) -> bool:
-    return bool(bot_user_id) and (
-        root.author == bot_user_id or bot_user_id in root.reply_users or bot_user_id in root.mentions
-    )
 
 
 def _index_key(integration: WorkspaceIntegration) -> str:
@@ -182,62 +236,79 @@ def cached_index(integration: WorkspaceIntegration) -> list[RootRef] | None:
 def build_workspace_index(integration: WorkspaceIntegration) -> int:
     """Reads and scores the roots of every channel the bot is in, once a day for the workspace, before the people in it
     run. Holds ids, counts and scores, never text. Returns how many roots the index holds; a build that is already
-    done or under way today returns the cached count without reading Slack again."""
+    done or under way today returns without reading Slack again."""
     slack = SlackIntegration(integration)
     if slack.missing_scopes(CHANNEL_SCOPES):
         logger.info("slack_app_daily_summary_index_skipped", reason="missing_bot_scopes", integration_id=integration.id)
         return 0
-    cached = cached_index(integration)
-    if cached is not None:
+    key = _index_key(integration)
+    cached = cache.get(key)
+    if isinstance(cached, list):
         return len(cached)
-    if not cache.add(f"{_index_key(integration)}:lock", 1, BUILD_LOCK_SECONDS):
+    if not cache.add(f"{key}:lock", 1, BUILD_LOCK_SECONDS):
         logger.info("slack_app_daily_summary_index_skipped", reason="already_building", integration_id=integration.id)
         return 0
-    private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
-    channels = _bot_channels(slack, private=private)
+    client = slack.client
+    channels = _member_channels(client, types=_channel_types(slack), limit=CHANNELS_PER_WORKSPACE)
     decision = consume(
         f"slack_app:daily_summary:history:{integration.integration_id}", HISTORY_BUDGET, cost=len(channels)
     )
     if isinstance(decision, BucketDecision) and not decision.allowed:
+        # The retry has to be able to take the lock again.
+        cache.delete(f"{key}:lock")
         raise DailySummaryRateLimited
     oldest = (timezone.now() - INDEX_LOOKBACK).timestamp()
     roots: list[RootRef] = []
     texts: list[str] = []
     for channel_id in channels:
-        for message in _channel_roots(slack, channel_id, oldest=oldest):
+        for message in _channel_roots(client, channel_id, oldest=oldest):
             roots.append(_root_ref(channel_id, message))
             texts.append(str(message.get("text") or "")[:ROOT_CHARS])
-    roots = _scored(integration, roots, texts)
-    cache.set(_index_key(integration), [asdict(root) for root in roots], INDEX_TTL_SECONDS)
+    # A root nobody replied to, that names nobody and that Jev passed over can never be picked, so it is not kept.
+    kept = [
+        root
+        for root in _scored(integration, roots, texts)
+        if root.reply_count or root.mentions or root.score >= RANK_MIN_PROBABILITY
+    ]
+    cache.set(key, [asdict(root) for root in kept], INDEX_TTL_SECONDS)
     logger.info(
-        "slack_app_daily_summary_indexed", integration_id=integration.id, channels=len(channels), roots=len(roots)
+        "slack_app_daily_summary_indexed",
+        integration_id=integration.id,
+        channels=len(channels),
+        roots=len(roots),
+        kept=len(kept),
     )
-    return len(roots)
+    return len(kept)
 
 
-def _bot_channels(slack: SlackIntegration, *, private: bool) -> list[str]:
-    types = "public_channel,private_channel" if private else "public_channel"
+def _channel_types(slack: SlackIntegration) -> str:
+    return "public_channel" if slack.missing_scopes(PRIVATE_CHANNEL_SCOPES) else "public_channel,private_channel"
+
+
+def _member_channels(
+    client: WebClient, *, types: str, user: str | None = None, wanted: set[str] | None = None, limit: int | None = None
+) -> list[str]:
+    """The channels ``user`` is in, or the bot itself when no user is named. A private channel shows only when the bot
+    is in it too. Stops once every ``wanted`` channel is seen or ``limit`` channels are found."""
     channels: list[str] = []
     cursor = ""
     try:
-        while len(channels) < CHANNELS_PER_WORKSPACE:
-            response = slack.client.conversations_list(
-                types=types, exclude_archived=True, limit=200, cursor=cursor or None
+        for _ in range(MEMBER_PAGES):
+            response = client.users_conversations(
+                **({"user": user} if user else {}), types=types, exclude_archived=True, limit=200, cursor=cursor or None
             )
-            channels.extend(
-                str(channel["id"]) for channel in response.get("channels") or [] if channel.get("is_member")
-            )
+            channels.extend(str(channel["id"]) for channel in response.get("channels") or [])
             cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
-            if not cursor:
+            if not cursor or (limit and len(channels) >= limit) or (wanted is not None and wanted <= set(channels)):
                 break
     except (SlackApiError, SlackClientError, OSError):
         logger.warning("slack_app_daily_summary_channels_failed", exc_info=True)
-    return channels[:CHANNELS_PER_WORKSPACE]
+    return channels[:limit] if limit else channels
 
 
-def _channel_roots(slack: SlackIntegration, channel_id: str, *, oldest: float) -> list[dict[str, Any]]:
+def _channel_roots(client: WebClient, channel_id: str, *, oldest: float) -> list[dict[str, Any]]:
     try:
-        response = slack.client.conversations_history(channel=channel_id, oldest=str(oldest), limit=ROOTS_PER_CHANNEL)
+        response = client.conversations_history(channel=channel_id, oldest=str(oldest), limit=ROOTS_PER_CHANNEL)
     except (SlackApiError, SlackClientError, OSError):
         logger.warning("slack_app_daily_summary_history_failed", channel=channel_id, exc_info=True)
         return []
@@ -300,53 +371,19 @@ def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list
     return [replace(root, score=score) for root, score in zip(roots, scores)]
 
 
-def _person_channels(slack: SlackIntegration, slack_user_id: str, *, private: bool) -> set[str]:
-    """The channels the person is in that the bot can see. A private channel shows only when the bot is in it too."""
-    types = "public_channel,private_channel" if private else "public_channel"
-    channels: set[str] = set()
-    cursor = ""
-    try:
-        while True:
-            response = slack.client.users_conversations(
-                user=slack_user_id, types=types, exclude_archived=True, limit=200, cursor=cursor or None
-            )
-            channels.update(str(channel["id"]) for channel in response.get("channels") or [])
-            cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
-            if not cursor:
-                break
-    except (SlackApiError, SlackClientError, OSError):
-        logger.warning("slack_app_daily_summary_person_channels_failed", exc_info=True)
-    return channels
-
-
-def _read_thread(
-    slack: SlackIntegration, root: RootRef, slack_user_id: str, bot_user_id: str | None = None
+def _summary_thread(
+    slack: SlackIntegration, root: RootRef, slack_user_id: str, bot_user_id: str | None
 ) -> SummaryThread | None:
-    try:
-        response = slack.client.conversations_replies(channel=root.channel_id, ts=root.ts, limit=100)
-        permalink = slack.client.chat_getPermalink(channel=root.channel_id, message_ts=root.ts).get("permalink")
-    except (SlackApiError, SlackClientError, OSError):
-        logger.warning("slack_app_daily_summary_thread_failed", channel=root.channel_id, exc_info=True)
-        return None
-    raw = response.get("messages") or []
+    read = read_thread(slack.client, root.channel_id, root.ts, bot_user_id=bot_user_id, limit=SUMMARY_REPLIES_LIMIT)
     # The app answered in the thread, so it was a request to the app, which the person already got back.
-    if bot_user_id and any(m.get("user") == bot_user_id or f"<@{bot_user_id}" in str(m.get("text") or "") for m in raw):
+    if read is None or read.app_took_part or not read.messages:
         return None
-    messages = [m for m in raw if str(m.get("text") or "").strip() and not m.get("bot_id")]
-    if not messages:
-        return None
-    involved = (
-        root.author == slack_user_id
-        or slack_user_id in root.reply_users
-        or slack_user_id in root.mentions
-        or any(m.get("user") == slack_user_id for m in messages)
-    )
     return SummaryThread(
         channel_id=root.channel_id,
         ts=root.ts,
-        text=thread_text(messages),
-        involves_person=involved,
-        permalink=permalink if isinstance(permalink, str) and permalink.startswith("https://") else None,
+        text=thread_text(read.messages),
+        involves_person=root.involves(slack_user_id) or any(m.get("user") == slack_user_id for m in read.messages),
+        permalink=thread_permalink(slack, root.channel_id, root.ts),
     )
 
 

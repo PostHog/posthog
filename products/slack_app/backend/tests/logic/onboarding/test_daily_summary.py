@@ -90,15 +90,12 @@ def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_int
         ]
     }
     client = MagicMock()
-    client.conversations_list.return_value = {
-        "channels": [{"id": "C1", "is_member": True}, {"id": "C2", "is_member": False}]
-    }
     client.conversations_history.side_effect = lambda channel, **_: {"messages": history.get(channel, [])}
     client.users_conversations.return_value = {"channels": [{"id": "C1"}]}
     client.conversations_replies.return_value = {
         "messages": [history["C1"][0], {"user": SLACK_USER_ID, "text": "on it"}]
     }
-    client.chat_getPermalink.return_value = {"permalink": "https://example.slack.com/archives/C1/p1"}
+    client.chat_getPermalink.return_value = {"ok": True, "permalink": "https://example.slack.com/archives/C1/p1"}
 
     def decide(*, state: dict[str, Any], questions: dict[str, Any]) -> SystemOneResult:
         roots = state["roots"]
@@ -113,6 +110,7 @@ def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_int
     with (
         patch(f"{DAILY_SUMMARY}.SlackIntegration") as slack,
         patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker,
+        patch(f"{DAILY_SUMMARY}.wants_summary", return_value=True),
     ):
         slack.return_value.client = client
         slack.return_value.missing_scopes.side_effect = lambda required: frozenset(required) - {
@@ -121,19 +119,20 @@ def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_int
         }
         ranker.return_value.decide.side_effect = decide
         # A run before the sweep built today's index reads no channel itself.
-        assert summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE) == []
+        assert summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE, bot_user_id=None) == []
         assert client.conversations_history.call_count == 0
-        assert build_workspace_index(workspace_integration) == 2
-        assert build_workspace_index(workspace_integration) == 2
-        first = summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE)
-        second = summary_threads(workspace_integration, "U_SOMEONE_ELSE", since=SINCE)
+        # The lunch question got no replies, names nobody and Jev passed over it, so the index keeps only one root.
+        assert build_workspace_index(workspace_integration) == 1
+        assert build_workspace_index(workspace_integration) == 1
+        first = summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE, bot_user_id=None)
+        second = summary_threads(workspace_integration, "U_SOMEONE_ELSE", since=SINCE, bot_user_id=None)
 
     # The bot and the join notice never reach Jev, and only the rollback thread is worth a read.
     assert [thread.text.split("\n")[0] for thread in first] == ["<@U_OTHER>: we are rolling back the release <@U_LEAD>"]
     assert first[0].involves_person is True and first[0].permalink == "https://example.slack.com/archives/C1/p1"
     assert second[0].involves_person is False
     # The second build and both runs reuse the day's index: one channel list and one history read for the workspace.
-    assert client.conversations_list.call_count == 1
+    assert sum("user" not in call.kwargs for call in client.users_conversations.call_args_list) == 1
     assert client.conversations_history.call_count == 1
     assert ranker.return_value.decide.call_count == 1
     cached = cache.get(f"slack_app:daily_summary:index:{SLACK_TEAM_ID}:{timezone.now().date().isoformat()}")

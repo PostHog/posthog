@@ -148,10 +148,14 @@ def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> Syste
     )
 
 
-def _written(suggestions: list[dict[str, Any]]) -> MagicMock:
+def _written(suggestions: list[dict[str, Any]], summary: list[dict[str, Any]] | None = None) -> MagicMock:
     completion = MagicMock()
     completion.choices[0].message.content = json.dumps(
-        {"intro": "Looks like your week is about churn and signups.", "suggestions": suggestions}
+        {
+            "intro": "Looks like your week is about churn and signups.",
+            "suggestions": suggestions,
+            "summary": summary or [],
+        }
     )
     return completion
 
@@ -577,19 +581,13 @@ def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
     written = _written(
         []
         if quiet_inbox
-        else [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}]
-    )
-    written.choices[0].message.content = json.dumps(
-        {
-            **json.loads(written.choices[0].message.content),
-            "summary": [{"text": "<@U_LEAD> rolled back the release.", "source": 1}],
-        }
+        else [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}],
+        summary=[{"text": "<@U_LEAD> rolled back the release.", "source": 1}],
     )
     slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
 
     with (
         patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True),
-        patch(f"{WORK_FOCUS}.wants_summary", return_value=True),
         patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
         patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
         time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),
@@ -620,14 +618,13 @@ def test_the_first_run_opens_with_the_channels_and_numbers_the_offers_after_them
     thread = SummaryThread(
         channel_id="C1", ts="1700.1", text="<@U_LEAD>: rolling back", involves_person=False, permalink="https://x/p1"
     )
-    written = _written([{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}])
-    written.choices[0].message.content = json.dumps(
-        {**json.loads(written.choices[0].message.content), "summary": [{"text": "<@U_LEAD> rolled back.", "source": 1}]}
+    written = _written(
+        [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}],
+        summary=[{"text": "<@U_LEAD> rolled back.", "source": 1}],
     )
     slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
 
     with (
-        patch(f"{WORK_FOCUS}.wants_summary", return_value=True),
         patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
         time_machine.travel(MONDAY, tick=False),
     ):
