@@ -312,7 +312,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         ],
         // Kept apart from the other filters, so it is remembered for the person and a reset leaves it alone.
         maxAnomalyRate: [
-            DEFAULT_MAX_ANOMALY_RATE,
+            DEFAULT_MAX_ANOMALY_RATE as number,
             { persist: true },
             {
                 setMaxAnomalyRate: (_, { maxAnomalyRate }) => maxAnomalyRate,

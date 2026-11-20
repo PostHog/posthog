@@ -189,7 +189,13 @@ export const FlaggedSeries: Story = {
     },
     decorators: [
         mswDecorator({
-            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true, hidden_series: 3 }) },
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    has_more: true,
+                    hidden_series: 3,
+                }),
+            },
             post: { [POINTS_URL]: pointsResponse() },
         }),
     ],

@@ -10,12 +10,7 @@ import type {
     AnomalySeriesApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    ANOMALIES_PAGE_SIZE,
-    ANOMALY_RATE_FILTER_OFF,
-    anomaliesTabLogic,
-    anomalySeriesKey,
-} from './anomaliesTabLogic'
+import { ANOMALIES_PAGE_SIZE, ANOMALY_RATE_FILTER_OFF, anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
 const POINTS_URL = '/api/projects/:team_id/signals/anomalies/points/'
