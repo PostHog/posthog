@@ -13,7 +13,13 @@ import type { _UserApi } from 'products/signals/frontend/generated/api.schemas'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { ReportOwnerKind, claimKeyIntent, reportOwnerKind, reportOwnerLabel } from '../../utils/reportFacts'
+import {
+    ReportOwnerKind,
+    claimKeyIntent,
+    reportOwnerKind,
+    reportOwnerLabel,
+    suggestedOwnerName,
+} from '../../utils/reportFacts'
 import { QuillTakeOverReportDialog } from './QuillTakeOverReportDialog'
 
 const IS_MAC = isMac()
@@ -39,7 +45,7 @@ export interface QuillReportClaim {
 
 export function useQuillReportClaim(report: SignalReport): QuillReportClaim {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { reportClaimant, teammateClaimHolder, isReportClaimable, claimSaving } = useValues(logic)
+    const { reportClaimant, teammateClaimHolder, isReportClaimable, claimSaving, reportReviewers } = useValues(logic)
     const { setReportClaimed } = useActions(logic)
     const { user } = useValues(userLogic)
     const [confirmingTakeOver, setConfirmingTakeOver] = useState(false)
@@ -86,7 +92,11 @@ export function useQuillReportClaim(report: SignalReport): QuillReportClaim {
 
     return {
         ownerKind,
-        ownerLabel: reportOwnerLabel(ownerKind, reportClaimant ? fullNameOrEmail(reportClaimant) : null),
+        ownerLabel: reportOwnerLabel(
+            ownerKind,
+            reportClaimant ? fullNameOrEmail(reportClaimant) : null,
+            report.is_suggested_reviewer ? 'you' : suggestedOwnerName(reportReviewers)
+        ),
         holder: reportClaimant,
         claimedAt: report.assignee?.claimed_at ?? null,
         canClaim: isReportClaimable,

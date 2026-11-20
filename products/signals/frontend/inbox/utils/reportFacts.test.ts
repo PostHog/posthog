@@ -1,6 +1,13 @@
 import { myAgentClaim, myClaim, teammateClaim, makeReport } from '../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../types'
-import { claimKeyIntent, isForYouReport, reportFactStatus, reportOwnerKind } from './reportFacts'
+import {
+    claimKeyIntent,
+    isForYouReport,
+    reportFactStatus,
+    reportOwnerKind,
+    reportOwnerLabel,
+    suggestedOwnerName,
+} from './reportFacts'
 
 describe('reportFacts', () => {
     const openPullRequest = { url: 'https://github.com/example/repo/pull/7', state: 'open' as const, merged: false }
@@ -86,5 +93,27 @@ describe('reportFacts', () => {
     ])('%s gives the owner kind', (_name, assignee, expected) => {
         const me = myClaim.user?.uuid ?? null
         expect(reportOwnerKind({ assignee }, me)).toBe(expected)
+    })
+
+    const reviewer = {
+        github_login: 'octocat',
+        github_name: 'Octo Cat',
+        relevant_commits: [],
+        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+    }
+
+    test.each([
+        ['no owner and no reviewers', 'none' as const, null, [], 'No owner'],
+        ['no owner and a reviewer', 'none' as const, null, [reviewer], 'Suggested for Octo Cat'],
+        [
+            'no owner and a reviewer with no linked user',
+            'none' as const,
+            null,
+            [{ ...reviewer, user: null, github_name: null }],
+            'Suggested for octocat',
+        ],
+        ['a teammate claim and a reviewer', 'teammate' as const, 'Ada Byron', [reviewer], 'Claimed by Ada Byron'],
+    ])('%s gives the owner label', (_name, kind, holderName, reviewers, expected) => {
+        expect(reportOwnerLabel(kind, holderName, suggestedOwnerName(reviewers))).toBe(expected)
     })
 })

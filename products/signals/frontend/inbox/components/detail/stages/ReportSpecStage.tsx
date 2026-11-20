@@ -1,15 +1,11 @@
 import { ReactNode } from 'react'
 
-import { IconCompass, IconDocument } from '@posthog/icons'
 import { Skeleton, Text } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 
 import { SignalReport } from '../../../types'
 import { parseReportSummary, ReportSummarySectionKind } from '../../../utils/reportSummary'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { ReportEvidenceRow } from './ReportEvidenceRow'
 import { ReportImpactCards } from './ReportImpactCards'
 import { ReportStageDetails } from './ReportStageDetails'
@@ -35,7 +31,6 @@ export function ReportSpecStage({
     const impact = sectionBody('impact')
     const primaryMetric = report.metrics?.find((metric) => metric.role === 'primary') ?? null
     const evidence = [...(signals ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    const firstEvidenceAt = evidence.length > 0 ? evidence[evidence.length - 1].timestamp : null
 
     return (
         <div className="flex flex-col gap-8">
@@ -49,28 +44,6 @@ export function ReportSpecStage({
                         No summary yet. An agent is still investigating.
                     </Text>
                 )}
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<div />}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono"
-                >
-                    {report.scout_name && (
-                        <span className="flex items-center gap-1.5">
-                            <IconCompass aria-hidden className="size-3.5" />
-                            <span>{`Scout: ${prettifyScoutSkillName(report.scout_name)}`}</span>
-                        </span>
-                    )}
-                    {firstEvidenceAt && (
-                        <span className="flex items-center gap-1.5">
-                            <IconDocument aria-hidden className="size-3.5" />
-                            <span>Evidence found on</span>
-                            <TZLabel time={firstEvidenceAt}>
-                                <span>{dayjs(firstEvidenceAt).format('dddd, MMM D, YYYY')}</span>
-                            </TZLabel>
-                        </span>
-                    )}
-                </Text>
             </section>
 
             {primaryMetric && (

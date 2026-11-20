@@ -89,6 +89,7 @@ export function QuillReportDetail({
                                 }}
                             />
                             <TodayReportTitle report={liveReport} />
+                            <TodayReportFeedback report={liveReport} />
                             {claim.dialog}
                         </header>
                         {banner}
@@ -99,9 +100,6 @@ export function QuillReportDetail({
                         >
                             {activityDetails}
                         </ReportStageActivity>
-                        <footer className="border-t border-(--today-line) pt-4">
-                            <TodayReportFeedback report={liveReport} />
-                        </footer>
                     </article>
                 </QuillSurfaceContext.Provider>
             </div>

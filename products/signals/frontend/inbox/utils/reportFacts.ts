@@ -1,7 +1,7 @@
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 
 import { reportStatusLabel } from '../components/badges/SignalReportStatusBadge'
-import { SignalReport, SignalReportStatus } from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 
 type FactReport = Pick<
     SignalReport,
@@ -73,10 +73,25 @@ export function claimKeyIntent(
     return canClaim && !event.metaKey && !event.ctrlKey ? 'claim' : null
 }
 
-export function reportOwnerLabel(kind: ReportOwnerKind, holderName: string | null): string {
+/** The person a report with no owner is suggested for: the first suggested reviewer. */
+export function suggestedOwnerName(reviewers: EnrichedReviewer[] | null): string | null {
+    const reviewer = reviewers?.[0]
+    if (!reviewer) {
+        return null
+    }
+    const fullName = reviewer.user ? `${reviewer.user.first_name} ${reviewer.user.last_name}`.trim() : ''
+    return fullName || reviewer.user?.email || reviewer.github_name || reviewer.github_login
+}
+
+/** A suggestion shows only while the report has no owner. A claim replaces it. */
+export function reportOwnerLabel(
+    kind: ReportOwnerKind,
+    holderName: string | null,
+    suggestedName: string | null = null
+): string {
     switch (kind) {
         case 'none':
-            return 'No owner'
+            return suggestedName ? `Suggested for ${suggestedName}` : 'No owner'
         case 'me':
             return 'Claimed by you'
         case 'my-agent':

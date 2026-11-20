@@ -31,10 +31,11 @@ export function QuillReportFacts({
     const { user } = useValues(userLogic)
     const claimant = reportClaimant(report)
     const ownerKind = reportOwnerKind(report, user?.uuid ?? null)
-    const owner =
-        ownerKind === 'none' && report.is_suggested_reviewer
-            ? 'Suggested for you'
-            : reportOwnerLabel(ownerKind, claimant ? fullNameOrEmail(claimant) : null)
+    const owner = reportOwnerLabel(
+        ownerKind,
+        claimant ? fullNameOrEmail(claimant) : null,
+        report.is_suggested_reviewer ? 'you' : null
+    )
 
     return (
         <Text size="sm" variant="muted" render={<span />} className={className}>

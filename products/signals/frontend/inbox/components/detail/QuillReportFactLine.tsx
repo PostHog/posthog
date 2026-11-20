@@ -5,6 +5,7 @@ import { priorityTone } from 'scenes/project-homepage/today/todayPriority'
 
 import { SignalReport, SignalReportPriority } from '../../types'
 import { reportFactStatus } from '../../utils/reportFacts'
+import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { QuillReportFactActions } from './QuillReportFactActions'
 import { QuillReportOwner } from './QuillReportOwner'
 import { QuillReportPriorityMenu } from './QuillReportPriorityMenu'
@@ -44,6 +45,14 @@ export function QuillReportFactLine({
                 className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1"
             >
                 <QuillReportSourceIcons report={report} className="TodayReportHeader__icon me-1" />
+                {report.scout_name && (
+                    <>
+                        <span className="whitespace-nowrap" data-attr="inbox-report-scout">
+                            {`Scout: ${prettifyScoutSkillName(report.scout_name)}`}
+                        </span>
+                        <Separator />
+                    </>
+                )}
                 {report.priority && (
                     <>
                         {report.status === 'suppressed' || report.status === 'resolved' ? (

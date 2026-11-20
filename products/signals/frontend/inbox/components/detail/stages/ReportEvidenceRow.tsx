@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { Item, ItemActions, ItemContent, ItemTitle, Text, cn } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 
 import { getSourceProductMeta } from '../../badges/sourceProductIcons'
@@ -28,7 +27,6 @@ function signalHeadline(content: string): string {
 export function ReportEvidenceRow({ signal }: { signal: SignalNode }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const source = getSourceProductMeta(signal.source_product)
-    const time = dayjs(signal.timestamp)
     const detailId = `inbox-report-evidence-${signal.signal_id}`
 
     return (
@@ -60,9 +58,6 @@ export function ReportEvidenceRow({ signal }: { signal: SignalNode }): JSX.Eleme
                     >
                         {source && <source.Icon aria-hidden className="size-3.5" />}
                         {source && <span className="hidden @md:inline">{source.label}</span>}
-                        <time dateTime={signal.timestamp} title={time.format('LLL')} className="w-12 text-right">
-                            {time.format('MMM D')}
-                        </time>
                         <IconChevronDown
                             aria-hidden
                             className={cn('size-3.5 transition-transform duration-200', expanded && 'rotate-180')}
