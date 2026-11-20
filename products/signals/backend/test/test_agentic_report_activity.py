@@ -1815,12 +1815,15 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         assert len(judged) == 1
         # Spend settlement skips the judge's LLM cost when it has no signal to charge.
         assert judged_signal_ids == ["triggering-signal"]
-        # The clicked prompt's agent reads the report, so the judge must see every summary it may store.
-        report_text, checks_report_text, prompts_text = judged[0]
-        assert report_text == f"{output.title}\n\n{output.summary}"
-        assert checks_report_text == f"{output.title}\n\n{output.checks_summary}"
-        assert prompts_text.startswith("Suggested prompts")
-        assert prompts_text.split("\n\n")[1:] == expected_judged
+        # The clicked prompt's agent reads the report, so each judged signal must carry the prompts
+        # together with one summary the report may store.
+        assert len(judged[0]) == 2
+        for content, summary in zip(judged[0], [output.summary, output.checks_summary]):
+            report_text = f"{output.title}\n\n{summary}\n\n"
+            assert content.startswith(report_text)
+            prompts_text = content.removeprefix(report_text)
+            assert prompts_text.startswith("Suggested prompts")
+            assert prompts_text.split("\n\n")[1:] == expected_judged
 
 
 @pytest.mark.asyncio

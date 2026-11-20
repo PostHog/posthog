@@ -40,7 +40,6 @@ from products.signals.backend.temporal.metrics import increment_scout_report_saf
 from products.signals.backend.temporal.report_safety_judge import (
     SafetyJudgeResponse,
     judge_report_safety,
-    report_content_signal,
     suggested_prompts_signal,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -86,6 +85,23 @@ async def _judge_safety_fail_closed(
         logger.warning("signals_scout: safety model refused a report", extra={"team_id": team_id, "path": path})
         increment_scout_report_safety_refusal(path)
         return SafetyJudgeResponse(choice=False, explanation=SAFETY_REFUSAL_EXPLANATION)
+
+
+def _report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary suppresses the report."""
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=f"{title}\n\n{summary}",
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_content",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
 
 
 def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
@@ -263,7 +279,7 @@ async def judge_scout_report(
     link_signal = _link_reasons_signal(link_reasons)
     tags_signal = _report_tags_signal(tags)
     safety_input = [
-        report_content_signal(title, summary),
+        _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
@@ -310,9 +326,9 @@ async def judge_edited_report_content(
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
-        safety_input.append(report_content_signal(title or "", summary or ""))
+        safety_input.append(_report_content_signal(title or "", summary or ""))
     if note is not None:
-        safety_input.append(report_content_signal("Report work-log note", note))
+        safety_input.append(_report_content_signal("Report work-log note", note))
     # Appended evidence is judged exactly as emitted evidence is: the descriptions are embedded and
     # rendered on the report, so the edit path must not be an unjudged door into the evidence rail.
     safety_input.extend(_to_signal_data(list(signals)))

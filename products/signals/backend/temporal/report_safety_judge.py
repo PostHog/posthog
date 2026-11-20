@@ -3,7 +3,7 @@ import json
 import uuid
 import asyncio
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from django.utils import timezone
@@ -258,23 +258,6 @@ class SafetyJudgeOutput:
     explanation: Optional[str]
 
 
-def report_content_signal(title: str, summary: str) -> SignalData:
-    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
-    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
-    land in the report body itself while the evidence descriptions look benign — this makes the judge
-    see the report text too, so an unsafe title/summary suppresses the report."""
-    return SignalData(
-        signal_id=str(uuid.uuid4()),
-        content=f"{title}\n\n{summary}",
-        source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
-        source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value,
-        source_id="report_content",
-        weight=0.0,
-        timestamp=timezone.now(),
-        extra={},
-    )
-
-
 def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
     """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
 
@@ -326,12 +309,22 @@ async def judge_suggested_prompts(
     prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is None:
         return SafetyJudgeResponse(choice=True, explanation="")
-    report_signals = [report_content_signal(title, summary)]
+    summaries = [summary]
     if checks_summary is not None and checks_summary != summary:
-        report_signals.append(report_content_signal(title, checks_summary))
+        summaries.append(checks_summary)
+    # One signal per summary, because the system-one judge splits its input into chunks at signal
+    # boundaries. Separate signals could put the prompts and the report text they refer to in
+    # different calls. A combination too large for one chunk blocks the set, so the prompts drop.
     return await judge_report_safety(
         team_id=team_id,
-        signals=[*report_signals, prompts_signal],
+        signals=[
+            replace(
+                prompts_signal,
+                signal_id=str(uuid.uuid4()),
+                content=f"{title}\n\n{report_summary}\n\n{prompts_signal.content}",
+            )
+            for report_summary in summaries
+        ],
         report_id=report_id,
         signal_id=signal_id,
     )
