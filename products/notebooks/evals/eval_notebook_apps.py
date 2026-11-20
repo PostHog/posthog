@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from products.notebooks.evals.offline_config import offline_suite
 from products.notebooks.evals.scorers import CellRunsCompleted, NotebookAppReady, NotebookCreated, NotebookRunCompleted
 from products.notebooks.evals.seeders import seed_case_team
 from products.posthog_ai.eval_harness.base import SandboxedEval
@@ -11,6 +12,18 @@ from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 async def eval_notebook_apps(ctx: EvalContext) -> None:
     await SandboxedEval(
         experiment_name="sandboxed-notebook-apps-cli",
+        offline_suite=offline_suite(
+            "notebooks/eval_notebook_apps::eval_notebook_apps",
+            metrics=[
+                "notebook_created",
+                "cell_runs_completed",
+                "notebook_run_completed",
+                "notebook_app_ready",
+                "app_saved",
+                "widget_generation_requested",
+                "widget_status_checked",
+            ],
+        ),
         cases=[
             SandboxedEvalCase(
                 name="variable_driven_app_with_generated_widget",
@@ -44,5 +57,4 @@ async def eval_notebook_apps(ctx: EvalContext) -> None:
             RequiredToolCall({"notebooks-widget-status"}, name="widget_status_checked"),
         ],
         ctx=ctx,
-        send_to_posthog=False,
     )
