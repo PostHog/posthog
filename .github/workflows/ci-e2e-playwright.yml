@@ -699,6 +699,7 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
                   docker events --filter event=die --filter event=oom --format '{{.Time}} {{.Actor.Attributes.name}} {{.Action}} exitCode={{index .Actor.Attributes "exitCode"}}' > "$RUNNER_TEMP/docker-container-events.log" 2>&1 &
+                  echo $! > "$RUNNER_TEMP/docker-container-events.pid"
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -1140,8 +1141,9 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
-                  docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster container" > playwright/test-results/docker-valkey-cluster.log
+                  docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster log" >> playwright/test-results/docker-valkey-cluster.log
                   docker inspect --format '{{.Name}} restarts={{.RestartCount}} state={{json .State}}' posthog-valkey-cluster-1 posthog-plugins-1 > playwright/test-results/docker-container-state.log 2>&1 || echo "No valkey-cluster or plugins container" >> playwright/test-results/docker-container-state.log
+                  kill -0 "$(cat "$RUNNER_TEMP/docker-container-events.pid")" || echo "The event listener stopped before this capture, so later events are missing" >> "$RUNNER_TEMP/docker-container-events.log"
                   cp "$RUNNER_TEMP/docker-container-events.log" playwright/test-results/docker-container-events.log || echo "No container events recorded" > playwright/test-results/docker-container-events.log
 
             - name: Archive test artifacts
