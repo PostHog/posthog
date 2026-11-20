@@ -324,6 +324,24 @@ describe('stepFacts', () => {
         expect(stepFacts(workflow([action]), action, undefined, person).headline).toBe(headline)
     })
 
+    it('shows later subjects as plain words once a pass has spent its render budget', () => {
+        let now = 10_000
+        jest.spyOn(Date, 'now').mockImplementation(() => (now += 400))
+        const slow = (id: string): HogFlowAction =>
+            step(id, 'function_email', {
+                template_id: 'template-email',
+                inputs: {
+                    email: { value: { subject: 'Hi {{ person.properties.role }}', html: '' }, templating: 'liquid' },
+                },
+            })
+        const [first, second] = [slow('first'), slow('second')]
+        const flow = workflow([first, second])
+
+        expect(stepFacts(flow, first, undefined, FOUNDER).headline).toBe('Hi founder')
+        expect(stepFacts(flow, second, undefined, FOUNDER).headline).toBe('Hi role')
+        jest.restoreAllMocks()
+    })
+
     it('reads a step once for all its tiles, and again when its paths change', () => {
         const twoPaths = workflow([split], {
             edges: [
