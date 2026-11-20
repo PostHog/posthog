@@ -1444,6 +1444,7 @@ jobs:
                   LEGACY_FILTERS: ${{ matrix.filters }}
                   LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   # Person-on-events v2 reads are the production default for every project
                   # created since 2024-06-14, so product tests run with the mode on, as the
                   # Core Django rows do. Without it a product query runner is only ever
@@ -1566,6 +1567,7 @@ jobs:
               timeout-minutes: 15
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
@@ -3892,6 +3894,7 @@ jobs:
                   # flip from one that predates it.
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
                   POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
@@ -4084,6 +4087,7 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
               run: |
@@ -4317,6 +4321,7 @@ jobs:
               env:
                   SEGMENT: ${{ matrix.segment }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   CORE_PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   TEMPORAL_MODAL_TOKEN_ID: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   TEMPORAL_MODAL_TOKEN_SECRET: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
