@@ -770,7 +770,7 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
             # The reconcile re-derives a deactivated org's blobs; never fail the org save.
             logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
 
-    transaction.on_commit(_invalidate_cache)
+    transaction.on_commit(_invalidate_cache, robust=True)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)
 
