@@ -178,6 +178,16 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_HOST,),
             ),
             (
+                "stock_native_destination_whose_code_never_sends_the_request",
+                content(
+                    hog="return event;",
+                    inputs={"url": {"value": "http://127.0.0.1/"}},
+                    template_id="native-webhook",
+                    code_modified_from_template=False,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
                 "stock_template_that_fetches_inside_a_function",
                 unedited_template(
                     "let url := 'https://api.example.com/v1'\n"

@@ -550,6 +550,8 @@ def _template_url_inputs(content: HogFunctionContent) -> frozenset[str] | None:
     write code that takes one."""
     if content.type != "destination" or content.code_modified_from_template is not False:
         return None
+    if (content.template_id or "").startswith(_NON_HOG_EXECUTOR_PREFIXES):
+        return None
     try:
         keys = _url_inputs_of(_parse_code(content.hog))
     except Exception:
@@ -561,6 +563,11 @@ def _template_url_inputs(content: HogFunctionContent) -> frozenset[str] | None:
         return None
     return keys
 
+
+# The CDP worker runs a destination with one of these template ID prefixes in TypeScript, not as its Hog code, so the
+# stored code says nothing about where it sends a request. Kept in sync with `isNativeHogFunction`,
+# `isSegmentPluginHogFunction` and `isLegacyPluginHogFunction` in `nodejs/src/cdp/utils.ts`.
+_NON_HOG_EXECUTOR_PREFIXES = ("native-", "segment-", "plugin-")
 
 # The globals a destination reads besides `inputs`. None of them holds an input value.
 _HOG_GLOBALS = frozenset({"event", "person", "project", "source", "groups", "context", "variables"})
