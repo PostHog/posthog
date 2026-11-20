@@ -15,6 +15,7 @@ import { AccessControlLevel, DashboardType, PropertyFilterType, PropertyOperator
 import { DashboardFilterBar } from './DashboardFilters'
 
 type FilterBarState = 'saved' | 'unsaved'
+type FilterBarWidth = 'wide' | 'medium' | 'narrow'
 type DashboardFilterKind = 'date' | 'properties' | 'breakdown' | 'interval' | 'testAccounts'
 type DashboardChangeKind = DashboardFilterKind | 'sqlVariables'
 
@@ -34,7 +35,15 @@ interface DashboardFilterBarStoryProps {
     readOnly: boolean
     filterChanges: DashboardChangeKind[]
     urlOverrideFilters: DashboardChangeKind[]
-    narrow: boolean
+    width: FilterBarWidth
+}
+
+// Each width lands in a different layout tier of the `dashboard-filters` container: every control in a row,
+// scope filters folded into the "Filters" menu, and every control in the menu with active value chips.
+const FILTER_BAR_WIDTH_CLASSES: Record<FilterBarWidth, string> = {
+    wide: 'max-w-7xl',
+    medium: 'max-w-3xl',
+    narrow: 'w-96',
 }
 
 const DASHBOARD_ID = 955
@@ -147,7 +156,7 @@ function DashboardFilterBarStory({
     readOnly,
     filterChanges,
     urlOverrideFilters,
-    narrow,
+    width,
 }: DashboardFilterBarStoryProps): JSX.Element {
     const hasSqlVariables =
         (state !== 'saved' && filterChanges.includes('sqlVariables')) || urlOverrideFilters.includes('sqlVariables')
@@ -185,7 +194,7 @@ function DashboardFilterBarStory({
     }
 
     return (
-        <div className={`p-4 ${narrow ? 'w-96' : 'max-w-5xl'}`}>
+        <div className={`p-4 ${FILTER_BAR_WIDTH_CLASSES[width]}`}>
             <BindLogic logic={dashboardLogic} props={{ id: DASHBOARD_ID, dashboard: storyDashboard }}>
                 <DashboardFilterBar />
             </BindLogic>
@@ -235,14 +244,14 @@ const meta: Meta<DashboardFilterBarStoryProps> = {
             options: dashboardChangeKinds,
             name: 'URL override filters',
         },
-        narrow: { control: 'boolean' },
+        width: { control: 'inline-radio', options: ['wide', 'medium', 'narrow'] satisfies FilterBarWidth[] },
     },
     args: {
         state: 'unsaved',
         readOnly: false,
         filterChanges: dashboardChangeKinds,
         urlOverrideFilters: [],
-        narrow: false,
+        width: 'wide',
     },
 }
 
@@ -251,6 +260,14 @@ export default meta
 type Story = StoryObj<DashboardFilterBarStoryProps>
 
 export const FilterBar: Story = {}
+
+export const FilterBarMedium: Story = {
+    args: { width: 'medium' },
+}
+
+export const FilterBarNarrow: Story = {
+    args: { width: 'narrow' },
+}
 
 export const UnsavedChangesPopover: Story = {
     args: {

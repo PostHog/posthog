@@ -1,4 +1,4 @@
-import { ListVariable } from '../../types'
+import { ListVariable, Variable } from '../../types'
 
 export type RelativeDateUnit = 'h' | 'd' | 'w' | 'm' | 'y'
 
@@ -91,4 +91,19 @@ export const formatRelativeDateValue = (value: string): string => {
     }
     const unit = unitLabels[parsedValue.unit]
     return `${parsedValue.amount} ${unit}${parsedValue.amount === 1 ? '' : 's'} ago`
+}
+
+export const getVariableDisplayValue = (variable: Variable): string => {
+    const value = variable.value ?? variable.default_value
+    if (variable.type === 'List') {
+        const selectedValues = getListVariableSelectedValues(variable)
+        if (variable.is_multi && selectedValues.length > 1) {
+            return `${selectedValues.length} selected`
+        }
+        return selectedValues[0] ?? ''
+    }
+    if (variable.type === 'Date' && typeof value === 'string' && isRelativeDateValue(value)) {
+        return formatRelativeDateValue(value)
+    }
+    return String(value ?? '')
 }
