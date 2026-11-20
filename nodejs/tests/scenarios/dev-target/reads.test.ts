@@ -15,6 +15,7 @@ async function fakeDev(state: {
     receipts: Receipt[]
     series: Record<string, number[]>
     exitSeries?: Record<string, number[]>
+    queryDelayMs?: number
 }) {
     const seen: Seen[] = []
     const cached = new Map<string, unknown[]>()
@@ -46,7 +47,7 @@ async function fakeDev(state: {
                         rows.map(({ unitId, at, uuid }) => [unitId, at, uuid])
                     )
                 }
-                return reply(200, { results: cached.get(key) })
+                return void setTimeout(() => reply(200, { results: cached.get(key) }), state.queryDelayMs ?? 0)
             }
             const params = new URL(req.url!, 'http://dev').searchParams
             const names = params.get('name')!.split(',')
@@ -109,6 +110,19 @@ describe('dev reads', () => {
             await dev.close()
         }
     })
+
+    it('waits for a forced receipts query that takes longer than the default request timeout', async () => {
+        const dev = await fakeDev({
+            receipts: [{ runId: 'run-a', unitId: 'run-a-1', at: AT, uuid: 'r1' }],
+            series: {},
+            queryDelayMs: 3_500,
+        })
+        try {
+            expect(await receiptTruth(dev.config, 'run-a').head()).toBe(1)
+        } finally {
+            await dev.close()
+        }
+    }, 10_000)
 
     it('reads every receipt past the query API default of 100 rows, and fails when its own limit fills', async () => {
         const receipts = (from: number, to: number): Receipt[] =>

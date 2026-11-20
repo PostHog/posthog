@@ -15,8 +15,10 @@ const RECEIPTS = `select properties.unit_id, toUnixTimestamp64Milli(timestamp), 
 where event = 'scenario_receipt' and properties.run_id = {run_id} and timestamp > now() - interval 1 day
 order by timestamp, uuid limit ${RECEIPT_ROWS}`
 
+const DEV_READ_TIMEOUT_MS = 20_000
+
 async function devFetch(url: string, init: Parameters<typeof internalFetch>[1], what: string): Promise<unknown> {
-    const response = await internalFetch(url, init)
+    const response = await internalFetch(url, { timeoutMs: DEV_READ_TIMEOUT_MS, ...init })
     if (response.status !== 200) {
         throw new Error(`dev answered the ${what} with ${response.status}`)
     }
