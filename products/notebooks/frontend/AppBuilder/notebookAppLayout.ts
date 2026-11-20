@@ -73,7 +73,7 @@ export function pinAppCells(markdown: string, nodeIds: string[]): { markdown: st
         // Pin against the original parse: anchoring one repeated paragraph changes the next paragraph's derived ID.
         const pinnedId = `phb-${uuid()}`
         node.id = pinnedId
-        if (node.type === 'component') {
+        if (node.type === 'component' && !node.errors?.length) {
             node.props = { ...node.props, nodeId: pinnedId }
             node.raw = undefined
         }
@@ -133,6 +133,7 @@ export function mergeAppCellOutput(markdown: string, nodeId: string, outputMarkd
     if (
         !source ||
         source.type !== 'component' ||
+        source.errors?.length ||
         output?.type !== 'component' ||
         source.props.code !== output.props.code
     ) {

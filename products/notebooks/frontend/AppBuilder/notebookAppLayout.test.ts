@@ -40,6 +40,17 @@ it('persists a new identifier for multiline cells so app results merge back into
     })
 })
 
+it('preserves malformed cell source when pinning it or receiving a run result', () => {
+    const markdown = '<SQLV2 code="select 1" "unparseable />'
+    const pinned = pinAppCell(markdown, appSourceCells(markdown)[0].id)
+    expect(pinned.markdown).toContain(markdown)
+    expect(appSourceCells(pinned.markdown)[0].id).toBe(pinned.nodeId)
+
+    const source = '<SQLV2 nodeId="query-1" code="select 1" "unparseable />'
+    const output = '<SQLV2 nodeId="query-1" code="select 1" runStatus="done" />'
+    expect(mergeAppCellOutput(source, 'query-1', output)).toBe(source)
+})
+
 it('links repeated paragraphs to distinct persistent sources in bulk', () => {
     const markdown = 'Repeated paragraph\n\nRepeated paragraph\n\n<SQLV2 nodeId="query-1" code="select 1" />'
     const cells = appSourceCells(markdown)
