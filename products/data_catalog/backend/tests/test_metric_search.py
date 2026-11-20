@@ -160,6 +160,15 @@ class TestMetricSearchFixtureCatalog(BaseTest):
                 ],
                 [("annual_arr", "name match"), ("annual_revenue_total", "name match")],
             ),
+            (
+                "literal_name_match_before_stop_word_match",
+                "revenue before tax",
+                [
+                    ("revenue_after_tax", "", "Revenue after tax, per month.", MetricStatus.APPROVED),
+                    ("revenue_before_tax", "", "Revenue before tax, per month.", MetricStatus.APPROVED),
+                ],
+                [("revenue_before_tax", "name match"), ("revenue_after_tax", "name match")],
+            ),
         ]
     )
     def test_approval_never_moves_a_word_match(
@@ -203,7 +212,9 @@ class TestSplitSearch(SimpleTestCase):
 class TestSemanticQueryText(SimpleTestCase):
     @parameterized.expand(
         [
-            ("drops_stop_words", ["what is the MRR"], ["mrr"]),
+            ("drops_stop_words", ["what is the MRR"], ["MRR"]),
+            ("keeps_non_ascii_words", ["the 收入 of café"], ["收入 café"]),
+            ("keeps_contractions_whole", ["users who don't convert"], ["users don't convert"]),
             ("keeps_negations", ["users who did not convert"], ["users not convert"]),
             ("joins_phrasings", ["the churn", "lost clients"], ["churn; lost clients"]),
             ("skips_embedding_for_only_stop_words", ["what is it"], []),
