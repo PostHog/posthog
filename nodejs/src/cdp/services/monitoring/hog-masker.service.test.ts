@@ -461,7 +461,7 @@ describe('HogMasker', () => {
                     expect(extra.masked).toHaveLength(1)
                 })
 
-                it('release() leaves a store alone when its increment failed there', async () => {
+                it('release() leaves the Valkey mirror alone when its increment failed there', async () => {
                     const mirrorWhoseIncrementTimesOut: RedisV2 = {
                         useClient: (options, callback) => valkey.useClient(options, callback),
                         usePipeline: (options, callback) =>

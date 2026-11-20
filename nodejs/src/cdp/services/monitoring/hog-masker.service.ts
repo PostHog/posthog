@@ -34,8 +34,6 @@ type GenericHogInvocationWithMasker = CyclotronJobInvocation & {
 
 type MaskPipelineResult = Awaited<ReturnType<RedisV2['usePipeline']>>
 
-// An increment that failed, for example on a command timeout, never reached the store, so its release must not
-// decrement the counter.
 function incrementLanded(result: MaskPipelineResult, index: number): boolean {
     return result?.[index * 2]?.[0] === null
 }
@@ -210,10 +208,8 @@ export class HogMaskerService {
 
         const release = async (persisted: CyclotronJobInvocation[] = []): Promise<void> => {
             const kept = new Set(persisted.map((item) => (item as GenericHogInvocationWithMasker).masker))
-            const releaseFrom = (store: RedisV2, name: string, incremented: MaskPipelineResult) => {
-                const released = maskContexts.filter(
-                    (masker, index) => !kept.has(masker) && incrementLanded(incremented, index)
-                )
+            const releaseFrom = (store: RedisV2, name: string, landed: (index: number) => boolean) => {
+                const released = maskContexts.filter((masker, index) => !kept.has(masker) && landed(index))
                 if (released.length === 0) {
                     return null
                 }
@@ -224,8 +220,13 @@ export class HogMaskerService {
                 })
             }
             await Promise.all([
-                releaseFrom(this.redis, 'masker-release', incrementedRedis),
-                releaseFrom(this.redisMirror, 'masker-release-mirror', incrementedMirror),
+                releaseFrom(this.redis, 'masker-release', () => incrementedRedis !== null),
+                // The mirror pool never sends a timed-out increment later, so releasing it would leave the mirror
+                // counter below zero with no TTL. Redis keeps releasing every claim, because a dropped connection can
+                // report an increment that Redis applied as failed, and a missed release masks the replay.
+                releaseFrom(this.redisMirror, 'masker-release-mirror', (index) =>
+                    incrementLanded(incrementedMirror, index)
+                ),
             ])
         }
 
