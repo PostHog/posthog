@@ -77,6 +77,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "members_can_create_projects",
         "uses_most_specific_access_resolution",
         "is_ai_data_processing_approved",
+        "is_ai_data_processing_locked",
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
