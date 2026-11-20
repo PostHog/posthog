@@ -749,8 +749,16 @@ describe('ToolExecutor analytics capture', () => {
             expectedHeaderNames: ['content-type', 'mcp-protocol-version', 'user-agent'],
         },
         {
-            label: 'drops names that are blank, padded or too long',
-            requestMeta: { '': 1, 'has space': 1, ['x'.repeat(65)]: 1, sessionId: 'abc' },
+            label: 'drops names that are blank, padded, too long or carry a value',
+            requestMeta: {
+                '': 1,
+                'has space': 1,
+                ['x'.repeat(65)]: 1,
+                'person@example.com': 1,
+                'token=abc': 1,
+                'token:abc': 1,
+                sessionId: 'abc',
+            },
             requestHeaderNames: undefined,
             expectedMetaKeys: ['sessionId'],
             expectedHeaderNames: undefined,

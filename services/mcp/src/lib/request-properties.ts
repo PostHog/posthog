@@ -97,8 +97,9 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
     return unique.length > 0 ? unique : undefined
 }
 
-const OBSERVED_NAME = /^[\x21-\x7e]{1,64}$/
-const MAX_OBSERVED_NAMES = 32
+// Identifier-shaped only, so an email or a `key=value` pasted into a name is dropped.
+const OBSERVED_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/
+const MAX_OBSERVED_NAMES = 64
 
 export function observedNames(names: Iterable<string>): string[] | undefined {
     const valid = [...new Set(names)].filter((name) => OBSERVED_NAME.test(name)).sort()
