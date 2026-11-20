@@ -330,8 +330,13 @@ SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 # `OAUTH_SCOPES_SUPPORTED` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
+# Objects a sandboxed agent must never hold, though a person may grant them to their own client.
+# `posthog_support` sends tickets to PostHog staff verified as the user, and a run often has nobody watching.
+SANDBOX_WITHHELD_SCOPE_OBJECTS: frozenset[str] = frozenset({"posthog_support"})
+
+
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
-    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
+    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS | SANDBOX_WITHHELD_SCOPE_OBJECTS
     internal_set = set(INTERNAL_SCOPES)
     return [
         f"{obj}:{action}"

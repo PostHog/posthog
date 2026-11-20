@@ -16,6 +16,7 @@ import {
 } from '@/lib/posthog/flags'
 import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
+import { RUN_TOKEN_EXCLUDED_TOOLS } from '@/lib/run-token-excluded-tools'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
@@ -358,7 +359,7 @@ export class RequestStateResolver {
         const excludeTools = [
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
-            ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...(apiKeyScopes.includes('internal_run:read') ? RUN_TOKEN_EXCLUDED_TOOLS : []),
             ...(props.excludeTools ?? []),
         ]
 

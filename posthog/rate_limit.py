@@ -720,6 +720,24 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _PostHogSupportUserThrottle(_UserBucketRateThrottle):
+    # Keyed on the user alone: a fresh personal API key must not buy a fresh budget.
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        ident = request.user.pk if request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+# Each ticket lands in front of a person on the support team, so an agent loop must not flood it.
+class PostHogSupportTicketCreateBurstThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_create_burst"
+    rate = "5/hour"
+
+
+class PostHogSupportTicketCreateSustainedThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_create_sustained"
+    rate = "20/day"
+
+
 def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
     if throttle.num_requests is None or throttle.duration is None:
         return None

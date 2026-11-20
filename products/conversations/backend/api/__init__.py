@@ -1,6 +1,7 @@
 from .ai_context import AIContextAccountPropertiesViewSet
 from .ai_reply_playbook import AIReplyPlaybookViewSet
 from .intercom_import import IntercomImportViewSet
+from .posthog_support import PostHogSupportTicketViewSet
 from .pylon_import import PylonImportViewSet
 from .signing_secret import SigningSecretViewSet
 from .ticket_macros import TicketMacroViewSet
@@ -13,6 +14,7 @@ __all__ = [
     "AIContextAccountPropertiesViewSet",
     "AIReplyPlaybookViewSet",
     "IntercomImportViewSet",
+    "PostHogSupportTicketViewSet",
     "PylonImportViewSet",
     "SigningSecretViewSet",
     "TicketMacroViewSet",

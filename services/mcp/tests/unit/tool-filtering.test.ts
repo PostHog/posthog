@@ -75,6 +75,21 @@ describe('Tool Filtering - Features', () => {
         expect(names.includes('tasks-run-create')).toBe(!sandbox)
     })
 
+    it.each([false, true])('hides posthog support tools from sandbox tokens: %s', async (sandbox) => {
+        const context = {
+            stateManager: {
+                getApiKey: async () => ({
+                    scopes: ['posthog_support:write', ...(sandbox ? ['internal_run:read'] : [])],
+                }),
+                getAiConsentGiven: async () => true,
+            },
+        } as unknown as Context
+        const tools = await getToolsFromContext(context, {
+            featureFlags: { 'posthog-support-agent-tickets': true },
+        })
+        expect(tools.map((tool) => tool.name).includes('posthog-support-ticket-create')).toBe(!sandbox)
+    })
+
     it('does not advertise run-start tools before rollout', () => {
         const names = getToolsForFeatures({ featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': false } })
         expect(names).toContain('tasks-create')
@@ -1154,6 +1169,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'discussions-slack-sync',
             'ui-customization',
             'warehouse-migration-import',
+            'posthog-support-agent-tickets',
             'mcp-feature-flag-restore-version',
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',

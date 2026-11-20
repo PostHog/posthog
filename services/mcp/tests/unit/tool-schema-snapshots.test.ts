@@ -132,6 +132,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'feature-flag-rules-v2-mcp': true,
         'discussions-slack-sync': true,
         'ui-customization': true,
+        'posthog-support-agent-tickets': true,
         'platform-alerts-source-warehouse': true,
         'logs-agent-tools': true,
         'signals-source-filters': true,
