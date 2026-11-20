@@ -643,8 +643,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
     @property
     def _include_events(self) -> bool:
-        """Only the single-trace view reads span events. The column is large, so list queries skip it."""
-        return bool(self.query.traceId) and not self.query.excludeAttributes
+        """The single-trace view reads span events. The column is large, so list queries skip it unless they ask."""
+        return bool(self.query.traceId or self.query.includeEvents) and not self.query.excludeAttributes
 
     def _events_column(self) -> ast.Expr:
         # Select an empty array when skipped, so the positional result mapping stays stable.
@@ -1122,6 +1122,10 @@ def run_service_names_query(
         interval=IntervalType.MINUTE,
         interval_count=2,
         now=dt.datetime.now(),
+        # {date_from}/{date_to} print as naive wall-clock strings in this range's timezone, and
+        # TIME_BUCKET_DATE_RANGE_WHERE reads them as UTC. A team-timezone range west of UTC lands
+        # the bounds on the previous UTC day and drops the current day's spans.
+        timezone_info=ZoneInfo("UTC"),
     )
 
     exprs: list[ast.Expr] = [

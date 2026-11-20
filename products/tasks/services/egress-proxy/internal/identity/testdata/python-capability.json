@@ -1,0 +1,20 @@
+{
+    "now": "2030-01-02T03:04:05Z",
+    "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImMzZDhjNzk4YWI3YjJiMGMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJwb3N0aG9nOnRhc2tzIiwiYXVkIjoicG9zdGhvZzphZ2VudF9lZ3Jlc3MiLCJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0ZWFtX2lkIjo0MiwiYWN0b3JfaWQiOjcsImFjdG9yX2Vwb2NoIjoxLCJleGVjdXRpb25faWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJyZWxheV9rZXlfc2hhMjU2IjoiRTF5ZjBrRnlZWWFhYmtCdFpnWGNZYV9Tbm1vMWpRSnZaTHNRaUpwNk9IMCIsImlhdCI6MTg5MzU1MzQ0NSwiZXhwIjoxODkzNTUzNzQ1fQ.t67KDfF_y8ufCDvReq4l7p-r9s9DUCfkBQ0BZeX5-ZmofXvUKOZZ75DiIZwykUKsqKs6u37bbB_ugGNB0ruOf4jOdIoq8HfYrf5mTZvYHZYyc1m4eGKyG3P44YW3qCtBeYm_JYs5oQq_a7lrfjRjBTNVlQ5hTD5a9RgQrIFbtdQaiQUgSdkac81KATQ98h90jvCMEBHXvrXjFrBCz-agcApy-rvVnJLcpLXgkaub_aATYJEORrKldKrq5i4e8J03fnf8zxrwqrsChJ4ul6d2-1m3uFtHVHh---vi74OPjQjyapCgu4JjzFyYL-DEatM49wNcrQzgastcNM_W0YayMw",
+    "keys": {
+        "c3d8c798ab7b2b0c": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6ofeEmDBbLxuAgqPQUho\n7T69vzsc7jRq+NTuPgDJA0EXfaSjuPQ4UwOFc8Jzr6x/MuHiPTfDkJ3uwcKXaKLk\np+A6AwEv290lH4o/0aBVEsmYk0KFs9B+qNlbrn4s9B3/gc5WRFZ4UkNa7r6kn/uJ\nfHFoHjF2hV4HQ+ZEPBo70ebqisbzthJ79YTCUSnjjhBoAnqf9HOkpDFE10ngvlY8\nqVYPfvMj8bSKTkO1yr/u3vzwNIpanoUUIeH6PQQFo1Ftfh527bIyQI43754MyI6W\no7kFcjIuxu/b/Dr4o4SzCYyQYd03W1SH4vkZFY/x/eFFHylkXyQNHi8pAFb04hX9\nJwIDAQAB\n-----END PUBLIC KEY-----\n"
+    },
+    "certificate": "-----BEGIN CERTIFICATE-----\nMIIC2jCCAcKgAwIBAgIBATANBgkqhkiG9w0BAQsFADAmMSQwIgYDVQQDDBtzeW50\naGV0aWMtcmVsYXkuZXhhbXBsZS5jb20wHhcNMzAwMTAyMDMwMzA1WhcNMzAwMTAy\nMDMxNDA1WjAmMSQwIgYDVQQDDBtzeW50aGV0aWMtcmVsYXkuZXhhbXBsZS5jb20w\nggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD3vbqR2BxQkBtsHNnNByLI\ncTmSG0U3jK9Q0bz+oLbRD1Mswet89qY4D19Ru2oqbAhIk9N5f0lFirCwUxAifNwb\nc6kMHUbm+TipEu7nQqRwCq+GJDL5dmGcMspAJzyjzbVdIGAUaeDMJdelVEEVKqaY\nDtXBOfxE/xAZO6LAAGTrD1EHyoJXxrJRPByth13wf/NCbUhnHGnuRgFANVuIFW17\nZewnWPABdXyTmzqbPqfppkbn8dj2jI56RqLpeNOAbtztEiQnERknV0OUE2CAMeuN\nRqdRG/AZObhOaLfu7XQhIiA2Laa1/2hULyllMzrrWqohUpxIFObRpn6EO8Qhcs1f\nAgMBAAGjEzARMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHat\nt9+LRRnq6zFLqc6W0WxLBKjbWeKy7rMdpd07Drd4t3sML9guLseCH+uHSgcFWU7z\n3NYpXuwp9lFahRvra+HK/6jwso7iELcbEpgumAEzYEeFEw0XMRZnriSNjl15RcRf\n2mJ3t8IK0RU9OkLWDRJETjEkVu8Ji7m/yxuooZDgJFyEd9pGe+0jJq0/dK3st/cW\nq/dgVwxvZgnxfkz36BbrG2nXLBLsACkG9SxOSQELcxtrNFsdhAKa2HXtlfruBbi6\niJQNllPCjvGERVN4gS9fsTpE2i7s8uzv2sKC5Lc4gcO6DnXWNTXHiQuv5mHDRJv3\nzmrb+93kKvcbQ6RdLqs=\n-----END CERTIFICATE-----\n",
+    "registration": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "team_id": 42,
+        "actor_id": 7,
+        "actor_epoch": 1,
+        "execution_id": "22222222-2222-4222-8222-222222222222",
+        "relay_key_sha256": "E1yf0kFyYYaabkBtZgXcYa_Snmo1jQJvZLsQiJp6OH0",
+        "authority": "run-a.egress.example.com",
+        "region": "test-region",
+        "lease_expires_at": "2030-01-02T03:04:35Z",
+        "revoked": false
+    }
+}

@@ -496,6 +496,24 @@ export interface HogFlowLastRunApi {
 }
 
 /**
+ * * `test_sender_live` - Test sender live
+ */
+export type HogFlowWarningCodeEnumApi = (typeof HogFlowWarningCodeEnumApi)[keyof typeof HogFlowWarningCodeEnumApi]
+
+export const HogFlowWarningCodeEnumApi = {
+    TestSenderLive: 'test_sender_live',
+} as const
+
+export interface HogFlowWarningApi {
+    /** test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+     *
+     * * `test_sender_live` - Test sender live */
+    readonly code: HogFlowWarningCodeEnumApi
+    /** What to tell the user, with the link that fixes it. */
+    readonly message: string
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface HogFlowMinimalApi {
@@ -541,6 +559,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly suggestions_enabled: boolean | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -638,7 +658,7 @@ export interface HogFlowEdgeApi {
 }
 
 /**
- * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+ * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
  */
 export type HogFlowActionApiConfig =
     | { [key: string]: unknown }
@@ -700,7 +720,7 @@ export interface HogFlowActionApi {
      * * `exit` - exit
      * * `email_sandbox` - email_sandbox */
     type: HogFlowActionTypeEnumApi
-    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
     config: HogFlowActionApiConfig
     /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
     output_variable?: unknown
@@ -851,6 +871,8 @@ export interface HogFlowApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -960,6 +982,8 @@ export interface HogFlowUpdateApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -1069,6 +1093,8 @@ export interface PatchedHogFlowUpdateApi {
     readonly email_sending_resumed_at?: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run?: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings?: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -1124,13 +1150,31 @@ export interface DesignOperationApi {
     index?: number
 }
 
+/**
+ * * `sandbox` - sandbox
+ * * `own` - own
+ */
+export type EmailStepSenderEnumApi = (typeof EmailStepSenderEnumApi)[keyof typeof EmailStepSenderEnumApi]
+
+export const EmailStepSenderEnumApi = {
+    Sandbox: 'sandbox',
+    Own: 'own',
+} as const
+
 export interface PatchedHogFlowActionEmailUpdateApi {
     /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A PostHog test sender step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
+    /** Switch the step's sender. 'sandbox' moves it to the PostHog test sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a PostHog test sender step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+     *
+     * * `sandbox` - sandbox
+     * * `own` - own */
+    sender?: EmailStepSenderEnumApi
+    /** With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+    drop_own_sender_settings?: boolean
 }
 
 export interface MessageAssetApi {
@@ -1370,9 +1414,125 @@ export interface HogInvocationResultsCountApi {
  */
 export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
+export type HogFlowTestConfigurationApiVariablesItem = { [key: string]: string }
+
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type HogFlowTestConfigurationApiActionRedirects = { [key: string]: string } | null
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface HogFlowTestConfigurationApi {
+    readonly id: string
+    /**
+     * Workflow name.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional description. */
+    description?: string
+    /**
+     * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    readonly version: number
+    /** draft (no execution), active (live), archived (disabled).
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    status?: HogFlowStateEnumApi
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
+    origin_product?: HogFlowOriginProductEnumApi | null
+    /**
+     * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+     * @maxLength 255
+     * @nullable
+     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+     */
+    source_record?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    readonly trigger: unknown
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+    trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    conversion?: HogFlowConversionApi | null
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
+    exit_condition?: ExitConditionEnumApi
+    /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+    edges?: HogFlowEdgeApi[]
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+    actions: HogFlowActionApi[]
+    /** @nullable */
+    readonly abort_action: string | null
+    /** Workflow vars (key, type, default). Total <5KB. */
+    variables?: HogFlowTestConfigurationApiVariablesItem[]
+    readonly billable_action_types: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects: HogFlowTestConfigurationApiActionRedirects
+    /**
+     * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
+    /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+    readonly email_sending_paused_by: string
+    /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+    readonly email_sending_pause_requires_support: boolean
+    /**
+     * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
+}
+
 export interface HogFlowInvocationApi {
     /** Optional override; omit to use saved definition. */
-    configuration?: HogFlowApi
+    configuration?: HogFlowTestConfigurationApi
     /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
     globals?: HogFlowInvocationApiGlobals
     /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
@@ -1692,6 +1852,11 @@ export interface HogFlowPublishRequestApi {
     confirm?: boolean
     /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
     confirm_token?: string
+    /**
+     * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+     * @nullable
+     */
+    sandbox_sender_warned?: boolean | null
 }
 
 export interface HogFlowPublishImpactMoveTargetApi {
@@ -1770,6 +1935,11 @@ export interface HogFlowPublishResponseApi {
     confirm_token: string | null
     /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
     impact: HogFlowPublishImpactApi | null
+    /**
+     * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+     * @nullable
+     */
+    moves_to_sandbox_sender: boolean | null
     /** The workflow after publishing (only set when published=true). */
     workflow?: HogFlowApi | null
 }
@@ -1853,7 +2023,7 @@ export interface HogInvocationRerunResponseApi {
  * Whether PostHog paused this one workflow's email sending, and why.
  */
 export interface WorkflowEmailPauseStatusApi {
-    /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. Other workflows in the project keep sending. */
+    /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. */
     readonly email_sending_paused: boolean
     /**
      * When the pause started; null when not paused.
@@ -2279,6 +2449,11 @@ export interface EmailSendingAllowanceApi {
     readonly emails_sent_last_day: number
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
+    /**
+     * The largest audience a single email batch may reach when its sending rate limit is slow enough. Null when no rate limit raises max_batch_audience.
+     * @nullable
+     */
+    readonly rate_limited_max_batch_audience: number | null
 }
 
 export interface TeamEmailReputationResponseApi {
@@ -2401,6 +2576,10 @@ export interface BlastRadiusRequestApi {
     dedupe_key?: DedupeKeyEnumApi | null
     /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
     sends_email?: boolean
+    /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
+    /** Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead. */
+    refresh?: boolean
 }
 
 /**
@@ -2445,6 +2624,15 @@ export interface RealtimeCohortRefApi {
     name: string
 }
 
+export interface RateLimitedAudienceApi {
+    /** The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit. */
+    max_emails_per_hour: number
+    /** The most days a rate-limited send may take to reach everyone. */
+    max_days: number
+    /** The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people. */
+    limit: number
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
@@ -2462,6 +2650,8 @@ export interface BlastRadiusApi {
     realtime_cohort?: RealtimeCohortStatusApi | null
     /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
+    /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
+    rate_limited?: RateLimitedAudienceApi | null
 }
 
 export interface PushTokenImportCreateApi {
@@ -2832,23 +3022,23 @@ export interface EmailDraftApi {
 }
 
 export interface WorkflowEmailSandboxProvisionApi {
-    /** ID of the project's sandbox sender. */
+    /** ID of the project's PostHog test sender. */
     integration_id: number
 }
 
 export interface WorkflowEmailSandboxStatusApi {
     /**
-     * ID of the project's sandbox sender, which an email step can use. Null until the sender is set up.
+     * ID of the project's PostHog test sender, which an email step can use. Null until the sender is set up.
      * @nullable
      */
     integration_id: number | null
-    /** The address sandbox emails come from. Blank when sandbox sending isn't configured. */
+    /** The address the PostHog test sender sends from. Blank when the PostHog test sender isn't configured. */
     from_address: string
-    /** The sender name sandbox emails show, such as 'Acme via PostHog'. */
+    /** The sender name emails from the PostHog test sender show, such as 'Acme via PostHog'. */
     display_name: string
-    /** Whether PostHog has stopped this organization from using the sandbox sender. */
+    /** Whether PostHog has stopped this organization from using the PostHog test sender. */
     organization_blocked: boolean
-    /** Whether the project can add new sandbox email steps. Steps it already has keep working either way. */
+    /** Whether the project can add new PostHog test sender steps. Steps it already has keep working either way. */
     adoption_enabled: boolean
 }
 
@@ -2870,9 +3060,10 @@ export type WorkflowImportRequestApiLayouts = { [key: string]: string }
 /**
  * * `customerio` - Customer.io
  */
-export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+export type WorkflowImportRequestSourceEnumApi =
+    (typeof WorkflowImportRequestSourceEnumApi)[keyof typeof WorkflowImportRequestSourceEnumApi]
 
-export const ImportProviderKeyEnumApi = {
+export const WorkflowImportRequestSourceEnumApi = {
     Customerio: 'customerio',
 } as const
 
@@ -2919,7 +3110,7 @@ export interface WorkflowImportRequestApi {
     /** The tool the automations come from.
      *
      * * `customerio` - Customer.io */
-    source: ImportProviderKeyEnumApi
+    source: WorkflowImportRequestSourceEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
     /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */

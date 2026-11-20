@@ -25,14 +25,14 @@ class RoutingMode(LabeledStrEnum):
     # Request owners when a pull request opens ready for review or is marked ready.
     ALWAYS = "always", "Always"
     # Request owners only when stamphog does not approve. An approval requests only pinned owners.
-    FALLBACK = "fallback", "When stamphog does not approve"
+    FALLBACK = "fallback", "When auto-approval does not approve"
 
 
 class RoutingStatus(LabeledStrEnum):
     """The phase of a pull request's latest reviewer routing record."""
 
-    # FALLBACK only: the head waits for stamphog's verdict or for the safety net.
-    WAITING = "waiting", "Waiting for stamphog's verdict"
+    # The head waits for the safety net and for stamphog's verdict (FALLBACK) or a policy attestation check (ALWAYS).
+    WAITING = "waiting", "Waiting for auto-approval's verdict or an attestation check"
     # A task holds the claim and has not requested anybody yet.
     ROUTING = "routing", "Routing"
     # The review requests went out and the routing comment is not finished yet.
@@ -55,6 +55,7 @@ class RoutingScope(LabeledStrEnum):
     FULL = "full", "Every owner"
     # A stamphog approval asks only the owners of sensitive and new paths.
     PINNED = "pinned", "Pinned owners only"
+    ATTESTED = "attested", "Pinned owners only, every file attested"
 
 
 class OwnerKind(LabeledStrEnum):
@@ -80,9 +81,10 @@ class LlmSkipReason(LabeledStrEnum):
     NOTHING_CUTTABLE = "nothing_cuttable", "Nothing cuttable"
     NO_ANSWER = "no_answer", "No answer"
     # Kept for older runs: an approved head once skipped the model. Approved heads now ask it like any other.
-    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+    STAMPHOG_APPROVED = "stamphog_approved", "Auto-approved"
     # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
     FILES_TRUNCATED = "files_truncated", "Files truncated"
+    ATTESTED = "attested", "Every file attested"
 
 
 class RoutingOwnerOutcome(LabeledStrEnum):
@@ -96,7 +98,8 @@ class RoutingOwnerOutcome(LabeledStrEnum):
     CUT = "cut", "Cut"
     # Stamphog approved the head, so the routing asked only the owners of sensitive and new paths. The model
     # kept this owner, so routing would have asked it without the approval. On an older run whose llm_skipped is
-    # STAMPHOG_APPROVED, no model ran, and it means only that the owner owns changed code.
+    # STAMPHOG_APPROVED, no model ran, and it means only that the owner owns changed code. On an attested run, no
+    # model ran either, and the owner's reason is ATTESTED.
     NOT_REQUESTED = "not_requested", "Not requested"
     # A pinned owner that an earlier routing of the pull request already requested.
     ALREADY_REQUESTED = "already_requested", "Already requested"
@@ -117,7 +120,15 @@ class RoutingOwnerReason(LabeledStrEnum):
     MODEL_KEPT = "model_kept", "Kept by the model"
     MODEL_CUT = "model_cut", "Cut by the model"
     # Kept for older runs, which logged every unpinned owner of an approved head with this reason.
-    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+    STAMPHOG_APPROVED = "stamphog_approved", "Auto-approved"
+    ATTESTED = "attested", "Every file attested"
+
+
+class RoutingRunOrdering(LabeledStrEnum):
+    """The sort order of the routing run list."""
+
+    NEWEST_RUN = "-created_at", "Newest run first"
+    NEWEST_MERGE = "-merged_at", "Newest merge first"
 
 
 # The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
@@ -152,6 +163,8 @@ class ReviewTrigger(LabeledStrEnum):
 
     # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
     SELF_DRIVING = "self_driving", "Self-driving"
+    # The repo policy names the PR's bot author under `bot_authors`.
+    BOT_ADMISSION = "bot_admission", "Bot author"
     # A project member asked for this review through the API.
     MANUAL = "manual", "Manual"
     # A clean PostHog Review run started this review. It is silent: only an approval reaches the PR.

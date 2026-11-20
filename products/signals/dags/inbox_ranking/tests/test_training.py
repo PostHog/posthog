@@ -30,6 +30,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
     Extras,
@@ -65,11 +66,13 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     PROJECT_VECTORS_TABLE,
     STATE_TABLE,
     USER_VECTORS_TABLE,
+    write_partition,
 )
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     PROJECT_VECTORS_SCHEMA_VERSION,
     USER_VECTORS_SCHEMA_VERSION,
 )
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -128,6 +131,7 @@ from products.signals.dags.inbox_ranking.training.served import (
 )
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    DATASET_PARTITION_WRITTEN_EVENT,
     DISTINCT_ID,
     LOCAL_DISTINCT_ID,
     SERVING_MANIFEST_PUBLISHED_EVENT,
@@ -136,6 +140,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     holdout_calibration_events,
     promotion_event,
+    run_times,
     unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
@@ -1647,6 +1652,79 @@ def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, ch
 _REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700", gates_passed=False)
 
 
+@pytest.mark.parametrize("with_readiness", [True, False])
+def test_candidate_events_carry_the_late_group_mask_and_the_run_times(with_readiness):
+    readiness = {
+        "enabled_feature_groups": ["content"],
+        "zeroed_feature_groups": ["already_addressed"],
+        "feature_backfill": {"batch_id": "batch-1"},
+        "network_fit": {"groups": {"content": {"carried_share": 0.9}}},
+    }
+    metadata = {
+        "model_name": STATE_MODEL_NAME,
+        "heads": [{"head": "open", "readable": True}, {"head": "action", "readable": False}],
+        "skipped_heads": ["dismiss_wrong"],
+        **({"readiness": readiness} if with_readiness else {}),
+    }
+    started = datetime.datetime(2026, 8, 26, 4, 30, tzinfo=datetime.UTC)
+
+    events = candidate_events(metadata, run_times(started, started + datetime.timedelta(hours=1)))
+
+    mask = {
+        "enabled_feature_groups": ["content"],
+        "zeroed_feature_groups": ["already_addressed"],
+        "feature_backfill_batch_id": "batch-1",
+        "content_fit_carried_share": 0.9,
+    }
+    times = {"run_started_at": "2026-08-26T04:30:00+00:00", "run_finished_at": "2026-08-26T05:30:00+00:00"}
+    assert len(events) == 3
+    for event in events:
+        assert times.items() <= event.properties.items()
+        if with_readiness:
+            assert mask.items() <= event.properties.items()
+        else:
+            assert not mask.keys() & event.properties.keys()
+
+
+class _UploadS3:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def upload_fileobj(self, fileobj, bucket, key, ExtraArgs=None):
+        self.objects[key] = fileobj.read()
+
+
+def test_a_dataset_partition_write_captures_counts_and_no_identifiers(monkeypatch):
+    capture = _patch_capture(monkeypatch, cloud=True, debug=False)
+    s3 = _UploadS3()
+    table = pa.table({"report_id": ["r1", "r2"], "team_id": [2, 7]})
+
+    with dagster.build_asset_context(partition_key="2026-08-25") as context:
+        write_partition(context, LABELS_TABLE, s3, "bucket", "key", table, schema_version=3)
+
+    (call,) = capture.calls
+    assert call["event"] == DATASET_PARTITION_WRITTEN_EVENT
+    properties = call["properties"]
+    # Counts only: a report id, a team id, text or a vector must never reach the event.
+    assert properties.keys() == {
+        "$process_person_profile",
+        "environment",
+        "partition",
+        "table",
+        "run_id",
+        "rows",
+        "bytes",
+        "schema_version",
+    }
+    assert (properties["table"], properties["partition"], properties["rows"], properties["schema_version"]) == (
+        LABELS_TABLE,
+        "2026-08-25",
+        2,
+        3,
+    )
+    assert properties["bytes"] == len(s3.objects["key"])
+
+
 def test_the_promotion_decided_event_never_reports_a_promotion():
     event = promotion_event(
         partition_key="2026-08-19",
@@ -1804,6 +1882,16 @@ def _model_metadata(**overrides) -> dict[str, Any]:
     return base
 
 
+def _scored_facts_metadata(**overrides) -> dict[str, Any]:
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+    return _model_metadata(
+        feature_set=feature_set.name,
+        feature_schema_version=feature_set.schema_version,
+        feature_names=list(feature_set.feature_names),
+        **overrides,
+    )
+
+
 @pytest.mark.parametrize(
     "metadata,expected",
     [
@@ -1814,6 +1902,10 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
         (_model_metadata(feature_names=["age_hours"]), "feature_names differ"),
+        # A set with late groups records the groups its fit zeroed, so serving zeroes the same ones.
+        (_scored_facts_metadata(zeroed_feature_groups=["content"]), None),
+        (_scored_facts_metadata(), "zeroed_feature_groups"),
+        (_scored_facts_metadata(zeroed_feature_groups=["sources"]), "zeroed_feature_groups"),
     ],
 )
 def test_model_mismatch_checks_a_model_against_its_own_feature_set(metadata, expected):
@@ -2028,6 +2120,44 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
     vectors = {feature_set.extras_keys[0]: pd.DataFrame({EMBEDDING_COLUMN: [_embedding()]}, index=["a"])}
     with pytest.raises(ValueError, match=EMBEDDING_INSERTED_AT_COLUMN):
         feature_set.buildable(_state(["a"]), vectors, as_of=SNAPSHOT_END)
+
+
+@pytest.mark.parametrize("as_of", [None, SNAPSHOT_END], ids=["serving", "as_of_a_moment"])
+def test_the_light_vector_side_input_keeps_the_rows_the_vectors_keep(as_of):
+    # The nn examples step selects its rows from the vector lengths alone, so any drift from the
+    # vector frame would change the examples while no vector is ever read.
+    report_ids = ["landed", "landed_later", "no_landing_time", "tombstoned", "another_width", "twice", "twice"]
+    embeddings = pa.table(
+        {
+            "report_id": report_ids,
+            EMBEDDING_COLUMN: [_embedding(), _embedding(), _embedding(), None, [0.5] * 8, [0.5] * 8, _embedding()],
+            EMBEDDING_INSERTED_AT_COLUMN: [
+                LANDED_EARLY,
+                SNAPSHOT_END + datetime.timedelta(days=1),
+                None,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+            ],
+        },
+        schema=pa.schema(
+            [
+                ("report_id", pa.string()),
+                (EMBEDDING_COLUMN, pa.list_(pa.float32())),
+                (EMBEDDING_INSERTED_AT_COLUMN, pa.timestamp("us", tz="UTC")),
+            ]
+        ),
+    )
+    sink = io.BytesIO()
+    pq.write_table(embeddings, sink)
+    rows = _state([*report_ids[:-1], "absent"])
+    expected = [True, as_of is None, as_of is None, False, False, False, False]
+    # Two rows per batch, so a report's rows and the batches do not line up.
+    presence = report_vector_presence(pq.ParquetFile(pa.BufferReader(sink.getvalue())), batch_rows=2)
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, report_vectors(embeddings), as_of=as_of).tolist() == expected
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, presence, as_of=as_of).tolist() == expected
 
 
 @pytest.mark.parametrize(
@@ -2386,6 +2516,8 @@ def _run_serving_manifest(
 
 def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
     [event] = [call["properties"] for call in capture.calls if call["event"] == SERVING_MANIFEST_PUBLISHED_EVENT]
+    # Both the published and the refused path report when the step really ran.
+    assert event["run_started_at"] <= event["run_finished_at"]
     return event
 
 

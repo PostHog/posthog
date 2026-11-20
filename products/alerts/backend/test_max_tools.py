@@ -14,6 +14,7 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertSt
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -182,6 +183,16 @@ class TestUpsertAlertTool(BaseTest):
             self.user.id,
         )
         assert subscribers == {alert_id: (self.user.id,)}
+        logged = [
+            row
+            async for row in ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="AlertConfiguration",
+                item_id=str(alert_id),
+                detail__type="alert_subscription_change",
+            ).values_list("activity", "user_id")
+        ]
+        assert logged == [("created", self.user.id)]
 
         with mock.patch("posthog.event_usage.report_user_action") as report:
             updated_content, _ = await tool._arun_impl(

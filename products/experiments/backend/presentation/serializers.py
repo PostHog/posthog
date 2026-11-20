@@ -206,11 +206,14 @@ class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
+_HEALTH_VALUE_SCHEMAS = ({"type": "string"}, {"type": "number"}, {"type": "boolean"})
+
+
 @extend_schema_field(
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
@@ -223,12 +226,39 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
 )
 class ExperimentHealthCheckValuesField(serializers.DictField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [
+                *_HEALTH_VALUE_SCHEMAS,
+                {
+                    "type": "object",
+                    "description": (
+                        "A feature flag's release conditions as the flag stores them, in before_filters and "
+                        "after_filters."
+                    ),
+                    "properties": {
+                        "groups": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                        "aggregation_group_type_index": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["groups", "aggregation_group_type_index"],
+                },
+            ],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckRowField(serializers.DictField):
     pass
 
 
@@ -367,11 +397,12 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     rows = serializers.ListField(
-        child=ExperimentHealthCheckValuesField(),
+        child=ExperimentHealthCheckRowField(),
         help_text=(
             "What the check read per variant, metric or feature flag change, one object each, with the keys and "
             "units of `values`. For example, the significance check gives each variant's difference and the smallest "
-            "difference its sample can detect. Empty when the check reads no such list."
+            "difference its sample can detect. A release condition change also gives the conditions as the flag "
+            "stores them, in before_filters and after_filters. Empty when the check reads no such list."
         ),
     )
 
@@ -3695,6 +3726,12 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "The people who got a variant from a call without a flag version that is no local evaluation in a server "
             "SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% "
             "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
+        )
+    )
+    filters_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the counts leave out the calls that the project's filter for internal and test users excludes, "
+            "because the experiment applies that filter."
         )
     )
 

@@ -82,6 +82,7 @@ BACKFILL_TASK_SETTINGS = {
     "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
+    "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY": 0,
 }
 
 
@@ -1067,6 +1068,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="backfill trigger",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

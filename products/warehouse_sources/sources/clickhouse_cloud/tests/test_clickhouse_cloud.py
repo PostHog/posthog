@@ -150,7 +150,15 @@ class TestEntityRows:
         assert result.rows == [ORG]
         assert result.paths == ["/v1/organizations"]
 
-    @parameterized.expand([("services", "/services"), ("api_keys", "/keys"), ("members", "/members")])
+    @parameterized.expand(
+        [
+            ("services", "/services"),
+            ("api_keys", "/keys"),
+            ("members", "/members"),
+            ("postgres_services", "/postgres"),
+            ("roles", "/roles"),
+        ]
+    )
     def test_org_id_stamped_onto_child_rows(self, endpoint: str, path_suffix: str) -> None:
         # The composite primary keys ([organizationId, ...]) require every row to carry the parent
         # organization; the API omits it from these list responses.
@@ -166,23 +174,114 @@ class TestEntityRows:
         assert result.rows[0]["organizationId"] == "org-1"
 
 
-class TestBackupsFanOut:
-    def test_one_request_per_service_with_ids_stamped(self) -> None:
+class TestCursorPagination:
+    @parameterized.expand(
+        [
+            (
+                "walks_next_cursor_to_null",
+                "roles",
+                [
+                    {"result": [{"id": "r-1"}], "nextCursor": "c-2"},
+                    {"result": [{"id": "r-2"}], "nextCursor": "c-3"},
+                    {"result": [{"id": "r-3"}], "nextCursor": None},
+                ],
+                [None, "c-2", "c-3"],
+                ["r-1", "r-2", "r-3"],
+            ),
+            (
+                "missing_next_cursor_ends_walk",
+                "roles",
+                [{"result": [{"id": "r-1"}]}],
+                [None],
+                ["r-1"],
+            ),
+            (
+                "repeated_cursor_stops_instead_of_looping",
+                "roles",
+                [
+                    {"result": [{"id": "r-1"}], "nextCursor": "c-2"},
+                    {"result": [{"id": "r-2"}], "nextCursor": "c-2"},
+                ],
+                [None, "c-2"],
+                ["r-1", "r-2"],
+            ),
+            (
+                "empty_page_still_follows_cursor",
+                "roles",
+                [
+                    {"result": [], "nextCursor": "c-2"},
+                    {"result": [{"id": "r-2"}], "nextCursor": None},
+                ],
+                [None, "c-2"],
+                ["r-2"],
+            ),
+            (
+                "unpaginated_endpoint_ignores_next_cursor",
+                "members",
+                [{"result": [{"userId": "u-1"}], "nextCursor": "c-2"}],
+                [None],
+                [None],
+            ),
+        ]
+    )
+    def test_cursor_walk(
+        self,
+        _name: str,
+        endpoint: str,
+        pages: list[dict[str, Any]],
+        expected_cursors: list[str | None],
+        expected_ids: list[str | None],
+    ) -> None:
         result = _driver().run(
-            "backups",
+            endpoint,
+            [ScriptedResponse(json={"result": [ORG]}), *(ScriptedResponse(json=page) for page in pages)],
+        )
+        assert result.raised is None
+        list_requests = result.requests[1:]
+        assert [request.param("cursor") for request in list_requests] == expected_cursors
+        assert all(request.query.keys() <= {"cursor"} for request in list_requests)
+        assert [row.get("id") for row in result.rows] == expected_ids
+        assert all(row["organizationId"] == "org-1" for row in result.rows)
+
+
+class TestServiceFanOut:
+    @parameterized.expand(
+        [
+            (
+                "backups",
+                [
+                    {"result": [{"id": "b-1", "status": "done"}]},
+                    {"result": [{"id": "b-2", "status": "done"}]},
+                ],
+                [("org-1", "svc-1", "b-1"), ("org-1", "svc-2", "b-2")],
+            ),
+            (
+                "clickpipes",
+                [
+                    {"result": [{"id": "cp-1", "serviceId": "svc-1", "state": "Running"}], "nextCursor": "c-2"},
+                    {"result": [{"id": "cp-2", "state": "Failed"}], "nextCursor": None},
+                    {"result": [], "nextCursor": None},
+                ],
+                [("org-1", "svc-1", "cp-1"), ("org-1", "svc-1", "cp-2")],
+            ),
+        ]
+    )
+    def test_requests_per_service_with_ids_stamped(
+        self, endpoint: str, service_pages: list[dict[str, Any]], expected: list[tuple[str, str, str]]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
             [
                 ScriptedResponse(json={"result": [ORG]}),
                 ScriptedResponse(json={"result": [{"id": "svc-1"}, {"id": "svc-2"}]}),
-                ScriptedResponse(json={"result": [{"id": "b-1", "status": "done"}]}),
-                ScriptedResponse(json={"result": [{"id": "b-2", "status": "done"}]}),
+                *(ScriptedResponse(json=page) for page in service_pages),
             ],
         )
         assert result.raised is None
-        assert [(r["organizationId"], r["serviceId"], r["id"]) for r in result.rows] == [
-            ("org-1", "svc-1", "b-1"),
-            ("org-1", "svc-2", "b-2"),
-        ]
-        assert sum("backups" in path for path in result.paths) == 2
+        assert [(r["organizationId"], r["serviceId"], r["id"]) for r in result.rows] == expected
+        child_paths = [path for path in result.paths if path.endswith(f"/{endpoint}")]
+        assert len(child_paths) == len(service_pages)
+        assert {path.split("/services/")[1].split("/")[0] for path in child_paths} == {"svc-1", "svc-2"}
 
 
 class TestValidateCredentials:

@@ -361,10 +361,10 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Modify the action and check that the bytecode is updated
-        # 2 reads by the test helper (the action, then its team for the save), then the save's own 12: 1 update
+        # 2 reads by the test helper (the action, then its team for the save), then the save's own 14: 1 update
         # action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related
-        # actions, 1 bulk update hog functions, 5 filesystem
-        with self.assertNumQueries(14):
+        # actions, 1 bulk update hog functions, 7 filesystem (5 inside a savepoint)
+        with self.assertNumQueries(16):
             update_action(
                 self.action,
                 steps_json=[

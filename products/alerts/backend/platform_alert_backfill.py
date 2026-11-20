@@ -14,7 +14,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
@@ -51,8 +51,8 @@ def backfill_platform_insight_alert_configurations(
     widens it while the parallel run's query load stays inside its budget. Named alerts let a
     rollout copy the ones a comparison still lacks evidence for.
 
-    AI detector alerts are left out unless `include_ai_detector` is set. Each of their checks makes
-    a model call that the project pays for, so a parallel copy doubles that cost.
+    AI and forecast detector alerts are left out unless `include_ai_detector` is set. Each of their
+    checks calls the AI gateway, which the project pays for, so a parallel copy doubles that cost.
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
@@ -68,7 +68,7 @@ def backfill_platform_insight_alert_configurations(
     failed = 0
     for alert in source.iterator():
         copied = is_sampled(alert.id, sample_percent) and (
-            include_ai_detector or not is_llm_detector_config(alert.detector_config)
+            include_ai_detector or not calls_ai_gateway(alert.detector_config)
         )
         upsert = platform_upsert_of(alert) if copied else None
         if upsert is None:
@@ -117,10 +117,11 @@ def follow_insight_alert(alert: AlertConfiguration) -> None:
     stay off the platform until the next backfill. The insight parallel run covers every team, so a
     team with no enabled copy yet, such as one creating its first alert, is admitted too.
 
-    An AI detector alert is never followed. The backfill copies those only when an operator asks,
-    and a copy's stored detector is what records that request, so following would overwrite it.
+    An alert whose detector calls the AI gateway (the AI or forecast detector) is never followed.
+    The backfill copies those only when an operator asks, and a copy's stored detector is what
+    records that request, so following would overwrite it.
     """
-    if is_llm_detector_config(alert.detector_config):
+    if calls_ai_gateway(alert.detector_config):
         return
     upsert = platform_upsert_of(alert)
     if upsert is not None:

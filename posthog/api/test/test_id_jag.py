@@ -40,6 +40,7 @@ from posthog.api.id_jag import (
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
+from posthog.errors import InternalCHQueryError
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.id_jag_identity import IdJagIdentity
@@ -48,10 +49,13 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
@@ -941,6 +945,40 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("ema_names_its_organization", True, True, "own", status.HTTP_200_OK),
+            ("ema_names_another_organization", True, True, "other", status.HTTP_400_BAD_REQUEST),
+            ("ema_without_claim", True, True, None, status.HTTP_400_BAD_REQUEST),
+            ("ema_application_no_longer_approved", True, False, "own", status.HTTP_400_BAD_REQUEST),
+            ("manual_config_ignores_claim", False, False, "other", status.HTTP_200_OK),
+        ]
+    )
+    def test_ema_registered_issuer_requires_its_organization_and_an_approved_application(
+        self,
+        _name: str,
+        registered_through_ema: bool,
+        application_approved: bool,
+        aud_tenant: str | None,
+        expected_status: int,
+    ) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
+        if registered_through_ema:
+            application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            application.can_manage_ema_issuer = application_approved
+            application.save()
+            config.id_jag_registered_by_application = application
+            config.save()
+
+        claims: dict[str, Any] = {}
+        if aud_tenant is not None:
+            claims["aud_tenant"] = str(self.organization.id) if aud_tenant == "own" else str(uuid.uuid4())
+        assertion = _make_id_jag(extra_claims=claims)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+
+    @parameterized.expand(
+        [
             ("parameter_only", None, "https://mcp.posthog.com/mcp", "https://mcp.posthog.com/mcp", None),
             ("neither", None, None, _SITE_URL, None),
             ("claim_and_parameter_differ", _SITE_URL, "https://mcp.posthog.com/mcp", None, "invalid_target"),
@@ -1318,3 +1356,95 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
+
+    def test_me_replaces_the_current_project_and_organization_outside_the_tokens_organization(self) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        inviting_organization = Organization.objects.create(name="Inviting")
+        OrganizationInvite.objects.create(organization=inviting_organization, target_email=self.user.email)
+
+        token = self._mint_access_token(scope="user:read")
+        resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertEqual(body["team"]["id"], self.team.id)
+        self.assertEqual(body["organization"]["id"], str(self.organization.id))
+        self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
+        self.assertEqual(body["pending_invites"], [])
+
+    @parameterized.expand([("set_current_team",), ("set_current_organization",)])
+    def test_me_refuses_to_switch_outside_the_tokens_organization(self, field: str) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = self.team
+        self.user.current_organization = self.organization
+        self.user.save()
+        target = other_team.id if field == "set_current_team" else str(other_organization.id)
+
+        token = self._mint_access_token(scope="user:write")
+        resp = self.client.patch(
+            "/api/users/@me/",
+            {field: target},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, self.team.id)
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
+
+    def test_organization_list_holds_only_the_tokens_organization(self) -> None:
+        Organization.objects.bootstrap(self.user)
+
+        token = self._mint_access_token(scope="organization:read")
+        resp = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])
+
+    def test_a_staff_users_token_cannot_change_global_dashboard_templates(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        template = DashboardTemplate.objects.create(template_name="Global", scope=DashboardTemplate.Scope.GLOBAL)
+
+        token = self._mint_access_token(scope="dashboard_template:write")
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{template.id}/",
+            {"template_name": "Changed"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        template.refresh_from_db()
+        self.assertEqual(template.template_name, "Global")
+
+    def test_a_staff_users_token_gets_no_internal_error_text_from_an_async_query(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        token = self._mint_access_token(scope="query:read")
+        error = InternalCHQueryError("DB::Exception: internal detail", code=47)
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select 1"}, "refresh": "force_async"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/query/{resp.json()['query_status']['id']}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, resp.content)
+        self.assertNotIn("internal detail", resp.json()["query_status"]["error_message"])

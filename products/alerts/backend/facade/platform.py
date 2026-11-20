@@ -16,6 +16,7 @@ from products.alerts.backend.platform_alert_reads import (
 from products.alerts.backend.platform_insight_alert import (
     delete_native_insight_alert,
     enable_native_insight_alert,
+    moved_alert_settings,
     native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
     native_insight_alert_view,
@@ -58,6 +59,7 @@ __all__ = [
     "hand_over_new_alert",
     "moved_alert_check_page",
     "moved_alert_fired_checks",
+    "moved_alert_settings",
     "moved_alert_statuses",
     "native_insight_alert_matches",
     "native_insight_alert_ids_by_insight",
@@ -71,3 +73,11 @@ __all__ = [
     "write_moved_alert_edit",
     "write_native_alert_edit",
 ]
+
+
+def queue_delivery_test(*, team_id: int, alert_id: uuid.UUID, alert_name: str, insight_short_id: str) -> None:
+    """Queues the test message to the alert's destination rows that the alerts platform sends.
+    Raises when the task cannot be queued."""
+    from products.alerts.backend.tasks.tasks import send_insight_alert_delivery_test  # noqa: PLC0415 - cycle
+
+    send_insight_alert_delivery_test.delay(team_id, str(alert_id), alert_name, insight_short_id)

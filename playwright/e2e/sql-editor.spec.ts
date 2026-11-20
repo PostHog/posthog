@@ -46,6 +46,7 @@ test.describe('SQL Editor', () => {
         workspace = await playwrightSetup.createWorkspace({
             skip_onboarding: true,
             use_current_time: true,
+            no_demo_data: true,
         })
     })
 

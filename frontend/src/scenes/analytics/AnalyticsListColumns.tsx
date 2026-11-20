@@ -1,20 +1,10 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import {
-    IconChevronDown,
-    IconEllipsis,
-    IconFolder,
-    IconFolderMove,
-    IconFolderOpen,
-    IconTrash,
-    IconX,
-} from '@posthog/icons'
+import { IconEllipsis, IconFolder, IconFolderOpen, IconTrash } from '@posthog/icons'
 import {
     Button,
-    Chip,
-    ChipGroup,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -30,16 +20,16 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
+import { AnalyticsItemCollection } from './AnalyticsItemCollection'
+import { AnalyticsItemMenu } from './AnalyticsItemMenu'
+import { AnalyticsItemTags } from './AnalyticsItemTags'
 import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
-import { analyticsShareLogic } from './analyticsShareLogic'
-import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import {
     ANALYTICS_DRAG_SCOPE,
@@ -69,133 +59,6 @@ function TimeCell({ time }: { time: string | null }): JSX.Element {
         <Text size="xs" variant="muted" render={<span />}>
             <TZLabel time={time} />
         </Text>
-    )
-}
-
-// Two chips fit the fixed tags column; the rest fold into a count.
-const VISIBLE_TAGS = 2
-
-function TagsCell({ tags }: { tags: string[] }): JSX.Element {
-    const { filters } = useValues(analyticsListLogic)
-    const { setFilters } = useActions(analyticsListLogic)
-    if (!tags.length) {
-        return (
-            <Text size="xs" variant="muted">
-                –
-            </Text>
-        )
-    }
-    const hidden = tags.length - VISIBLE_TAGS
-    return (
-        <div className="flex min-w-0 items-center gap-1">
-            <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
-                {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                    <Chip
-                        key={tag}
-                        size="xs"
-                        className="min-w-0 max-w-24 flex-1"
-                        title={`Filter by ${tag}`}
-                        render={<button type="button" />}
-                        onClick={() => {
-                            if (!filters.tags.includes(tag)) {
-                                setFilters({ tags: [...filters.tags, tag] })
-                            }
-                        }}
-                        data-attr="analytics-list-row-tag"
-                    >
-                        <span className="min-w-0 truncate">{tag}</span>
-                    </Chip>
-                ))}
-            </ChipGroup>
-            {hidden > 0 && (
-                <Text size="xs" variant="muted" className="shrink-0">
-                    {`+${hidden}`}
-                </Text>
-            )}
-        </div>
-    )
-}
-
-function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
-    const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
-    const target = { type: item.type, ref: item.id, name: item.name }
-    if (!item.spaceName) {
-        return (
-            <Button
-                size="sm"
-                tooltip="Add to a collection"
-                onClick={() => openShareToSpace(target)}
-                data-attr="analytics-list-row-share"
-            >
-                None
-                <IconChevronDown />
-            </Button>
-        )
-    }
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="sm" data-attr="analytics-list-row-space" />}>
-                <AnalyticsSpaceGlyph name={item.spaceName} />
-                <span>{item.spaceName}</span>
-                <IconChevronDown />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-60">
-                <DropdownMenuItem
-                    onClick={() =>
-                        router.actions.push(urls.analyticsList({ folder: escapePath(item.spaceName ?? '') }))
-                    }
-                    data-attr="analytics-list-row-open-space"
-                >
-                    <IconFolderOpen />
-                    <span>{`Open "${item.spaceName}"`}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
-                    <IconFolderMove />
-                    Move to another collection
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => moveItem(target, null)}
-                    data-attr="analytics-list-row-remove-from-space"
-                >
-                    <IconX />
-                    {`Remove from "${item.spaceName}"`}
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
-function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
-    const { openShareToSpace } = useActions(analyticsShareLogic)
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                render={
-                    <Button
-                        variant="default"
-                        size="icon-sm"
-                        aria-label={`Actions for ${item.name}`}
-                        data-attr="analytics-list-row-menu"
-                    />
-                }
-            >
-                <IconEllipsis />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-56">
-                <AnalyticsPinMenuItem
-                    target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
-                    dataAttr="analytics-list-row-pin"
-                />
-                <DropdownMenuItem
-                    onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
-                    data-attr="analytics-list-row-move"
-                >
-                    <IconFolderMove />
-                    Move to another collection
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
     )
 }
 
@@ -362,7 +225,11 @@ export function analyticsListColumns({
                       header: 'Collection',
                       enableSorting: false,
                       cell: ({ row }) =>
-                          row.original.kind === 'item' ? <SpaceCell item={row.original.item} /> : <EmptyCell />,
+                          row.original.kind === 'item' ? (
+                              <AnalyticsItemCollection item={row.original.item} />
+                          ) : (
+                              <EmptyCell />
+                          ),
                   },
               ] satisfies AnalyticsListColumns)
             : []),
@@ -371,7 +238,7 @@ export function analyticsListColumns({
             header: 'Tags',
             enableSorting: false,
             cell: ({ row }) =>
-                row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />,
+                row.original.kind === 'item' ? <AnalyticsItemTags item={row.original.item} /> : <EmptyCell />,
         },
         ...(showOwner
             ? ([
@@ -422,7 +289,7 @@ export function analyticsListColumns({
             meta: { align: 'right' },
             cell: ({ row }) =>
                 row.original.kind === 'item' ? (
-                    <ItemMenuCell item={row.original.item} />
+                    <AnalyticsItemMenu item={row.original.item} backUrl={backUrl} />
                 ) : (
                     <FolderMenuCell folder={row.original.folder} />
                 ),

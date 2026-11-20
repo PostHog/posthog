@@ -25,6 +25,14 @@ describe('legendItemsFromSeries', () => {
         expect(items.find((i) => i.key === 'c')!.color).toBe('#ccc')
     })
 
+    it('carries a series legendTag onto its row as the tag', () => {
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [] },
+            { key: 'b', label: 'B', data: [], legendTag: 'Previous' },
+        ]
+        expect(legendItemsFromSeries(series, THEME).map((i) => i.tag)).toEqual([undefined, 'Previous'])
+    })
+
     it.each([
         ['skips missing points', [3, NaN, 1, 5], { mean: 3, min: 1, max: 5, last: 5, sum: 9, delta: 2 }],
         [

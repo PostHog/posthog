@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -44,6 +45,12 @@ INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+# The types whose address is a URL the caller supplies, so their route also asks for `hog_function:write`.
+INSIGHT_ALERT_URL_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (
+    DestinationType.DISCORD,
+    DestinationType.TEAMS,
+    DestinationType.WEBHOOK,
+)
 
 
 class DestinationHoldBack(StrEnum):
@@ -152,6 +159,42 @@ class EnabledAlert:
 
 
 @frozen
+class CreatedAlert:
+    id: UUID
+    team_id: int
+    name: str
+    created_at: datetime
+
+
+@frozen
+class AlertSummary:
+    id: UUID
+    name: str
+    enabled: bool
+    state: AlertState
+    calculation_interval: str | None
+    insight_id: int | None
+    created_at: datetime
+
+
+@frozen
+class AlertInventory:
+    total_count: int
+    enabled_count: int
+    recent: tuple[AlertSummary, ...]
+
+
+@frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
+
+
+@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 
@@ -189,6 +232,9 @@ class MovedAlertStatus:
     runtime: MovedAlertRuntime | None
     # None when the alert has no recent check, or the platform's history could not be read.
     last_check: MovedAlertLastCheck | None
+    # The platform's history could not be read, so the alert's last check is unknown. Its row's last
+    # check predates the move and is not shown in its place.
+    history_unavailable: bool = False
 
 
 @frozen
@@ -223,6 +269,20 @@ class MovedAlertCheckPage:
     checks: tuple[MovedAlertCheck, ...]
 
 
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
+
+
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
 
@@ -235,3 +295,44 @@ class InvestigationRelease:
     # announcement of a changed verdict on a firing that already went out.
     deliveries: tuple[AlertDeliveryRequest, ...]
     previous_verdict: str | None
+
+
+@frozen
+class CustomizableDestination:
+    """A destination whose HogFunctions are ready to edit after "Customize"."""
+
+    hog_function_ids: tuple[UUID, ...]
+    destination_type: DestinationType
+    # Whether this Customize wrote the HogFunctions, rather than finding them already there.
+    created: bool
+
+
+@frozen
+class ResetDestination:
+    """A destination sending the standard message again, from its new `AlertDestination` row."""
+
+    destination_id: UUID
+    destination_type: DestinationType
+    retired_hog_function_ids: tuple[UUID, ...]
+
+
+class AlertWriteRefused(Exception):
+    def __init__(self, detail: str | dict[str, Any], *, code: str = "invalid", status_code: int = 400) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+        self.code = code
+        self.status_code = status_code
+
+
+@frozen
+class AlertValidationState:
+    id: UUID
+    enabled: bool
+    condition: dict[str, Any] | None
+    config: dict[str, Any] | None
+    threshold_configuration: dict[str, Any] | None
+    calculation_interval: str | None
+    detector_config: dict[str, Any] | None
+    evaluation_delay_intervals: int
+    investigation_agent_enabled: bool
+    investigation_gates_notifications: bool

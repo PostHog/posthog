@@ -28,6 +28,8 @@ Nothing here trains or scores anything. It is the shared vocabulary that `../tra
 - `validation.py`
   Pre-flight viability. `validate_pipeline_definition()` answers "is there enough here to learn anything?" before a run is launched — `MIN_TRAINING_ROWS` (100), `MIN_POSITIVE_EXAMPLES` and `MIN_NEGATIVE_EXAMPLES` (20 each, because holdout AUC is undefined with one class), `MIN_IDENTIFIED_FRACTION` (0.5). The window validated is the configured `training_lookback_days`, unclamped, so the estimate describes the data training will see.
   Returns a `ValidationResult` carrying `ValidationWarning`s rather than raising, because the API surfaces them as advice.
+  When the queries cannot run, `error` holds the message and `error_code` says whether a retry can help: `invalid_definition` (a query error in the definition), `too_expensive` (a ClickHouse timeout or query memory limit, so the same definition fails again), or `unavailable` (anything else, including cluster memory pressure).
+  A population with no event of its own reads every event in the training lookback, so on a high-volume project it is the usual `too_expensive` case.
   `population_too_large` is severity `info` when training will sample the population or scoring rolls through a population at or above `MATERIALIZE_ROW_LIMIT`, and `error` when the positives alone exceed the training budget. `low_positives`, `low_negatives` and `horizon_exceeds_lookback` stay errors.
 - `templates.py`
   Built-in starting points. A template resolves to the same pipeline config shape as a fully custom pipeline, so creation and validation behave identically either way — there is no separate template code path downstream.
@@ -53,7 +55,7 @@ The two branches differ only in cutoff and whether labels and folds are attached
 ## Things that bite
 
 - **`IDENTIFIED_USERS_ONLY` is on.** Autoresearch trains on identified users only, so raw event counts badly overstate available training data on anonymous-heavy datasets. A target with thousands of events can yield a few dozen usable rows.
-- **Validation is advisory, not enforcing.** `autoresearch_train` does not call it. A target that fails on volume will still train — deliberately, so thin local datasets are workable, but it means "the run completed" does not mean "the data was sufficient."
+- **Validation is advisory, not enforcing.** `autoresearch_train` does not call it. A target that fails on volume will still train — deliberately, so thin local datasets are workable, but it means "the run completed" does not mean "the data was sufficient." The UI runs it before the first run of a draft and asks for a confirmation when it fails, but `start_training()` must not refuse on it.
 - **Random `T0` is a modeling decision, not an implementation detail.** Spreading anchors across the lookback keeps the model from over-fitting to one moment in calendar time. Changing it to most-recent-feasible would change what every model in the product means.
 - **Everything keys on `person_id`.** See `../inference/AGENTS.md` for what goes wrong when a caller keys on `distinct_id` instead — it fails silently.
 - **Never read `person.*` off an events scan here.** It joins the team's whole persons table into the scan, and on a high-volume project the query times out before it starts. Identity and person-property filters go through `_person_rows_sql()`, which reads `raw_persons` pruned to the member ids.

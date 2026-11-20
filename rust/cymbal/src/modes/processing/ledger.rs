@@ -3,11 +3,12 @@
 use common_redis::{CustomRedisError, ScriptRunner};
 use uuid::Uuid;
 
-// Each window owns a run of KEYS, newest bucket first, and two ARGV entries: the run length and the bucket expiry.
-// The reply holds, per window and per bucket: the team total, the number of fields, then one count per issue.
+// Each window owns a run of KEYS, newest bucket first, and three ARGV entries: the run length, the bucket expiry,
+// and whether it counts issues. The reply holds, per window and per bucket: the team total, then for a window
+// that counts issues the number of fields and one count per issue.
 const RECORD_LUA: &str = r#"
 local windows = tonumber(ARGV[1])
-local first_issue = 2 + 2 * windows
+local first_issue = 2 + 3 * windows
 local issues = {}
 local total = 0
 for arg = first_issue, #ARGV, 2 do
@@ -20,25 +21,30 @@ local chunk = 1000
 local out = {}
 local key = 1
 for window = 0, windows - 1 do
-  local buckets = tonumber(ARGV[2 + 2 * window])
+  local buckets = tonumber(ARGV[2 + 3 * window])
+  local per_issue = ARGV[4 + 3 * window] == '1'
   local current = KEYS[key]
   local created = redis.call('exists', current) == 0
-  for arg = first_issue, #ARGV, 2 do
-    redis.call('hincrby', current, ARGV[arg], ARGV[arg + 1])
+  if per_issue then
+    for arg = first_issue, #ARGV, 2 do
+      redis.call('hincrby', current, ARGV[arg], ARGV[arg + 1])
+    end
   end
   redis.call('hincrby', current, '_n', total)
   if created then
-    redis.call('expire', current, tonumber(ARGV[3 + 2 * window]))
+    redis.call('expire', current, tonumber(ARGV[3 + 3 * window]))
   end
   for bucket = 0, buckets - 1 do
     local bucket_key = KEYS[key + bucket]
     out[#out + 1] = tonumber(redis.call('hget', bucket_key, '_n')) or 0
-    out[#out + 1] = redis.call('hlen', bucket_key)
-    for first = 1, #issues, chunk do
-      local last = math.min(first + chunk - 1, #issues)
-      local counts = redis.call('hmget', bucket_key, unpack(issues, first, last))
-      for index = 1, #counts do
-        out[#out + 1] = tonumber(counts[index]) or 0
+    if per_issue then
+      out[#out + 1] = redis.call('hlen', bucket_key)
+      for first = 1, #issues, chunk do
+        local last = math.min(first + chunk - 1, #issues)
+        local counts = redis.call('hmget', bucket_key, unpack(issues, first, last))
+        for index = 1, #counts do
+          out[#out + 1] = tonumber(counts[index]) or 0
+        end
       end
     end
   end
@@ -52,6 +58,8 @@ return out
 pub struct Window {
     pub width_seconds: i64,
     pub buckets: usize,
+    /// A window that keeps the team total only costs one field per bucket, so it can cover many days.
+    pub per_issue: bool,
 }
 
 impl Window {
@@ -119,6 +127,7 @@ impl Ledger {
             );
             args.push(window.stored_buckets().to_string());
             args.push(((window.stored_buckets() as i64 + 1) * width).to_string());
+            args.push(u8::from(window.per_issue).to_string());
         }
         for (issue_id, events) in issue_counts {
             args.push(issue_id.to_string());
@@ -138,9 +147,12 @@ impl Ledger {
         for window in &self.windows {
             let mut team = Vec::new();
             let mut active_issues = Vec::new();
-            let mut per_issue = vec![Vec::new(); issues];
+            let mut per_issue = vec![Vec::new(); if window.per_issue { issues } else { 0 }];
             for _ in 0..window.stored_buckets() {
                 team.push(next()?);
+                if !window.per_issue {
+                    continue;
+                }
                 // The team total is a field of the bucket, not an issue.
                 active_issues.push(next()?.saturating_sub(1));
                 for counts in &mut per_issue {
@@ -172,10 +184,17 @@ mod tests {
     const FIVE_MINUTES: Window = Window {
         width_seconds: 300,
         buckets: 2,
+        per_issue: true,
     };
     const HOURLY: Window = Window {
         width_seconds: 3_600,
         buckets: 24,
+        per_issue: true,
+    };
+    const DAILY_TEAM_ONLY: Window = Window {
+        width_seconds: 86_400,
+        buckets: 2,
+        per_issue: false,
     };
 
     fn ledger() -> Ledger {
@@ -235,6 +254,25 @@ mod tests {
         assert_eq!(first[0].active_issues, [2, 0, 0]);
         assert_eq!(first[0].issues[0].counts, [5, 0, 0]);
         assert_eq!(first[1].issues[1].current(), 1);
+
+        let with_days = Ledger {
+            windows: vec![DAILY_TEAM_ONLY],
+        };
+        let days = with_days
+            .record(&*redis, 9, 86_400, &[(noisy, 5), (quiet, 1)])
+            .await
+            .unwrap();
+        assert_eq!(days[0].team.counts, [6, 0, 0]);
+        assert!(days[0].issues.is_empty() && days[0].active_issues.is_empty());
+        let fields = redis
+            .eval_int_vec(
+                "return { redis.call('hlen', KEYS[1]) }",
+                vec!["et:c1:{9}:b:86400:1".into()],
+                vec![],
+            )
+            .await
+            .unwrap();
+        assert_eq!(fields, [1]);
 
         let other_team = ledger.record(&*redis, 8, 0, &[(noisy, 3)]).await.unwrap();
         assert_eq!(other_team[0].team.counts, [3, 0, 0]);

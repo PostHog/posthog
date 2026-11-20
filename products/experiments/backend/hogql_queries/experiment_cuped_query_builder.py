@@ -7,6 +7,19 @@ if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
 
 
+def extend_date_from_for_cuped(date_from: ast.Expr, lookback_days: int | None) -> ast.Expr:
+    """
+    Roll ``date_from`` back by ``lookback_days``, so a scan from it also covers the CUPED
+    pre-exposure window. Returns ``date_from`` unchanged without a lookback.
+    """
+    if lookback_days is None:
+        return date_from
+    return parse_expr(
+        "{date_from} - toIntervalDay({lookback_days})",
+        placeholders={"date_from": date_from, "lookback_days": ast.Constant(value=lookback_days)},
+    )
+
+
 class CupedQueryBuilder:
     """
     Builds the CUPED (Controlled-experiment Using Pre-Experiment Data) query
@@ -37,7 +50,9 @@ class CupedQueryBuilder:
     that window without a second scan, the metric event scan is widened so its
     ``date_from`` rolls back by ``lookback_days`` (see
     ``extend_date_from_for_funnel_cuped`` for the funnel case; mean metrics widen
-    via ``build_metric_predicate``'s ``cuped_lookback_days`` argument).
+    via ``build_metric_predicate``'s ``cuped_lookback_days`` argument). The
+    metric-events precompute build and its read roll back the same way, so a
+    CUPED metric reads its covariate from the precomputed table too.
     """
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
@@ -143,10 +158,4 @@ class CupedQueryBuilder:
         """
         if not self._b.cuped_config.enabled:
             return date_from
-        return parse_expr(
-            "{date_from} - toIntervalDay({lookback_days})",
-            placeholders={
-                "date_from": date_from,
-                "lookback_days": ast.Constant(value=self._b.cuped_config.lookback_days),
-            },
-        )
+        return extend_date_from_for_cuped(date_from, self._b.cuped_config.lookback_days)

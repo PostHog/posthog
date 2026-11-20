@@ -35,7 +35,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
+import { getKafkaConfigFromEnv, redactKafkaConfig, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -118,6 +118,8 @@ export type KafkaConsumerConfig = {
      * deployment value that can drift away from the assumption without anything noticing.
      */
     fetchBatchSize?: number
+    /** Background tasks in flight before the consumer waits for the oldest one, overriding CONSUMER_MAX_BACKGROUND_TASKS. */
+    maxBackgroundTasks?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -173,7 +175,7 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
@@ -567,11 +569,18 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
+            logger.info('📝', 'librdkafka consumer subscribed', {
+                topics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            logger.error('📝', 'librdkafka connection failure', { error, metrics, config: this.consumerConfig })
+            logger.error('📝', 'librdkafka connection failure', {
+                error,
+                metrics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
@@ -830,7 +839,7 @@ export class KafkaConsumer {
                 isFatal: (error as any)?.isFatal,
                 isRetriable: (error as any)?.isRetriable,
                 config: this.config,
-                consumerConfig: this.consumerConfig,
+                consumerConfig: redactKafkaConfig(this.consumerConfig),
             })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
@@ -862,7 +871,7 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                     config: this.config,
-                    consumerConfig: this.consumerConfig,
+                    consumerConfig: redactKafkaConfig(this.consumerConfig),
                 })
             })
         }

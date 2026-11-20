@@ -35,10 +35,12 @@ with workflow.unsafe.imports_passed_through():
         BLOCKER_AWARE_LOOP_PATCH,
         DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
         DRAFT_ACTIVITY_MAX_ATTEMPTS,
+        GROUNDING_AWARE_GATE_PATCH,
         LEGACY_MAX_ATTEMPTS,
         MAX_ATTEMPTS,
         MAX_CLARIFICATION_ROUNDS,
         MAX_SAFETY_REVIEWED_CHARS,
+        MAX_THREAT_TYPE_CHARS,
         SCORE_THRESHOLD,
         TIERED_CLARIFY_PATCH,
     )
@@ -107,8 +109,9 @@ class SupportReplyWorkflow:
         question (spam / bare feedback); draft loop skipped. Distinct from
         escalated_no_reply, which means we tried and failed.
       - persisted: a draft cleared the auto-send gate (or SCORE_THRESHOLD when
-        BLOCKER_AWARE_LOOP_PATCH is absent) and passed the output review gate;
-        auto-sent to the customer (allow_bot_reply=True).
+        BLOCKER_AWARE_LOOP_PATCH is absent) and passed the output review gate.
+        The customer saw it only when `ai_triage.published` is true: the channel's
+        reply mode keeps it a private note otherwise.
       - suggested: grounded private note with a proposed reply, below auto-send.
       - blocked_unsafe_reply: a draft was good enough to send but the output
         review gate caught a PII leak / exfil, so it was withheld.
@@ -204,6 +207,9 @@ class SupportReplyWorkflow:
         draft_task_run_ids: list[str] = []
         llm_calls = 0
         sandbox_seconds = 0.0
+        # `persisted` only says the draft cleared the auto-send gate. The channel's reply mode
+        # decides whether the customer saw it, and only the persist and clarify activities know.
+        published = False
 
         async def _llm(activity_fn: Any, input_value: Any, *, timeout: timedelta, maximum_attempts: int = 3) -> Any:
             nonlocal llm_calls
@@ -221,9 +227,11 @@ class SupportReplyWorkflow:
                 raise
 
         async def _persist(persist_input: PersistReplyInput) -> bool:
+            nonlocal published
             persist_input = replace(
                 persist_input,
                 require_awaiting_clarification=input.clarification_round >= 1,
+                run_id=wf_info.run_id,
             )
             raw = await workflow.execute_activity(
                 support_persist_reply_activity,
@@ -231,13 +239,15 @@ class SupportReplyWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            if input.clarification_round < 1:
-                return True
             try:
-                posted = coerce_dataclass(PersistReplyOutput, raw).posted
+                persist_output = coerce_dataclass(PersistReplyOutput, raw)
             except TypeError:
                 return True
-            return posted
+            if persist_output.posted and persist_output.published:
+                published = True
+            if input.clarification_round < 1:
+                return True
+            return persist_output.posted
 
         # `finally` reads this on every exit path, including the branches that return
         # before the draft loop starts.
@@ -257,7 +267,10 @@ class SupportReplyWorkflow:
                 workflow.logger.info(
                     "support_reply: ticket blocked by safety filter", extra={"threat_type": safety_output.threat_type}
                 )
-                outcome = {"result": "blocked_unsafe"}
+                outcome = {
+                    "result": "blocked_unsafe",
+                    "threat_type": str(safety_output.threat_type or "")[:MAX_THREAT_TYPE_CHARS],
+                }
                 return "blocked_unsafe"
 
             # Triage once, up front (not per attempt): the type + seed queries bias the whole
@@ -303,6 +316,7 @@ class SupportReplyWorkflow:
             attempts_used = 0
             blocker_aware = workflow.patched(BLOCKER_AWARE_LOOP_PATCH)
             tiered_clarify = workflow.patched(TIERED_CLARIFY_PATCH)
+            grounding_aware = workflow.patched(GROUNDING_AWARE_GATE_PATCH)
             max_attempts = MAX_ATTEMPTS if blocker_aware else LEGACY_MAX_ATTEMPTS
             allow_clarify = tiered_clarify and input.clarification_round < MAX_CLARIFICATION_ROUNDS
 
@@ -438,6 +452,8 @@ class SupportReplyWorkflow:
                         attempt=attempt,
                         max_attempts=max_attempts,
                         allow_clarify=allow_clarify,
+                        grounding_aware=grounding_aware,
+                        has_clarifying_questions=any(q and q.strip() for q in draft_output.clarifying_questions),
                     )
                     if action == "clarify" and tiered_clarify:
                         questions = [q for q in draft_output.clarifying_questions if q and q.strip()]
@@ -482,12 +498,14 @@ class SupportReplyWorkflow:
                                             unknowns=list(draft_output.unknowns),
                                             citations=list(draft_output.citations),
                                             confidence=validate_output.confidence,
+                                            run_id=wf_info.run_id,
                                         ),
                                         start_to_close_timeout=timedelta(minutes=1),
                                         retry_policy=RetryPolicy(maximum_attempts=3),
                                     ),
                                 )
                                 result_name = "clarified" if clarify_output.published else "suggested_clarification"
+                                published = clarify_output.published
                                 if validate_output.missing:
                                     await _persist_gaps(validate_output.missing, ticket_type, result_name)
                                 outcome = {
@@ -809,6 +827,7 @@ class SupportReplyWorkflow:
                     "finished_at": workflow.now().isoformat(),
                     "ai_trace_id": trace_id,
                     "draft_task_run_ids": draft_task_run_ids,
+                    "published": published,
                     "cost": {
                         "sandbox_seconds": round(sandbox_seconds, 3),
                         "llm_calls": llm_calls,

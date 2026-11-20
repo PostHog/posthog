@@ -8,7 +8,7 @@ import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMi
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext, useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -82,6 +82,11 @@ const WebAnalyticsInsight = lazyWithRetry(() =>
 const InsightExplainChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/explainChart/InsightExplainChart').then((m) => ({
         default: m.InsightExplainChart,
+    }))
+)
+const FunnelCardSummary = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelCardSummary').then((m) => ({
+        default: m.FunnelCardSummary,
     }))
 )
 const ExplainChartButton = lazyWithRetry(() =>
@@ -254,12 +259,19 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
-    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        funnelsFilter,
+        funnelVizType,
+        hasFunnelResults,
+        isFunnelWithEnoughSteps,
+        isFunnelWithIncompleteDataWarehouseStep,
+    } = useValues(funnelDataLogic(insightProps))
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const quillSurface = todayRailNav && !embedded
+    // An embedded viz is quill only when its host, such as a quill dashboard tile, says so.
+    const hostQuillSurface = useQuillSurface()
+    const quillSurface = todayRailNav && (!embedded || hostQuillSurface)
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -631,6 +643,14 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <QuillSurfaceContext.Provider value={quillSurface}>
                         <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {embedded &&
+                                isFunnels &&
+                                hasFunnelResults &&
+                                funnelsFilter?.showSummaryOnDashboards === true && (
+                                    <Suspense fallback={<Spinner />}>
+                                        <FunnelCardSummary />
+                                    </Suspense>
+                                )}
                             {!embedded &&
                                 ((isFunnels && hasFunnelResults) ||
                                     isPaths ||

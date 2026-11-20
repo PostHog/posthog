@@ -15,6 +15,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
+import { applyComparisonDimming } from '../../utils/comparison-dimming'
 import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
@@ -162,6 +163,11 @@ export function TimeSeriesLineChart<Meta = unknown>({
         xs: timeXs,
     })
 
+    const legendItems = useMemo(
+        () => applyComparisonDimming(legendProps.items, comparisonOf),
+        [legendProps.items, comparisonOf]
+    )
+
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
     const boundsDomain = useValueBounds(primaryYAxis)
@@ -202,7 +208,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     }
 
     return (
-        <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-line-legend">
+        <ChartLegend {...legendProps} items={legendItems} legendDataAttr="hog-chart-timeseries-line-legend">
             <LineChart
                 series={finalSeries}
                 labels={labels}

@@ -1,6 +1,9 @@
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
+
+import time_machine
 
 import requests
 from parameterized import parameterized
@@ -14,7 +17,13 @@ from products.warehouse_sources.sources.sdk.testing import (
     always,
 )
 from products.warehouse_sources.sources.todoist._config import TodoistSourceConfig
-from products.warehouse_sources.sources.todoist.settings import INCREMENTAL_FIELDS, TODOIST_ENDPOINTS
+from products.warehouse_sources.sources.todoist.settings import (
+    COMPLETED_TASKS_EARLIEST,
+    COMPLETED_TASKS_WINDOW,
+    INCREMENTAL_FIELDS,
+    TODOIST_ENDPOINTS,
+    TodoistFanOut,
+)
 from products.warehouse_sources.sources.todoist.source import TodoistSource
 from products.warehouse_sources.sources.todoist.todoist import PAGE_LIMIT, TodoistResumeConfig
 
@@ -47,10 +56,13 @@ def _by_url(responses_by_url: dict[str, list[ScriptedResponse]]) -> Callable[[Re
 
 
 def _run(
-    endpoint: str, responses_by_url: dict[str, list[ScriptedResponse]], resume: TodoistResumeConfig | None = None
+    endpoint: str,
+    responses_by_url: dict[str, list[ScriptedResponse]],
+    resume: TodoistResumeConfig | None = None,
+    **inputs: Any,
 ) -> DriveResult:
     driver = SourceDriver(TodoistSource(), TodoistSourceConfig(api_token="tok"))
-    return driver.run(endpoint, _by_url(responses_by_url), resume_state=resume)
+    return driver.run(endpoint, _by_url(responses_by_url), resume_state=resume, **inputs)
 
 
 class TestSourceResponseShape:
@@ -85,7 +97,7 @@ class TestSourceResponseShape:
 class TestEndpointConfig:
     def test_collaborators_is_fan_out_with_composite_key(self) -> None:
         config = TODOIST_ENDPOINTS["collaborators"]
-        assert config.fan_out_over_projects is True
+        assert config.fan_out == TodoistFanOut(parent="projects", parent_id_column="project_id")
         # A collaborator can belong to many projects, so the key must include the parent project.
         assert config.primary_keys == ["project_id", "id"]
         assert config.partition_key is None
@@ -106,9 +118,9 @@ class TestEndpointConfig:
         assert config.partition_key == expected_partition
         assert config.partition_key != "updated_at"
 
-    def test_no_endpoint_advertises_incremental_fields(self) -> None:
-        # The v1 REST API has no server-side timestamp filter, so nothing advertises incremental fields.
-        assert all(fields == [] for fields in INCREMENTAL_FIELDS.values())
+    def test_only_endpoints_with_a_server_side_time_filter_advertise_incremental_fields(self) -> None:
+        incremental = {name: [f["field"] for f in fields] for name, fields in INCREMENTAL_FIELDS.items() if fields}
+        assert incremental == {"completed_tasks": ["completed_at"], "activities": ["event_date"]}
 
 
 class TestTopLevelPagination:
@@ -194,3 +206,141 @@ class TestRetryClassification:
         }
         result = _run("tasks", responses)
         assert isinstance(result.raised, requests.HTTPError)
+
+
+NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def _iso(value: datetime) -> str:
+    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class TestCompletedTasksWindows:
+    @time_machine.travel(NOW, tick=False)
+    def test_full_refresh_sweeps_bounded_windows_from_the_earliest_date_to_now(self) -> None:
+        driver = SourceDriver(TodoistSource(), TodoistSourceConfig(api_token="tok"))
+        result = driver.run("completed_tasks", always(_resp({"items": [], "next_cursor": None})))
+
+        assert result.raised is None
+        windows = [
+            (datetime.fromisoformat(r.param("since") or ""), datetime.fromisoformat(r.param("until") or ""))
+            for r in result.requests
+        ]
+        assert windows[0][0] == COMPLETED_TASKS_EARLIEST
+        assert windows[-1][1] == NOW
+        assert all(since < until <= since + COMPLETED_TASKS_WINDOW for since, until in windows)
+        # Contiguous windows: no completion time falls in a gap or in two windows.
+        assert all(prev[1] == nxt[0] for prev, nxt in zip(windows, windows[1:]))
+
+    @time_machine.travel(NOW, tick=False)
+    def test_incremental_starts_at_the_watermark_and_pages_each_window(self) -> None:
+        last_value = NOW - timedelta(days=100)
+        first_until = last_value + COMPLETED_TASKS_WINDOW
+        path = f"{BASE}/tasks/completed/by_completion_date"
+        first = f"{path}?since={_iso(last_value)}&until={_iso(first_until)}&limit={PAGE_LIMIT}"
+        second = f"{path}?since={_iso(first_until)}&until={_iso(NOW)}&limit={PAGE_LIMIT}"
+        responses = {
+            first: [_resp({"items": [{"id": "T1", "completed_at": "a"}], "next_cursor": "c2"})],
+            f"{first}&cursor=c2": [_resp({"items": [{"id": "T2", "completed_at": "b"}], "next_cursor": None})],
+            second: [_resp({"items": [{"id": "T3", "completed_at": "c"}], "next_cursor": None})],
+        }
+        result = _run(
+            "completed_tasks", responses, incremental_field="completed_at", db_incremental_field_last_value=last_value
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["T1", "T2", "T3"]
+
+    @time_machine.travel(NOW, tick=False)
+    def test_resumes_the_saved_window_with_its_cursor_then_continues(self) -> None:
+        # The earlier attempt ended its last window at its own "now", which is before this run's.
+        since = NOW - timedelta(days=30)
+        until = NOW - timedelta(days=10)
+        path = f"{BASE}/tasks/completed/by_completion_date"
+        responses = {
+            f"{path}?since={_iso(since)}&until={_iso(until)}&limit={PAGE_LIMIT}&cursor=saved": [
+                _resp({"items": [{"id": "T9", "completed_at": "a"}], "next_cursor": None})
+            ],
+            f"{path}?since={_iso(until)}&until={_iso(NOW)}&limit={PAGE_LIMIT}": [
+                _resp({"items": [{"id": "T10", "completed_at": "b"}], "next_cursor": None})
+            ],
+        }
+        resume = TodoistResumeConfig(next_cursor="saved", window_since=_iso(since), window_until=_iso(until))
+        result = _run("completed_tasks", responses, resume)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["T9", "T10"]
+
+
+class TestActivities:
+    @parameterized.expand(
+        [
+            ("full_refresh", {}, None),
+            (
+                "incremental",
+                {
+                    "incremental_field": "event_date",
+                    "db_incremental_field_last_value": datetime(2026, 5, 1, tzinfo=UTC),
+                },
+                "2026-05-01T00:00:00Z",
+            ),
+        ]
+    )
+    def test_date_from_is_sent_only_on_incremental_syncs(
+        self, _name: str, inputs: dict[str, Any], expected_date_from: str | None
+    ) -> None:
+        driver = SourceDriver(TodoistSource(), TodoistSourceConfig(api_token="tok"))
+        result = driver.run(
+            "activities",
+            always(_resp({"results": [{"object_id": "1", "event_type": "added"}], "next_cursor": None})),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("date_from") == expected_date_from
+        assert result.requests[0].param("date_to") is None
+
+
+class TestCommentsFanOut:
+    def test_task_comments_skip_tasks_without_comments_and_follow_every_page(self) -> None:
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}": [
+                _resp(
+                    {
+                        "results": [{"id": "T1", "note_count": 3}, {"id": "T2", "note_count": 0}, {"id": "T3"}],
+                        "next_cursor": None,
+                    }
+                )
+            ],
+            f"{BASE}/comments?task_id=T1&limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "C1"}, {"id": "C2"}], "next_cursor": "c2"})
+            ],
+            f"{BASE}/comments?task_id=T1&limit={PAGE_LIMIT}&cursor=c2": [
+                _resp({"results": [{"id": "C3"}], "next_cursor": None})
+            ],
+            f"{BASE}/comments?task_id=T3&limit={PAGE_LIMIT}": [_resp({"results": [{"id": "C4"}], "next_cursor": None})],
+        }
+        result = _run("comments", responses)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "C1", "task_id": "T1"},
+            {"id": "C2", "task_id": "T1"},
+            {"id": "C3", "task_id": "T1"},
+            {"id": "C4", "task_id": "T3"},
+        ]
+
+    def test_project_comments_inject_project_id(self) -> None:
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "P1"}, {"id": "P2"}], "next_cursor": None})
+            ],
+            f"{BASE}/comments?project_id=P1&limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "C1"}], "next_cursor": None})
+            ],
+            f"{BASE}/comments?project_id=P2&limit={PAGE_LIMIT}": [_resp({"results": [], "next_cursor": None})],
+        }
+        result = _run("project_comments", responses)
+
+        assert result.raised is None
+        assert result.rows == [{"id": "C1", "project_id": "P1"}]

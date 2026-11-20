@@ -61,6 +61,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
     recommended: bool
+    # Set when the decision model picked this field, so a caller can trust it over name rules.
+    picked_by_model: bool
     notes: list[str]
 
 
@@ -1650,9 +1652,11 @@ class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
 
 
 class SettableSyncFrequency(LabeledStrEnum):
-    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor."""
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor.
 
-    NEVER = "never", "never"
+    There is no "never": a table that should not sync sets should_sync to false instead.
+    """
+
     FIVE_MINUTES = "5min", "5min"
     FIFTEEN_MINUTES = "15min", "15min"
     THIRTY_MINUTES = "30min", "30min"

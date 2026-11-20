@@ -19,6 +19,7 @@ import { displayLogic, type displayLogicType } from '../displayLogic'
 import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { SqlValueLabelColors } from './SqlValueLabelColors'
 
 interface SqlDisplayContext
     extends
@@ -30,6 +31,7 @@ interface SqlDisplayContext
     isPartOfWholeChart: boolean
     isStackedBarChart: boolean
     isBarChart: boolean
+    hasSingleSeries: boolean
     isScatterPlot: boolean
     isBoxPlot: boolean
     isHorizontalBarChart: boolean
@@ -78,6 +80,7 @@ function useSqlDisplayContext(): SqlDisplayContext {
         isPartOfWholeChart,
         isStackedBarChart: type === ChartDisplayType.ActionsStackedBar,
         isBarChart: type === ChartDisplayType.ActionsBar,
+        hasSingleSeries: yData?.length === 1 && !chartSettings.seriesBreakdownColumn,
         isScatterPlot,
         isBoxPlot,
         isHorizontalBarChart,
@@ -147,6 +150,14 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         value: (c) => c.chartSettings.valueLabelPosition ?? 'end',
         onChange: (valueLabelPosition, c) => c.updateChartSettings({ valueLabelPosition }),
     },
+    valueLabelColors: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
+        changedCount: (c) =>
+            Number(!!c.chartSettings.valueLabelColor) + Number(!!c.chartSettings.valueLabelBackgroundColor),
+        render: (c) => (
+            <SqlValueLabelColors chartSettings={c.chartSettings} updateChartSettings={c.updateChartSettings} />
+        ),
+    },
     valueLabelBackground: {
         showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
         value: (c) => c.chartSettings.valueLabelBackground ?? true,
@@ -191,6 +202,11 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsSeriesOptions,
         value: (c) => c.chartSettings.showNullsAsZero ?? false,
         onChange: (showNullsAsZero, c) => c.updateChartSettings({ showNullsAsZero }),
+    },
+    colorBarsByCategory: {
+        showCondition: (c) => (c.isBarChart || c.isHorizontalBarChart) && c.hasSingleSeries,
+        value: (c) => c.chartSettings.colorBarsByCategory ?? false,
+        onChange: (colorBarsByCategory, c) => c.updateChartSettings({ colorBarsByCategory }),
     },
     barSpacing: {
         showCondition: (c) => c.isStackedBarChart || c.isHorizontalBarChart || c.isBarChart,

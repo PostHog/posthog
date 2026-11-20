@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -40,7 +39,6 @@ const meta: Meta<AddSenderArgs> = {
     title: 'Scenes-App/Workflows/Add email sender',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD],
         testOptions: { waitForLoadersToDisappear: true, snapshotBrowsers: [] },
     },
     render: (args) => <ChannelsWithAddSender {...args} />,

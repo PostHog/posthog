@@ -7,6 +7,7 @@ import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
+import { HIDDEN_OUTPUT_MESSAGE } from '../../read-guarded-internal-events'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -74,6 +75,19 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_kind).toBe('janitor_poison_pill')
             expect(rows[0].error_message).toContain('poison pill')
             expect(rows[0].invocation_id).toBe(invocation.id)
+        })
+
+        it.each([
+            { event: '$signals_report_ready', hidden: true },
+            { event: '$activity_log_entry_created', hidden: false },
+        ])('hides the error text of a run on $event: $hidden', async ({ event, hidden }) => {
+            // HogQL exposes error_message to anyone with project query access, without the event's read access.
+            const invocation = createExampleInvocation({}, { event: { event } as any })
+            await service.recordTerminalFailureDurably(invocation, { error: 'Request failed: echoed report payload' })
+
+            const message = parseProducedRows(outputs)[0].error_message
+            expect(message.includes('echoed report payload')).toBe(!hidden)
+            expect(message === HIDDEN_OUTPUT_MESSAGE).toBe(hidden)
         })
 
         it('returns false (does not throw) when the produce fails — caller must not delete', async () => {
@@ -148,8 +162,9 @@ describe('HogInvocationResultsService', () => {
             content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
             tracking: { captureEngagement: false },
         }
-        const messageData = { variables: { code: '482913' }, send }
-        const noMessageData = { variables: undefined, send: undefined }
+        const idempotencyKey = { hash: 'key-hash', fingerprint: 'request-fingerprint' }
+        const messageData = { variables: { code: '482913' }, send, idempotencyKey }
+        const noMessageData = { variables: undefined, send: undefined, idempotencyKey: undefined }
 
         it.each([
             ['an ordinary email', false, {}, messageData],
@@ -189,11 +204,16 @@ describe('HogInvocationResultsService', () => {
                                   edges: [],
                               })
                               .build()
-                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    variables: { code: '482913' },
+                    send,
+                })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
                 const person = { id: 'person-1', properties: { code: '482913' } }
+                // Jobs queued before the Valkey keys were removed still carry their key record.
                 Object.assign(invocation.state, state, {
+                    idempotencyKey,
                     event: { ...invocation.state.event, ...(state as any).event },
                     currentAction: {
                         id: 'message',
@@ -206,7 +226,11 @@ describe('HogInvocationResultsService', () => {
                 const globals = (await decodeInvocationGlobals(
                     parseProducedRows(outputs)[0].invocation_globals
                 )) as Record<string, any>
-                expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+                expect({
+                    variables: globals.variables,
+                    send: globals.send,
+                    idempotencyKey: globals.idempotencyKey,
+                }).toEqual(expected)
                 expect(globals.currentAction.hogFunctionState.vmState).toEqual(expected.variables && vmState)
                 expect(globals.currentAction.hogFunctionState.globals.person).toEqual(expected.variables && person)
             }

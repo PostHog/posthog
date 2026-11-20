@@ -1,8 +1,37 @@
+import { ReactNode, useContext } from 'react'
+
 import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
-import { SAVING_COLUMNS_CLASS, SuggestionRowProps } from './SuggestionRow'
+import { SuggestionAssigneeColumnContext } from './suggestionAssigneeColumnContext'
+import { SuggestionAssigneeSelectProps } from './SuggestionAssigneeSelect'
+import { SuggestionRowProps } from './SuggestionRow'
+
+export interface QuillRowSelectionProps {
+    selection?: ReactNode
+}
+
+export const QUILL_SAVING_COLUMNS_CLASS =
+    '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_11rem] @min-[36rem]/suggestions:gap-x-3'
+
+export const QUILL_ASSIGNEE_COLUMNS_CLASS = '@min-[48rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_9rem_10rem]'
+
+export const QUILL_ASSIGNEE_CELL_CLASS =
+    'hidden min-w-0 @min-[48rem]/suggestions:col-start-3 @min-[48rem]/suggestions:flex @min-[48rem]/suggestions:justify-end'
+
+const INLINE_ASSIGNEE_HIDDEN_CLASS = '@min-[48rem]/suggestions:hidden'
+
+function QuillMetaItem({ children, hiddenWhenWide }: { children: ReactNode; hiddenWhenWide?: boolean }): JSX.Element {
+    return (
+        <span className={cn('-ml-4 inline-flex items-baseline', hiddenWhenWide && INLINE_ASSIGNEE_HIDDEN_CLASS)}>
+            <span aria-hidden className="w-4 shrink-0 text-center text-subtle-foreground">
+                ·
+            </span>
+            {children}
+        </span>
+    )
+}
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success-foreground'
 
@@ -33,6 +62,17 @@ function QuillHighlightAmount({ highlight }: { highlight: SavingHighlight }): JS
     )
 }
 
+function QuillAssigneeColumnCell(selectProps: SuggestionAssigneeSelectProps): JSX.Element | null {
+    if (!useContext(SuggestionAssigneeColumnContext)) {
+        return null
+    }
+    return (
+        <div className={QUILL_ASSIGNEE_CELL_CLASS}>
+            <QuillSuggestionAssigneeSelect {...selectProps} column />
+        </div>
+    )
+}
+
 export function QuillSuggestionRow({
     suggestionId,
     assignee,
@@ -43,7 +83,9 @@ export function QuillSuggestionRow({
     highlight,
     actions,
     leaving,
-}: SuggestionRowProps): JSX.Element {
+    selection,
+}: SuggestionRowProps & QuillRowSelectionProps): JSX.Element {
+    const assigneeColumn = useContext(SuggestionAssigneeColumnContext)
     return (
         <div
             data-suggestion-row={suggestionId}
@@ -56,10 +98,16 @@ export function QuillSuggestionRow({
                 <div
                     className={cn(
                         'grid grid-cols-1 gap-y-2 px-3 py-2.5 @min-[36rem]/suggestions:items-center @min-[36rem]/suggestions:gap-x-3',
-                        highlight ? SAVING_COLUMNS_CLASS : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
+                        highlight
+                            ? QUILL_SAVING_COLUMNS_CLASS
+                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]',
+                        assigneeColumn && QUILL_ASSIGNEE_COLUMNS_CLASS
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
+                        {selection && (
+                            <span className="flex h-5 shrink-0 translate-y-0.5 items-center">{selection}</span>
+                        )}
                         <span className="group/colorful-product-icons colorful-product-icons-true flex h-5 shrink-0 translate-y-0.5 items-center text-base">
                             {icon}
                         </span>
@@ -72,22 +120,16 @@ export function QuillSuggestionRow({
                                 </div>
                             )}
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 overflow-hidden text-xs text-muted-foreground">
-                                {[
-                                    ...meta,
+                                {meta.map((item, index) => (
+                                    <QuillMetaItem key={index}>{item}</QuillMetaItem>
+                                ))}
+                                <QuillMetaItem hiddenWhenWide={assigneeColumn}>
                                     <QuillSuggestionAssigneeSelect
-                                        key="assignee"
                                         suggestionId={suggestionId}
                                         assignee={assignee}
                                         canAct={canAct}
-                                    />,
-                                ].map((item, index) => (
-                                    <span key={index} className="-ml-4 inline-flex items-baseline">
-                                        <span aria-hidden className="w-4 shrink-0 text-center text-subtle-foreground">
-                                            ·
-                                        </span>
-                                        {item}
-                                    </span>
-                                ))}
+                                    />
+                                </QuillMetaItem>
                             </div>
                         </div>
                     </div>
@@ -101,9 +143,14 @@ export function QuillSuggestionRow({
                             )}
                         </div>
                     )}
+                    <QuillAssigneeColumnCell suggestionId={suggestionId} assignee={assignee} canAct={canAct} />
                     <div
                         data-suggestion-actions
-                        className="flex flex-wrap items-center gap-1 pl-6 @min-[36rem]/suggestions:justify-end @min-[36rem]/suggestions:pl-0"
+                        className={cn(
+                            'flex flex-wrap items-center gap-1 @min-[36rem]/suggestions:justify-end @min-[36rem]/suggestions:pl-0',
+                            selection ? 'pl-12' : 'pl-6',
+                            assigneeColumn && '@min-[48rem]/suggestions:justify-start'
+                        )}
                     >
                         {actions}
                     </div>

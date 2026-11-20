@@ -117,7 +117,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyDistinctIdMax)
         .nullish()
         .describe(
-            "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+            "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
         ),
     subject: zod.string().optional().describe('Subject of the email your code rendered.'),
     html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
@@ -131,7 +131,9 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
-        .describe('Addresses replies to the email your code rendered go to.'),
+        .describe(
+            "Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`."
+        ),
     cc: zod
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
         .optional()
@@ -164,7 +166,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
                     .optional()
                     .describe(
-                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                        'MIME type of the file, such as `application\/pdf`, with any parameters, such as `text\/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.'
                     ),
                 content_id: zod
                     .string()
@@ -184,14 +186,52 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            "Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says."
+        ),
+    tracking: zod
+        .union([
+            zod.boolean(),
+            zod.object({
+                opens: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether PostHog adds its open pixel to the email. Defaults to true.'),
+                clicks: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                    ),
+                engagement: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true."
+                    ),
+            }),
+        ])
+        .optional()
+        .describe(
+            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+        ),
+    scheduled_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.'
+        ),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
     from: zod
         .string()
         .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default."
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`."
         ),
 })
 
@@ -554,18 +594,24 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
  */
 export const messagingProviderImportsCreateBodyStepsItemMax = 64
 
+export const messagingProviderImportsCreateBodyApiKeyMax = 512
+
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio'])
-        .describe('\* `customerio` - Customer.io')
-        .describe('The provider to import from.\n\n\* `customerio` - Customer.io'),
+        .enum(['customerio', 'resend', 'postmark', 'sendgrid'])
+        .describe(
+            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid'
+        )
+        .describe(
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid'
+        ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
         .min(1)
@@ -574,8 +620,11 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_key: zod
         .string()
+        .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
-        .describe("The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key."),
+        .describe(
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time."
+        ),
 })
 
 /**
@@ -620,6 +669,34 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
         .string()
         .max(messagingSuppressionsAddSuppressionCreateBodyIdentifierMax)
         .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
+/**
+ * Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault = `manual`
+
+export const MessagingSuppressionsBulkAddSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    suppressions: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax)
+                    .describe('The email address to suppress. Matched case-insensitively.'),
+                reason: zod
+                    .enum(['bounce', 'complaint', 'manual'])
+                    .describe('\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual')
+                    .default(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault)
+                    .describe(
+                        "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual"
+                    ),
+            })
+        )
+        .describe('Addresses to suppress, at most 1000 per request.'),
 })
 
 /**
@@ -682,6 +759,7 @@ export const messagingTemplatesCreateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesCreateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -938,6 +1016,7 @@ export const messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesUpdateBodyNameMax)
@@ -1194,6 +1273,7 @@ export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault
 export const messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)
@@ -1532,7 +1612,7 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
                 .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
                 .nullish()
                 .describe(
-                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
                 ),
         })
         .optional()

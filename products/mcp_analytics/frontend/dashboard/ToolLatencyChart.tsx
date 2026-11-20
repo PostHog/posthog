@@ -22,8 +22,8 @@ export function ToolLatencyChart({ theme, ...props }: Omit<RankedToolBarChartPro
             title="Slowest tools by p95 latency"
             metric={{
                 label: 'p95',
-                // data-color-13, an amber warning hue beside the error card's red. Blue here means call volume.
-                color: theme.colors[12],
+                // Matches the p95 line of the leaderboard's Latency chart, which takes palette slot 1.
+                color: theme.colors[1],
                 value: p95,
                 formatValue: formatMsAsSeconds,
                 valueDomain: latencyDomain,

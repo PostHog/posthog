@@ -29,12 +29,16 @@ from products.messaging.backend.facade.transactional_email_log import (
     get_transactional_email,
     get_transactional_email_activity,
     list_transactional_emails,
+    transactional_email_impact,
     transactional_email_results,
     transactional_email_stats,
     transactional_email_stats_over_time,
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.message_templates import (
+    require_email_impact,
+    require_transactional_email_api,
+)
 from products.workflows.backend.facade.api import get_workflow_view_access
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
@@ -59,6 +63,12 @@ class TransactionalEmailLogListQuerySerializer(DateRangeQuerySerializer):
     )
     status = serializers.ChoiceField(
         choices=EmailDeliveryStatus.choices, required=False, help_text="Only sends in this delivery status."
+    )
+    reason = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only sends whose delivery status has this reason, such as `soft` for a soft bounce or "
+        "`sending_paused` for a send skipped while sending was paused.",
     )
     workflow_id = serializers.UUIDField(
         required=False, help_text="Only sends of the transactional email backed by this workflow."
@@ -86,6 +96,10 @@ class TransactionalEmailLogEntrySerializer(serializers.Serializer):
         allow_null=True, help_text="The transactional email template. Null when it no longer exists."
     )
     template_name = serializers.CharField(help_text="The template's name. Empty when it was deleted.")
+    code_email_id = serializers.CharField(
+        allow_null=True,
+        help_text="The email sent from code under a `template_key`, for a send that has no template. Null otherwise.",
+    )
     sending_domain = serializers.CharField(help_text="The domain the email was sent from. Empty before it was sent.")
     opened = serializers.BooleanField(help_text="Whether the recipient opened the email.")
     clicked = serializers.BooleanField(help_text="Whether the recipient clicked a link in the email.")
@@ -130,6 +144,16 @@ class TransactionalEmailStatsRowSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The template ID or the sending domain.")
     label = serializers.CharField(  # type: ignore[assignment]
         help_text="The template name or the sending domain. Empty for a deleted template."
+    )
+    template_id = serializers.CharField(
+        allow_null=True,
+        help_text="The template that sent this row's emails. Null for a deleted template, emails sent from code, "
+        "and a sending domain.",
+    )
+    code_email_id = serializers.CharField(
+        allow_null=True,
+        help_text="The email sent from code under a `template_key`, for a row of sends that have no template. "
+        "Null otherwise.",
     )
     sent = serializers.IntegerField(help_text="Emails that reached the email provider.")
     delivered = serializers.IntegerField(help_text="Emails the recipient's mail server accepted.")
@@ -194,6 +218,42 @@ class TransactionalEmailResultsSerializer(serializers.Serializer):
     )
 
 
+class TransactionalEmailImpactQuerySerializer(DateRangeQuerySerializer):
+    workflow_id = serializers.UUIDField(help_text="The workflow behind the transactional email.")
+    event = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.",
+    )
+
+
+class TransactionalEmailConversionsSerializer(serializers.Serializer):
+    sends = serializers.IntegerField(help_text="Sends in this group that named a person, newest 10,000 at most.")
+    converted = serializers.IntegerField(
+        help_text="Of those, sends whose person did the event within window_days of the click, or of the send when "
+        "nobody clicked."
+    )
+
+
+class TransactionalEmailImpactSerializer(serializers.Serializer):
+    sent = serializers.IntegerField(help_text="Sends that left PostHog, including those that bounced.")
+    delivered = serializers.IntegerField(help_text="Sends the recipient's mail server accepted.")
+    opened = serializers.IntegerField(help_text="Sends opened at least once.")
+    clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
+    not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked.")
+    untracked = serializers.IntegerField(
+        help_text="Sends that went out with open and click tracking off, as sensitive emails do, counted by when they "
+        "were queued like the other counts. They can't record an open or a click."
+    )
+    window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
+    after_click = TransactionalEmailConversionsSerializer(
+        allow_null=True, help_text="Clicked sends and how many converted. Null without an event."
+    )
+    without_click = TransactionalEmailConversionsSerializer(
+        allow_null=True, help_text="Delivered sends nobody clicked and how many converted. Null without an event."
+    )
+
+
 def _entry_data(entry: TransactionalEmailLogEntry) -> dict[str, Any]:
     return {
         "message_id": entry.message_id,
@@ -205,6 +265,7 @@ def _entry_data(entry: TransactionalEmailLogEntry) -> dict[str, Any]:
         "workflow_id": entry.workflow_id,
         "template_id": entry.template_id,
         "template_name": entry.template_name,
+        "code_email_id": entry.code_email_id,
         "sending_domain": entry.sending_domain,
         "opened": entry.opened,
         "clicked": entry.clicked,
@@ -271,7 +332,7 @@ class _PageSchema(AutoSchema):
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results"]
+    scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -282,7 +343,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if self.action in ("list", "retrieve"):
             return ["hog_flow:read", "person:read"]
         # Results count any event the caller names, so they read event data the way a query does.
-        if self.action == "results":
+        if self.action in ("results", "impact"):
             return ["hog_flow:read", "query:read"]
         # Activity reads the recipient's events, so it needs person and event access.
         if self.action == "activity":
@@ -307,6 +368,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 self.team_id,
                 search=query.get("search"),
                 status=EmailDeliveryStatus(query["status"]) if query.get("status") else None,
+                reason=query.get("reason") or None,
                 workflow_id=str(query["workflow_id"]) if query.get("workflow_id") else None,
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),
@@ -341,7 +403,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             message_id = UUID(str(pk))
         except ValueError:
             raise NotFound()
-        detail = get_transactional_email(self.team_id, message_id, access=self._workflow_access())
+        with query_concurrency_slots(self.team):
+            detail = get_transactional_email(self.team_id, message_id, access=self._workflow_access())
         if detail is None:
             raise NotFound()
         data = {
@@ -458,3 +521,35 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=query.get("date_to"),
             )
         return Response(TransactionalEmailResultsSerializer(asdict(outcome)).data)
+
+    @validated_request(
+        query_serializer=TransactionalEmailImpactQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TransactionalEmailImpactSerializer),
+            403: OpenApiResponse(description="An event was named, and the user has no access to querying events."),
+            404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
+        },
+        summary="Get how far a transactional email's sends got",
+        description="Count one email's sends that were sent, delivered, opened and clicked. With an event, also count "
+        "the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.",
+    )
+    @action(detail=False, methods=["GET"])
+    def impact(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        require_email_impact(self.team)
+        query = request.validated_query_data
+        workflow_id = str(query["workflow_id"])
+        if workflow_id not in self._workflow_access().viewable_ids:
+            raise NotFound()
+        event = query.get("event") or None
+        if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
+        with query_concurrency_slots(self.team):
+            impact = transactional_email_impact(
+                self.team,
+                cast(User, request.user),
+                workflow_id,
+                event,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+            )
+        return Response(TransactionalEmailImpactSerializer(asdict(impact)).data)

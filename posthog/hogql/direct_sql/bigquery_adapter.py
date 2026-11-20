@@ -9,7 +9,13 @@ from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
+from posthog.hogql.direct_sql.adapter import (
+    DirectQueryRequest,
+    DirectQueryResult,
+    DirectQueryTimeoutError,
+    DirectQueryUnavailableError,
+    parse_direct_source_config,
+)
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled, is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
@@ -68,6 +74,20 @@ def bigquery_field_to_clickhouse_type(field_type: str | None, mode: str | None =
     if not field_type:
         return "String"
     return BIGQUERY_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(field_type.upper(), "String")
+
+
+# BigQuery names the cause of a failed job in the error reason, and the client library's retry predicate reads
+# the same field (google.cloud.bigquery.retry). These reasons are the ones it retries. A job the statement timeout
+# cancels fails with the reason "stopped", and that timeout is the only cancel this adapter issues.
+_RETRYABLE_BIGQUERY_REASONS = frozenset({"rateLimitExceeded", "backendError", "internalError", "badGateway"})
+_STOPPED_BIGQUERY_REASON = "stopped"
+
+
+def bigquery_error_reason(error: Exception) -> str | None:
+    errors = getattr(error, "errors", None)
+    first = errors[0] if isinstance(errors, list) and errors else None
+    reason = first.get("reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
 
 
 def bigquery_error_to_message(error: Exception) -> str:
@@ -230,7 +250,19 @@ class BigQueryAdapter:
             )
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
-            raise ExposedHogQLError(message) from error
+            reason = bigquery_error_reason(error)
+            error_class: type[ExposedHogQLError] = ExposedHogQLError
+            if (
+                isinstance(error, futures.TimeoutError | google_api_exceptions.DeadlineExceeded)
+                or reason == _STOPPED_BIGQUERY_REASON
+            ):
+                error_class = DirectQueryTimeoutError
+            elif (
+                isinstance(error, google_api_exceptions.ServerError | google_api_exceptions.TooManyRequests)
+                or reason in _RETRYABLE_BIGQUERY_REASONS
+            ):
+                error_class = DirectQueryUnavailableError
+            raise error_class(message) from error
 
         span.set_attribute("row_count", len(results))
         types: list[tuple[str, str]] = [

@@ -1740,10 +1740,21 @@ describe('Hogflow Executor', () => {
                         },
                     }
                 )
+                invocation2.queueCreatedAt = DateTime.fromISO('2026-11-01T09:59:58Z')
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
+                expect(
+                    result2.metrics
+                        .find((m) => m.metric_name === 'conversion_by_start')
+                        ?.timestamp?.toUTC()
+                        .toISO()
+                ).toEqual('2026-11-01T09:59:58.000Z')
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -2000,7 +2011,11 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -3354,6 +3369,7 @@ describe('Hogflow Executor', () => {
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
+                            teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                             sesBucket: {
                                 limiter: { claimUpTo: () => Promise.resolve(1) } as unknown as RateLimiterService,
                                 key: '@posthog/ses/billing-test',
@@ -4131,6 +4147,21 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(result.finished).toBe(true)
                 expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email', 'Next Email'])
                 expect(await sendsLeftInTheTeamBudget(runner)).toBe(3)
+            })
+
+            it('measures the wait of a transactional send from when the API accepted it', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.event = { ...invocation.state.event, event: '$transactional_email' }
+                invocation.state.acceptedAt = DateTime.utc().minus({ seconds: 120 }).toISO()
+                const name = 'cdp_email_queue_to_send_ms'
+                const labels = { source: 'transactional_api' }
+                const sumBefore = await metricValue(name, labels, `${name}_sum`)
+
+                const result = await runUntilHeld(runner, invocation)
+
+                expect(result.finished).toBe(true)
+                expect((await metricValue(name, labels, `${name}_sum`)) - sumBefore).toBeGreaterThanOrEqual(120_000)
             })
 
             it('records the wait of the next email as not held by the team cap', async () => {

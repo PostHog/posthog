@@ -207,9 +207,8 @@ export const urls = {
     analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
     analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
     analyticsSpaces: (): string => '/analytics/collections',
-    analyticsProductHome: (): string => '/analytics/product-analytics',
     tools: (): string => '/tools',
-    ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    ai: (chat?: string, ask?: string, mode?: string): string => combineUrl('/ai', { ask, chat, mode }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
@@ -218,6 +217,7 @@ export const urls = {
         feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
         configId: string | ':configId'
     ): string => `/settings/organization-authentication/${feature}/${configId}`,
+    dataDeletionRequestNew: (): string => '/settings/environment-danger-zone/data-deletion/new',
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -385,7 +385,6 @@ export const urls = {
         presetKinds && presetKinds.length > 0
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
-    webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsPagePerformance: (): string => '/web/page-performance',
     webAnalyticsAgents: (): string => '/web/agents',
     webAnalyticsHealth: (): string => '/web/health',

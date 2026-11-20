@@ -36,14 +36,15 @@ import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
+from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -51,7 +52,11 @@ from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
+from posthog.helpers.impersonation import (
+    end_impersonation,
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+)
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
@@ -65,7 +70,11 @@ from posthog.models.activity_logging.utils import (
     client_from_header,
     record_agent_intent,
 )
-from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
+from posthog.models.event.new_events_schema import (
+    NEW_EVENTS_SCHEMA_COOKIE,
+    NEW_EVENTS_SCHEMA_HEADER,
+    new_events_schema_for_request,
+)
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -697,6 +706,9 @@ class CHQueries:
             status_class = f"{response.status_code // 100}xx"
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
+            # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
+            if is_api_request and http_request_id and "X-Request-ID" not in response:
+                response["X-Request-ID"] = str(http_request_id)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
@@ -707,12 +719,13 @@ class CHQueries:
             return response
         finally:
             if is_api_request and (route := request.resolver_match) is not None:
+                api_route = request_route(request)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
-                    route=request_route(request),
+                    route=api_route,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -720,6 +733,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
+                record_scope_usage(request, route=api_route, status_class=status_class)
             reset_query_tags()
 
     def process_view(
@@ -1395,7 +1409,7 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                restore_original_login(request)
+                end_impersonation(request)
                 if request.path.startswith("/admin/"):
                     # Redirect to the intended admin page
                     return redirect(request.get_full_path())
@@ -1406,23 +1420,24 @@ class AutoLogoutImpersonateMiddleware:
 
 
 class NewEventsSchemaCookieMiddleware:
-    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+    """A staff person's requests read the events table their browser tab or their browser chose.
 
     The switch is per person, so one person can check a project on events_json, an impersonated one included,
     without switching the project for everyone. An impersonated session counts as staff because only staff can
-    start one.
+    start one. The tab's header wins over the browser's cookie, so two tabs can compare the two tables.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+        requested = request.headers.get(NEW_EVENTS_SCHEMA_HEADER) or request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE)
+        if requested not in ("0", "1"):
             return self.get_response(request)
         user = cast(User, request.user)
         if not (user.is_staff or is_impersonated_session(request)):
             return self.get_response(request)
-        with new_events_schema_for_request():
+        with new_events_schema_for_request(requested == "1"):
             return self.get_response(request)
 
 
@@ -1696,6 +1711,11 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
+        # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
+        # The library text gives the person no next step, so the login page shows its own copy for this code.
+        if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
+
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
@@ -1966,7 +1986,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/logout/?$")),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through
-    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # `posthog.scopes.checks.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
     # resulting tokens can't grant write access. Tokens minted here are also tagged with
     # the impersonator and revoked when impersonation ends.
     ("POST", re.compile(r"^/oauth/authorize/?$")),
@@ -2127,5 +2147,5 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
         return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
-    restore_original_login(request)
+    end_impersonation(request)
     return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

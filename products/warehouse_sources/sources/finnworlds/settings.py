@@ -10,6 +10,8 @@ class FanoutDimension(StrEnum):
     TICKER = "ticker"
     # One request per configured country (macroeconomic indicators are keyed on a country).
     COUNTRY = "country"
+    # One request per configured base currency (exchange rates are listed per base currency).
+    CURRENCY = "currency"
     # A single request returns the whole dataset (bond yields).
     NONE = "none"
 
@@ -47,6 +49,8 @@ class FinnworldsEndpointConfig:
     # Most endpoints return data for a single identifier per call, so a full sync fans out over the
     # identifiers the user configured. The fan-out value is injected onto every row.
     fanout: FanoutDimension = FanoutDimension.TICKER
+    # Send the fan-out value lower-cased. The benchmark endpoint documents lower-case country names.
+    lowercase_fanout_param: bool = False
     # Inject result.basics.period into each row so fundamentals from different reporting periods don't
     # collide on the (ticker, period, date) primary key.
     include_period: bool = False
@@ -163,6 +167,34 @@ FINNWORLDS_ENDPOINTS: dict[str, FinnworldsEndpointConfig] = {
         response_mode=ResponseMode.OUTPUT_BARE,
         fanout=FanoutDimension.COUNTRY,
         primary_keys=["country", "report_name", "report_date"],
+        should_sync_default=False,
+    ),
+    "economic_calendar": FinnworldsEndpointConfig(
+        name="economic_calendar",
+        path="macrocalendar",
+        response_mode=ResponseMode.OUTPUT_BARE,
+        fanout=FanoutDimension.COUNTRY,
+        primary_keys=["country", "datetime", "report_name"],
+        partition_key="datetime",
+        should_sync_default=False,
+    ),
+    "stock_market_indices": FinnworldsEndpointConfig(
+        name="stock_market_indices",
+        path="benchmark",
+        response_mode=ResponseMode.OUTPUT_BARE,
+        fanout=FanoutDimension.COUNTRY,
+        lowercase_fanout_param=True,
+        # A snapshot of the latest level of each index, so one row per index.
+        primary_keys=["country", "benchmark"],
+        should_sync_default=False,
+    ),
+    "currency_exchange_rates": FinnworldsEndpointConfig(
+        name="currency_exchange_rates",
+        path="currencypairs",
+        response_mode=ResponseMode.OUTPUT_BARE,
+        fanout=FanoutDimension.CURRENCY,
+        # A snapshot of the latest quote of each pair. The pair already names its base currency.
+        primary_keys=["pair"],
         should_sync_default=False,
     ),
     "bond_yields": FinnworldsEndpointConfig(

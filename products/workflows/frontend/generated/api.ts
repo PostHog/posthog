@@ -1742,7 +1742,7 @@ export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
 }
 
 /**
- * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
  */
 export const workflowEmailSandboxProvision = async (
     projectId: string,
@@ -1759,7 +1759,7 @@ export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
 }
 
 /**
- * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ * The PostHog test sender, which sends workflow email to organization members before a domain is verified.
  */
 export const workflowEmailSandboxStatus = async (
     projectId: string,
@@ -1909,6 +1909,46 @@ export const getInternalHogFlowsAccountAudienceCreateUrl = (teamId: string) => {
  */
 export const internalHogFlowsAccountAudienceCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsAccountAudienceCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsBatchJobsAudiencePageCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
+ * like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudiencePageCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudiencePageCreateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
+ * background. The first call starts it; later calls report its status. The resolver pages the
+ * stored audience through internal_batch_job_audience_page once the status is ready.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudienceSnapshotCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl(teamId, batchJobId), {
         ...options,
         method: 'POST',
     })

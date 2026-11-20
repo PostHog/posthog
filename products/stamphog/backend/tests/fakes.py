@@ -28,6 +28,9 @@ from typing import Any
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError
 
@@ -194,6 +197,9 @@ class GitHubRecorder:
         self.files_at_ref: dict[tuple[str, str], str] = {}
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
+        self.check_runs: dict[tuple[str, str], list[dict]] = {}
+        self.default_branch_blob_shas: dict[str, str] = {}
+        self.shed_batch = False
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -236,6 +242,8 @@ class GitHubRecorder:
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
 
+        if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
+            raise GitHubEgressBudgetExhausted("the installation budget is spent")
         if method == "POST" and (m := _TOKEN_RE.match(path)):
             return self._mint_token(m.group("inst"))
         if method == "GET" and (m := _PR_FILES_RE.match(path)):
@@ -252,8 +260,14 @@ class GitHubRecorder:
             return FakeResponse(
                 200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
             )
-        if method == "GET" and _CHECK_RUNS_RE.match(path):
-            return FakeResponse(200, json_data={"check_runs": []})
+        if method == "GET" and (m := _CHECK_RUNS_RE.match(path)):
+            check_runs = [
+                check_run
+                for check_run in self.check_runs.get((m.group("repo"), m.group("sha")), [])
+                if params.get("check_name") in (None, check_run.get("name"))
+                and params.get("app_id") in (None, (check_run.get("app") or {}).get("id"))
+            ]
+            return FakeResponse(200, json_data={"check_runs": check_runs})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})
@@ -375,6 +389,12 @@ class GitHubRecorder:
             scripted = repr(sorted(self.policy_files.items()) + sorted(self.repo_files.items()))
             oid = hashlib.sha256(scripted.encode()).hexdigest()
             return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
+        if "{ __typename oid }" in query:
+            return self._default_branch_blob_shas(variables)
+        if "isBinary" in query:
+            return self._default_branch_blob_text(
+                f"{variables.get('owner', '')}/{variables.get('name', '')}", variables
+            )
         if "object(expression:" in query:
             return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
         if "reviewThreads" in query:
@@ -399,6 +419,26 @@ class GitHubRecorder:
     def _is_directory(self, repo: str, path: str) -> bool:
         scripted = [*self.policy_files, *(file for owner, file in self.repo_files if owner == repo)]
         return any(file.startswith(f"{path}/") for file in scripted)
+
+    def _default_branch_blob_shas(self, variables: dict) -> FakeResponse:
+        """The blob sha lookups of the attestation pins. Each variable holds a ``HEAD:<path>`` expression."""
+        field: dict[str, Any] = {}
+        for name, expression in variables.items():
+            if name in ("owner", "name"):
+                continue
+            sha = self.default_branch_blob_shas.get(str(expression).split(":", 1)[1])
+            field[name] = None if sha is None else {"__typename": "Blob", "oid": sha}
+        return FakeResponse(200, json_data={"data": {"repository": field}})
+
+    def _default_branch_blob_text(self, repo: str, variables: dict) -> FakeResponse:
+        """The single blob read of an issuer manifest, served from the same files the contents API
+        answers with, except that a symlink reads as its link text."""
+        path = str(variables.get("expression") or "").split(":", 1)[1]
+        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        if (repo, path) in self.repo_symlinks:
+            content = self.repo_symlinks[(repo, path)]
+        blob = None if content is None else {"text": content, "isBinary": False, "isTruncated": False}
+        return FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
 
     def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
         """The aliased blob lookups the shared ownership reader sends, served from the same files the

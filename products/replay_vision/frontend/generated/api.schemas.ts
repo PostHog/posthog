@@ -1043,8 +1043,13 @@ export interface VisionQuotaApi {
     readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
-    /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-    readonly free_monthly_credits: number
+    /**
+     * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+     * @nullable
+     */
+    readonly free_monthly_credits: number | null
+    /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+    readonly awaiting_billing_sync: boolean
 }
 
 export interface VisionSpendDayApi {
@@ -1272,19 +1277,6 @@ export const ScannerCreationMethodEnumApi = {
 } as const
 
 /**
- * * `focused` - Focused
- * * `balanced` - Balanced
- * * `comprehensive` - Comprehensive
- */
-export type SamplingModeEnumApi = (typeof SamplingModeEnumApi)[keyof typeof SamplingModeEnumApi]
-
-export const SamplingModeEnumApi = {
-    Focused: 'focused',
-    Balanced: 'balanced',
-    Comprehensive: 'comprehensive',
-} as const
-
-/**
  * * `google` - Google
  */
 export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
@@ -1312,11 +1304,22 @@ export interface ScannerExperimentTargetingApi {
     variant?: string | null
 }
 
-export type UnrunnableReasonEnumApi = (typeof UnrunnableReasonEnumApi)[keyof typeof UnrunnableReasonEnumApi]
+/**
+ * * `manual` - Turned off by a person
+ * * `free_credits_used` - Free credits used
+ * * `no_ai_consent` - No AI consent
+ * * `creator_lost_access` - Creator lost access
+ * * `experiment_deleted` - Experiment deleted
+ */
+export type ScannerDisabledReasonEnumApi =
+    (typeof ScannerDisabledReasonEnumApi)[keyof typeof ScannerDisabledReasonEnumApi]
 
-export const UnrunnableReasonEnumApi = {
+export const ScannerDisabledReasonEnumApi = {
+    Manual: 'manual',
+    FreeCreditsUsed: 'free_credits_used',
     NoAiConsent: 'no_ai_consent',
     CreatorLostAccess: 'creator_lost_access',
+    ExperimentDeleted: 'experiment_deleted',
 } as const
 
 /**
@@ -1380,12 +1383,6 @@ export interface ReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
-    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
-     *
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive */
-    sampling_mode?: SamplingModeEnumApi
     /**
      * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
      * @minimum 1
@@ -1393,7 +1390,7 @@ export interface ReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
-    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
     free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
@@ -1443,6 +1440,11 @@ export interface ReplayScannerApi {
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor: number
     /**
+     * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+     * @nullable
+     */
+    readonly sweep_interval_minutes: number | null
+    /**
      * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
      * @nullable
      */
@@ -1456,8 +1458,14 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly filter_error: string | null
-    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-    readonly unrunnable_reason: UnrunnableReasonEnumApi | null
+    /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+     *
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted */
+    readonly disabled_reason: ScannerDisabledReasonEnumApi | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1539,12 +1547,6 @@ export interface PatchedReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
-    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
-     *
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive */
-    sampling_mode?: SamplingModeEnumApi
     /**
      * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
      * @minimum 1
@@ -1552,7 +1554,7 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
-    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
     free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
@@ -1602,6 +1604,11 @@ export interface PatchedReplayScannerApi {
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor?: number
     /**
+     * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+     * @nullable
+     */
+    readonly sweep_interval_minutes?: number | null
+    /**
      * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
      * @nullable
      */
@@ -1615,8 +1622,14 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly filter_error?: string | null
-    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-    readonly unrunnable_reason?: UnrunnableReasonEnumApi | null
+    /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+     *
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted */
+    readonly disabled_reason?: ScannerDisabledReasonEnumApi | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
@@ -1980,11 +1993,6 @@ export interface ObservationVersionMarkerApi {
      * @nullable
      */
     sampling_rate: number | null
-    /**
-     * The session-coverage pre-filter this version ran with.
-     * @nullable
-     */
-    sampling_mode: string | null
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -2220,6 +2228,11 @@ export interface SignalScoutConfigOptionsApi {
      */
     model?: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -2245,6 +2258,17 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 16
      */
     write_scopes?: string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    report_actions?: string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    max_report_actions_per_day?: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     lifecycle_locked?: boolean
     /**
@@ -2558,6 +2582,11 @@ export interface SignalScoutConfigApi {
      */
     readonly model: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    readonly custom_image_id: string | null
+    /**
      * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
      * @maxItems 100
      */
@@ -2573,6 +2602,17 @@ export interface SignalScoutConfigApi {
      * @maxItems 16
      */
     readonly write_scopes: readonly string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    readonly report_actions: readonly string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    readonly max_report_actions_per_day: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     readonly lifecycle_locked: boolean
     /**
@@ -2848,12 +2888,12 @@ export interface DraftScannerRequestApi {
      */
     goal: string
     /**
-     * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
+     * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
      * @minimum 1
      * @maximum 100000000
      */
     monthly_credit_budget?: number
-    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
     free_only?: boolean
     /**
      * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
@@ -2861,7 +2901,7 @@ export interface DraftScannerRequestApi {
      * @maximum 2147483647
      */
     experiment_id?: number
-    /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+    /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
     query?: unknown
 }
 
@@ -2889,14 +2929,8 @@ export interface DraftScannerResponseApi {
     query: unknown
     /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
     query_additions: unknown
-    /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
-     *
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive */
-    sampling_mode: SamplingModeEnumApi | null
     /**
-     * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null when the costing estimate failed, in which case the wizard keeps its defaults.
      * @nullable
      */
     sampling_rate: number | null
@@ -2914,7 +2948,7 @@ export interface DraftScannerResponseApi {
     /** Whether the draft runs only on the organization's free monthly credits. Pass it on to create. */
     free_only: boolean
     /**
-     * Recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * Recordings a month the drafted scanner is projected to watch under the solved rate. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_rate` is.
      * @nullable
      */
     estimated_monthly_observations: number | null
@@ -2947,12 +2981,6 @@ export interface EstimateRequestApi {
      * @maximum 1
      */
     sampling_rate?: number
-    /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
-     *
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive */
-    sampling_mode?: SamplingModeEnumApi
     /**
      * The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
      * @nullable
@@ -2974,11 +3002,11 @@ export interface EstimateRequestApi {
  * Forward-looking volume and credit-cost estimate for a proposed scanner.
  */
 export interface EstimateResponseApi {
-    /** Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling. */
+    /** Distinct sessions matching the query within the scanned window (`window_days`), before random sampling. */
     matched_sessions_in_window: number
     /** Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings. */
     window_days: number
-    /** Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
+    /** Projected monthly observations: matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
     /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
     credits_per_observation: number

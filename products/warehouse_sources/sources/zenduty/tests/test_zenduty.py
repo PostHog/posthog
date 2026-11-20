@@ -131,62 +131,182 @@ class TestGetRowsTopLevel:
         assert result.saved_states == []
 
 
+_TEAM_PARENTS = ScriptedResponse(json={"results": [{"unique_id": "team-a"}, {"unique_id": "team-b"}], "next": None})
+# Incident numbers are integers; a row with no number must not become a parent.
+_INCIDENT_PARENTS = ScriptedResponse(
+    json={"results": [{"incident_number": 7}, {"incident_number": None}, {"incident_number": 9}], "next": None}
+)
+
+# (endpoint, parent listing, parent list path, child paths per parent, injected field, parent ids, resume field)
+_FAN_OUT_CASES = [
+    (
+        "services",
+        _TEAM_PARENTS,
+        "/api/account/teams/",
+        ["/api/account/teams/team-a/services/", "/api/account/teams/team-b/services/"],
+        "_zenduty_team_id",
+        ["team-a", "team-b"],
+        "team_id",
+    ),
+    (
+        "oncall",
+        _TEAM_PARENTS,
+        "/api/account/teams/",
+        ["/api/v2/account/teams/team-a/oncall/", "/api/v2/account/teams/team-b/oncall/"],
+        "_zenduty_team_id",
+        ["team-a", "team-b"],
+        "team_id",
+    ),
+    (
+        "incident_alerts",
+        _INCIDENT_PARENTS,
+        "/api/incidents/",
+        ["/api/incidents/7/alerts/", "/api/incidents/9/alerts/"],
+        "_zenduty_incident_number",
+        [7, 9],
+        "incident_number",
+    ),
+    (
+        "incident_responders",
+        _INCIDENT_PARENTS,
+        "/api/incidents/",
+        ["/api/v2/incidents/7/responders/", "/api/v2/incidents/9/responders/"],
+        "_zenduty_incident_number",
+        [7, 9],
+        "incident_number",
+    ),
+]
+
+
 class TestGetRowsFanOut:
-    def _team_pages(self) -> list[ScriptedResponse]:
-        return [ScriptedResponse(json={"results": [{"unique_id": "team-a"}, {"unique_id": "team-b"}], "next": None})]
-
-    def test_walks_each_team_and_injects_parent_id(self) -> None:
+    @parameterized.expand(_FAN_OUT_CASES)
+    def test_walks_each_parent_and_injects_parent_id(
+        self,
+        endpoint: str,
+        parents: ScriptedResponse,
+        parent_path: str,
+        child_paths: list[str],
+        injected_field: str,
+        parent_ids: list[Any],
+        resume_field: str,
+    ) -> None:
         result = _driver().run(
-            "services",
+            endpoint,
             [
-                *self._team_pages(),
-                ScriptedResponse(json={"results": [{"unique_id": "svc-1"}], "next": None}),
-                ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None}),
+                parents,
+                ScriptedResponse(json={"results": [{"unique_id": "child-1"}], "next": None}),
+                # Smaller collections (v2 on-call) come back as a bare array.
+                ScriptedResponse(json=[{"unique_id": "child-2"}]),
             ],
         )
         assert result.raised is None
-        assert result.paths == [
-            "/api/account/teams/",
-            "/api/account/teams/team-a/services/",
-            "/api/account/teams/team-b/services/",
-        ]
+        assert result.paths == [parent_path, *child_paths]
         assert result.params("page_size") == ["100", "100", "100"]
-        # Each child row carries the parent team's id so the composite key stays unique table-wide.
+        # Each child row carries the parent's id, with the parent's type, so the composite key stays
+        # unique table-wide and the column joins back to the parent table.
         assert result.rows == [
-            {"unique_id": "svc-1", "_zenduty_team_id": "team-a"},
-            {"unique_id": "svc-2", "_zenduty_team_id": "team-b"},
+            {"unique_id": "child-1", injected_field: parent_ids[0]},
+            {"unique_id": "child-2", injected_field: parent_ids[1]},
+        ]
+        # After the first parent completes, state points at the second parent's start so a resume
+        # skips the first parent entirely.
+        assert result.saved_states == [
+            ZendutyResumeConfig(
+                parent_page_url=f"https://www.zenduty.com{parent_path}?page_size=100",
+                next_url=None,
+                **{resume_field: parent_ids[1]},
+            )
         ]
 
-    def test_checkpoints_next_team_when_a_team_completes(self) -> None:
+    @parameterized.expand(_FAN_OUT_CASES)
+    def test_resume_skips_completed_parents(
+        self,
+        endpoint: str,
+        parents: ScriptedResponse,
+        parent_path: str,
+        child_paths: list[str],
+        injected_field: str,
+        parent_ids: list[Any],
+        resume_field: str,
+    ) -> None:
+        # A resumed run still lists parents, then fetches only the second parent's collection.
         result = _driver().run(
-            "services",
+            endpoint,
+            [parents, ScriptedResponse(json={"results": [{"unique_id": "child-2"}], "next": None})],
+            resume_state=ZendutyResumeConfig(
+                parent_page_url=f"https://www.zenduty.com{parent_path}?page_size=100",
+                next_url=None,
+                **{resume_field: parent_ids[1]},
+            ),
+        )
+        assert result.raised is None
+        assert result.paths == [parent_path, child_paths[1]]
+        assert result.rows == [{"unique_id": "child-2", injected_field: parent_ids[1]}]
+
+    def test_follows_next_within_a_parent_and_checkpoints_it(self) -> None:
+        second = "https://www.zenduty.com/api/v2/incidents/7/responders/?page=2"
+        result = _driver().run(
+            "incident_responders",
             [
-                *self._team_pages(),
-                ScriptedResponse(json={"results": [{"unique_id": "svc-1"}], "next": None}),
-                ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None}),
+                ScriptedResponse(json={"results": [{"incident_number": 7}], "next": None}),
+                ScriptedResponse(json={"count": 2, "results": [{"unique_id": "r-1"}], "next": second}),
+                ScriptedResponse(json={"count": 2, "results": [{"unique_id": "r-2"}], "next": None}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/incidents/", "/api/v2/incidents/7/responders/", "/api/v2/incidents/7/responders/"]
+        assert result.params("page") == [None, None, "2"]
+        assert result.rows == [
+            {"unique_id": "r-1", "_zenduty_incident_number": 7},
+            {"unique_id": "r-2", "_zenduty_incident_number": 7},
+        ]
+        assert result.saved_states == [
+            ZendutyResumeConfig(
+                parent_page_url="https://www.zenduty.com/api/incidents/?page_size=100",
+                next_url=second,
+                incident_number=7,
+            )
+        ]
+
+    def test_checkpoints_the_next_parent_page_and_resumes_there(self) -> None:
+        page_2 = "https://www.zenduty.com/api/incidents/?page=2"
+        result = _driver().run(
+            "incident_alerts",
+            [
+                ScriptedResponse(json={"results": [{"incident_number": 7}], "next": page_2}),
+                ScriptedResponse(json=[{"unique_id": "a-1"}]),
+                ScriptedResponse(json={"results": [{"incident_number": 9}], "next": None}),
+                ScriptedResponse(json=[{"unique_id": "a-2"}]),
             ],
         )
         assert result.raised is None
         assert result.paths == [
-            "/api/account/teams/",
-            "/api/account/teams/team-a/services/",
-            "/api/account/teams/team-b/services/",
+            "/api/incidents/",
+            "/api/incidents/7/alerts/",
+            "/api/incidents/",
+            "/api/incidents/9/alerts/",
         ]
-        # After team-a completes, state points at team-b's start so a resume skips team-a entirely.
-        assert result.saved_states == [ZendutyResumeConfig(next_url=None, team_id="team-b")]
+        assert result.rows == [
+            {"unique_id": "a-1", "_zenduty_incident_number": 7},
+            {"unique_id": "a-2", "_zenduty_incident_number": 9},
+        ]
+        assert result.saved_states == [ZendutyResumeConfig(parent_page_url=page_2)]
 
-    def test_resume_skips_completed_teams(self) -> None:
-        # A resumed run still lists teams, then fetches only team-b's collection.
-        result = _driver().run(
-            "services",
-            [*self._team_pages(), ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None})],
-            resume_state=ZendutyResumeConfig(next_url=None, team_id="team-b"),
+        # A resume starts at the saved parent page and never reads the earlier ones again.
+        resumed = _driver().run(
+            "incident_alerts",
+            [
+                ScriptedResponse(json={"results": [{"incident_number": 9}], "next": None}),
+                ScriptedResponse(json=[{"unique_id": "a-2"}]),
+            ],
+            resume_state=ZendutyResumeConfig(parent_page_url=page_2),
         )
-        assert result.raised is None
-        assert result.paths == ["/api/account/teams/", "/api/account/teams/team-b/services/"]
-        assert result.rows == [{"unique_id": "svc-2", "_zenduty_team_id": "team-b"}]
+        assert resumed.raised is None
+        assert resumed.paths == ["/api/incidents/", "/api/incidents/9/alerts/"]
+        assert resumed.params("page") == ["2", None]
+        assert resumed.rows == [{"unique_id": "a-2", "_zenduty_incident_number": 9}]
 
-    def test_no_teams_yields_nothing(self) -> None:
+    def test_no_parents_yields_nothing(self) -> None:
         result = _driver().run("services", [ScriptedResponse(json={"results": [], "next": None})])
         assert result.raised is None
         assert result.paths == ["/api/account/teams/"]

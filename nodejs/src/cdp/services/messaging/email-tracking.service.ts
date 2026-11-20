@@ -35,6 +35,10 @@ import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tr
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
+const OPENING_TAG =
+    /^<a\b(?:[\t\n\f\r /]+(?![\t\n\f\r /])|[^\t\n\f\r />][^\t\n\f\r />=]*(?![^\t\n\f\r />=])(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?![\t\n\f\r ])(?:"[^"]*"|'[^']*'|(?:[^\t\n\f\r >"'][^\t\n\f\r >]*)?(?![^\t\n\f\r >]))|(?![\t\n\f\r ]*=)))*>/i
+const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
+
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
 
@@ -249,7 +253,7 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        const openingTag = m.match(OPENING_TAG)?.[0] ?? m.match(OPENING_TAG_PLAIN_CUT)?.[0] ?? ''
         const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
@@ -745,6 +749,8 @@ export class EmailTrackingService {
                         status: update.status,
                         reason: update.reason,
                         statusAt: new Date(update.timestamp),
+                        messageCreatedAt:
+                            update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
             }
@@ -770,7 +776,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            { eventId: envelope.MessageId }
                         )
                     }
                 }

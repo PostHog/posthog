@@ -57,6 +57,20 @@ _VERCEL_INVALID_TOKEN_ERROR = (
     "account settings, then reconnect."
 )
 
+# Vercel prefixes AI Gateway API keys with vck_. The REST API refuses them like any unknown token,
+# so without this hint the user creates another AI Gateway key and fails again.
+_VERCEL_AI_GATEWAY_KEY_PREFIX = "vck_"
+_VERCEL_AI_GATEWAY_KEY_ERROR = (
+    "This is a Vercel AI Gateway API key, which can't read your Vercel data. Create an access token "
+    "on your Vercel Account Tokens page, then reconnect."
+)
+
+# A real token that can't read /v2/user. Vercel denies user-level resources to project-scoped tokens.
+_VERCEL_TOKEN_SCOPE_ERROR = (
+    "Your Vercel access token can't read your account. Create a token with the Full Account scope "
+    "in your Vercel account settings, then reconnect."
+)
+
 _VERCEL_UNSUPPORTED_CHARACTER_ERROR = (
     "Your Vercel access token contains a character that can't be sent to Vercel. Copy the token "
     "again from your Vercel account settings, then reconnect."
@@ -162,9 +176,24 @@ def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | Non
     return min(timestamps) if timestamps else None
 
 
+def _is_invalid_token_response(response: requests.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    return isinstance(error, dict) and error.get("invalidToken") is True
+
+
+def _rejected_token_error(access_token: str) -> str:
+    if access_token.startswith(_VERCEL_AI_GATEWAY_KEY_PREFIX):
+        return _VERCEL_AI_GATEWAY_KEY_ERROR
+    return _VERCEL_INVALID_TOKEN_ERROR
+
+
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
-    """Confirm the access token is genuine via GET /v2/user — the cheapest authenticated probe,
-    available to any valid Vercel token regardless of team scope or resource permissions."""
+    """Confirm the access token is genuine via GET /v2/user, the cheapest authenticated probe.
+    Vercel denies it to project-scoped tokens, which also can't read most of the tables we sync."""
     # The token rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request. That is not a RequestException, so it
     # would escape as an internal error; reject it as user input instead.
@@ -189,12 +218,13 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         # this endpoint, but is observed when the token doesn't resolve to a Vercel user at all
         # (e.g. a team-scoped token used where an account access token is expected); the fix is
         # the same as an invalid token, so it shares the message.
-        return False, _VERCEL_INVALID_TOKEN_ERROR
+        return False, _rejected_token_error(access_token)
     if response.status_code == 403:
-        return (
-            False,
-            "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
-        )
+        # Vercel answers an unknown or revoked token with 403 rather than 401 on this endpoint, and
+        # only the body tells it apart from a real token that lacks access.
+        if _is_invalid_token_response(response):
+            return False, _rejected_token_error(access_token)
+        return False, _VERCEL_TOKEN_SCOPE_ERROR
     # 429 (rate limit) and 5xx are transient Vercel-side problems, not a bad token, so surface a
     # retry hint rather than telling the user to fix credentials they can't fix.
     if response.status_code == 429 or response.status_code >= 500:
