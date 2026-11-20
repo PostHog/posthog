@@ -154,7 +154,7 @@ def test_re_recording_the_same_thread_keeps_the_first_report(team, second_worksp
 @pytest.mark.parametrize("source", ["run_output", "set_output", "github_webhook"])
 @pytest.mark.parametrize(
     "thread_timing",
-    ["before_pr", "after_pr", "merged_before_pr", "merged_after_pr", "merged_after_delivery", "deleted"],
+    ["before_pr", "after_pr", "merged_before_pr", "merged_after_pr", "merged_after_delivery", "deleted", "deactivated"],
 )
 def test_implementation_pr_reaches_report_threads_once(
     team, django_capture_on_commit_callbacks, source: str, thread_timing: str
@@ -247,6 +247,8 @@ def test_implementation_pr_reaches_report_threads_once(
         client.chat_postMessage.assert_not_called()
         if thread_timing == "deleted":
             SignalReport.objects.filter(team_id=team.id, id=report.id).update(status=SignalReport.Status.DELETED)
+        if thread_timing == "deactivated":
+            Organization.objects.filter(id=team.organization_id).update(is_active=False)
         for job in queued.call_args_list:
             deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
         if thread_timing == "merged_after_delivery":
@@ -268,13 +270,14 @@ def test_implementation_pr_reaches_report_threads_once(
             for job in queued.call_args_list[previous_jobs:]:
                 deliver_implementation_pr_notifications.apply(kwargs=job.kwargs, throw=True)
 
-        assert client.chat_postMessage.call_count == (0 if thread_timing == "deleted" else 4)
+        undelivered = thread_timing in {"deleted", "deactivated"}
+        assert client.chat_postMessage.call_count == (0 if undelivered else 4)
         assert {
             (call.kwargs["channel"], call.kwargs["thread_ts"]) for call in client.chat_postMessage.call_args_list
-        } == (set() if thread_timing == "deleted" else targets)
+        } == (set() if undelivered else targets)
         assert all(
             sum(url in call.kwargs["text"] for call in client.chat_postMessage.call_args_list)
-            == (0 if thread_timing == "deleted" else 2)
+            == (0 if undelivered else 2)
             for url in [pr_url, other_pr_url]
         )
         run.refresh_from_db()
