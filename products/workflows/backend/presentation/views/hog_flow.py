@@ -1203,6 +1203,12 @@ def _with_saved_template_content(action: dict, team: Team, context: dict) -> Opt
     return step
 
 
+def _holds_a_test_sender_step(actions: Any) -> bool:
+    return isinstance(actions, list) and any(
+        isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE for step in actions
+    )
+
+
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
 
@@ -6454,20 +6460,17 @@ class HogFlowViewSet(
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
-        elif self._needs_sandbox_sender(cast(dict, serializer.validated_data).get("actions")):
+        elif _holds_a_test_sender_step(cast(dict, serializer.validated_data).get("actions")):
             transaction.on_commit(self._try_to_set_up_sandbox_sender)
-
-    def _needs_sandbox_sender(self, actions: Any) -> bool:
-        return (
-            isinstance(actions, list)
-            and any(isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE for step in actions)
-            and not has_sandbox_sender(self.team.id)
-        )
 
     def _try_to_set_up_sandbox_sender(self) -> None:
         user = self.request.user
         try:
-            if isinstance(user, User) and _can_set_up_sandbox_sender(self.team, user):
+            if (
+                isinstance(user, User)
+                and not has_sandbox_sender(self.team.id)
+                and _can_set_up_sandbox_sender(self.team, user)
+            ):
                 provision_sandbox_sender_if_available(self.team, user)
         except Exception as error:
             logger.exception("sandbox_sender_setup_failed", team_id=self.team.id)
@@ -7387,7 +7390,7 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
-            if self._needs_sandbox_sender(actions):
+            if _holds_a_test_sender_step(actions):
                 self._try_to_set_up_sandbox_sender()
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
