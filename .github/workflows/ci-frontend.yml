@@ -535,10 +535,13 @@ jobs:
               if: needs.changes.outputs.markdown != 'false'
               env:
                   # The files this run matched in the `markdown` filter, in paths-filter's
-                  # `escape` list format: space separated, backslash escaped. Empty for a
-                  # push, the hourly cron and the merge queue, where the filter step is
-                  # skipped; every one of those keeps the repo-wide scan.
+                  # `escape` list format: space separated, backslash escaped. Empty on a push
+                  # and on the hourly cron, where the filter step is skipped.
                   MARKDOWN_CHANGED: ${{ needs.changes.outputs.markdown_files }}
+                  # A merge-queue run is a pull_request event on a `trunk-merge/` branch, and
+                  # it is the gate: it keeps the repo-wide scan the `markdown` output already
+                  # gives it.
+                  TRUNK_MERGE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
                   # The pull request's own file count against the count the filter saw. They
                   # disagree when the API capped the list (3000 rows) or a rename expanded one
                   # path into two, and a partial list cannot be narrowed to.
@@ -563,10 +566,16 @@ jobs:
                   if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" != "$FILTERED_FILES" ]; then
                       narrow=false
                   fi
+                  if [ "$TRUNK_MERGE" = "true" ]; then
+                      narrow=false
+                  fi
                   # xargs re-parses the escape format, one path per line.
                   while IFS= read -r path; do
                       [ -n "$path" ] || continue
                       case "$path" in
+                          # markdownlint-cli2 reads its arguments as globs. A name outside this
+                          # safe set would match a different file or none, so it falls back.
+                          *[!a-zA-Z0-9,._+:@%/-]*) narrow=false ;;
                           *.md | *.mdx) targets+=("$path") ;;
                           .markdownlint* | */.markdownlint* | .config/* | .gitignore | */.gitignore) narrow=false ;;
                       esac
