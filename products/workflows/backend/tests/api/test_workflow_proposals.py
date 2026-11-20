@@ -818,6 +818,46 @@ class TestWorkflowProposals(APIBaseTest):
         assert (args["app_source_id"], args["step_ids"]) == (f"{flow_id}/{flow.version}", ["email_1"])
 
     @parameterized.expand(
+        [
+            ("a scout that never ran", None, None, None, None, None),
+            ("a scout on its daily interval", 6, None, None, 6, -18),
+            ("a pre-check that skipped after the last run", 30, 2, None, 2, 6),
+            ("a scout on a cron schedule", 6, None, "0 9 * * *", 6, None),
+        ]
+    )
+    def test_optimization_reports_when_the_scout_checks(
+        self,
+        _name: str,
+        run_hours_ago: int | None,
+        precheck_hours_ago: int | None,
+        cron: str | None,
+        last_checked_hours_ago: int | None,
+        next_check_hours_ago: int | None,
+    ):
+        flow_id = self._create_active_flow()
+        now = timezone.now().replace(microsecond=0)
+
+        def hours_ago(hours: int | None) -> datetime | None:
+            return None if hours is None else now - timedelta(hours=hours)
+
+        SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").update(
+            last_run_at=hours_ago(run_hours_ago),
+            last_precheck_at=hours_ago(precheck_hours_ago),
+            run_cron_schedule=cron,
+            run_interval_minutes=1440,
+        )
+
+        with patch("products.workflows.backend.services.suggestions_scout.sync_execute", return_value=[]):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
+
+        assert response.status_code == 200, response.json()
+        schedule = response.json()["schedule"]
+        expected = [hours_ago(last_checked_hours_ago), hours_ago(next_check_hours_ago)]
+        assert [schedule["last_checked_at"], schedule["next_check_at"]] == [
+            moment.isoformat().replace("+00:00", "Z") if moment else None for moment in expected
+        ]
+
+    @parameterized.expand(
         [("scout in dry run", {"emit": False}), ("scout paused", {"enabled": False, "status": "paused_by_user"})]
     )
     def test_optimization_skips_the_sample_when_no_suggestion_could_be_filed(self, _name: str, scout_change: dict):

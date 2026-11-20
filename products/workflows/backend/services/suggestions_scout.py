@@ -17,10 +17,12 @@ from posthog.models import Team, User
 
 from products.signals.backend.facade.api import (
     ScoutEnableRefusal,
+    ScoutSchedule,
     disable_scout_for_product,
     enable_scout_for_product,
     scout_emits_for_product,
     scout_enable_refusal_for_product,
+    scout_schedule_for_product,
     scout_status_for_product,
 )
 from products.workflows.backend.facade.contracts import SuggestionsSample
@@ -117,6 +119,12 @@ def suggestions_scout_status(team: Team) -> str:
     if scout_emits_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT) is False:
         return "dry_run"
     return "running"
+
+
+def suggestions_scout_schedule(team: Team) -> ScoutSchedule | None:
+    """When the project's suggestions scout last checked its workflows and roughly when it checks next."""
+    project = team.parent_team or team
+    return scout_schedule_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT)
 
 
 def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample | None:
