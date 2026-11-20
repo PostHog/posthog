@@ -35,10 +35,11 @@ import os
 import shlex
 import argparse
 import subprocess
-import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+import defusedxml.ElementTree as ET
 
 ENV_SETTINGS = ("PERSON_ON_EVENTS_V2_ENABLED", "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
 SETTINGS_KEYS = (*ENV_SETTINGS, "PYTEST_ARGS")
