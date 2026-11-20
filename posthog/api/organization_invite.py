@@ -143,6 +143,7 @@ def _project_access_level_exceeds(*, requested_level: str, granted_level: Option
     return requested_rank > granted_rank
 
 
+# TODO: once only OpenFGA remains, replace these level lookups with one SDK action such as Action.INVITE_MEMBER.
 _LEVEL_ACTIONS = {
     OrganizationMembership.Level.MEMBER: Action.VIEW,
     OrganizationMembership.Level.ADMIN: Action.EDIT,
