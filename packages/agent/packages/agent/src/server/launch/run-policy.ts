@@ -57,7 +57,6 @@ export const RESTRICTIVE_RUN_POLICY: RunPolicy = {
   finishTool: false,
   finishReportRequired: false,
   reportActivityTool: false,
-  branchPushOnly: false,
   expectsSystemPrompt: false,
   threadLink: false,
   defaultClientProvenance: undefined,
