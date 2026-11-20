@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Usage: check-approvers.sh <first commit> <last commit> <approver>...
-#        check-approvers.sh --report <first commit> <last commit>
+# Usage: check-approvers.sh [--extra-paths <file>] <first commit> <last commit> <approver>...
+#        check-approvers.sh --report [--extra-paths <file>] <first commit> <last commit>
 #        check-approvers.sh --list-paths
 #
 # The owners of a release are the people who opened, merged or wrote commits in a pull request that
 # changed anything under RELEASE_PATHS between the two commits: the hog changesets, and the trees hog
-# compiles in, whose changes ship whether or not a changeset names them. The check fails when an
+# compiles in, whose changes ship whether or not a changeset names them. --extra-paths names more
+# paths, one plain path per line, whose pull requests also own the release. The release workflow passes
+# what it builds from, which can grow before a release tag carries a longer RELEASE_PATHS. The extra
+# paths only add owners, so the caller can't use them to clear anyone. The check fails when an
 # approver is one of the owners, and writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT.
 # --report checks nobody and writes the pull requests and their owners as Slack mrkdwn instead, as
 # `prs_mrkdwn` and `owners_mrkdwn`. --list-paths prints RELEASE_PATHS, one per line, so the release
@@ -52,10 +55,29 @@ if [ "${1:-}" = --list-paths ]; then
 fi
 
 report=false
-if [ "${1:-}" = --report ]; then
-    report=true
-    shift
-fi
+paths=("${RELEASE_PATHS[@]}")
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --report)
+            report=true
+            shift
+            ;;
+        --extra-paths)
+            # Each line names a path literally, so a glob or a pathspec magic word in it matches nothing
+            # else. Anything but a plain relative path stops the check.
+            while IFS= read -r path || [ -n "$path" ]; do
+                [ -z "$path" ] && continue
+                if ! [[ "$path" =~ ^[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]*$ ]] || [[ "/$path/" == */../* ]]; then
+                    echo "::error::$2 holds a line that isn't a plain relative path: $path"
+                    exit 1
+                fi
+                paths+=(":(literal)$path")
+            done <"$2"
+            shift 2
+            ;;
+        *) break ;;
+    esac
+done
 base=$1
 head=$2
 shift 2
@@ -76,7 +98,7 @@ if ! git merge-base --is-ancestor "$base" "$head"; then
 fi
 
 # Without rename detection, a file that moves into one of the paths counts as added there.
-commits=$(git log --no-renames --format=%H "$base..$head" -- "${RELEASE_PATHS[@]}")
+commits=$(git log --no-renames --format=%H "$base..$head" -- "${paths[@]}")
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
