@@ -143,6 +143,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.webhook_history import (
     finalize_run_history,
+    is_event_batch,
     main_table_order_columns,
     newest_events,
     record_webhook_history_rows,
@@ -1471,6 +1472,9 @@ def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
     earlier run also carried is the one that lands.
     """
     tables = [read_parquet(signal.s3_path) for signal in constituents]
+    # Webhook events load through the order guard and polled rows do not, so one write can't hold both.
+    if len({is_event_batch(table) for table in tables}) > 1:
+        raise CoalescingDeclined("the set mixes webhook events with polled rows")
     try:
         return pa.concat_tables(tables, promote_options="permissive")
     except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:

@@ -1305,14 +1305,26 @@ class TestProcessMessages:
         mock_read.assert_not_called()
         mock_writer_cls.return_value.write.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("schemas_do_not_concatenate", [pa.table({"id": [1]}), pa.table({"id": ["a"]})]),
+            # The order guard needs every row to be an event, and the polled rows have no event columns.
+            (
+                "webhook_events_and_polled_rows",
+                [pa.table({"id": [1], "_ph_event_id": ["evt_1"]}), pa.table({"id": [1]})],
+            ),
+        ]
+    )
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    def test_members_whose_schemas_do_not_concatenate_decline_the_set(
+    def test_members_that_cannot_load_as_one_write_decline_the_set(
         self,
+        _name: str,
+        members: list[pa.Table],
         mock_job_model: MagicMock,
         _helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -1320,7 +1332,7 @@ class TestProcessMessages:
         mock_read: MagicMock,
         _analytics: MagicMock,
     ) -> None:
-        mock_read.side_effect = [pa.table({"id": [1]}), pa.table({"id": ["a"]})]
+        mock_read.side_effect = members
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         with pytest.raises(CoalescingDeclined):

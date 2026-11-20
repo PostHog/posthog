@@ -156,7 +156,7 @@ def _with_event_times(table: pa.Table, fallback_time: datetime) -> pa.Table:
     )
 
 
-def _is_event_batch(table: pa.Table) -> bool:
+def is_event_batch(table: pa.Table) -> bool:
     # A poll, or a reconciliation poll after the events, yields rows without an event id.
     return EVENT_ID_COLUMN in table.column_names and table.column(EVENT_ID_COLUMN).null_count == 0
 
@@ -167,7 +167,7 @@ def newest_events(table: pa.Table, primary_keys: Sequence[str]) -> pa.Table:
 
 def newest_events_batch(table: pa.Table, *, primary_keys: Sequence[str], fallback_time: datetime) -> pa.Table:
     """The newest event of each key. Polled rows load as before."""
-    if not _is_event_batch(table):
+    if not is_event_batch(table):
         return table
     return newest_events(_with_event_times(table, fallback_time), primary_keys)
 
@@ -192,7 +192,7 @@ def history_events_batch(
 
 def main_table_order_columns(schema: ExternalDataSchema, table: pa.Table) -> Sequence[str] | None:
     """The order that keeps an older event out of a webhook main table, for a batch of events. None writes as before."""
-    if schema.is_webhook and _is_event_batch(table) and all(name in table.column_names for name in WEBHOOK_EVENT_ORDER):
+    if schema.is_webhook and is_event_batch(table) and all(name in table.column_names for name in WEBHOOK_EVENT_ORDER):
         return WEBHOOK_EVENT_ORDER
     return None
 
