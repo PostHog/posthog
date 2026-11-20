@@ -15409,10 +15409,10 @@ Diffed against: <https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/j
 - [ ] `Calls/{CallSid}/Events` — per-call state/transition history for debugging and funnel analysis of call flow (medium). Skipped: the rows are the HTTP request and response of each status callback to the customer's own app, not call state; they have no identifier and need one request per call
 - [x] `Notifications` — account-wide error and warning log, keyed to calls/messages — the standard delivery-failure diagnostic table (medium). Built as `alerts` from the Monitor API (`monitor.twilio.com/v1/Alerts`), because the spec marks the 2010-04-01 Notifications log deprecated
 - [x] `Messages/{MessageSid}/Media` — MMS media items per message; needed for attachment volume and storage analysis (medium)
-- [ ] `Queues/{QueueSid}/Members` — queued-call membership with wait position/time, the analytical grain behind the queues table already synced (medium)
-- [ ] `SMS/ShortCodes` — lookup resolving short-code senders on messages, complementing incoming_phone_numbers (medium)
-- [ ] `Balance` — current account balance, joins with usage records for prepaid burn-down (low)
-- [ ] `Recordings/{ReferenceSid}/AddOnResults (+ Payloads)` — add-on analysis output attached to recordings already synced (low)
+- [ ] `Queues/{QueueSid}/Members` — queued-call membership with wait position/time, the analytical grain behind the queues table already synced (medium). Skipped: the list returns only the calls that wait in a queue now, with a live position and wait time, and keeps no history of past members.
+- [x] `SMS/ShortCodes` — lookup resolving short-code senders on messages, complementing incoming_phone_numbers (medium)
+- [x] `Balance` — current account balance, joins with usage records for prepaid burn-down (low)
+- [x] `Recordings/{ReferenceSid}/AddOnResults (+ Payloads)` — add-on analysis output attached to recordings already synced (low). Built as `recording_add_on_results`; the Payloads sub-resource is a second fan-out level and was not built
 - [ ] `Addresses/{AddressSid}/DependentPhoneNumbers` — address-to-number mapping for regulatory/compliance reporting (low)
 
 Note: Diffed against the official twilio-oai api/2010-04-01 spec (121 paths). The source is a static endpoint map (products/warehouse_sources/sources/twilio/settings.py) hitting /2010-04-01/Accounts/{sid}/<Resource>.json, so sub-resources need explicit fan-out. Only the classic api_v2010 domain was checked; Twilio's other domains (Messaging, Conversations, Verify, TaskRouter, Voice Insights) are separate specs and out of scope for this diff.
