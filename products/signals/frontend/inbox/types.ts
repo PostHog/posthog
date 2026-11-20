@@ -124,6 +124,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     metrics?: ReportMetricApi[]
     /** Progress of the current Monitoring period, on list rows only. */
     monitoring_summary?: SignalReportListApi['monitoring_summary']
+    /** The one link to another report that the row's link strip shows, on list rows only. */
+    link_summary?: SignalReportListApi['link_summary']
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
@@ -140,6 +142,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     actionability?: SignalReportActionability | null
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact. */
     already_addressed?: boolean | null
+    /** Lowercase kebab-case slug tags for grouping and filtering reports, at most 10. */
+    tags?: SignalReportApi['tags']
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
@@ -175,11 +179,11 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
-    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    /** For the personal order: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
     personal_tier?: SignalReportListApi['personal_tier']
-    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    /** For the personal order: why the personal ranking put the report where it is. Null when it did not rank the report. */
     personal_reason?: SignalReportListApi['personal_reason']
 }
 
@@ -332,6 +336,7 @@ export function alertPatternsFromConfig(
  */
 export type InboxTabKey =
     | 'reports'
+    | 'monitoring'
     | 'scouts'
     | 'sources'
     | 'settings'
@@ -342,10 +347,11 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'monitoring', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
+    monitoring: 'Monitoring',
     scouts: 'Scouts',
     sources: 'Sources',
     settings: 'Settings',
@@ -359,6 +365,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
+    monitoring: 'Fixes PostHog is checking after they merged, and how the recent ones turned out.',
     scouts: 'Scouts run on a schedule and investigate the areas you choose.',
     sources: 'Sources send signals for self-driving to investigate.',
     settings: 'Configure autonomy, agent instructions, code access, and notifications.',

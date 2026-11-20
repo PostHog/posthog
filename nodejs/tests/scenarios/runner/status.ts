@@ -89,7 +89,7 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
 export type Verdict = {
     admissions: Admission[]
     minOffered: number
-    units: DriveSummary
+    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
     down: string[]
     convergence: Convergence
     invariants: InvariantResult[]
@@ -167,6 +167,9 @@ function interruptionWithoutValve(
     return undefined
 }
 
+export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
+    `${valve} on ${target} was not observed: ${error ?? 'no record'}`
+
 export function statusOf({
     admissions,
     minOffered,
@@ -205,9 +208,7 @@ export function statusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline
-            .filter(({ observedAt }) => observedAt === undefined)
-            .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`),
+        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),

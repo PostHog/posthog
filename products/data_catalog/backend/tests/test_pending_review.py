@@ -173,6 +173,31 @@ class TestPendingReviewAPI(APIBaseTest):
         ] * 2
         create_database.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("a_new_proposal_gets_a_fresh_table_check", "add", 1),
+            ("a_reviewed_proposal_keeps_the_cached_table_check", "review", 2),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_after_table_access_is_revoked(
+        self, _name: str, change: str, expected_count: int, create_database: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=set())
+        _metric(self.team, "reads_no_table")
+        _metric(self.team, "on_source", referenced_table_names=["restricted_source"])
+        reviewed_later = _metric(self.team, "also_on_source", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+        count_before = self.client.get(url).json()["metrics"]
+
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        if change == "add":
+            _metric(self.team, "new_on_source", referenced_table_names=["restricted_source"])
+        else:
+            Metric.objects.unscoped().filter(id=reviewed_later.id).update(status=MetricStatus.APPROVED)
+
+        assert (count_before, self.client.get(url).json()["metrics"]) == (3, expected_count)
+
     @patch("posthog.utils.cache")
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_counts_metrics_when_the_cache_is_unavailable(self, create_database: MagicMock, cache: MagicMock) -> None:

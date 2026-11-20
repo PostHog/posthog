@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+import type { UserType } from '~/types'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
@@ -45,6 +46,7 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsActionabilityUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -93,14 +95,23 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { implementationClaimDisabledReason } from '../utils/reportActions'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
-import { ReportDecisionAttributions, reportDecisionAttributions } from '../utils/reportDecisions'
+import {
+    ReportActionabilityChange,
+    ReportDecisionAttributions,
+    reportActionabilityRequest,
+    reportDecisionAttributions,
+} from '../utils/reportDecisions'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
-const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+export const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [
+    TaskRunStatus.COMPLETED,
+    TaskRunStatus.FAILED,
+    TaskRunStatus.CANCELLED,
+]
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
@@ -338,6 +349,7 @@ export interface inboxReportDetailLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     selectedTabOptions: string | null // sidePanelStateLogic
     actionabilityExplanation: string | null
+    actionabilitySaving: boolean
     addReviewerOptions: AvailableReviewerOption[]
     approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
@@ -685,11 +697,11 @@ export interface inboxReportDetailLogicActions {
     }) => {
         payload: {
             body: string
-            inReplyTo?: string | undefined
+            inReplyTo?: string
             key: string
-            line?: number | undefined
-            path?: string | undefined
-            side?: 'LEFT' | 'RIGHT' | undefined
+            line?: number
+            path?: string
+            side?: 'LEFT' | 'RIGHT'
         }
     }
     postReviewCommentFinished: () => {
@@ -709,6 +721,9 @@ export interface inboxReportDetailLogicActions {
     }
     selectPullRequest: (url: string) => {
         url: string
+    }
+    setActionabilitySaving: (saving: boolean) => {
+        saving: boolean
     }
     setClaimSaving: (saving: boolean) => {
         saving: boolean
@@ -774,6 +789,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         commentId: string
         content: string
+    }
+    updateActionability: (change: ReportActionabilityChange) => {
+        change: ReportActionabilityChange
     }
     updatePriority: (priority: ReportPriorityApi) => {
         priority: ReportPriorityApi
@@ -845,22 +863,22 @@ export interface inboxReportDetailLogicMeta {
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => EnrichedReviewer[] | null
         addReviewerOptions: (
             availableReviewers: AvailableReviewerOption[] | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
-        isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
-        teammateClaimHolder: (report: SignalReport | null, user: null | import('~/types').UserType) => _UserApi | null
-        isReportClaimable: (report: SignalReport | null, user: null | import('~/types').UserType) => boolean
+        isClaimedByMe: (reportClaimant: _UserApi | null, user: UserType | null) => boolean
+        teammateClaimHolder: (report: SignalReport | null, user: UserType | null) => _UserApi | null
+        isReportClaimable: (report: SignalReport | null, user: UserType | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
             report: SignalReport | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
@@ -942,6 +960,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setPrioritySaving: (saving: boolean) => ({ saving }),
         updateRepository: (repository: string) => ({ repository }),
         setRepositorySaving: (saving: boolean) => ({ saving }),
+        updateActionability: (change: ReportActionabilityChange) => ({ change }),
+        setActionabilitySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
         setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
@@ -1267,6 +1287,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         repositorySaving: [false, { setRepositorySaving: (_, { saving }) => saving }],
+        actionabilitySaving: [false, { setActionabilitySaving: (_, { saving }) => saving }],
         reportStateSaving: [false, { setReportStateSaving: (_, { saving }) => saving }],
         claimSaving: [false, { setClaimSaving: (_, { saving }) => saving }],
         report: [
@@ -1903,6 +1924,65 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }
             actions.loadReportArtefacts()
             actions.setRepositorySaving(false)
+        },
+        updateActionability: async ({ change }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.actionabilitySaving) {
+                return
+            }
+            const request = reportActionabilityRequest(currentReport, change)
+            if (!request) {
+                return
+            }
+            const { decision, previousValue, newValue, body } = request
+            const previousAttribution = values.decisionAttributions?.[decision] ?? null
+            actions.setActionabilitySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('actionability', (options) =>
+                    signalsReportsActionabilityUpdate(String(teamId), props.reportId, body, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setActionabilitySaving(false)
+                    lemonToast.error(
+                        decision === 'actionability'
+                            ? "Couldn't save the actionability. Try again."
+                            : "Couldn't save whether this is already addressed. Try again."
+                    )
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision,
+                previousValue,
+                newValue,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            // A new actionability can move the report between Ready and Needs input, so the status comes from the response.
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                actionability: updated.actionability as SignalReport['actionability'],
+                already_addressed: updated.already_addressed,
+                status: updated.status as SignalReport['status'],
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setActionabilitySaving(false)
         },
         setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId

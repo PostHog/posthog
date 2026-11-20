@@ -37,11 +37,17 @@ _PARENT_PROBE_PATHS = {
     "project": "/projects/",
     "environment": "/projects/",
     "identity": "/projects/",
+    "project_feature": "/projects/",
     "environment_feature": "/projects/",
     "versioned_environment_feature": "/projects/",
     "project_feature_environment": "/projects/",
     "project_segment_environment": "/projects/",
 }
+
+FLAGSMITH_API_NOT_FOUND_MESSAGE = (
+    "Flagsmith has no API at that URL. Leave the API URL blank for Flagsmith SaaS, "
+    "or enter your self-hosted API host without a path."
+)
 
 
 @SourceRegistry.register
@@ -216,7 +222,7 @@ Leave the API URL blank for Flagsmith SaaS, or set it to your API host (for exam
         status = validate_flagsmith_credentials(config.api_key, config.base_url, probe_path)
 
         if status is None:
-            return False, "Could not reach Flagsmith. Please check the API URL and try again."
+            return False, "PostHog couldn't reach Flagsmith. Check the API URL, then try again."
         if status == 401:
             return False, "Invalid Flagsmith API key"
         # A valid key may legitimately lack scope for a specific endpoint. Accept 403 at
@@ -225,8 +231,11 @@ Leave the API URL blank for Flagsmith SaaS, or set it to your API host (for exam
             if schema_name is None:
                 return True, None
             return False, f"Your API key does not have permission to read '{schema_name}'"
+        # Redirects are never followed, so a 3xx fails every sync just like a 404.
+        if status == 404 or 300 <= status < 400:
+            return False, FLAGSMITH_API_NOT_FOUND_MESSAGE
         if status >= 400:
-            return False, f"Flagsmith returned an unexpected status ({status})"
+            return False, "Flagsmith didn't accept the request. Check the API URL and API key, then try again."
         return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FlagsmithResumeConfig]:

@@ -7,6 +7,8 @@ rules:
       owners: team-devex
     - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
       owners: team-devex
+    - match: ['/scripts/junit_node_ids.py', '/scripts/test_junit_node_ids.py']
+      owners: team-devex
     - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
       owners: team-devex
     - match: ['/scripts/hoglint_shadow.py', '/scripts/test_hoglint_shadow.py', '/scripts/fixtures/hoglint-shadow/']
@@ -15,6 +17,10 @@ rules:
       owners: team-devex
     - match: '/scripts/storybook-sequencer.test.js'
       owners: team-devex
+    - match: ['/scripts/backend-full-run-state.js', '/scripts/backend-full-run-state.test.js']
+      owners: team-devex
+    - match: ['/scripts/ordered-image-alias-alerts.js', '/scripts/ordered-image-alias-alerts.test.js']
+      owners: team-cloud-platform
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']

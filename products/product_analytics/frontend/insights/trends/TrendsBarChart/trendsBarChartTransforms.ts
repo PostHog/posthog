@@ -1,7 +1,7 @@
 import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
 import type { Series, TimeInterval, TimeSeriesBarChartConfig, TooltipContext, YAxisConfig } from '@posthog/quill-charts'
 
-import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
+import { COMPARE_PREVIOUS_DIM_OPACITY, compareLegendTag, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import {
@@ -73,6 +73,7 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
+        legendTag: compareLegendTag(r),
         data,
         color,
         meta,

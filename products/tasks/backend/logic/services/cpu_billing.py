@@ -14,6 +14,8 @@ import shlex
 
 CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
 CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
+CPU_STAT_PATH = "/sys/fs/cgroup/cpu.stat"
+CPUACCT_USAGE_PATH = "/sys/fs/cgroup/cpuacct/cpuacct.usage"
 
 
 def build_sampler_start_command(request_cores: float) -> str:

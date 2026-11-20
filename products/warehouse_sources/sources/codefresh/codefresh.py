@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -105,17 +106,6 @@ class CodefreshPagePaginator(BasePaginator):
         return f"CodefreshPagePaginator(page={self.page})"
 
 
-def _flatten(item: dict[str, Any], flatten_key: Optional[str]) -> dict[str, Any]:
-    """Lift the fields of a nested object (e.g. a pipeline's ``metadata``) to the row top level so
-    the primary key / partition columns resolve against real top-level fields. Top-level fields win
-    on a name clash."""
-    if flatten_key and isinstance(item.get(flatten_key), dict):
-        item = dict(item)
-        nested = item.pop(flatten_key)
-        return {**nested, **item}
-    return item
-
-
 def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
     """Return ``row`` with a possibly-nested field removed. ``"variables"`` drops a top-level field;
     ``"spec.variables"`` walks into ``spec`` and drops its ``variables``. Only the nodes on the path
@@ -135,7 +125,7 @@ def _transform_row(item: dict[str, Any], config: CodefreshEndpointConfig) -> dic
     """Flatten the row, then drop any redacted fields. Redaction runs after flattening so a key that
     only surfaces once a nested object is lifted (and a top-level key of the same name) are both
     caught. Redact keys may be dotted paths (e.g. ``spec.variables``) to reach nested fields."""
-    row = _flatten(item, config.flatten_key)
+    row = lift_nested(item, config.flatten_key) if config.flatten_key else item
     for key in config.redact_keys:
         row = _redact_key(row, key)
     return row

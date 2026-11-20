@@ -10,6 +10,7 @@ import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 
 import { captureFlagComparison, capturePageToolUsed } from '../../browser/extensionTelemetry'
 import type { PageToolbarFlagsState, PageToolbarState } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarCommand } from '../../messaging/pageToolbarBridge'
 import type { PageFlagsCommand } from '../page/extensionPageFlagsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 
@@ -47,8 +48,8 @@ export interface extensionFlagsLogicActions {
     receiveState: (state: PageToolbarState | null) => {
         state: PageToolbarState | null
     } // extensionPageToolbarConnectionLogic
-    sendCommand: (message: import('../../messaging/pageToolbarBridge').PageToolbarCommand) => {
-        message: import('../../messaging/pageToolbarBridge').PageToolbarCommand
+    sendCommand: (message: PageToolbarCommand) => {
+        message: PageToolbarCommand
     } // extensionPageToolbarConnectionLogic
     clearImpersonation: () => {
         value: true
