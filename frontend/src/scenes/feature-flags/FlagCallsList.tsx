@@ -31,7 +31,7 @@ export function FlagCallsList({
                 </LemonBanner>
             )}
             <Query
-                uniqueKey={uniqueKey}
+                uniqueKey={queryLogicKey}
                 attachTo={attachTo}
                 query={query}
                 setQuery={setQuery}
