@@ -76,3 +76,5 @@ class WriteSummaryInput:
     started_at: str
     totals: ExportTotals
     failed_shards: tuple[str, ...]
+    # Every shard of the quote ran and succeeded.
+    complete: bool

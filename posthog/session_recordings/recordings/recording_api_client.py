@@ -176,7 +176,7 @@ async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[Rec
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
-    # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
     connector = aiohttp.TCPConnector(limit=connection_limit)
+    # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
     async with aiohttp.ClientSession(timeout=timeout, trust_env=False, connector=connector) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

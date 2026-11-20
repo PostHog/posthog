@@ -30,11 +30,14 @@ from django.core.management.base import BaseCommand, CommandError
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Integration, Team
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
+from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
+from products.replay.backend.temporal.export_recordings.activities import destination_error
 from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, load_quote
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportRecordingsInput
+from products.replay.backend.temporal.export_recordings.workflow import shard_name
 
 
 class Command(BaseCommand):
@@ -112,28 +115,31 @@ class Command(BaseCommand):
             raise CommandError(f"The quote priced region {quote.region}, not {region}")
         integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
-        if any(character in prefix for character in "*?"):
-            raise CommandError("--prefix must not contain * or ?, which would widen the role's permissions")
-        if kms_key_id and "alias/" in kms_key_id:
-            raise CommandError("--kms-key-id takes a key ID or key ARN, not an alias")
         only_shards = options["shards"]
-        if only_shards and any(int(name.split(":")[1]) >= options["shards_per_day"] for name in only_shards):
-            raise CommandError("A shard in --shards is not below --shards-per-day")
-        if not Integration.objects.filter(
-            id=integration_id, team_id=quote.team_id, kind=Integration.IntegrationKind.AWS_S3
-        ).exists():
-            raise CommandError(f"Team {quote.team_id} has no AWS S3 integration {integration_id}")
+        if only_shards:
+            quoted_days = (date.fromisoformat(quote.date_from), date.fromisoformat(quote.date_to))
+            for name in only_shards:
+                day, shard = name.split(":")
+                if not quoted_days[0] <= date.fromisoformat(day) <= quoted_days[1]:
+                    raise CommandError(f"Shard {name} is outside the quoted range {quote.date_from} to {quote.date_to}")
+                if int(shard) >= options["shards_per_day"]:
+                    raise CommandError(f"Shard {name} is not below --shards-per-day")
+        try:
+            integration = IntegrationManager.any.get(quote.team_id, integration_id)
+        except IntegrationNotFound as e:
+            raise CommandError(f"Team {quote.team_id} has no integration {integration_id}") from e
+        if integration.kind != IntegrationKind.AWS_S3:
+            raise CommandError(f"Integration {integration_id} is not an AWS S3 integration")
 
         run_id = uuid.uuid4().hex
+        destination = ExportDestination(
+            integration_id=integration_id, bucket=bucket, region=region, prefix=prefix, kms_key_id=kms_key_id
+        )
+        if error := destination_error(destination):
+            raise CommandError(error)
         workflow_input = ExportRecordingsInput(
             team_id=quote.team_id,
-            destination=ExportDestination(
-                integration_id=integration_id,
-                bucket=bucket,
-                region=region,
-                prefix=prefix,
-                kms_key_id=kms_key_id,
-            ),
+            destination=destination,
             quote_id=quote.quote_id,
             run_id=run_id,
             date_from=quote.date_from,
@@ -173,16 +179,18 @@ def _positive_int(value: str) -> int:
 
 
 def _shard_list(value: str) -> tuple[str, ...]:
-    shards = tuple(name.strip() for name in value.split(",") if name.strip())
-    for name in shards:
+    """Parse YYYY-MM-DD:N names into the exact spelling the workflow compares against."""
+    shards: list[str] = []
+    for name in (name.strip() for name in value.split(",") if name.strip()):
         day, _, shard = name.partition(":")
         try:
-            date.fromisoformat(day)
-            if int(shard) < 0:
+            number = int(shard)
+            if number < 0:
                 raise ValueError(shard)
+            shards.append(shard_name(date.fromisoformat(day).isoformat(), number))
         except ValueError as e:
             raise argparse.ArgumentTypeError(f"{name} is not YYYY-MM-DD:N") from e
-    return shards
+    return tuple(shards)
 
 
 def _required(options: dict[str, Any], name: str) -> Any:

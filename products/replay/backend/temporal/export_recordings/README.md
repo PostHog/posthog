@@ -20,7 +20,7 @@ It plays one session at a time, with no event timeline and no search.
 4. Each shard lists its sessions in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
    A shard checkpoints through its heartbeat every 500 sessions, so a retry resumes there.
    Only a 404 from recording-api marks a session `missing`. Any other recording-api error fails the shard, and Temporal retries it from the checkpoint.
-5. A last activity writes `quote.json` and `summary.json` next to the manifests.
+5. A last activity writes `quote.json` (the selection and usage, without our cost) and `summary.json` next to the manifests.
    `summary.json` exists only when the run finished.
    A shard that fails after all its retries does not stop the others. The summary lists it under `failed_shards` as `YYYY-MM-DD:N`, and the run then ends as failed.
    Start the quote again with `--shards <that list>` and the same `--shards-per-day` to export only those shards, as a new run.

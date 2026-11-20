@@ -20,7 +20,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
@@ -68,6 +70,9 @@ SESSIONS_PER_CHECKPOINT = 500
 METADATA_BATCH_SIZE = 100
 VIEWPORT_ROW_LIMIT = 50000
 
+# Formats that cannot carry an IAM wildcard into the session policy.
+BUCKET_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+KMS_KEY_PATTERN = re.compile(r"^(arn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:key/)?[A-Za-z0-9-]+$")
 BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<start>\d+)-(?P<end>\d+)$")
 
 NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, ExternalRoleArnNotConfiguredError)
@@ -77,6 +82,7 @@ SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce
 
 # A session that crosses midnight has rows on two days. Reading the day before finds its true start,
 # and reading the day after finds its later rows.
+# One page of a shard's sessions after a session ID, so a shard never holds all its block references at once.
 SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
@@ -85,20 +91,23 @@ SELECT
     max(max_last_timestamp),
     groupArrayArray(block_first_timestamps),
     groupArrayArray(block_urls),
-    {SESSION_EXPIRY_TIME_SQL} AS expiry_time,
-    expiry_time < now() AS expired
+    {SESSION_EXPIRY_TIME_SQL} AS expiry_time
 FROM session_replay_events
 PREWHERE team_id = %(team_id)s
     AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
     AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
 WHERE cityHash64(session_id) %% %(shards_per_day)s = %(shard)s
+    AND session_id > %(after)s
+    {{session_filter}}
 GROUP BY session_id
 HAVING max(is_deleted) = 0
     AND start_time >= %(day_start)s
     AND start_time < %(day_start)s + INTERVAL 1 DAY
     AND expiry_time >= %(quoted_at)s
 ORDER BY session_id
+LIMIT %(limit)s
 """
+SELECTED_SESSIONS_TABLE = "selected_sessions"
 
 # A row per viewport state and minute keeps the result small and still follows resizes.
 VIEWPORTS_QUERY = """
@@ -139,7 +148,7 @@ class SessionRow:
     start_time: datetime
     end_time: datetime
     blocks: list[Block] | None
-    expired: bool
+    expiry_time: datetime
 
 
 @frozen
@@ -206,19 +215,33 @@ def frame_block(block: bytes) -> bytes:
     return len(block).to_bytes(4, "big") + block
 
 
-def list_shard_sessions(input: ExportShardInput) -> list[SessionRow]:
-    day_start = datetime.fromisoformat(input.day).replace(tzinfo=UTC)
+def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
+    session_filter = ""
+    external_tables: list[ClickHouseExternalTable] | None = None
+    if input.session_ids_key:
+        # A session list goes as an external table, so its size never meets the query size limit.
+        session_filter = f"AND session_id IN {SELECTED_SESSIONS_TABLE}"
+        external_tables = [
+            ClickHouseExternalTable(
+                name=SELECTED_SESSIONS_TABLE,
+                structure=[("session_id", "String")],
+                data=[{"session_id": session_id} for session_id in load_session_ids(input.session_ids_key)],
+            )
+        ]
     rows = sync_execute(
-        SHARD_SESSIONS_QUERY,
+        SHARD_SESSIONS_QUERY.replace("{session_filter}", session_filter),
         {
             "team_id": input.team_id,
-            "day_start": day_start,
+            "day_start": datetime.fromisoformat(input.day).replace(tzinfo=UTC),
             "shards_per_day": input.shards_per_day,
             "shard": input.shard,
             "quoted_at": datetime.fromisoformat(input.quoted_at),
+            "after": after,
+            "limit": SESSIONS_PER_CHECKPOINT,
         },
+        workload=Workload.OFFLINE,
+        external_tables=external_tables,
     )
-    allowed = load_session_ids(input.session_ids_key) if input.session_ids_key else None
     return [
         SessionRow(
             session_id=session_id,
@@ -226,10 +249,9 @@ def list_shard_sessions(input: ExportShardInput) -> list[SessionRow]:
             start_time=start_time.replace(tzinfo=UTC),
             end_time=end_time.replace(tzinfo=UTC),
             blocks=parse_blocks(first_timestamps, urls),
-            expired=bool(expired),
+            expiry_time=expiry_time.replace(tzinfo=UTC),
         )
-        for session_id, distinct_id, start_time, end_time, first_timestamps, urls, _, expired in rows
-        if allowed is None or session_id in allowed
+        for session_id, distinct_id, start_time, end_time, first_timestamps, urls, expiry_time in rows
     ]
 
 
@@ -255,6 +277,7 @@ def load_viewports(team: Team, sessions: list[SessionRow], viewports: dict[str, 
             "limit": ast.Constant(value=VIEWPORT_ROW_LIMIT),
         },
         limit_context=LimitContext.EXPORT,
+        workload=Workload.OFFLINE,
     ).results
     if len(rows) >= VIEWPORT_ROW_LIMIT and len(sessions) > 1:
         # The batch hit the row limit, so some sessions would get partial viewports. Query each half instead.
@@ -283,11 +306,12 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
             team,
             placeholders={"distinct_ids": ast.Constant(value=sorted({s.distinct_id for s in batch}))},
             limit_context=LimitContext.EXPORT,
+            workload=Workload.OFFLINE,
         ).results
         for distinct_id, person_id, created_at, properties in person_rows:
             persons[distinct_id] = {
-                "id": person_id,
-                "uuid": person_id,
+                "id": str(person_id),
+                "uuid": str(person_id),
                 "distinct_ids": [distinct_id],
                 "created_at": created_at.isoformat() if created_at else None,
                 "properties": json.loads(properties) if isinstance(properties, str) else properties,
@@ -321,7 +345,20 @@ def role_account_id(aws_role_arn: str) -> str:
     return parts[4]
 
 
+def destination_error(destination: ExportDestination) -> str | None:
+    """Return why the destination is not allowed, or None."""
+    if not BUCKET_NAME_PATTERN.match(destination.bucket):
+        return f"{destination.bucket!r} is not a valid S3 bucket name"
+    if any(character in destination.prefix for character in "*?"):
+        return "The prefix must not contain * or ?"
+    if destination.kms_key_id and not KMS_KEY_PATTERN.match(destination.kms_key_id):
+        return "The KMS key must be a key ID or a key ARN, not an alias or a pattern"
+    return None
+
+
 def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn: str) -> list[PolicyStatement]:
+    if error := destination_error(destination):
+        raise ApplicationError(error, non_retryable=True)
     statements = [
         PolicyStatement(
             Effect="Allow",
@@ -342,9 +379,6 @@ def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn
 
 
 def kms_key_arn(kms_key_id: str, region: str, aws_role_arn: str) -> str:
-    # A policy on an alias ARN grants nothing on the key it points to.
-    if "alias/" in kms_key_id:
-        raise ApplicationError("Use a KMS key ID or key ARN, not an alias", non_retryable=True)
     if kms_key_id.startswith("arn:"):
         return kms_key_id
     # S3 reads a bare key ID as a key in the account that makes the request, which is the role's account.
@@ -482,7 +516,8 @@ async def export_session(
         start_time=session.start_time.isoformat(),
         end_time=session.end_time.isoformat(),
     )
-    if session.expired:
+    # A shard can run for hours, so check expiry when the session's turn comes, not when the shard listed it.
+    if session.expiry_time < datetime.now(UTC):
         return line(status="expired")
     if not session.blocks:
         return line(status="missing")
@@ -544,55 +579,62 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
         # Heartbeat details come back as plain dicts, because the converter has no type hint for them.
         details = activity.info().heartbeat_details[0]
         checkpoint = ShardCheckpoint(**{**details, "totals": ExportTotals(**details["totals"])})
+    log.info("export_recordings.shard_started", resumed_after=checkpoint.last_session_id)
 
-    listed = await database_sync_to_async_pool(list_shard_sessions)(input)
-    sessions = [s for s in listed if s.session_id > checkpoint.last_session_id]
-    log.info("export_recordings.shard_started", sessions=len(sessions), resumed_after=checkpoint.last_session_id)
+    def load_page(after: str) -> asyncio.Task[tuple[list[SessionRow], SessionMetadata]]:
+        def load() -> tuple[list[SessionRow], SessionMetadata]:
+            sessions = list_shard_sessions(input, after=after)
+            return sessions, load_session_metadata(input.team_id, sessions) if sessions else ({}, {})
 
-    async with (
-        Heartbeater(details=(checkpoint,)) as heartbeater,
-        recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
-        customer_bucket(input.team_id, input.destination) as bucket,
-    ):
-        semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
+        return asyncio.create_task(database_sync_to_async_pool(load)())
 
-        async def export_one(session: SessionRow, viewports: list[dict[str, Any]], person: dict | None) -> ManifestLine:
-            async with semaphore:
-                return await export_session(recordings, bucket, input, session, viewports, person)
+    # Heartbeat from the start: the first listing can take minutes on a large day.
+    async with Heartbeater(details=(checkpoint,)) as heartbeater:
+        page = load_page(checkpoint.last_session_id)
+        async with (
+            recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
+            customer_bucket(input.team_id, input.destination) as bucket,
+        ):
+            semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
 
-        def load_metadata(chunk: list[SessionRow]) -> asyncio.Task[SessionMetadata]:
-            return asyncio.create_task(database_sync_to_async_pool(load_session_metadata)(input.team_id, chunk))
+            async def export_one(
+                session: SessionRow, viewports: list[dict[str, Any]], person: dict | None
+            ) -> ManifestLine:
+                async with semaphore:
+                    return await export_session(recordings, bucket, input, session, viewports, person)
 
-        prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
-        chunks = [sessions[i : i + SESSIONS_PER_CHECKPOINT] for i in range(0, len(sessions), SESSIONS_PER_CHECKPOINT)]
-        metadata = load_metadata(chunks[0]) if chunks else None
-        for index, chunk in enumerate(chunks):
-            assert metadata is not None
-            viewports, persons = await metadata
-            # The next chunk's metadata loads while this chunk exports.
-            metadata = load_metadata(chunks[index + 1]) if index + 1 < len(chunks) else None
-            # A failed session cancels the rest of the chunk, and each cancelled session aborts its upload.
-            # Temporal then retries the shard from the last checkpoint.
-            try:
-                async with asyncio.TaskGroup() as group:
-                    tasks = [
-                        group.create_task(export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id)))
-                        for s in chunk
-                    ]
-            except ExceptionGroup as e:
-                raise e.exceptions[0] from e
-            lines = [task.result() for task in tasks]
-            part = checkpoint.manifest_parts
-            await bucket.put(
-                f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
-                "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
-            )
-            checkpoint = ShardCheckpoint(
-                last_session_id=chunk[-1].session_id,
-                manifest_parts=part + 1,
-                totals=checkpoint.totals.add(count(lines)),
-            )
-            heartbeater.details = (checkpoint,)
+            prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
+            while True:
+                chunk, (viewports, persons) = await page
+                if not chunk:
+                    break
+                # The next page lists and loads its metadata while this page exports.
+                page = load_page(chunk[-1].session_id)
+                # A failed session cancels the rest of the page, and each cancelled session aborts its upload.
+                # Temporal then retries the shard from the last checkpoint.
+                try:
+                    async with asyncio.TaskGroup() as group:
+                        tasks = [
+                            group.create_task(
+                                export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id))
+                            )
+                            for s in chunk
+                        ]
+                except ExceptionGroup as e:
+                    page.cancel()
+                    raise e.exceptions[0] from e
+                lines = [task.result() for task in tasks]
+                part = checkpoint.manifest_parts
+                await bucket.put(
+                    f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
+                    "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
+                )
+                checkpoint = ShardCheckpoint(
+                    last_session_id=chunk[-1].session_id,
+                    manifest_parts=part + 1,
+                    totals=checkpoint.totals.add(count(lines)),
+                )
+                heartbeater.details = (checkpoint,)
 
     log.info("export_recordings.shard_finished", totals=checkpoint.totals)
     return checkpoint.totals
@@ -626,12 +668,15 @@ async def write_summary(input: WriteSummaryInput) -> None:
             "expired": totals.expired,
             "missing": totals.missing,
             "quoted": quoted_sessions,
-            # Sessions deleted between the quote and the run drop out of the listing.
-            "deleted_before_run": max(quoted_sessions - listed, 0),
+            # Sessions deleted between the quote and the run drop out of the listing. A run that skipped
+            # shards, by failure or by --shards, cannot tell them apart from the skipped sessions.
+            "deleted_before_run": max(quoted_sessions - listed, 0) if input.complete else None,
         },
         "bytes": totals.bytes,
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
     async with customer_bucket(input.team_id, input.destination) as bucket:
-        await bucket.put(f"{prefix}/quote.json", quote_json.encode())
+        # The customer gets the selection and the usage. Our cost stays out of their bucket.
+        customer_quote = {key: value for key, value in quote.items() if key != "cost"}
+        await bucket.put(f"{prefix}/quote.json", json.dumps(customer_quote, indent=2).encode())
         await bucket.put(f"{prefix}/summary.json", json.dumps(summary).encode())

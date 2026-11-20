@@ -87,6 +87,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                 started_at=started_at,
                 totals=totals,
                 failed_shards=tuple(failed_shards),
+                complete=not failed_shards and input.only_shards is None,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(maximum_attempts=5),

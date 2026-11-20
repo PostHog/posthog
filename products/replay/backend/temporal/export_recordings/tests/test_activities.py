@@ -16,17 +16,29 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
+from posthog.storage import object_storage
+from posthog.test.persons import create_person
 
 from products.replay.backend.temporal.export_recordings import activities
 from products.replay.backend.temporal.export_recordings.activities import (
     CustomerBucket,
+    SessionRow,
+    destination_error,
+    export_session,
     export_shard,
     list_shard_sessions,
     load_session_metadata,
     policy_statements,
+    quote_storage_key,
+    write_summary,
 )
 from products.replay.backend.temporal.export_recordings.quote import measure_usage
-from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportShardInput, ExportTotals
+from products.replay.backend.temporal.export_recordings.types import (
+    ExportDestination,
+    ExportShardInput,
+    ExportTotals,
+    WriteSummaryInput,
+)
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
@@ -98,6 +110,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
                 "$current_url": "https://example.com/a",
             },
         )
+        create_person(team=self.team, distinct_ids=["d-s1"], properties={"email": "person@example.com"})
         flush_persons_and_events()
         self.destination = ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports")
         self.s3 = FakeS3()
@@ -138,7 +151,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         ):
             return async_to_sync(self._run_activity)(env, self._shard_input())
 
-    def _shard_input(self, day: datetime | None = None) -> ExportShardInput:
+    def _shard_input(self, day: datetime | None = None, session_ids_key: str | None = None) -> ExportShardInput:
         return ExportShardInput(
             team_id=self.team.pk,
             destination=self.destination,
@@ -146,7 +159,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             day=(day or self.day).date().isoformat(),
             shard=0,
             shards_per_day=1,
-            session_ids_key=None,
+            session_ids_key=session_ids_key,
             quoted_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
         )
 
@@ -170,6 +183,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         header = json.loads(header_line)
         assert magic == b"PHREC1"
         assert (header["session_id"], header["block_count"], header["distinct_id"]) == ("s1", 2, "d-s1")
+        assert header["person"]["properties"] == {"email": "person@example.com"}
         assert [(v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
             ("1280", "720", "https://example.com/a")
         ]
@@ -178,6 +192,60 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s1", "exported"), ("s2", "deleted")]
         assert self._manifest()[0]["sha256"] == hashlib.sha256(body).hexdigest()
         assert self.s3.uploads == {}
+
+    def test_pages_through_the_shard_one_manifest_part_per_page(self) -> None:
+        with patch.object(activities, "SESSIONS_PER_CHECKPOINT", 1):
+            self._run()
+
+        parts = sorted(key.rsplit("/", 1)[-1] for key in self.s3.objects if "/manifests/" in key)
+        day = self.day.date().isoformat()
+        assert parts == [f"{day}-0000-0000.jsonl", f"{day}-0000-0001.jsonl"]
+        assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s1", "exported"), ("s2", "deleted")]
+
+    def test_session_list_limits_the_listing(self) -> None:
+        key = f"session_recording_exports/session_ids/test-{self.team.pk}.txt"
+        object_storage.write(key, "s2\nnot-in-this-team")
+        activities.load_session_ids.cache_clear()
+
+        listed = [s.session_id for s in list_shard_sessions(self._shard_input(session_ids_key=key))]
+
+        assert listed == ["s2"]
+
+    @parameterized.expand([("complete_run", True, 0), ("run_with_skipped_shards", False, None)])
+    def test_summary_keeps_our_cost_out_of_the_customer_bucket(
+        self, _: str, complete: bool, expected_deleted_before_run: int | None
+    ) -> None:
+        quote = {"date_from": "2026-01-01", "date_to": "2026-01-02", "usage": {"sessions": 3}, "cost": {"total_usd": 1}}
+        object_storage.write(quote_storage_key(f"q-{self.team.pk}"), json.dumps(quote))
+        input = WriteSummaryInput(
+            team_id=self.team.pk,
+            destination=self.destination,
+            quote_id=f"q-{self.team.pk}",
+            run_id="run-1",
+            shards_per_day=1,
+            started_at="2026-01-03T00:00:00+00:00",
+            totals=ExportTotals(exported=2, missing=1),
+            failed_shards=(),
+            complete=complete,
+        )
+
+        @contextlib.asynccontextmanager
+        async def bucket(*_: Any) -> AsyncIterator[CustomerBucket]:
+            yield CustomerBucket(self.s3, self.destination, BUCKET_OWNER)  # type: ignore[arg-type]
+
+        with (
+            patch(f"{ACTIVITIES}.customer_bucket", bucket),
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
+        ):
+            async_to_sync(self._run_summary)(input)
+
+        prefix = f"customer/exports/{self.team.pk}/run-1/manifests"
+        assert "cost" not in json.loads(self.s3.objects[f"{prefix}/quote.json"])
+        summary = json.loads(self.s3.objects[f"{prefix}/summary.json"])
+        assert summary["sessions"]["deleted_before_run"] == expected_deleted_before_run
+
+    async def _run_summary(self, input: WriteSummaryInput) -> None:
+        await ActivityEnvironment().run(write_summary, input)
 
     def test_resumes_after_the_last_checkpointed_session(self) -> None:
         checkpoint = {"last_session_id": "s1", "manifest_parts": 1, "totals": dataclasses.asdict(ExportTotals())}
@@ -312,3 +380,53 @@ def test_policy_allows_the_kms_key_only_when_one_is_set(
 
     assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/*"
     assert [s["Resource"] for s in statements[1:]] == ([expected_kms_resource] if expected_kms_resource else [])
+
+
+@pytest.mark.parametrize(
+    "bucket,prefix,kms_key_id,error",
+    [
+        ("customer", "exports", None, None),
+        ("customer", "exports", "arn:aws:kms:us-east-1:123456789012:key/abc-123", None),
+        ("*", "exports", None, "bucket name"),
+        ("customer", "ex*", None, "prefix"),
+        ("customer", "exports", "*", "KMS key"),
+        ("customer", "exports", "alias/replay", "KMS key"),
+    ],
+)
+def test_destination_rejects_values_that_widen_the_session_policy(
+    bucket: str, prefix: str, kms_key_id: str | None, error: str | None
+) -> None:
+    destination = ExportDestination(
+        integration_id=1, bucket=bucket, region="us-east-1", prefix=prefix, kms_key_id=kms_key_id
+    )
+
+    message = destination_error(destination)
+
+    assert (message is None) if error is None else (error in (message or ""))
+
+
+@pytest.mark.asyncio
+async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> None:
+    now = datetime.now(UTC)
+    session = SessionRow(
+        session_id="s1",
+        distinct_id="d1",
+        start_time=now - timedelta(days=31),
+        end_time=now - timedelta(days=31),
+        blocks=[],
+        expiry_time=now - timedelta(minutes=1),
+    )
+    input = ExportShardInput(
+        team_id=1,
+        destination=ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports"),
+        run_id="run-1",
+        day="2026-01-01",
+        shard=0,
+        shards_per_day=1,
+        session_ids_key=None,
+        quoted_at=(now - timedelta(days=2)).isoformat(),
+    )
+
+    line = await export_session(MagicMock(), MagicMock(), input, session, [], None)
+
+    assert line.status == "expired"

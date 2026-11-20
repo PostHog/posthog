@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
@@ -26,25 +27,28 @@ QUOTE_VALID_DAYS = 7
 RUN_ALLOWANCE_DAYS = 2
 SESSION_IDS_PER_QUERY = 2000
 
+# Per-URL expressions, applied to each row's block_urls so a session aggregates counters, not URL lists.
+BLOCK_BYTES_SQL = "toUInt64(extract(u, 'bytes=[0-9]+-([0-9]+)')) - toUInt64(extract(u, 'bytes=([0-9]+)-')) + 1"
+BLOCK_IN_GLACIER_SQL = (
+    "extract(u, '/([0-9a-z]+)/[0-9]+-[0-9a-f]+[?]') != '30d' "
+    "AND toUInt64OrZero(extract(u, '/([0-9]+)-[0-9a-f]+[?]')) < %(glacier_cutoff_ms)s"
+)
+
 QUOTE_USAGE_QUERY = f"""
 SELECT
     count(),
-    sum(length(blocks)),
-    sum(arraySum(b -> b.1, blocks)),
-    sum(arrayCount(b -> b.2, blocks)),
-    sum(arraySum(b -> if(b.2, b.1, 0), blocks)),
+    sum(blocks),
+    sum(bytes),
+    sum(glacier_blocks),
+    sum(glacier_bytes),
     countIf(expiry_time < %(best_effort_before)s)
 FROM (
     SELECT
         min(min_first_timestamp) AS start_time,
-        arrayMap(
-            u -> tuple(
-                toUInt64(extract(u, 'bytes=[0-9]+-([0-9]+)')) - toUInt64(extract(u, 'bytes=([0-9]+)-')) + 1,
-                extract(u, '/([0-9a-z]+)/[0-9]+-[0-9a-f]+[?]') != '30d'
-                    AND toUInt64OrZero(extract(u, '/([0-9]+)-[0-9a-f]+[?]')) < %(glacier_cutoff_ms)s
-            ),
-            groupArrayArray(block_urls)
-        ) AS blocks,
+        sum(length(block_urls)) AS blocks,
+        sum(arraySum(u -> {BLOCK_BYTES_SQL}, block_urls)) AS bytes,
+        sum(arrayCount(u -> {BLOCK_IN_GLACIER_SQL}, block_urls)) AS glacier_blocks,
+        sum(arraySum(u -> if({BLOCK_IN_GLACIER_SQL}, {BLOCK_BYTES_SQL}, 0), block_urls)) AS glacier_bytes,
         {SESSION_EXPIRY_TIME_SQL} AS expiry_time
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
@@ -166,6 +170,7 @@ def measure_usage(
                 "range_end": datetime.combine(range_end, datetime.min.time(), UTC),
                 "session_ids": chunk,
             },
+            workload=Workload.OFFLINE,
         )
         names = [field.name for field in dataclasses.fields(QuoteUsage)]
         usage = usage.add(QuoteUsage(**{name: int(value or 0) for name, value in zip(names, row)}))
