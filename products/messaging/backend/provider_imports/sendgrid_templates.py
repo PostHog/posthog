@@ -289,6 +289,21 @@ def _map_content(html: str, convert: Callable[[str], str], keep: Callable[[str],
     return "".join(parts)
 
 
+def _legacy_unsupported_reason(source: str) -> str | None:
+    # Legacy values print unescaped, so they may only sit in body text. Tags in comments, styles and the head stay
+    # as written, except `<%...%>` tags, which convert everywhere.
+    text = _ASM_TAG.sub(lambda match: "\x02" if match.group(1) in _ASM_URLS else "\x03", source)
+    if _ANGLE_IN_QUOTED_VALUE.search(text):
+        return "have a < or > inside a quoted attribute value"
+    if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
+        return "sit inside a comment, style, script or head block"
+    for tag in _HTML_TAG.finditer(text):
+        held = _SUBSTITUTION_TAG.sub("\x03", tag.group(0))
+        if "\x03" in held or "\x02" in _PLAIN_ATTRIBUTE.sub("", held):
+            return "sit inside an HTML tag other than a plain attribute value"
+    return None
+
+
 def _convert_legacy(source: str | None, is_html: bool, tags: list[str]) -> tuple[str, _Converter]:
     converter = _Converter(is_html, False)
     if not source:
@@ -296,6 +311,9 @@ def _convert_legacy(source: str | None, is_html: bool, tags: list[str]) -> tuple
     if _BRACE_BEFORE_ASM.search(source) or _BRACE_BEFORE_SUBSTITUTION.search(source):
         # The `{` would join the converted tag into `{{{`, so nothing converts.
         return _kept_as_text(source, is_html, False, "put a brace right before a tag")
+    reason = _legacy_unsupported_reason(source) if is_html else None
+    if reason:
+        return _kept_as_text(source, is_html, False, reason)
 
     def convert(match: re.Match[str]) -> str:
         tags.append(match.group(0))

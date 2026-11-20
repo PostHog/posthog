@@ -151,9 +151,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("before_a_body_tag", "x{<%body%>y"),
             ("before_an_escaped_body_tag", "x{&lt;%body%&gt;y"),
             ("before_a_tag", "x{-name-y"),
+            ("value_in_an_event_handler", '<a onclick="-x-">t</a>'),
+            ("value_in_a_quoted_attribute", '<a title="-x-">t</a>'),
+            ("body_tag_in_a_style_block", "<style><%body%></style>"),
+            ("body_tag_in_an_attribute", '<a title="<%body%>">t</a>'),
         ]
     )
-    def test_a_legacy_template_with_a_brace_before_a_tag_stays_as_text(self, _name: str, html: str) -> None:
+    def test_a_legacy_template_with_a_tag_it_cant_convert_safely_stays_as_text(self, _name: str, html: str) -> None:
         converted = convert_version({"html_content": html, "generate_plain_content": False}, generation="legacy")
 
         assert "{{{" not in converted.html
