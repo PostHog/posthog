@@ -138,6 +138,7 @@ export interface customerTasksLogicActions {
     setBulkAccountOpen: (open: boolean) => { open: boolean }
     setAssignee: (assignee: CustomerTaskAssigneeFilter) => { assignee: CustomerTaskAssigneeFilter }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
+    addTagToFilter: (tag: string) => { tag: string }
     setFiltersFromUrl: (state: CustomerTaskUrlState) => { state: CustomerTaskUrlState }
     setAccountFilterName: (name: string) => { name: string }
     setTaskOrdering: (ordering: CustomerTaskOrdering) => { ordering: CustomerTaskOrdering }
@@ -214,6 +215,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         loadAccountOptions: (payload: { query: string }) => payload,
         setAssignee: (assignee: CustomerTaskAssigneeFilter) => ({ assignee }),
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
+        addTagToFilter: (tag: string) => ({ tag }),
         setFiltersFromUrl: (state: CustomerTaskUrlState) => ({ state }),
         setAccountFilterName: (name: string) => ({ name }),
         setTaskOrdering: (ordering: CustomerTaskOrdering) => ({ ordering }),
@@ -548,6 +550,12 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             const ordering = customerTaskSortingToOrdering(sorting)
             if (ordering) {
                 actions.setTaskOrdering(ordering)
+            }
+        },
+        addTagToFilter: ({ tag }: { tag: string }) => {
+            const tags = values.filters.tags ?? []
+            if (!tags.includes(tag)) {
+                actions.setFilters({ tags: [...tags, tag] })
             }
         },
         resetFilters: () => {

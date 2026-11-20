@@ -69,6 +69,7 @@ export function CustomerTasksTable({
         loadAccountOptions,
         setBulkAccountOpen,
         updateTask,
+        addTagToFilter,
     } = useActions(logic)
     const bulkSaving = Boolean(mutationKeys.bulk)
     const bulkDisabledReason = bulkSaving ? 'Saving' : taskPageLoading ? 'Loading tasks' : undefined
@@ -110,6 +111,25 @@ export function CustomerTasksTable({
                     </div>
                 </div>
             ),
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            className: 'CustomerTasksTable__tags',
+            render: (_, task) =>
+                customerTaskEditDisabledReason(task) ? (
+                    <ObjectTags tags={[...task.tags]} staticOnly onTagClick={addTagToFilter} wrap />
+                ) : (
+                    <ObjectTags
+                        tags={[...task.tags]}
+                        onChange={(tags) => updateTask(task.id, { tags })}
+                        onTagClick={addTagToFilter}
+                        saving={Boolean(mutationKeys[task.id])}
+                        data-attr="customer-task-tags"
+                        editorFullWidth
+                        wrap
+                    />
+                ),
         },
         {
             title: 'Status',
@@ -157,22 +177,6 @@ export function CustomerTasksTable({
             className: 'CustomerTasksTable__updated',
             sorter: true,
             render: (_, task) => <TZLabel time={task.updated_at} />,
-        },
-        {
-            title: 'Tags',
-            key: 'tags',
-            className: 'CustomerTasksTable__tags',
-            render: (_, task) =>
-                customerTaskEditDisabledReason(task) ? (
-                    <ObjectTags tags={[...task.tags]} staticOnly />
-                ) : (
-                    <ObjectTags
-                        tags={[...task.tags]}
-                        onChange={(tags) => updateTask(task.id, { tags })}
-                        saving={Boolean(mutationKeys[task.id])}
-                        data-attr="customer-task-tags"
-                    />
-                ),
         },
         {
             title: '',

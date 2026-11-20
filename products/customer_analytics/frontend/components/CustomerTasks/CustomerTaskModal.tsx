@@ -229,8 +229,13 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Tags (optional)</LemonLabel>
-                    {editable && !saving ? (
-                        <ObjectTags tags={draftTags} onChange={setDraftTags} data-attr="customer-task-modal-tags" />
+                    {editable ? (
+                        <ObjectTags
+                            tags={draftTags}
+                            onChange={setDraftTags}
+                            saving={saving}
+                            data-attr="customer-task-modal-tags"
+                        />
                     ) : (
                         <ObjectTags tags={draftTags} staticOnly />
                     )}

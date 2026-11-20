@@ -257,6 +257,7 @@ describe('customerTasksLogic', () => {
             description: null,
             assigned_to_id: null,
             due_at: null,
+            tags: [],
         })
     })
 
@@ -317,6 +318,23 @@ describe('customerTasksLogic', () => {
         })
         logic.actions.setDraftAssignedTo(null)
         expect(logic.values.draftAssignedTo).toBeNull()
+    })
+
+    test('adds a clicked tag to the tag filter once and sends it to the list query', async () => {
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.addTagToFilter('renewal')
+        logic.actions.addTagToFilter('urgent')
+        logic.actions.addTagToFilter('renewal')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.tags).toEqual(['renewal', 'urgent'])
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ tags: '["renewal","urgent"]' })
+        )
     })
 
     test('persists inbox filters for one team and user, then resets them to defaults', async () => {
