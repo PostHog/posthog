@@ -347,6 +347,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'hogflow',
     'email',
     'emailsandbox',
+    'classify',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
@@ -361,6 +362,7 @@ export const QUEUE_TRAITS = {
     hogflow: { drainedByEmailWorker: false, fairDequeue: false },
     email: { drainedByEmailWorker: true, fairDequeue: true },
     emailsandbox: { drainedByEmailWorker: false, fairDequeue: false },
+    classify: { drainedByEmailWorker: false, fairDequeue: false },
 } as const satisfies Record<CyclotronJobQueueKind, QueueTraits>
 
 export type EmailQueueKind = {

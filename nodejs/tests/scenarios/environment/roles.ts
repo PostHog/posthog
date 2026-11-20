@@ -34,6 +34,7 @@ export const MODES_WITHOUT_A_ROLE: Partial<Record<PluginServerMode, string>> = {
     [PluginServerMode.cdp_cyclotron_worker_email_sandbox]: 'the cards send through the email worker, not the sandbox',
     [PluginServerMode.cdp_legacy_on_event]: 'no card runs a legacy destination',
     [PluginServerMode.cdp_cyclotron_worker_batch_resolve]: 'no card runs a batch workflow',
+    [PluginServerMode.cdp_cyclotron_worker_classify]: 'no card runs a classify with ai step',
     [PluginServerMode.cdp_rerun_worker]: 'an operator runs it to rerun failed runs, and no card reruns',
     [PluginServerMode.cdp_dlq_replay]: 'an operator runs it to drain the events dead-letter topic',
     [PluginServerMode.cdp_hogflow_scheduler]: 'no card runs a scheduled workflow',
