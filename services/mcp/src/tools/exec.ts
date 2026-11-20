@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { getNextPageHint } from '@/lib/next-page-hint'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
@@ -2481,6 +2482,11 @@ export function createExecTool(
                             : undefined
                         if (chartData) {
                             outputText = `${outputText}\n\n${chartData}`
+                        }
+                        // `formatResponse` drops the pagination fields a client needs to fetch the next page.
+                        const nextPageHint = getNextPageHint(tool.name, result)
+                        if (nextPageHint) {
+                            outputText = `${outputText}\n\n${nextPageHint}`
                         }
                     }
                     trackInnerCall?.(tool.name, {
