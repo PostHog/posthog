@@ -70,6 +70,7 @@ def test_eligibility_and_tracked_since(_name: str, months: dict[str, int], track
         ("counts_from_the_first_full_month", {"2026-07": 120, "2026-08": 200, "2026-11": 1000}, 5.0),
         ("two_months_have_no_full_month_to_compare", {"2026-07": 120, "2026-08": 200}, None),
         ("too_little_growth_to_mention", {"2026-07": 120, "2026-08": 200, "2026-09": 250}, None),
+        ("a_silent_month_after_install_is_the_baseline", {"2026-07": 120, "2026-09": 200, "2026-11": 1000}, None),
     ]
 )
 def test_growth_multiple(_name: str, months: dict[str, int], expected: float | None) -> None:
@@ -181,6 +182,7 @@ def test_speed_names_the_quickest_busy_tool_and_the_slowest_tool() -> None:
         _row("get_forecast", 500, p95=300.0),
         _row("list_alerts", 300, p95=40.0),
         _row("get_history", 150, p95=2400.0400000001),
+        _row("export_archive", 150, p95=9000.0, without_duration=149),
         _row("exec", 900, p95=1.0),
     )
 

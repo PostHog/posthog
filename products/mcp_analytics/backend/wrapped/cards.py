@@ -211,10 +211,16 @@ def build_wrapped_cards(aggregates: WrappedAggregates, timezone: str) -> Wrapped
 
 
 def _months_from(rows: Sequence[DimensionRow]) -> list[MonthCalls]:
-    return sorted(
-        (MonthCalls(month=date.fromisoformat(row.key[:10]), calls=row.calls) for row in rows),
-        key=lambda month: month.month,
-    )
+    """Every calendar month from the first to the last with calls, silent months included as zero."""
+    calls_by_month = {date.fromisoformat(row.key[:10]): row.calls for row in rows}
+    if not calls_by_month:
+        return []
+    month, last = min(calls_by_month), max(calls_by_month)
+    months: list[MonthCalls] = []
+    while month <= last:
+        months.append(MonthCalls(month=month, calls=calls_by_month.get(month, 0)))
+        month = date(month.year + month.month // 12, month.month % 12 + 1, 1)
+    return months
 
 
 def _month_label(month: date) -> str:
@@ -338,7 +344,7 @@ def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:
     timed = [
         row
         for row in _chosen_tools(aggregates.tools)
-        if row.calls >= MIN_TOOL_CALLS and row.p95_duration_ms is not None
+        if row.calls - row.calls_without_duration >= MIN_TOOL_CALLS and row.p95_duration_ms is not None
     ]
     quickest: ToolLatency | None = None
     slowest: ToolLatency | None = None

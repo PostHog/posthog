@@ -5,7 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, flush_persons_and_events
 from unittest.mock import patch
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -84,3 +84,7 @@ class TestWrappedSnapshot(_WrappedEventsTestMixin, _MCPAnalyticsTeamScopedTestMi
             json.dumps({"status": "ready", "payload": compute_wrapped(self.team, 2026).payload})
         )
         assert not MCPAnalyticsWrapped.objects.filter(team=self.team).exists()
+
+    def test_command_fails_for_a_missing_team(self) -> None:
+        with self.assertRaises(CommandError):
+            call_command("generate_mcp_analytics_wrapped", "--team-id", "999999999", "--year", "2026")

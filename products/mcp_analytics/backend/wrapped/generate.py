@@ -3,6 +3,7 @@
 import dataclasses
 from typing import Any
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -42,11 +43,25 @@ def generate_wrapped_snapshot(team: Team, year: int) -> MCPAnalyticsWrapped:
 
 
 def _record_failure(team: Team, year: int, *, error_message: str) -> None:
+    failure = {
+        "status": MCPAnalyticsWrapped.Status.FAILED,
+        "schema_version": SCHEMA_VERSION,
+        "payload": {},
+        "error_message": error_message,
+        "generated_at": timezone.now(),
+    }
     with team_scope(team.id):
-        ready = MCPAnalyticsWrapped.objects.filter(team=team, year=year, status=MCPAnalyticsWrapped.Status.READY)
-        if ready.exists():
+        # Each write is one conditional statement, so a run that saves READY at the same time is never overwritten.
+        not_ready = MCPAnalyticsWrapped.objects.filter(team=team, year=year).exclude(
+            status=MCPAnalyticsWrapped.Status.READY
+        )
+        if not_ready.update(**failure):
             return
-    _save(team, year, status=MCPAnalyticsWrapped.Status.FAILED, payload={}, error_message=error_message)
+        try:
+            with transaction.atomic():
+                MCPAnalyticsWrapped.objects.create(team=team, year=year, **failure)
+        except IntegrityError:
+            not_ready.update(**failure)
 
 
 def _save(

@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
 from posthog.models.team.team import Team
@@ -25,8 +25,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(pk=team_id)
         except Team.DoesNotExist:
-            self.stderr.write(self.style.ERROR(f"Team {team_id} does not exist."))
-            return
+            raise CommandError(f"Team {team_id} does not exist.")
 
         if options["dry_run"]:
             generation = compute_wrapped(team, year)
