@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
 MANAGED_ALERT_EVENT_PATTERN = (
-    r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match|incident_opened|incident_closed)$"
+    r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|broken|match|incident_opened|incident_closed)$"
 )
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
@@ -63,7 +63,11 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
 # An edit through the generic API requires that product's write scope and editor access on top of
 # the hog function ones, so a token or member that cannot touch the alert cannot touch its
 # destination either. The other alert products stay read-only there.
-GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, str] = {"$logs_alert_": "logs"}
+GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, str] = {
+    "$logs_alert_": "logs",
+    "$metrics_alert_": "metrics",
+    "$traces_alert_": "tracing",
+}
 
 
 def generic_api_editable_alert_scope(event_name: object) -> str | None:
