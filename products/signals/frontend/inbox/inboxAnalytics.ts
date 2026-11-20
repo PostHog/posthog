@@ -44,6 +44,8 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    // Sent by the cloud inbox only, because the desktop inbox does not retry a failed list load.
+    REPORT_LIST_RETRY_RECOVERED: 'Inbox report list retry recovered',
     WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -53,6 +55,7 @@ export const INBOX_EVENTS = {
     // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
     REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
+    REPORT_LINK_STRIP_CLICKED: 'Inbox report link strip clicked',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     // Cloud-only for now.
@@ -60,6 +63,8 @@ export const INBOX_EVENTS = {
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
+    // Cloud-only for now: the desktop inbox shows no report tags.
+    REPORT_TAG_CLICKED: 'Inbox report tag clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
     INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
@@ -104,6 +109,10 @@ export const INBOX_EVENTS = {
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
+    // Cloud-only: the desktop app has no Monitoring tab.
+    MONITORING_ROW_EXPANDED: 'Inbox monitoring row expanded',
+    MONITORING_SCOPE_CHANGED: 'Inbox monitoring scope changed',
+    MONITORING_ACTION: 'Inbox monitoring action',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -258,7 +267,15 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
  * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
+export type InboxPanelName =
+    | 'runs'
+    | 'config'
+    | 'sources'
+    | 'scratchpad'
+    | 'findings'
+    | 'triage'
+    | 'onboarding'
+    | 'monitoring'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
@@ -272,6 +289,7 @@ export type InboxQueryChange =
     | 'sort'
     | 'source_product'
     | 'scout'
+    | 'tags'
     | 'priority'
     | 'state'
     | 'search'
@@ -328,7 +346,11 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+export function captureInboxEvent(
+    event: InboxEvent,
+    properties: Record<string, unknown>,
+    options?: CaptureOptions
+): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
@@ -389,7 +411,7 @@ interface BaseReportProperties {
  * own data. User-authored notes (a dismissal reason note, feedback note) are a different case: they
  * are the actionable signal we want, so the relevant capture calls attach them explicitly.
  */
-function baseReportProperties(report: SignalReport): BaseReportProperties {
+export function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {
         report_id: report.id,
         report_age_hours: reportAgeHours(report),
@@ -536,6 +558,10 @@ export function captureInboxReportsImpressed(params: {
     rankerId: string | null
     /** Whether the Recommended list showed score pills. */
     rankingPill: boolean
+    /** Whether the cards showed link strips. Each impression then carries its strip kind. */
+    linkStrips?: boolean
+    /** How many other reports each card stands for after plan layers collapse, parallel to `reports`. */
+    collapsedCounts?: number[]
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
     const personalSort = params.rankerId === 'personal'
@@ -570,6 +596,12 @@ export function captureInboxReportsImpressed(params: {
                 ? { personal_tier: report.personal_tier ?? null, personal_reason_shown: !!report.personal_reason }
                 : {}),
             ...rankingPillProperties(report, params.rankingPill),
+            ...(params.linkStrips
+                ? {
+                      link_strip_kind: report.link_summary?.kind ?? null,
+                      collapsed_report_count: params.collapsedCounts?.[index] ?? 0,
+                  }
+                : {}),
         })),
     })
 }
@@ -897,6 +929,28 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
     })
 }
 
+/** Where a report tag chip was clicked: a list row, or the report detail. */
+export type InboxReportTagSurface = 'card' | 'detail'
+
+/**
+ * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
+ */
+export function captureInboxReportTagClicked(params: {
+    report: SignalReport
+    surface: InboxReportTagSurface
+    added: boolean
+    tagFilterCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_TAG_CLICKED, {
+        ...baseReportProperties(params.report),
+        surface: params.surface,
+        added: params.added,
+        tag_count: params.report.tags?.length ?? 0,
+        tag_filter_count: params.tagFilterCount,
+    })
+}
+
 /**
  * Optional free-text note, offered only once a rating is already recorded. It rides on its own
  * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
@@ -975,6 +1029,20 @@ export function captureSignalSourceToggleFailed(params: {
         enabled: params.enabled,
         reason: params.reason,
         error_message: params.errorMessage,
+    })
+}
+
+/** An automatic retry loaded the report list. Without this event, a recovered list looks like one that never failed. */
+export function captureInboxReportListRetryRecovered(params: {
+    sectionKey: InboxReportSectionKey
+    retryCount: number
+    error: unknown
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_LIST_RETRY_RECOVERED, {
+        section_key: params.sectionKey,
+        retry_count: params.retryCount,
+        error_type: params.error instanceof Error ? params.error.name : null,
+        status: (params.error as { status?: number } | null)?.status ?? null,
     })
 }
 
@@ -1199,6 +1267,7 @@ export function captureInboxQueryChanged(params: {
     sortDirection: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: string[]
     stateFilter: string[]
     searchQuery: string
@@ -1214,6 +1283,9 @@ export function captureInboxQueryChanged(params: {
         sort_direction: params.sortDirection,
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
+        // A count, not the tags: like the search term, a tag is written from the report's content and
+        // can name the customer's own entities.
+        tag_filter_count: params.tagFilter.length,
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter,
         has_search: search.length > 0,

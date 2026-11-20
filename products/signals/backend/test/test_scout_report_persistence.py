@@ -129,6 +129,9 @@ class TestScoutReportPersistence(BaseTest):
             )
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
+            assert SignalReportArtefact.objects.get(
+                team_id=self.team.id, report_id=result.report_id, type="suggested_reviewers"
+            ).implementation_authorization == {"mode": "reviewer", "user_id": None}
             assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
             assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
                 user.id for user in chosen

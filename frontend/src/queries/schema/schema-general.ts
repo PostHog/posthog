@@ -584,6 +584,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean
     /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
     materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
@@ -5583,8 +5585,21 @@ export interface MetricsQuerySeries {
     histogramBounds?: number[]
 }
 
+/** `precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples. */
+export type MetricsQueryProvenanceMode = 'precomputed' | 'mixed' | 'raw'
+
+/** Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles. */
+export interface MetricsQueryProvenance {
+    mode: MetricsQueryProvenanceMode
+    /** Buckets before this time came from precomputed metrics. Absent when no clause read them. */
+    precomputedUntil?: string
+    /** Why clauses ran raw, one per clause. */
+    reasons?: string[]
+}
+
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
+    provenance?: MetricsQueryProvenance
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 

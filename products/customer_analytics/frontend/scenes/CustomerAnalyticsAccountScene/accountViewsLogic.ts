@@ -77,7 +77,7 @@ export interface accountViewsLogicValues {
     editorSaving: boolean
     tileConfigReloads: Record<string, number>
     tileEditor: AccountViewTileEditor | null
-    tileEditorConfigError: string | undefined
+    tileEditorConfigError: string | null
     tileEditorConfigErrorLoading: boolean
     tileSaving: boolean
     views: AccountViewApi[]
@@ -266,10 +266,10 @@ export interface accountViewsLogicActions {
         errorObject?: any
     }
     validateTileEditorConfigSuccess: (
-        tileEditorConfigError: string | undefined,
+        tileEditorConfigError: string | null,
         payload?: void
     ) => {
-        tileEditorConfigError: string | undefined
+        tileEditorConfigError: string | null
         payload?: void
     }
 }
@@ -602,7 +602,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
     }),
     loaders(({ values }) => ({
         tileEditorConfigError: [
-            undefined as string | undefined,
+            null as string | null,
             {
                 validateTileEditorConfig: async (_: void, breakpoint) => {
                     const editor = values.tileEditor
@@ -610,7 +610,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                         ? getAccountViewComponentByKind(editor.kind)?.getConfigError
                         : undefined
                     if (!validate || !editor?.config) {
-                        return undefined
+                        return null
                     }
                     await breakpoint(150)
                     let error: string | undefined
@@ -620,7 +620,8 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                         error = 'Could not validate tile settings'
                     }
                     breakpoint()
-                    return error
+                    // Kea reducers cannot store undefined, so a valid config is null.
+                    return error ?? null
                 },
             },
         ],

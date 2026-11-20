@@ -125,6 +125,25 @@ def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | Non
     return legacy_alert(team_id=check.team_id, alert_id=check.legacy_configuration_id)
 
 
+def checked_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
+    """The alert a scheduled check evaluates, built from the platform alert alone, whether or not insight
+    keeps a row for it. None when its insight is gone.
+
+    A copy's alert takes its row's id, because the copy's HogFunctions, its chart and its earlier AI
+    checks are keyed by that id. Its owner and handover time come from the copy, because the AI
+    detector reads the checks from before the handover from the row's history and the later ones
+    from the platform's.
+    """
+    alert = alert_from_platform(check, team_id=check.team_id, enabled=True)
+    if alert is None:
+        return None
+    if check.legacy_configuration_id is not None:
+        alert.id = check.legacy_configuration_id
+    alert.owner = PlatformAlertOwner.PLATFORM if check.owned_by_platform else PlatformAlertOwner.SOURCE
+    alert.owner_changed_at = check.owner_changed_at
+    return alert
+
+
 def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
     """The alert an investigation names: its insight row, or, for an alert insight keeps no row for,
     one built from the platform alert, whose id it carries. None when both are gone."""

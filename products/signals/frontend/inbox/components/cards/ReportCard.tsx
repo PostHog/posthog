@@ -24,6 +24,7 @@ import {
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
+import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -34,6 +35,7 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardLinkStrip } from './ReportCardLinkStrip'
 import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
 import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardPersonalReason } from './ReportCardPersonalReason'
@@ -124,6 +126,7 @@ function ReportCardRaw({
     personalSort = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
+    showTags = false,
 }: {
     report: SignalReport
     attached?: boolean
@@ -147,6 +150,8 @@ function ReportCardRaw({
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
     hideOwnClaim?: boolean
+    /** Show the report's tags as chips that toggle the inbox Tags filter. Only the inbox list sets it. */
+    showTags?: boolean
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -162,8 +167,12 @@ function ReportCardRaw({
     // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
     // and puts the Monitoring evidence where the impact column would be.
     const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const linkStripsEnabled = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const linkSummary = linkStripsEnabled && !preview ? (report.link_summary ?? null) : null
     const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
     const showsPrBadge = hasPr && !isMonitoring
+    // The Monitoring band and the link strip attach to the row, so either one puts the row in a frame.
+    const framed = isMonitoring || !!linkSummary
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
@@ -176,6 +185,7 @@ function ReportCardRaw({
     const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
+    const showsTagRow = showTags && !preview && (report.tags?.length ?? 0) > 0
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -350,12 +360,13 @@ function ReportCardRaw({
     const row = (
         <div
             className={clsx(
-                // Inside the Monitoring frame the row is attached: the frame carries the border.
-                inboxCardRowClassName(attached || isMonitoring, { dashed: !hasPr }),
-                !isMonitoring && rowStateClassName
+                // Inside the frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || framed, { dashed: !hasPr }),
+                !framed && rowStateClassName
             )}
         >
-            <div className="relative flex min-w-0 flex-1">
+            {/* The tag chips are buttons, so they sit under the body link rather than inside it. */}
+            <div className={clsx('relative flex min-w-0 flex-1', showsTagRow && 'flex-col gap-2')}>
                 {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
@@ -380,6 +391,7 @@ function ReportCardRaw({
                         </Link>
                     </div>
                 )}
+                {showsTagRow && <ReportTagChips report={report} surface="card" />}
             </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
@@ -425,7 +437,7 @@ function ReportCardRaw({
         </div>
     )
 
-    if (!isMonitoring) {
+    if (!framed) {
         return row
     }
     return (
@@ -438,8 +450,11 @@ function ReportCardRaw({
                 rowStateClassName
             )}
         >
-            <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            {isMonitoring ? (
+                <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            ) : null}
             {row}
+            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} backUrl={backUrl} /> : null}
         </div>
     )
 }
