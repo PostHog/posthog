@@ -39,6 +39,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
@@ -93,6 +94,12 @@ SENDING_ONLY_KEY_MESSAGE = (
     "This Resend API key can only send email, so it can't read your data. Create a key with full access and try again."
 )
 RATE_LIMITED_MESSAGE = "Resend kept asking PostHog to slow down. Import again later."
+# Each segment becomes its own cohort, and the contacts step saves them all in one transaction.
+MAX_SEGMENTS = 500
+TOO_MANY_SEGMENTS_MESSAGE = (
+    f"This account has more than {MAX_SEGMENTS} segments, more than one import takes. Upload the segments you need "
+    "as CSV files instead."
+)
 TOPIC_KEY_PREFIX = "resend_"
 # Sending by key caps it at 256 characters, the longest tag value SES takes.
 TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")
@@ -427,6 +434,8 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             segment_id = str(segment.get("id") or "")
             if not segment_id:
                 continue
+            if len(segments) >= MAX_SEGMENTS:
+                raise ImportTooLarge(TOO_MANY_SEGMENTS_MESSAGE)
             name = str(segment.get("name") or segment_id)
             members = []
             for members_page in client.pages(f"/segments/{quote(segment_id, safe='')}/contacts"):

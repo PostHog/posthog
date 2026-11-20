@@ -802,6 +802,21 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
 
         assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
 
+    def test_an_account_with_too_many_segments_fills_no_cohort(self) -> None:
+        segment = self.resend.data["segments"][0]
+        self.resend.data["segments"] = [segment, {**segment, "id": "seg-2", "name": "Second"}]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+
+        with patch.object(resend, "MAX_SEGMENTS", 1), self.captureOnCommitCallbacks(execute=True):
+            for step in OPT_OUT_STEPS:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+            with self.assertRaises(ImportStepError):
+                runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+
+        assert "segments" in run.progress["contacts"]["last_error"]
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
+
     @parameterized.expand([("contacts_completed", False, True), ("contacts_blocked", True, False)])
     def test_an_automation_says_its_segment_was_filled_only_when_contacts_completed(
         self, _name: str, opt_outs_fail: bool, filled: bool
