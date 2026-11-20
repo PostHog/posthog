@@ -10,9 +10,8 @@ the records frozen on runs keep their meaning.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
-from datetime import timedelta
 
 from django.db import transaction
 
@@ -25,9 +24,10 @@ from ..facade.enums import BaselineEntrySource, BaselineMode
 from ..models import BaselineCommit, BaselineEntry, Repo
 from . import baselines, errors, github_api, ledger
 
-# GitHub filters the commit list by committer date, which does not always grow along the branch.
-# The margin lets in a commit after the seed whose date is a little older than the seed's.
-_LISTING_MARGIN = timedelta(days=1)
+# Called with the number of positions read so far and the number to read.
+ProgressCallback = Callable[[int, int], None]
+
+PROGRESS_INTERVAL = 100
 
 
 @frozen
@@ -41,10 +41,7 @@ class _BaselineFileHistory:
     # Per position only the identifiers whose hash changed against the version before, with an
     # empty hash for a removed one, so the history does not hold a full copy of the file per change.
     changes: dict[int, dict[str, str]]
-    # Read at the cursor commit itself, not derived from the list of changes, so a change the list
-    # missed shows up as drift after the repair.
     at_cursor_commit: dict[str, str]
-    unplaced_commits: tuple[str, ...]
 
 
 @frozen
@@ -52,14 +49,6 @@ class _LedgerChange:
     identifier: str
     # Empty for a removal.
     content_hash: str
-
-
-@frozen
-class _UnchangedRange:
-    """Positions between two listed changes of the file, where the file must stay as it was at `start`."""
-
-    start: int
-    end: int
 
 
 def _drift(ledger_hashes: dict[str, str], file_hashes: dict[str, str]) -> tuple[str, ...]:
@@ -103,57 +92,48 @@ def _newest_resolved_commit(repo: Repo) -> BaselineCommit:
     return commit
 
 
-def _read_baseline_file_history(repo: Repo, run_type: str) -> _BaselineFileHistory:
-    """Read the file from GitHub at the seed and at each commit that changed it, up to the newest resolved commit."""
+def _read_baseline_file_history(
+    repo: Repo, run_type: str, on_progress: ProgressCallback | None
+) -> _BaselineFileHistory:
+    """Read the file at the seed and at every commit up to the newest resolved commit that changed it.
+
+    The blob SHA of the file is read at every position, so each change is found without trusting
+    a list of commits. The file itself is only read where the blob SHA differs from the position
+    before. Commit SHAs are unique per repo, so no blob SHA is read twice.
+    """
     seed = _seed_commit(repo)
     cursor = _newest_resolved_commit(repo)
     path = baselines.baseline_file_path(repo, run_type)
-
-    seed_date = github_api.commit_date(repo, seed.commit_sha, Priority.BATCH)
-    if seed_date is None:
-        raise errors.BaselineRepairError(f"GitHub did not return the seed commit {seed.commit_sha}.")
-    listed = github_api.commits_touching_path(
-        repo, path, cursor.commit_sha, since=seed_date - _LISTING_MARGIN, priority=Priority.BATCH
-    )
-    if listed is None:
-        raise errors.BaselineRepairError(
-            f"GitHub did not list the commits that changed {path} up to {cursor.commit_sha}."
-        )
-
-    positions = dict(
+    commits = list(
         BaselineCommit.objects.using(WRITER_DB)
-        .filter(repo_id=repo.id, commit_sha__in=[commit.sha for commit in listed], position__lte=cursor.position)
-        .values_list("commit_sha", "position")
-    )
-    # A commit of a branch that a merge commit brought in has no position. A commit from before the
-    # seed has none either, and the margin of the listing lets some of those in, so they are left out.
-    unplaced = tuple(
-        commit.sha
-        for commit in listed
-        if commit.sha not in positions and (commit.committed_at is None or commit.committed_at >= seed_date)
+        .filter(repo_id=repo.id, position__gt=0, position__lte=cursor.position)
+        .order_by("position")
+        .only("position", "commit_sha")
     )
 
     github = github_api.get_github_integration_for_repo(repo, Priority.BATCH)
     at_seed = baselines._resolve_baselines_at_ref(repo, github, run_type, seed.commit_sha)
-    changes: dict[int, dict[str, str]] = {}
+    previous_blob = github_api.file_blob_sha(repo, path, seed.commit_sha, Priority.BATCH)
     previous = at_seed
-    for sha, position in sorted(positions.items(), key=lambda item: item[1]):
-        if position == 0:
-            continue
-        current = baselines._resolve_baselines_at_ref(repo, github, run_type, sha)
-        changes[position] = {identifier: current.get(identifier, "") for identifier in _drift(previous, current)}
-        previous = current
-    at_cursor_commit = previous
-    if cursor.position not in changes:
-        at_cursor_commit = baselines._resolve_baselines_at_ref(repo, github, run_type, cursor.commit_sha)
+    changes: dict[int, dict[str, str]] = {}
+    for read_count, commit in enumerate(commits, start=1):
+        blob = github_api.file_blob_sha(repo, path, commit.commit_sha, Priority.BATCH)
+        if blob != previous_blob:
+            current = baselines._resolve_baselines_at_ref(repo, github, run_type, commit.commit_sha)
+            changes[commit.position] = {
+                identifier: current.get(identifier, "") for identifier in _drift(previous, current)
+            }
+            previous = current
+            previous_blob = blob
+        if on_progress is not None and read_count % PROGRESS_INTERVAL == 0:
+            on_progress(read_count, len(commits))
     return _BaselineFileHistory(
         seed_sha=seed.commit_sha,
         cursor_position=cursor.position,
         cursor_sha=cursor.commit_sha,
         at_seed=at_seed,
         changes=changes,
-        at_cursor_commit=at_cursor_commit,
-        unplaced_commits=unplaced,
+        at_cursor_commit=previous,
     )
 
 
@@ -223,16 +203,14 @@ def _plan(repo: Repo, run_type: str, history: _BaselineFileHistory) -> BaselineL
         entries=tuple(planned),
         drift_before=_drift(original_hashes, history.at_cursor_commit),
         drift_after=_drift(ledger_hashes, history.at_cursor_commit),
-        unplaced_commits=history.unplaced_commits,
     )
 
 
 def _mismatches(repo: Repo, run_type: str, plan: BaselineLedgerRepair) -> tuple[str, ...]:
-    """The planned entries whose hash differs from the file read at their own commit.
+    """The planned entries whose hash differs from the file read again at their own commit.
 
-    The walk only knows the changes GitHub listed. A missed change that a later listed change undoes
-    leaves no drift at the cursor, but the walk then repairs the positions in between against an
-    older file. Reading the file at every repaired commit catches that.
+    The walk builds the file from the changes it found, so a wrong step there would repair against
+    the wrong picture. A second read at every repaired commit catches that before anything is written.
     """
     github = github_api.get_github_integration_for_repo(repo, Priority.BATCH)
     entries_by_commit: dict[str, list[BaselineLedgerRepairEntry]] = {}
@@ -253,88 +231,41 @@ def _mismatches(repo: Repo, run_type: str, plan: BaselineLedgerRepair) -> tuple[
     return tuple(mismatches)
 
 
-def _unchanged_ranges(changed_positions: Iterable[int]) -> list[_UnchangedRange]:
-    """From the seed or a listed change up to the position before the next listed change.
-
-    The range after the last listed change ends at the cursor, which the drift check covers.
-    """
-    ranges: list[_UnchangedRange] = []
-    start = 0
-    for position in sorted(changed_positions):
-        if position - 1 > start:
-            ranges.append(_UnchangedRange(start=start, end=position - 1))
-        start = position
-    return ranges
-
-
-def _gaps(repo: Repo, run_type: str, history: _BaselineFileHistory) -> tuple[str, ...]:
-    """The ranges in which the file changed although GitHub listed no change there.
-
-    The walk trusts the list. A missed change that a later listed change undoes leaves no drift at
-    the cursor and plans no entry, so neither of the other checks sees it. Equal blob SHAs at both
-    ends of a range prove that no such change happened in it.
-    """
-    ranges = _unchanged_ranges(history.changes)
-    commits = _commits_at(repo, {position for unchanged in ranges for position in (unchanged.start, unchanged.end)})
-    path = baselines.baseline_file_path(repo, run_type)
-    # One commit can end one range and start the next, so each blob is read once.
-    blob_shas: dict[str, str] = {}
-    gaps: list[str] = []
-    for unchanged in ranges:
-        start_sha = commits[unchanged.start].commit_sha
-        end_sha = commits[unchanged.end].commit_sha
-        for commit_sha in (start_sha, end_sha):
-            if commit_sha not in blob_shas:
-                blob_shas[commit_sha] = github_api.file_blob_sha(repo, path, commit_sha, Priority.BATCH)
-        if blob_shas[start_sha] == blob_shas[end_sha]:
-            continue
-        gaps.append(
-            f"positions {unchanged.start + 1} to {unchanged.end}: the file differs between {start_sha} and {end_sha}"
-        )
-    return tuple(gaps)
-
-
 @frozen
 class _CheckedPlan:
     history: _BaselineFileHistory
     plan: BaselineLedgerRepair
 
 
-def _read_and_plan(repo: Repo, run_type: str) -> _CheckedPlan:
+def _read_and_plan(repo: Repo, run_type: str, on_progress: ProgressCallback | None) -> _CheckedPlan:
     """Read GitHub, plan, and check the plan against the file at each repaired commit. Takes no lock."""
     try:
-        history = _read_baseline_file_history(repo, run_type)
+        history = _read_baseline_file_history(repo, run_type, on_progress)
         plan = _plan(repo, run_type, history)
-        checked = replace(plan, mismatches=_mismatches(repo, run_type, plan), gaps=_gaps(repo, run_type, history))
-        return _CheckedPlan(history=history, plan=checked)
+        return _CheckedPlan(history=history, plan=replace(plan, mismatches=_mismatches(repo, run_type, plan)))
     except github_api.GITHUB_READ_REFUSED as e:
         raise errors.BaselineRepairError(
             "GitHub or the egress budget refused a read of the baseline file history. Try again later."
         ) from e
 
 
-def plan_repair(repo: Repo, run_type: str) -> BaselineLedgerRepair:
+def plan_repair(repo: Repo, run_type: str, on_progress: ProgressCallback | None = None) -> BaselineLedgerRepair:
     """The entries a repair would append, without writing them. Raises `BaselineRepairError`."""
     _require_shadow_mode(repo)
-    return _read_and_plan(repo, run_type).plan
+    return _read_and_plan(repo, run_type, on_progress).plan
 
 
 def _refuse_unsafe(plan: BaselineLedgerRepair) -> None:
-    """Refuse a plan that rests on an incomplete list of the file's changes."""
-    if plan.gaps:
-        raise errors.BaselineRepairError(
-            f"The baseline file changed without a listed commit in {len(plan.gaps)} ranges ({'; '.join(plan.gaps)}), "
-            "so GitHub's list of the file's changes is incomplete. Nothing was written."
-        )
+    """Refuse a plan whose result the checks after the walk do not confirm."""
     if plan.mismatches:
         raise errors.BaselineRepairError(
-            f"{len(plan.mismatches)} planned entries differ from the baseline file at their own commit, so "
-            "GitHub's list of the file's changes is incomplete. Nothing was written. Run without --apply to see them."
+            f"{len(plan.mismatches)} planned entries differ from the baseline file read again at their own "
+            "commit. Nothing was written. Run without --apply to see them."
         )
     if plan.drift_after:
         raise errors.BaselineRepairError(
             f"After the repair {len(plan.drift_after)} identifiers would still differ from the baseline file "
-            f"at {plan.cursor_sha}, so GitHub's list of the file's changes is incomplete. Nothing was written."
+            f"at {plan.cursor_sha}. Nothing was written."
         )
 
 
@@ -358,7 +289,7 @@ def _write(repo: Repo, plan: BaselineLedgerRepair) -> None:
     )
 
 
-def apply_repair(repo: Repo, run_type: str) -> BaselineLedgerRepair:
+def apply_repair(repo: Repo, run_type: str, on_progress: ProgressCallback | None = None) -> BaselineLedgerRepair:
     """Append the repair entries and return what was written, with the drift read back from the ledger.
 
     GitHub is read and the plan checked before the lock, so a slow GitHub never holds it. Under the
@@ -367,7 +298,7 @@ def apply_repair(repo: Repo, run_type: str) -> BaselineLedgerRepair:
     file was read up to, even when the cursor moved on.
     """
     _require_shadow_mode(repo)
-    read = _read_and_plan(repo, run_type)
+    read = _read_and_plan(repo, run_type, on_progress)
     history = read.history
     checked = read.plan
     _refuse_unsafe(checked)

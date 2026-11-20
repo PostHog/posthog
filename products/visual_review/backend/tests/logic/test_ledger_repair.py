@@ -1,5 +1,4 @@
 import hashlib
-from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import pytest
@@ -20,7 +19,7 @@ from products.visual_review.backend.facade.enums import (
     BaselineMode,
     RunType,
 )
-from products.visual_review.backend.logic import baselines, github_api, ledger, ledger_advance, repos
+from products.visual_review.backend.logic import baselines, github_api, ledger, ledger_advance, ledger_repair, repos
 from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ledger_fakes import FakeGit, approve, set_baseline_mode
@@ -29,7 +28,6 @@ from products.visual_review.backend.tests.logic.ledger_fakes import FakeGit, app
 B0, B1, B2 = "0" * 64, "1" * 64, "2" * 64
 C0, C1, C2, C3 = "3" * 64, "4" * 64, "5" * 64, "6" * 64
 G0 = "7" * 64
-SEED_DATE = datetime(2026, 1, 5, tzinfo=UTC)
 
 
 def _signed(repo: Repo, hashes: dict[str, str]) -> dict:
@@ -41,13 +39,9 @@ class _FakeBaselineFile:
     def __init__(self, mocker, repo: Repo) -> None:
         self.repo = repo
         self.history: list[str] = []
-        self.dates: dict[str, datetime] = {}
         self.files: dict[str, dict] = {}
-        self.unlisted: set[str] = set()
         self.priorities: set[Priority] = set()
         mocker.patch.object(github_api, "get_github_integration_for_repo", side_effect=self._integration)
-        mocker.patch.object(github_api, "commit_date", side_effect=self._commit_date)
-        mocker.patch.object(github_api, "commits_touching_path", side_effect=self._commits_touching_path)
         mocker.patch.object(github_api, "file_blob_sha", side_effect=self._file_blob_sha)
         mocker.patch.object(
             github_api,
@@ -55,9 +49,8 @@ class _FakeBaselineFile:
             side_effect=lambda github, repo_full_name, file_path, ref: (self._file_at(ref), "blob"),
         )
 
-    def commit(self, sha: str, hashes: dict[str, str] | None = None, *, committed_at: datetime | None = None) -> None:
+    def commit(self, sha: str, hashes: dict[str, str] | None = None) -> None:
         self.history.append(sha)
-        self.dates[sha] = committed_at or SEED_DATE + timedelta(hours=len(self.history))
         if hashes is not None:
             self.files[sha] = _signed(self.repo, hashes)
 
@@ -72,21 +65,6 @@ class _FakeBaselineFile:
     def _integration(self, repo: Repo, priority: Priority = Priority.CRITICAL) -> MagicMock:
         self.priorities.add(priority)
         return MagicMock()
-
-    def _commit_date(self, repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> datetime:
-        self.priorities.add(priority)
-        return self.dates[sha]
-
-    def _commits_touching_path(
-        self, repo: Repo, path: str, head_sha: str, since: datetime, priority: Priority = Priority.CRITICAL
-    ) -> list[github_api.PathCommit]:
-        self.priorities.add(priority)
-        reachable = self.history[: self.history.index(head_sha) + 1]
-        return [
-            github_api.PathCommit(sha=sha, committed_at=self.dates[sha])
-            for sha in reversed(reachable)
-            if sha in self.files and sha not in self.unlisted and self.dates[sha] >= since
-        ]
 
 
 def _repair(repo: Repo, *args: str) -> str:
@@ -116,6 +94,14 @@ def _export(repo: Repo) -> dict:
         stdout=out,
     )
     return yaml.safe_load(out.getvalue())["snapshots"]
+
+
+def _repair_entries(repo: Repo) -> set[tuple]:
+    return set(
+        BaselineEntry.objects.filter(repo=repo, source=BaselineEntrySource.REPAIR, approval__isnull=True).values_list(
+            "position", "commit_sha", "pr_number", "identifier", "previous_hash", "content_hash"
+        )
+    )
 
 
 # Per position: the commit, its pull request, the merge entries the ledger recorded, and the
@@ -149,9 +135,7 @@ class TestLedgerRepair:
         repo = baseline_file.repo
         ledger.seed(repo, "s0", {RunType.STORYBOOK: seed})
         set_baseline_mode(repo, BaselineMode.SHADOW)
-        # Older than the seed, but inside the margin of the listing.
-        baseline_file.commit("before-seed", {"Button": B2}, committed_at=SEED_DATE - timedelta(hours=2))
-        baseline_file.commit("s0", seed, committed_at=SEED_DATE)
+        baseline_file.commit("s0", seed)
         with transaction.atomic(using=WRITER_DB):
             ledger.lock_ledger(repo.id)
             for position, (sha, pr_number, merged, file_hashes) in enumerate(history, start=1):
@@ -168,16 +152,15 @@ class TestLedgerRepair:
                         source=BaselineEntrySource.MERGE,
                         pr_number=pr_number,
                     )
-                # The first commit after the seed carries an older committer date, as a rebased commit can.
-                committed_at = SEED_DATE - timedelta(hours=1) if position == 1 else None
-                baseline_file.commit(sha, file_hashes, committed_at=committed_at)
+                baseline_file.commit(sha, file_hashes)
         return repo
 
     @pytest.fixture
     def repo(self, baseline_file) -> Repo:
         return self._record(baseline_file, _FILE_AT[0], _HISTORY)
 
-    def test_a_dry_run_prints_the_plan_and_writes_nothing(self, repo, baseline_file) -> None:
+    def test_a_dry_run_prints_the_plan_and_writes_nothing(self, repo, baseline_file, mocker) -> None:
+        mocker.patch.object(ledger_repair, "PROGRESS_INTERVAL", 2)
         entries_before = BaselineEntry.objects.filter(repo=repo).count()
 
         output = _repair(repo)
@@ -186,7 +169,7 @@ class TestLedgerRepair:
         assert f"  Gone: {G0} -> removed (removal)" in output
         assert "3 entries at 3 positions for 3 identifiers" in output
         assert "Drift at the cursor: 2 identifiers before, 0 after" in output
-        assert "no ledger position" not in output
+        assert "Read the baseline file at 4 of 5 positions" in output
         assert "Dry run" in output
         assert baseline_file.priorities == {Priority.BATCH}
 
@@ -195,10 +178,7 @@ class TestLedgerRepair:
 
         assert "Wrote 3 entries." in output
         assert {position: ledger.ledger_at(repo.id, RunType.STORYBOOK, position) for position in _FILE_AT} == _FILE_AT
-        repair_entries = BaselineEntry.objects.filter(
-            repo=repo, source=BaselineEntrySource.REPAIR, approval__isnull=True
-        ).values_list("position", "commit_sha", "pr_number", "identifier", "previous_hash", "content_hash")
-        assert set(repair_entries) == {
+        assert _repair_entries(repo) == {
             (1, "s1", 11, "Button", B0, B1),
             (2, "s2", 12, "Card", C1, C2),
             (3, "s3", 13, "Gone", G0, ""),
@@ -206,47 +186,29 @@ class TestLedgerRepair:
         assert _export(repo) == _signed(repo, _FILE_AT[5])
 
     @pytest.mark.parametrize(
-        ("unlisted", "reported"),
+        ("history", "file_at", "expected_entries"),
         [
-            pytest.param("s4", "  Still drifted: Card", id="last_change"),
             pytest.param(
-                "s2",
-                f"Differs from the file at its commit: position 2, Card: the plan has {C0}, the file at s2 has {C2}",
-                id="change_a_later_change_overwrites",
+                [("t1", 21, {}, {"Button": B1}), ("t2", 22, {}, None), ("t3", 23, {}, {"Button": B0})],
+                [{"Button": B0}, {"Button": B1}, {"Button": B1}, {"Button": B0}],
+                {(1, "t1", 21, "Button", B0, B1), (3, "t3", 23, "Button", B1, B0)},
+                id="two_changes_that_cancel_out",
+            ),
+            pytest.param(
+                [("t1", 21, {}, None), ("t2", 22, {}, None), ("t3", 23, {}, {"Button": B1})],
+                [{"Button": B0}, {"Button": B0}, {"Button": B0}, {"Button": B1}],
+                {(3, "t3", 23, "Button", B0, B1)},
+                id="a_change_at_the_cursor",
             ),
         ],
     )
-    def test_a_change_github_does_not_list_blocks_the_apply(self, repo, baseline_file, unlisted, reported) -> None:
-        baseline_file.unlisted.add(unlisted)
-        entries_before = BaselineEntry.objects.filter(repo=repo).count()
+    def test_apply_repairs_every_change_the_walk_finds(self, baseline_file, history, file_at, expected_entries) -> None:
+        repo = self._record(baseline_file, {"Button": B0}, history)
 
-        output = _repair(repo)
-        with pytest.raises(CommandError, match="list of the file's changes is incomplete"):
-            _repair(repo, "--apply")
+        _repair(repo, "--apply")
 
-        assert reported in output
-        assert BaselineEntry.objects.filter(repo=repo).count() == entries_before
-
-    def test_an_unlisted_change_a_listed_one_undoes_blocks_the_apply(self, baseline_file) -> None:
-        repo = self._record(
-            baseline_file,
-            {"Button": B0},
-            [
-                ("t1", 21, {}, {"Button": B1}),
-                ("t2", 22, {}, None),
-                ("t3", 23, {}, {"Button": B0}),
-                ("t4", None, {}, None),
-            ],
-        )
-        baseline_file.unlisted.add("t1")
-
-        output = _repair(repo)
-        with pytest.raises(CommandError, match="changed without a listed commit in 1 ranges"):
-            _repair(repo, "--apply")
-
-        assert "0 entries at 0 positions" in output
-        assert "Unlisted change of the baseline file: positions 1 to 2: the file differs between s0 and t2" in output
-        assert BaselineEntry.objects.filter(repo=repo, source=BaselineEntrySource.REPAIR).count() == 0
+        assert _repair_entries(repo) == expected_entries
+        assert [ledger.ledger_at(repo.id, RunType.STORYBOOK, position) for position in range(len(file_at))] == file_at
 
     def test_a_second_apply_plans_nothing(self, repo) -> None:
         _repair(repo, "--apply")

@@ -15,6 +15,7 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
@@ -293,13 +294,21 @@ def get_repo(repo_id: UUID, team_id: int) -> contracts.Repo:
 
 
 def repair_baseline_ledger(
-    repo_id: UUID, team_id: int, run_type: str, *, apply: bool
+    repo_id: UUID,
+    team_id: int,
+    run_type: str,
+    *,
+    apply: bool,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> contracts.BaselineLedgerRepair:
-    """Plan, or with `apply` write, the entries that make the baseline ledger equal the baseline file. Shadow mode only."""
+    """Plan, or with `apply` write, the entries that make the baseline ledger equal the baseline file. Shadow mode only.
+
+    `on_progress` gets the number of ledger positions read so far and the number to read.
+    """
     repo = repos.get_repo(repo_id, team_id)
     if apply:
-        return ledger_repair.apply_repair(repo, run_type)
-    return ledger_repair.plan_repair(repo, run_type)
+        return ledger_repair.apply_repair(repo, run_type, on_progress)
+    return ledger_repair.plan_repair(repo, run_type, on_progress)
 
 
 def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:

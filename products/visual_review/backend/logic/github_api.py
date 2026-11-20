@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -489,20 +489,6 @@ def compare_commits(repo: Repo, base: str, head: str, priority: Priority = Prior
     )
 
 
-def commit_date(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> datetime | None:
-    """The committer date of a commit, or None when GitHub cannot say."""
-    data = _read_json(
-        "visual_review.commit_fetch_failed",
-        lambda: _github_api_request("GET", repo, f"commits/{sha}", priority=priority),
-        repo_id=str(repo.id),
-        sha=sha,
-    )
-    if data is None:
-        return None
-    date = ((data.get("commit") or {}).get("committer") or {}).get("date")
-    return parse_datetime(date) if date else None
-
-
 def file_blob_sha(repo: Repo, path: str, ref: str, priority: Priority = Priority.CRITICAL) -> str:
     """The blob SHA of the file at `ref`, or an empty string when the file does not exist there.
 
@@ -516,64 +502,6 @@ def file_blob_sha(repo: Repo, path: str, ref: str, priority: Priority = Priority
     except GitHubIntegrationError as e:
         raise errors.GitHubCommitError(f"Failed to read the blob of {path} at {ref}: {e}") from e
     return "" if entry is None else entry["sha"]
-
-
-# Ten pages of the commit list. A baseline file changes far less often than the branch moves, so
-# a longer history means the ledger is too old to repair and needs a new seed.
-MAX_PATH_COMMITS = 1000
-_PATH_COMMITS_PAGE_SIZE = 100
-
-
-@frozen
-class PathCommit:
-    sha: str
-    # The committer date, which GitHub's `since` filter compares against. None when GitHub left it out.
-    committed_at: datetime | None
-
-
-def _path_commit(item: dict) -> PathCommit:
-    date = ((item.get("commit") or {}).get("committer") or {}).get("date")
-    return PathCommit(sha=item["sha"], committed_at=parse_datetime(date) if date else None)
-
-
-def commits_touching_path(
-    repo: Repo, path: str, head_sha: str, since: datetime, priority: Priority = Priority.CRITICAL
-) -> list[PathCommit] | None:
-    """The commits in the history of `head_sha` that changed `path`, committed at or after `since`, newest first.
-
-    None when GitHub cannot say, or when the list is longer than `MAX_PATH_COMMITS`.
-    """
-    commits: list[PathCommit] = []
-    page = 1
-    while True:
-        items = _read_json(
-            "visual_review.path_commits_fetch_failed",
-            partial(
-                _github_api_request,
-                "GET",
-                repo,
-                "commits",
-                params={
-                    "sha": head_sha,
-                    "path": path,
-                    "since": since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "per_page": _PATH_COMMITS_PAGE_SIZE,
-                    "page": page,
-                },
-                priority=priority,
-            ),
-            repo_id=str(repo.id),
-            path=path,
-        )
-        if items is None:
-            return None
-        commits.extend(_path_commit(item) for item in items)
-        if len(items) < _PATH_COMMITS_PAGE_SIZE:
-            return commits
-        if len(commits) >= MAX_PATH_COMMITS:
-            logger.warning("visual_review.path_commits_too_many", repo_id=str(repo.id), path=path)
-            return None
-        page += 1
 
 
 # A larger baseline file is parsed without caching, so one repository cannot fill the shared cache

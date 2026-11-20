@@ -163,16 +163,17 @@ class Command(BaseCommand):
             self.stdout.write(f"  Drifted before: {identifier}")
         for identifier in plan.drift_after:
             self.stdout.write(f"  Still drifted: {identifier}")
-        for gap in plan.gaps:
-            self.stdout.write(f"Unlisted change of the baseline file: {gap}")
         for mismatch in plan.mismatches:
             self.stdout.write(f"Differs from the file at its commit: {mismatch}")
-        for sha in plan.unplaced_commits:
-            self.stdout.write(f"Changed the baseline file but has no ledger position: {sha}")
+
+    def _print_repair_progress(self, read: int, total: int) -> None:
+        self.stdout.write(f"Read the baseline file at {read} of {total} positions")
 
     def _repair(self, repo: Repo, run_type: str, apply: bool) -> None:
         try:
-            plan = api.repair_baseline_ledger(repo.id, repo.team_id, run_type, apply=apply)
+            plan = api.repair_baseline_ledger(
+                repo.id, repo.team_id, run_type, apply=apply, on_progress=self._print_repair_progress
+            )
         except (api.BaselineRepairError, api.GitHubCommitError) as e:
             raise CommandError(str(e)) from e
         self._print_repair_plan(plan)
