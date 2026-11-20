@@ -489,19 +489,40 @@ def compare_commits(repo: Repo, base: str, head: str, priority: Priority = Prior
     )
 
 
+# GitHub's contents API lists at most this many entries of a directory.
+_MAX_DIRECTORY_ENTRIES = 1000
+
+
 def file_blob_sha(repo: Repo, path: str, ref: str, priority: Priority = Priority.CRITICAL) -> str:
     """The blob SHA of the file at `ref`, or an empty string when the file does not exist there.
 
     Two commits with the same blob SHA hold the same bytes, so a caller can compare versions
-    without reading them. Raises `GitHubCommitError` when GitHub cannot say.
+    without reading them. The SHA comes from a listing of the parent directory, because the
+    contents API sends a file under 1 MB with its whole content, and a directory listing sends none.
+    Raises `GitHubCommitError` when GitHub cannot say.
     """
+    directory, _, name = path.rpartition("/")
+    contents_path = f"contents/{directory}" if directory else "contents"
     try:
-        entry = get_github_integration_for_repo(repo, priority).get_file_entry(repo.repo_full_name, path, ref=ref)
-    except GitHubRateLimitError:
+        response = _github_api_request("GET", repo, contents_path, params={"ref": ref}, priority=priority)
+    except GITHUB_READ_REFUSED:
         raise
     except GitHubIntegrationError as e:
-        raise errors.GitHubCommitError(f"Failed to read the blob of {path} at {ref}: {e}") from e
-    return "" if entry is None else entry["sha"]
+        raise errors.GitHubCommitError(f"Failed to list the directory of {path} at {ref}: {e}") from e
+    if response.status_code == 404:
+        return ""
+    if response.status_code != 200:
+        raise errors.GitHubCommitError(f"Failed to list the directory of {path} at {ref}: {response.status_code}")
+    listing = response.json()
+    if not isinstance(listing, list):
+        raise errors.GitHubCommitError(f"The parent of {path} at {ref} is not a directory.")
+    for entry in listing:
+        if entry.get("name") == name and entry.get("type") == "file":
+            return entry["sha"]
+    # A cut-off listing cannot prove that the file is absent.
+    if len(listing) >= _MAX_DIRECTORY_ENTRIES:
+        raise errors.GitHubCommitError(f"The directory of {path} at {ref} has too many entries to list.")
+    return ""
 
 
 # A larger baseline file is parsed without caching, so one repository cannot fill the shared cache
