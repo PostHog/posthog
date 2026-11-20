@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from posthog.test.base import (
@@ -37,7 +37,7 @@ class TestOrganizationMemberMcpUsage(ClickhouseTestMixin, APIBaseTest):
             "$mcp_tool_name": "execute-sql",
             "$mcp_is_error": False,
         }
-        for timestamp, overrides in [
+        event_variants: list[tuple[datetime, dict[str, str | bool]]] = [
             (now - timedelta(hours=3), {}),
             (last_used, {}),
             (now, {"$mcp_is_error": True}),
@@ -45,7 +45,8 @@ class TestOrganizationMemberMcpUsage(ClickhouseTestMixin, APIBaseTest):
             (now, {"$mcp_scope_preset": "sandbox"}),
             (now, {"$mcp_tool_name": "exec"}),
             (now, {"mcp_runtime": "cli"}),
-        ]:
+        ]
+        for timestamp, overrides in event_variants:
             _create_event(
                 event="$mcp_tool_call",
                 team=self.team,

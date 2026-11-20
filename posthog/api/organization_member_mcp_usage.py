@@ -23,9 +23,10 @@ def get_last_mcp_use_by_member(organization_id: UUID, distinct_ids: list[str]) -
     member_ids = sorted(distinct_ids)
     roster_hash = hashlib.sha256(repr(member_ids).encode()).hexdigest()
     cache_key = f"organization-member-mcp-usage:{organization_id}:{roster_hash}"
-    return cache.get_or_set(
+    last_used = cache.get_or_set(
         cache_key, lambda: _query_last_mcp_use(organization_id, member_ids), MCP_USAGE_CACHE_TTL_SECONDS
     )
+    return last_used if last_used is not None else {}
 
 
 def _query_last_mcp_use(organization_id: UUID, distinct_ids: list[str]) -> dict[str, datetime]:
