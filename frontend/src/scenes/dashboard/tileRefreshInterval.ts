@@ -89,7 +89,7 @@ export function isDueForAutomaticRefresh(lastRefresh: Dayjs | null, minIntervalS
 /**
  * The tiles an automatic refresh should query now: those whose last refresh is at least their window's minimum ago.
  * `refreshedAt` holds when this page last started a refresh of each tile, which lines up with the ticks.
- * A tile this page hasn't refreshed falls back to its result's `last_refresh`.
+ * A tile this page hasn't refreshed falls back to its result's `last_refresh`. A `null` entry is a failed refresh, due now.
  */
 export function tilesDueForAutomaticRefresh<T extends DashboardTile>(
     tiles: T[],
@@ -101,7 +101,7 @@ export function tilesDueForAutomaticRefresh<T extends DashboardTile>(
     }: {
         dashboardFilters: DashboardFilter
         dashboardIntervalSeconds: number
-        refreshedAt: Map<number, Dayjs>
+        refreshedAt: Map<number, Dayjs | null>
         now: Dayjs
     }
 ): T[] {
@@ -111,6 +111,7 @@ export function tilesDueForAutomaticRefresh<T extends DashboardTile>(
             dashboardIntervalSeconds
         )
         const serverRefresh = tile.insight?.last_refresh ? dayjs(tile.insight.last_refresh) : null
-        return isDueForAutomaticRefresh(refreshedAt.get(tile.id) ?? serverRefresh, minInterval, now)
+        const lastRefresh = refreshedAt.has(tile.id) ? (refreshedAt.get(tile.id) ?? null) : serverRefresh
+        return isDueForAutomaticRefresh(lastRefresh, minInterval, now)
     })
 }

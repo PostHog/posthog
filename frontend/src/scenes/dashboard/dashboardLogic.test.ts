@@ -578,6 +578,39 @@ describe('dashboardLogic', () => {
 
                 expect(refreshCounts()).toEqual({ 'hour-tile': 2, 'week-tile': 1 })
             })
+
+            it('an individual refresh restarts the tile pacing clock', async () => {
+                await mountWithFifteenSecondTicks(true)
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                await jest.advanceTimersByTimeAsync(10 * 60_000)
+                await expectLogic(logic, () =>
+                    logic.actions.refreshDashboardItem({ tile: weekTile })
+                ).toFinishAllListeners()
+                expect(refreshCounts()['week-tile']).toBe(2)
+
+                await jest.advanceTimersByTimeAsync(10 * 60_000)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(refreshCounts()['week-tile']).toBe(2)
+            })
+
+            it('a tile whose manual refresh failed is retried on the next tick', async () => {
+                await mountWithFifteenSecondTicks(true)
+                await jest.advanceTimersByTimeAsync(15_000)
+                await expectLogic(logic).toFinishAllListeners()
+                refreshInsight.mockImplementation((_teamId, insight) =>
+                    insight.short_id === 'week-tile'
+                        ? Promise.reject(new Error('query failed'))
+                        : Promise.resolve({ ...insight, last_refresh: now().toISOString() })
+                )
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                const failedAttempts = refreshCounts()['week-tile']
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(refreshCounts()['week-tile']).toBeGreaterThan(failedAttempts)
+            })
         })
     })
 

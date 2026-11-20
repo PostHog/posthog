@@ -34,7 +34,10 @@ describe('tileRefreshInterval', () => {
 
     describe('tileWindowSeconds', () => {
         const now = dayjs('2026-11-18T15:30:00Z')
-        const tile = (dateRange: Record<string, any> | null, filtersOverrides?: DashboardTile['filters_overrides']) =>
+        const tile = (
+            dateRange: Record<string, any> | null,
+            filtersOverrides?: DashboardTile['filters_overrides']
+        ): DashboardTile =>
             ({
                 id: 1,
                 insight: {
