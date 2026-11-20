@@ -2462,7 +2462,7 @@ export const VisionScannersScoutsTemplatesListParams = () => zod.object({
 })
 
 /**
- * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
+ * Per-variant readout for a scanner that watches an experiment: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
  */
 export const VisionScannersVariantsListParams = () => zod.object({
     project_id: zod
