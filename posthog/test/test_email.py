@@ -34,6 +34,7 @@ from posthog.email import (
     EmailMessage,
     WorkflowsEmailError,
     _send_email,
+    _send_email_now,
     _send_via_http,
     _send_via_smtp,
     get_email_team_and_org_context,
@@ -678,8 +679,11 @@ class TestEmail(BaseTest):
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
 
+    @patch.object(_send_email, "apply_async")
     @patch("posthog.email.requests.post")
-    def test_a_failed_commit_after_workflows_accepts_retries_through_workflows(self, mock_post: MagicMock) -> None:
+    def test_a_failed_commit_after_workflows_accepts_retries_through_workflows(
+        self, mock_post: MagicMock, mock_apply_async: MagicMock
+    ) -> None:
         mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
         original_save = MessagingRecord.save
 
@@ -698,11 +702,10 @@ class TestEmail(BaseTest):
                 patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
                 patch.object(MessagingRecord, "save", autospec=True, side_effect=save_failing_once_sent),
             ):
-                with self.assertRaises(WorkflowsEmailError):
-                    message.send(send_async=False, retry=False)
-            # The retry sends the same idempotency key, so Workflows replays the email instead of sending it twice.
-            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=True):
-                message.send(send_async=False, retry=False)
+                message.send(send_async=False)
+            # The flag is off by the time the retry runs, which must still replay through Workflows and not use SMTP.
+            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=False):
+                _send_email_now(**mock_apply_async.call_args.kwargs["kwargs"])
 
         self.assertEqual(len(mail.outbox), 0)
         self.assertEqual(mock_post.call_count, 2)
