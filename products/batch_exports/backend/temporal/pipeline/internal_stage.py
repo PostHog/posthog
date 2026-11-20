@@ -837,6 +837,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
 
     if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
         query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
+    if record_batch_size_bytes := settings.BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES:
+        query_settings["output_format_arrow_record_batch_size_bytes"] = str(record_batch_size_bytes)
 
     clickhouse_url = None
     # 5 min batch exports should query a single node, which is known to have zero replication lag
