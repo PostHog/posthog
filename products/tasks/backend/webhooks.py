@@ -174,6 +174,15 @@ def _select_task_run_candidate(
     # Checked before the task filter: when a run of another task reports the PR, a branch match of
     # the filtered task alone does not show that this task opened the PR.
     any_run_reports_pr = any(_reports_pull_request(run, pr_urls) for run in runs.values())
+    # The server assigns self-driving and wizard branches, but any member can set a run's checkout
+    # branch and reported PR. So only a run that also pushed to the branch can outrank the owner.
+    any_branch_run_reports_pr = any(
+        _reports_pull_request(run, pr_urls)
+        for rank in _BRANCH_MATCH_RANKS
+        for run in _eligible_task_run_candidates(
+            rank, [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs]
+        )
+    )
     if task_id is not None:
         runs = {run_id: run for run_id, run in runs.items() if run.task_id == task_id}
     skipped_ambiguous_branch = False
@@ -186,20 +195,27 @@ def _select_task_run_candidate(
             reporting_runs = [run for run in eligible_runs if _reports_pull_request(run, pr_urls)]
             if reporting_runs:
                 eligible_runs = reporting_runs
-            if (not reporting_runs and any_run_reports_pr) or (
+            outranked = (
+                any_run_reports_pr if rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH else any_branch_run_reports_pr
+            )
+            refused = (not reporting_runs and outranked) or (
                 rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and len({run.task_id for run in eligible_runs}) > 1
-            ):
-                # Any task can push a fix to another task's PR branch and report that PR, so neither
-                # a push nor a report from one of several tasks shows which task opened the PR. A
-                # self-driving or wizard branch does not show it either when another run reports the
-                # PR. A wrong match links the PR to that task's reports, and a missed match does not.
-                logger.info(
-                    "github_webhook_task_run_lookup_ambiguous",
-                    pr_url=pr_url,
-                    run_ids=[str(run.id) for run in eligible_runs],
-                )
-                skipped_ambiguous_branch = True
-                continue
+            )
+        else:
+            refused = rank == _TaskRunMatchRank.REPORTED_PR_URL and len({run.task_id for run in eligible_runs}) > 1
+        if refused:
+            # Any task can push a fix to another task's PR branch and report that PR, so neither
+            # a push nor a report from one of several tasks shows which task opened the PR. A
+            # self-driving or wizard branch does not show it either when another run that pushed
+            # to the branch reports the PR. A wrong match links the PR to that task's reports, and
+            # a missed match does not.
+            logger.info(
+                "github_webhook_task_run_lookup_ambiguous",
+                pr_url=pr_url,
+                run_ids=[str(run.id) for run in eligible_runs],
+            )
+            skipped_ambiguous_branch = True
+            continue
         if rank == _TaskRunMatchRank.VERIFIED_PR_URL:
             task_run = max(
                 eligible_runs,

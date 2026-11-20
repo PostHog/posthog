@@ -2398,6 +2398,55 @@ class TestFindTaskRun(TestCase):
 
         self.assertEqual(result, opener_run)
 
+    @parameterized.expand(
+        [
+            ("self_driving_owner", "self_driving", "owner"),
+            ("self_driving_owner_with_task_head_branch", "self_driving_with_task_head_branch", "owner"),
+            ("checkout_branches_of_two_tasks", "second_checkout_report", None),
+        ]
+    )
+    def test_checkout_branch_report_from_another_task_does_not_take_the_pr(
+        self, _name: str, evidence: str, expected: str | None
+    ) -> None:
+        pr_url = "https://github.com/posthog/posthog/pull/44"
+        branch = "posthog-self-driving/fix-owned-def456"
+        owner_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Owner task",
+            description="Owns the branch",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            head_branch=branch if evidence == "self_driving_with_task_head_branch" else None,
+        )
+        owner_fields: dict = {
+            "self_driving": {"branch": "master", "state": {"self_driving_head_branch": branch}},
+            "self_driving_with_task_head_branch": {"branch": "master", "state": {"self_driving_head_branch": branch}},
+            "second_checkout_report": {"branch": branch, "output": {"pr_url": pr_url}},
+        }[evidence]
+        owner_run = TaskRun.objects.create(
+            task=owner_task, team=self.team, status=TaskRun.Status.IN_PROGRESS, **owner_fields
+        )
+        claimant_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Claimant task",
+            description="Reports the PR from its checkout branch only",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=claimant_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch=branch,
+            output={"pr_url": pr_url},
+        )
+
+        result = find_task_run(team_ids=[self.team.id], pr_url=pr_url, branch=branch, repository="posthog/posthog")
+
+        self.assertEqual(result, owner_run if expected == "owner" else None)
+
     @parameterized.expand([("self_driving_head_branch", False), ("signed_head_branch", True)])
     def test_branch_fallback_ignores_reviewhog_runs(self, _name, signed_head_branch):
         branch_fields = (
