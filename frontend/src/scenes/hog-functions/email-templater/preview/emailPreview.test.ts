@@ -1,6 +1,6 @@
 import {
     countUnresolved,
-    personPropertiesUsed,
+    propertiesUsed,
     renderEmailPreview,
     renderEmailPreviewMarked,
     renderEmailPreviewText,
@@ -80,10 +80,10 @@ describe('renderEmailPreview', () => {
         expect(renderEmailPreview(template, person)).toBe(template)
     })
 
-    it('finds person properties the editor wrote in bracket notation', () => {
-        expect(personPropertiesUsed(['{{ person.properties.plan }} {{ person.properties["renews on"] }}'])).toEqual([
-            'plan',
-            'renews on',
+    it('finds properties the editor wrote in bracket notation', () => {
+        expect(propertiesUsed(['{{ person.properties.plan }} {{ event.properties["renews on"] }}'])).toEqual([
+            'person.properties.plan',
+            'event.properties.renews on',
         ])
     })
 
@@ -168,10 +168,16 @@ describe('renderEmailPreview', () => {
             id: 'person-6',
             properties: { '\uE000plan\uE001': 'x' },
         })
+        const fromEvent = renderEmailPreviewMarked('{{ event.properties.note }}', {
+            id: 'person-6',
+            properties: {},
+            event: { properties: { note: '\uE000plan\uE001' } },
+        })
 
         expect(countUnresolved(rendered)).toBe(0)
         expect(rendered).toBe('hi plan there')
         expect(countUnresolved(fromKey)).toBe(0)
+        expect(countUnresolved(fromEvent)).toBe(0)
     })
 
     it('falls back to the template when strip_html gets oversized input', () => {

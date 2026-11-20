@@ -3,7 +3,7 @@ import { useContext, useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { personPropertiesUsed } from './emailPreview'
+import { propertiesUsed } from './emailPreview'
 import { emailPreviewPersonLogic } from './emailPreviewPersonLogic'
 import { EmailPreviewScopeContext } from './EmailPreviewScopeContext'
 
@@ -11,11 +11,11 @@ export function CustomPersonForm({ templates, onDone }: { templates: string[]; o
     const scope = useContext(EmailPreviewScopeContext)
     const { customProperties } = useValues(emailPreviewPersonLogic({ scope }))
     const { setCustomProperties } = useActions(emailPreviewPersonLogic({ scope }))
-    const keys = personPropertiesUsed(templates)
+    const keys = propertiesUsed(templates)
     const [draft, setDraft] = useState<Record<string, string>>(customProperties ?? {})
 
     if (keys.length === 0) {
-        return <span className="text-muted text-xs">This email doesn't use any person properties.</span>
+        return <span className="text-muted text-xs">This email doesn't use any person or event properties.</span>
     }
     return (
         <div className="flex flex-col gap-1">
@@ -23,7 +23,7 @@ export function CustomPersonForm({ templates, onDone }: { templates: string[]; o
                 <LemonInput
                     key={key}
                     size="small"
-                    placeholder={key}
+                    placeholder={key.replace('.properties.', ' ')}
                     value={draft[key] ?? ''}
                     onChange={(value) => setDraft({ ...draft, [key]: value })}
                 />
