@@ -351,26 +351,89 @@ interface Block {
     text: string
     // As compiled, without comments, for comparing.
     code: string
+    references: References
+}
+
+interface References {
+    names: Set<string>
+    // Code that reaches bindings by a name the parser can't see, like `eval` or `globalThis[key]`.
+    dynamic: boolean
+}
+
+const DYNAMIC_SCOPE = new Set(['eval', 'Function', 'globalThis', 'global', 'window', 'self', 'arguments'])
+
+function references(node: ts.Node): References {
+    const found: References = { names: new Set(), dynamic: false }
+    const visit = (child: ts.Node): void => {
+        if (ts.isIdentifier(child)) {
+            found.names.add(child.text)
+            found.dynamic ||= DYNAMIC_SCOPE.has(child.text)
+        }
+        found.dynamic ||=
+            child.kind === ts.SyntaxKind.ThisKeyword ||
+            ts.isWithStatement(child) ||
+            (ts.isElementAccessExpression(child) && !ts.isStringLiteralLike(child.argumentExpression))
+        ts.forEachChild(child, visit)
+    }
+    visit(node)
+    return found
+}
+
+interface TopLevel {
+    prelude: string
+    blocks: Map<string, Block>
+    // The declarations the prelude can run or read when hog imports the module, directly or through other
+    // declarations. Every declaration when the prelude reaches bindings dynamically.
+    importTime: Set<string>
 }
 
 // Splits a module into the declarations hog can import without running anything, and the prelude: every other
 // top-level statement, such as imports and calls. The prelude runs whenever hog imports the module, so a change
-// to it counts as a change to everything.
-function topLevelBlocks(source: string): { prelude: string; blocks: Map<string, Block> } {
+// to it, or to a declaration it reaches, counts as a change to everything.
+function topLevelBlocks(source: string): TopLevel {
     const file = ts.createSourceFile('module.ts', source, ts.ScriptTarget.Latest, true)
     const scope = moduleScope(file)
     const prelude: string[] = []
     const blocks = new Map<string, Block>()
+    const reached: References = { names: new Set(), dynamic: false }
     for (const statement of file.statements) {
         const code = printer.printNode(ts.EmitHint.Unspecified, statement, file)
         const name = inertDeclaration(statement, scope)
         if (name && !blocks.has(name)) {
-            blocks.set(name, { text: statement.getText(file), code })
-        } else {
-            prelude.push(code)
+            blocks.set(name, { text: statement.getText(file), code, references: references(statement) })
+            continue
+        }
+        prelude.push(code)
+        if (!ts.isImportDeclaration(statement)) {
+            const found = references(statement)
+            found.names.forEach((reference) => reached.names.add(reference))
+            reached.dynamic ||= found.dynamic
         }
     }
-    return { prelude: prelude.join('\n'), blocks }
+
+    const importTime = new Set<string>()
+    const pending = [...reached.names]
+    while (pending.length > 0) {
+        const name = pending.pop()!
+        const block = blocks.get(name)
+        if (block && !importTime.has(name)) {
+            importTime.add(name)
+            pending.push(...block.references.names)
+            reached.dynamic ||= block.references.dynamic
+        }
+    }
+    return { prelude: prelude.join('\n'), blocks, importTime: reached.dynamic ? new Set(blocks.keys()) : importTime }
+}
+
+// Whether hog runs anything different when it imports the module: its prelude changed, or a declaration the
+// prelude reaches did.
+function importTimeChanged(base: TopLevel, head: TopLevel): boolean {
+    return (
+        base.prelude !== head.prelude ||
+        [...base.importTime, ...head.importTime].some(
+            (name) => base.blocks.get(name)?.code !== head.blocks.get(name)?.code
+        )
+    )
 }
 
 // Whether every top-level statement of the module runs nothing when hog imports it, apart from importing types
@@ -395,7 +458,7 @@ function referencesAny(text: string, names: Iterable<string>): boolean {
 function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
     const base = topLevelBlocks(input.readBase(file) ?? '')
     const head = topLevelBlocks(input.readHead(file) ?? '')
-    if (base.prelude !== head.prelude) {
+    if (importTimeChanged(base, head)) {
         return undefined
     }
 
@@ -600,8 +663,10 @@ export function findCatalogGaps(input: GapInput): GapResult {
 
         if (generatedModuleName(file)) {
             if (
-                topLevelBlocks(input.readBase(file) ?? '').prelude !==
-                topLevelBlocks(input.readHead(file) ?? '').prelude
+                importTimeChanged(
+                    topLevelBlocks(input.readBase(file) ?? ''),
+                    topLevelBlocks(input.readHead(file) ?? '')
+                )
             ) {
                 reasons.push({ file, why: 'top-level code that runs whenever hog loads the module' })
                 continue
