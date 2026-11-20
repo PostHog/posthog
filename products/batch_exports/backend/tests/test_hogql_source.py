@@ -207,7 +207,9 @@ def test_only_batch_exports_switches_move_an_export_to_the_new_events_table(
     ):
         context = create_hogql_context_for_batch_export(
             team,
-            modifiers=apply_hogql_batch_export_modifier_defaults(team, load_hogql_modifiers(export_modifiers)),
+            modifiers=apply_hogql_batch_export_modifier_defaults(
+                team, load_hogql_modifiers(export_modifiers), new_events_schema_opt_in=False
+            ),
         )
 
         assert context.uses_new_events_schema() is expected

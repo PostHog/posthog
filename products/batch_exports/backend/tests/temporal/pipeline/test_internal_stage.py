@@ -93,7 +93,7 @@ def mock_clickhouse_client():
         yield mock_client
 
 
-@pytest.mark.parametrize("use_native_schema", [False, True])
+@pytest.mark.parametrize("native_switch", ["off", "batch-exports-rollout", "export"])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -114,7 +114,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     model: AnyBatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
-    use_native_schema: bool,
+    native_switch: str,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -131,7 +131,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events_json" if use_native_schema else "events"
+        expected_table = "events" if native_switch == "off" else "events_json"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -159,9 +159,12 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         if is_backfill
         else None,
         destination_default_fields=None,
+        use_new_events_schema=native_switch == "export",
     )
 
-    with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0):
+    with override_settings(
+        BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -175,7 +178,12 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
 @pytest.mark.parametrize(
     "native_switch,expected_table",
-    [("off", "events"), ("batch-exports-rollout", "events_json"), ("project-rollout-flag", "events")],
+    [
+        ("off", "events"),
+        ("batch-exports-rollout", "events_json"),
+        ("export", "events_json"),
+        ("project-rollout-flag", "events"),
+    ],
 )
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
@@ -196,6 +204,7 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         backfill_details=None,
         is_workflows=True,
         destination_default_fields=None,
+        use_new_events_schema=native_switch == "export",
     )
 
     with (

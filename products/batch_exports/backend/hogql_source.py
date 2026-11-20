@@ -132,7 +132,7 @@ def validate_hogql_batch_export_user(team: "Team", user: "User | None") -> None:
 
 
 def apply_hogql_batch_export_modifier_defaults(
-    team: "Team", modifiers: HogQLQueryModifiers | None
+    team: "Team", modifiers: HogQLQueryModifiers | None, *, new_events_schema_opt_in: bool
 ) -> HogQLQueryModifiers:
     """Return the export's modifiers with the defaults that apply to the `hogql` model only.
 
@@ -140,16 +140,18 @@ def apply_hogql_batch_export_modifier_defaults(
     or the project sets the modifier. Other models keep the project default, so their output does
     not change.
 
-    `useNewEventsSchema` falls back to `batch_exports_read_new_events_table`. An explicit modifier
-    outranks every other events table switch, so only that function or the export's own modifier
-    moves the export.
+    `useNewEventsSchema` falls back to `batch_exports_read_new_events_table`, given the export's
+    opt-in. An explicit modifier outranks every other events table switch, so only that function or
+    the export's own modifier moves the export.
     """
     resolved = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
     team_value = team.modifiers.get("convertToProjectTimezone") if isinstance(team.modifiers, dict) else None
     if resolved.convertToProjectTimezone is None and team_value is None:
         resolved.convertToProjectTimezone = False
     if resolved.useNewEventsSchema is None:
-        resolved.useNewEventsSchema = batch_exports_read_new_events_table(team.pk)
+        resolved.useNewEventsSchema = batch_exports_read_new_events_table(
+            team.pk, export_opted_in=new_events_schema_opt_in
+        )
     return resolved
 
 
@@ -231,7 +233,9 @@ def validate_hogql_query_for_batch_export(
     parsed = replace_interval_placeholders(parsed, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END)
 
     context = create_hogql_context_for_batch_export(
-        team, user=user, modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers)
+        team,
+        user=user,
+        modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers, new_events_schema_opt_in=False),
     )
     try:
         prepared = prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])

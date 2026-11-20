@@ -247,27 +247,33 @@ class TestGetBackfillInfoForEvents:
         )
 
     @pytest.mark.parametrize(
-        "use_new_events_schema,table,filter_snippet",
+        "native_switch,table,filter_snippet",
         [
-            (False, "events", "JSONExtractRaw(events.properties"),
-            (True, "events_json", "events.properties.`$feature_flags`"),
+            ("off", "events", "JSONExtractRaw(events.properties"),
+            ("batch-exports-rollout", "events_json", "events.properties.`$feature_flags`"),
+            ("export", "events_json", "events.properties.`$feature_flags`"),
         ],
-        ids=["legacy-schema", "new-schema"],
+        ids=["off", "batch-exports-rollout", "export-opt-in"],
     )
     async def test_query_reads_the_team_events_table_with_matching_filters(
         self,
         mock_clickhouse_client,
         run_get_backfill_info,
         create_batch_export,
-        use_new_events_schema: bool,
+        native_switch: str,
         table: str,
         filter_snippet: str,
     ):
         batch_export = await create_batch_export()
         batch_export.filters = [{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}]
         await batch_export.asave()
+        if native_switch == "export":
+            batch_export.destination.config["use_new_events_schema"] = True
+            await batch_export.destination.asave()
 
-        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_new_events_schema else 0):
+        with override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0
+        ):
             await run_get_backfill_info(
                 batch_export,
                 start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
@@ -276,7 +282,7 @@ class TestGetBackfillInfoForEvents:
 
         mock_clickhouse_client.expect_select_from_table(table)
         query = mock_clickhouse_client.calls[0].query
-        assert ("events_json" in query) is use_new_events_schema, query
+        assert ("events_json" in query) is (table == "events_json"), query
         assert filter_snippet in query, query
 
     async def test_query_caps_max_execution_time(
