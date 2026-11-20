@@ -394,12 +394,17 @@ class MergedPullRequest:
     head_sha: str | None
 
 
+# Only workflow jobs prove what CI did. Any app with `checks:write` can post a check run of any name.
+_ACTIONS_APP_SLUG = "github-actions"
+
+
 def check_run_conclusions(
     repo: Repo, sha: str, check_name: str, priority: Priority = Priority.CRITICAL
 ) -> list[str] | None:
-    """The conclusion of each check run named `check_name` on the commit, or None when GitHub cannot say.
+    """The conclusion of each GitHub Actions check run named `check_name` on the commit.
 
-    A check run that has not finished has an empty conclusion.
+    None when GitHub cannot say. A check run that has not finished has an empty conclusion. Check
+    runs of other apps are left out.
     """
     data = _read_json(
         "visual_review.check_runs_fetch_failed",
@@ -416,7 +421,11 @@ def check_run_conclusions(
     )
     if data is None:
         return None
-    return [check_run.get("conclusion") or "" for check_run in data.get("check_runs") or []]
+    return [
+        check_run.get("conclusion") or ""
+        for check_run in data.get("check_runs") or []
+        if (check_run.get("app") or {}).get("slug") == _ACTIONS_APP_SLUG
+    ]
 
 
 def merged_pull_requests_for_commit(

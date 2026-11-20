@@ -224,3 +224,21 @@ def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
     ]
     ref_reads = [call for call in github.api_request.call_args_list if "matching-refs" in call.args[1]]
     assert len(ref_reads) == 1
+
+
+def test_recheck_setup_job_evidence_counts_only_github_actions_check_runs() -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "check_runs": [
+            {"conclusion": "success", "app": {"slug": "github-actions"}},
+            {"conclusion": "skipped", "app": {"slug": "another-app"}},
+            {"conclusion": "skipped"},
+        ]
+    }
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        conclusions = github_api.check_run_conclusions(Repo(repo_full_name="org/repo"), "sha", "Create run")
+
+    assert conclusions == ["success"]
