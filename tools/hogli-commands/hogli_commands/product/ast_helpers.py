@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import re
 import ast
 import warnings
 import importlib.util
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-
-# Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
-_CONTRACT_STRIP_RE = re.compile(r"(Contract|Data|DTO|Out|In|Response|Request)$")
 
 
 def ast_parse_safe(file_path: Path) -> ast.Module | None:
@@ -190,38 +186,6 @@ def decorator_name(node: ast.expr) -> str | None:
     if isinstance(target, ast.Attribute):
         return target.attr
     return None
-
-
-def _keyword_is(node: ast.expr, name: str, value: bool) -> bool:
-    if not isinstance(node, ast.Call):
-        return False
-    return any(
-        kw.arg == name and isinstance(kw.value, ast.Constant) and kw.value.value is value for kw in node.keywords
-    )
-
-
-def _is_frozen_dataclass_decorator(node: ast.expr) -> bool:
-    """True for @dataclass(frozen=True) and for the house decorator, which is frozen by default."""
-    name = decorator_name(node)
-    if name == "dataclass":
-        return _keyword_is(node, "frozen", True)
-    if name == "frozen":
-        return not _keyword_is(node, "frozen", False)
-    return False
-
-
-def get_frozen_dataclass_names(file_path: Path) -> list[str]:
-    """Return names of frozen dataclasses in a file."""
-    tree = ast_parse_safe(file_path)
-    if not tree:
-        return []
-    names: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        if any(_is_frozen_dataclass_decorator(dec) for dec in node.decorator_list):
-            names.append(node.name)
-    return names
 
 
 def has_any_function_defs(file_path: Path) -> bool:
@@ -403,146 +367,6 @@ def module_has_prefix(module: str, prefixes: Sequence[str]) -> bool:
     return any(module == p or module.startswith(p + ".") for p in prefixes)
 
 
-def imports_any(file_path: Path, prefixes: list[str]) -> bool:
-    """Return True if file imports from any of the given module prefixes."""
-    tree = ast_parse_safe(file_path)
-    if not tree:
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            if module_has_prefix(node.module, prefixes):
-                return True
-        elif isinstance(node, ast.Import):
-            if any(module_has_prefix(alias.name, prefixes) for alias in node.names):
-                return True
-    return False
-
-
-def contract_coverage(model_names: list[str], dc_names: list[str]) -> tuple[list[str], list[str]]:
-    """Returns (covered, uncovered) model names.
-
-    Matches model names to frozen dataclass names using fuzzy matching:
-    exact match first, then strips common suffixes (Contract, Data, DTO, Out, etc.)
-    from the dataclass name and checks if it matches a model name.
-    """
-    dc_set = set(dc_names)
-    # Build a mapping of stripped-dc-name -> original dc name for fuzzy matching
-    stripped: dict[str, str] = {}
-    for dc in dc_names:
-        key = _CONTRACT_STRIP_RE.sub("", dc)
-        if key != dc:
-            stripped[key] = dc
-
-    covered: list[str] = []
-    uncovered: list[str] = []
-    for m in model_names:
-        if m in dc_set or m in stripped:
-            covered.append(m)
-        else:
-            uncovered.append(m)
-    return covered, uncovered
-
-
-def get_orm_bound_serializer_names(file_path: Path) -> list[str]:
-    """
-    Return names of serializer classes that still have a Meta.model binding.
-    These need to be reworked to accept/return contracts instead.
-    """
-    tree = ast_parse_safe(file_path)
-    if not tree:
-        return []
-    names: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        is_serializer = any(
-            (isinstance(b, ast.Name) and "Serializer" in b.id)
-            or (isinstance(b, ast.Attribute) and "Serializer" in b.attr)
-            for b in node.bases
-        )
-        if not is_serializer:
-            continue
-        for child in node.body:
-            if isinstance(child, ast.ClassDef) and child.name == "Meta":
-                for stmt in child.body:
-                    if isinstance(stmt, ast.Assign) and any(
-                        isinstance(t, ast.Name) and t.id == "model" for t in stmt.targets
-                    ):
-                        names.append(node.name)
-    return names
-
-
-def count_direct_orm_queries(path: Path) -> int:
-    """Count .objects attribute accesses (approximate — may include non-ORM uses).
-
-    Accepts a single file or a directory (package of ViewSet files).
-    """
-    return len(find_direct_orm_queries(path))
-
-
-def find_direct_orm_queries(path: Path) -> list[str]:
-    """Return file:line strings for every .objects attribute access under path.
-
-    Same approximation caveats as count_direct_orm_queries — may include non-ORM uses.
-    """
-    locations: list[str] = []
-    files = _collect_py_files(path)
-    base = path if path.is_dir() else path.parent
-    for f in files:
-        tree = ast_parse_safe(f)
-        if not tree:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr == "objects":
-                try:
-                    rel = f.relative_to(base)
-                except ValueError:
-                    rel = f
-                locations.append(f"{rel}:{node.lineno}")
-    return locations
-
-
-def view_facade_usage(views_path: Path) -> tuple[bool, bool]:
-    """
-    Returns (imports_facade, imports_models_directly).
-    Handles both relative (from ..facade import ...) and absolute imports.
-    Accepts a single file or a directory (package of ViewSet files).
-    """
-    files = _collect_py_files(views_path)
-    imports_facade = False
-    imports_models = False
-    for f in files:
-        tree = ast_parse_safe(f)
-        if not tree:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            parts = (node.module or "").split(".")
-            if "facade" in parts:
-                imports_facade = True
-            if "models" in parts or node.module == "models":
-                imports_models = True
-    return imports_facade, imports_models
-
-
-def count_viewset_files(directory: Path) -> int:
-    """Count Python files in a directory that define ViewSet classes."""
-    count = 0
-    for f in _collect_py_files(directory):
-        tree = ast_parse_safe(f)
-        if not tree:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and any(
-                ("ViewSet" in (b.id if isinstance(b, ast.Name) else b.attr if isinstance(b, ast.Attribute) else ""))
-                for b in node.bases
-            ):
-                count += 1
-                break
-    return count
-
-
 def import_from_module(node: ast.ImportFrom, package: str) -> str | None:
     """The absolute module an `ImportFrom` reads from, with relative forms resolved.
 
@@ -554,12 +378,3 @@ def import_from_module(node: ast.ImportFrom, package: str) -> str | None:
         return importlib.util.resolve_name("." * node.level + (node.module or ""), package)
     except ImportError:
         return None
-
-
-def _collect_py_files(path: Path) -> list[Path]:
-    """Return list of .py files — the file itself if a file, or all *.py in dir (non-recursive)."""
-    if path.is_file():
-        return [path]
-    if path.is_dir():
-        return [f for f in path.glob("*.py") if f.name != "__init__.py"]
-    return []

@@ -95,7 +95,7 @@ def cmd_lint_owners(names: tuple[str, ...]) -> None:
     lint_owners(list(names))
 
 
-@click.command(name="product:maturity", help="Score product maturity across isolation dimensions")
+@click.command(name="product:maturity", help="Score product maturity: models moved in, generated API client use")
 @click.argument("name", required=False)
 @click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
 @click.option("--codegen", "codegen_detail", is_flag=True, help="Show detailed codegen call-site analysis")

@@ -1044,7 +1044,7 @@ tools:
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
-        description: Score product maturity across isolation dimensions
+        description: 'Score product maturity: models moved in, generated API client use'
     tool:temporal-codec-server:
         bin_script: temporal-codec-server
         description: Run a local Temporal codec server to decode Fernet payloads for debugging
