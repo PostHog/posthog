@@ -262,18 +262,30 @@ describe('cloud controller', () => {
         })
     })
 
-    it('calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps', async () => {
-        const { controller } = prepare({
-            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
-            cloud: { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
-            env: api.credentials,
-        })
+    it.each<[string, { exitCode?: number }, string[]]>([
+        ['', {}, ['could not read the reader capacity']],
+        [
+            ' and keeps the failure reason of a failed runner',
+            { exitCode: 1 },
+            ['could not read the reader capacity', 'the runner saved a failed scorecard: the card ended failed'],
+        ],
+    ])(
+        'calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps%s',
+        async (_story, card, reasons) => {
+            const { controller } = prepare({
+                profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+                cloud: { card, liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
+                env: api.credentials,
+            })
 
-        await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(2)
+            await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(2)
 
-        expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'invalid' })
-        expect(published().status_reason).toContain('could not read the reader capacity')
-    })
+            expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'invalid' })
+            for (const reason of reasons) {
+                expect(published().status_reason).toContain(reason)
+            }
+        }
+    )
 
     it.each<[string, string | undefined, string, Setup]>([
         ['a card that does not exist', 'no-such-card', 'no-such-card is not a card at commit', {}],
