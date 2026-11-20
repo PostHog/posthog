@@ -1,12 +1,20 @@
+import { isDeepStrictEqual } from 'util'
 import { z } from 'zod'
 
 import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 
+import type { ResidentBacklog, ResidentRows } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { FollowUpAnswer, InvariantResult, JournalEntry } from './judge'
 
-export type JudgeEvidence = { journal: readonly JournalEntry[]; truth: readonly TruthRecord[]; fetchRetries: number }
+export type JudgeEvidence = {
+    journal: readonly JournalEntry[]
+    truth: readonly TruthRecord[]
+    fetchRetries: number
+    resident?: ResidentBacklog
+    janitorResets: number
+}
 
 export type InvariantDefinition = Definition & {
     check(evidence: JudgeEvidence, gate: number | undefined): Omit<InvariantResult, 'name'>
@@ -82,10 +90,12 @@ const withinGate = (observed: number, gate: number | undefined): boolean => obse
 
 const firstUnitIds = (unitIds: string[]): string[] => [...new Set(unitIds)].slice(0, EVIDENCE_UNIT_IDS)
 
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`
+
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth }, gate) => {
+    check: ({ truth, janitorResets }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
                 record: records[0],
@@ -94,10 +104,13 @@ export const duplicateSends: InvariantDefinition = {
             .filter(({ extra }) => extra > 0)
         const observed = duplicated.reduce((sum, { extra }) => sum + extra, 0)
         const [first] = duplicated
+        const allowed = `${plural(janitorResets, 'job')} the janitor reset${gate ? ` plus a gate of ${gate}` : ''}`
+        const why = `${plural(observed, 'duplicate')} against ${allowed}`
         return {
-            passed: withinGate(observed, gate),
+            passed: observed <= janitorResets + (gate ?? 0),
             observed,
-            violation: first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times`,
+            violation:
+                first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times; ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
         }
     },
@@ -122,6 +135,71 @@ export const refusedAtIntake: InvariantDefinition = {
             unitIds: firstUnitIds(refused.map(({ unitId }) => unitId)),
         }
     },
+}
+
+export const residentBacklogIntact: InvariantDefinition = {
+    name: 'resident_backlog_intact',
+    params: z.object({}).strict(),
+    check: ({ resident }) => {
+        if (resident?.seeded === undefined) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: 'no resident backlog was seeded; run seed-backlog with this profile first',
+                unitIds: [],
+            }
+        }
+        const { name, backlog } = resident.profile
+        if (resident.seeded.profile !== name) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: `the resident backlog was seeded for profile ${resident.seeded.profile}; run seed-backlog with profile ${name} first`,
+                unitIds: [],
+            }
+        }
+        if (!isDeepStrictEqual(resident.seeded.backlog, backlog)) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: `the resident backlog was seeded from another backlog than profile ${name} holds; run seed-backlog with it again`,
+                unitIds: [],
+            }
+        }
+        const keyOf = ({ teamId, queue, status }: ResidentRows): string => `team ${teamId} ${queue} ${status}`
+        const seeded = new Map(resident.seeded.rows.map((row) => [keyOf(row), row]))
+        const found = new Map(resident.found.map((row) => [keyOf(row), row]))
+        const none = { rows: 0, transitions: 0, stateBytes: 0 }
+        const changed = [...new Set([...seeded.keys(), ...found.keys()])]
+            .sort()
+            .map((key) => ({ key, expected: seeded.get(key) ?? none, actual: found.get(key) ?? none }))
+            .map(({ key, expected, actual }) => ({
+                key,
+                expected,
+                actual,
+                touched: Math.max(
+                    Math.abs(expected.rows - actual.rows),
+                    Math.abs(expected.transitions - actual.transitions),
+                    expected.stateBytes === actual.stateBytes ? 0 : 1
+                ),
+            }))
+            .filter(({ touched }) => touched > 0)
+        const [first] = changed
+        return {
+            passed: changed.length === 0,
+            observed: changed.reduce((sum, { touched }) => sum + touched, 0),
+            violation: first && residentViolation(first.key, first.expected, first.actual),
+            unitIds: [],
+        }
+    },
+}
+
+type ResidentContent = Pick<ResidentRows, 'rows' | 'transitions' | 'stateBytes'>
+
+function residentViolation(key: string, expected: ResidentContent, actual: ResidentContent): string {
+    return expected.rows !== actual.rows
+        ? `${key}: expected ${expected.rows} rows, found ${actual.rows}`
+        : `${key}: the rows changed in place, expected ${expected.transitions} transitions and ${expected.stateBytes} state bytes, found ${actual.transitions} and ${actual.stateBytes}`
 }
 
 const SUPPRESSED = { status: 422, outcome: 'recipient_suppressed' }
@@ -187,4 +265,10 @@ export const bouncedSuppressed: InvariantDefinition = {
     },
 }
 
-export const INVARIANTS: InvariantDefinition[] = [atLeastOnce, duplicateSends, refusedAtIntake, bouncedSuppressed]
+export const INVARIANTS: InvariantDefinition[] = [
+    atLeastOnce,
+    duplicateSends,
+    refusedAtIntake,
+    bouncedSuppressed,
+    residentBacklogIntact,
+]

@@ -12,13 +12,12 @@ import { SessionRecordingId, SessionRecordingType } from '~/types'
 
 import type {
     AnnotationType,
-    PersonType,
     RecordingSnapshot,
     SessionRecordingSnapshotSource,
     TeamPublicType,
     TeamType,
 } from '../../../types'
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { LoadedSessionRecordingFile } from '../file-playback/types'
 
 export interface SessionRecordingMetaLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -91,12 +90,8 @@ export interface sessionRecordingMetaLogicActions {
     setSnapshots: (snapshots: import('@common/replay-shared/src').RecordingSnapshot[]) => {
         snapshots: RecordingSnapshot[]
     } // snapshotLogic
-    loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => {
-        recording: {
-            id: string
-            person: PersonType | undefined
-            snapshots: RecordingSnapshot[]
-        }
+    loadRecordingFromFile: (recording: LoadedSessionRecordingFile) => {
+        recording: LoadedSessionRecordingFile
     }
     loadRecordingMeta: () => {
         value: true
@@ -181,7 +176,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
     }),
     actions({
         loadRecordingMeta: true,
-        loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
+        loadRecordingFromFile: (recording: LoadedSessionRecordingFile) => ({ recording }),
         maybeLoadRecordingMeta: true,
         setTrackedWindow: (windowId: number | null) => ({ windowId }),
     }),
@@ -231,7 +226,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
-        loadRecordingFromFile: ({ recording }: { recording: ExportedSessionRecordingFileV2['data'] }) => {
+        loadRecordingFromFile: ({ recording }: { recording: LoadedSessionRecordingFile }) => {
             const { id, snapshots, person } = recording
             actions.setSnapshots(snapshots)
             actions.loadRecordingMetaSuccess({

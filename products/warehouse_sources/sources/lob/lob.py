@@ -1,8 +1,7 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -12,6 +11,7 @@ from products.warehouse_sources.sources.lob.settings import LOB_ENDPOINTS, LobEn
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -28,11 +28,15 @@ class LobRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass(frozen=False)
+@frozen
 class LobResumeConfig:
     # The fully-formed `next_url` returned by Lob (already carries `limit` and the `after` cursor).
     # None means "start from the first page".
     next_url: str | None = None
+    # Fan-out endpoints only: the parent list page and the parent row in progress. With `next_url`
+    # unset, that parent is finished and the walk continues with the parent after it.
+    parent_url: str | None = None
+    parent_id: str | None = None
 
 
 def _format_date_filter_value(value: Any) -> str:
@@ -78,9 +82,11 @@ def _build_initial_url(
     config: LobEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    parent_id: str | None = None,
 ) -> str:
+    path = config.path.format(parent_id=quote(parent_id, safe="")) if parent_id is not None else config.path
     if config.pagination == "none":
-        return f"{LOB_BASE_URL}{config.path}"
+        return f"{LOB_BASE_URL}{path}"
 
     params: dict[str, str] = {"limit": str(PAGE_SIZE)}
 
@@ -93,7 +99,7 @@ def _build_initial_url(
         if should_use_incremental_field and db_incremental_field_last_value:
             params["date_created[gt]"] = _format_date_filter_value(db_incremental_field_last_value)
 
-    return f"{LOB_BASE_URL}{config.path}?{_build_query_string(params)}"
+    return f"{LOB_BASE_URL}{path}?{_build_query_string(params)}"
 
 
 def _next_offset_url(url: str, page_item_count: int) -> str | None:
@@ -105,6 +111,20 @@ def _next_offset_url(url: str, page_item_count: int) -> str | None:
     params = dict(parse_qsl(parts.query))
     params["offset"] = str(int(params.get("offset", "0")) + page_item_count)
     return f"{parts.scheme}://{parts.netloc}{parts.path}?{_build_query_string(params)}"
+
+
+def _next_page_url(
+    config: LobEndpointConfig, url: str, data: dict[str, Any] | list[dict[str, Any]], page_item_count: int
+) -> str | None:
+    if config.pagination == "none" or isinstance(data, list):
+        return None
+    if config.pagination == "offset":
+        return _next_offset_url(url, page_item_count)
+    return data.get("next_url") or None
+
+
+def _page_items(data: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return data if isinstance(data, list) else data.get("data", [])
 
 
 def _get_headers() -> dict[str, str]:
@@ -173,18 +193,13 @@ def get_rows(
     while url:
         data = _fetch_page(session, url, api_key, headers, logger)
 
-        items = data if isinstance(data, list) else data.get("data", [])
+        items = _page_items(data)
         if not items:
             break
 
         yield items
 
-        if config.pagination == "none" or isinstance(data, list):
-            next_url = None
-        elif config.pagination == "offset":
-            next_url = _next_offset_url(url, len(items))
-        else:
-            next_url = data.get("next_url") or None
+        next_url = _next_page_url(config, url, data, len(items))
 
         # Defence-in-depth for incremental endpoints: Lob's `next_url` carries only `limit` + `after`,
         # so if the server were to stop honouring the ascending sort on later pages, the cursor could
@@ -208,6 +223,68 @@ def get_rows(
         url = next_url
 
 
+def get_fan_out_rows(
+    api_key: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LobResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    config = LOB_ENDPOINTS[endpoint]
+    parent_id_field = config.parent_id_field
+    if config.parent is None or parent_id_field is None:
+        raise ValueError(f"Lob endpoint {endpoint} is not a fan-out endpoint")
+    parent_config = LOB_ENDPOINTS[config.parent]
+    headers = _get_headers()
+    session = make_tracked_session()
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.parent_url:
+        parent_url: str | None = resume.parent_url
+        logger.debug(f"Lob: resuming fan-out from parent page: {parent_url}")
+    else:
+        parent_url = _build_initial_url(parent_config, False, None)
+
+    while parent_url:
+        parent_data = _fetch_page(session, parent_url, api_key, headers, logger)
+        parents = _page_items(parent_data)
+        parent_ids = [str(parent["id"]) for parent in parents if parent.get("id")]
+
+        first_child_url: str | None = None
+        if resume is not None:
+            # A parent deleted since the hand-off is no longer on the page, so the page restarts.
+            if resume.parent_id in parent_ids:
+                index = parent_ids.index(resume.parent_id)
+                if resume.next_url:
+                    parent_ids = parent_ids[index:]
+                    first_child_url = resume.next_url
+                else:
+                    parent_ids = parent_ids[index + 1 :]
+            resume = None
+
+        for parent_id in parent_ids:
+            child_url: str | None = first_child_url or _build_initial_url(config, False, None, parent_id=parent_id)
+            first_child_url = None
+
+            while child_url:
+                data = _fetch_page(session, child_url, api_key, headers, logger)
+                items = _page_items(data)
+                next_child_url = _next_page_url(config, child_url, data, len(items)) if items else None
+
+                resumable_source_manager.save_state(
+                    LobResumeConfig(next_url=next_child_url, parent_url=parent_url, parent_id=parent_id)
+                )
+                if items:
+                    for item in items:
+                        item[parent_id_field] = parent_id
+                    yield items
+                else:
+                    resumable_source_manager.safe_point()
+
+                child_url = next_child_url
+
+        parent_url = _next_page_url(parent_config, parent_url, parent_data, len(parents)) if parents else None
+
+
 def lob_source(
     api_key: str,
     endpoint: str,
@@ -220,13 +297,22 @@ def lob_source(
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
+        items=lambda: (
+            get_fan_out_rows(
+                api_key=api_key,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            )
+            if endpoint_config.parent
+            else get_rows(
+                api_key=api_key,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
         ),
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,

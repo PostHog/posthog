@@ -248,7 +248,7 @@ class DeliveryUnavailable(Exception):
 
 
 class SendWarningCode(LabeledStrEnum):
-    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 
 
 @frozen
@@ -259,6 +259,11 @@ class SendWarning:
     agent_action: str
 
 
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 @frozen
 class QueuedEmail:
     message_id: str
@@ -267,6 +272,10 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
+    # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
+    scheduled_at: str | None = None
+    sent_from_sandbox: bool = False
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
@@ -330,10 +339,20 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
+class EmailSendStatus(LabeledStrEnum):
+    SCHEDULED = "scheduled", "Scheduled"
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
 @frozen
 class EmailStatus:
     message_id: str
-    status: EmailDeliveryStatus
+    status: EmailSendStatus
     created_at: datetime
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
@@ -369,6 +388,7 @@ class TransactionalEmailLogEntry:
     template_id: str | None
     # Empty when the template was deleted.
     template_name: str
+    code_email_id: str | None
     sending_domain: str
     opened: bool
     clicked: bool
@@ -430,6 +450,8 @@ class TransactionalEmailStatsRow:
     # The template id or the sending domain.
     key: str
     label: str
+    template_id: str | None
+    code_email_id: str | None
     sent: int
     delivered: int
     bounced: int
@@ -446,6 +468,25 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class TransactionalEmailConversions:
+    sends: int
+    converted: int
+
+
+@frozen
+class TransactionalEmailImpact:
+    sent: int
+    delivered: int
+    opened: int
+    clicked: int
+    not_clicked: int
+    untracked: int
+    window_days: int
+    after_click: TransactionalEmailConversions | None
+    without_click: TransactionalEmailConversions | None
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):
@@ -536,3 +577,35 @@ class TransactionalEmailActivity:
     has_more_before: bool
     has_more_after: bool
     sessions: list[TransactionalEmailActivitySession]
+
+
+@frozen
+class WorkflowEmailSend:
+    """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
+
+    # A run can send several emails, so a send is its run and the step that sent it.
+    invocation_id: str
+    action_id: str
+    workflow_id: str
+    distinct_id: str
+    recipient: str
+    # Empty for a sensitive template, whose events leave the subject out.
+    subject: str
+    sent_at: datetime
+    status: EmailDeliveryStatus
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class WorkflowEmailPage:
+    sends: list[WorkflowEmailSend]
+    has_more: bool
+    # The events only exist while the team records engagement events.
+    engagement_events_enabled: bool
+
+
+@frozen
+class WorkflowEmailDetail:
+    send: WorkflowEmailSend
+    timeline: list[TransactionalEmailLogEvent]

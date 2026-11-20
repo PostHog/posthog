@@ -5,11 +5,8 @@ import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea } from '@posthog/l
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Link } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
@@ -89,24 +86,6 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
                 </div>
             )}
         </div>
-    )
-}
-
-export function FlagsSecureApiKeys(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    const hasLegacyKey = !!(currentTeam?.secret_api_token || currentTeam?.secret_api_token_backup)
-
-    return (
-        <LemonBanner type="warning">
-            <p className="mb-1">
-                The feature flags secure API key is deprecated. Create a <strong>project secret API key</strong> with
-                the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset) instead. It's
-                hashed at rest, scoped, and rotatable.
-                {hasLegacyKey && ' Your existing key keeps working, but it can no longer be viewed or rotated here.'}
-            </p>
-            <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
-        </LemonBanner>
     )
 }
 

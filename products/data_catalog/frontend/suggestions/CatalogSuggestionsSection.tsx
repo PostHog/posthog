@@ -6,6 +6,7 @@ import { Button, Empty, EmptyContent, EmptyHeader, EmptyTitle, Skeleton, Text } 
 import { QuillBulkAcceptSuggestionsDialog } from 'products/warehouse_suggestions/frontend/components/QuillBulkAcceptSuggestionsDialog'
 import { QuillBulkDismissSuggestionsDialog } from 'products/warehouse_suggestions/frontend/components/QuillBulkDismissSuggestionsDialog'
 import { QuillDeprecateSuggestionModal } from 'products/warehouse_suggestions/frontend/components/QuillDeprecateSuggestionModal'
+import { QuillDismissSuggestionDialog } from 'products/warehouse_suggestions/frontend/components/QuillDismissSuggestionDialog'
 import { QuillMaterializeSuggestionModal } from 'products/warehouse_suggestions/frontend/components/QuillMaterializeSuggestionModal'
 import { QuillSuggestedModelsGroups } from 'products/warehouse_suggestions/frontend/components/QuillSuggestedModelsGroups'
 import { QuillSuggestionsReadsNote } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsReadsNote'
@@ -63,6 +64,7 @@ function SuggestionsList(): JSX.Element {
                                 windowDays={status?.window_days ?? 0}
                                 renderSelection={(suggestion) => <CatalogSuggestionCheckbox suggestion={suggestion} />}
                                 renderGroupSelection={(group) => <CatalogSuggestionsGroupCheckbox group={group} />}
+                                assigneeColumn
                             />
                         </div>
                     ) : (
@@ -97,6 +99,7 @@ function SuggestionsContent(): JSX.Element {
             <QuillMaterializeSuggestionModal />
             <QuillUnmaterializeSuggestionModal />
             <QuillDeprecateSuggestionModal />
+            <QuillDismissSuggestionDialog />
             <QuillBulkAcceptSuggestionsDialog />
             <QuillBulkDismissSuggestionsDialog />
         </>

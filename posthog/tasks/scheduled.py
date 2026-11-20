@@ -13,12 +13,12 @@ from posthog.cloud_utils import is_hobby
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
-from posthog.tasks.email import (
-    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_hog_functions_daily_digest,
-    send_matview_failure_digest,
+from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
+    finalize_cohort_backfill_runs,
+    publish_cohort_backfill_run_gauges,
 )
+from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -81,7 +82,12 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.aeo.backend.facade.tasks import (
+    refresh_aeo_stored_results_task,
+    run_aeo_citation_checks_task,
+    score_aeo_sentiment_backlog_task,
+)
+from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -96,10 +102,10 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
+    send_matview_failure_digest,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -121,12 +127,15 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
+from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
+from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -166,13 +175,13 @@ from products.visual_review.backend.facade.tasks import (
     sweep_visual_review_runs,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
-from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    check_ses_sender_health,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recheck_pending_email_senders,
@@ -290,10 +299,29 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="41"), close_stale_provider_import_runs.s(), name="close stale provider import runs"
+    )
+    # Precomputed metrics for dashboard tiles: fill forward, backfill a day, drop what is past retention.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_metrics_precompute_fills.s(),
+        name="fill metrics precomputed metrics",
+        expires_seconds=5 * 60,
+    )
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="23"),
@@ -302,6 +330,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_ineligible_dev_token_owners.s(),
+        name="ai-gateway-revoke-ineligible-dev-tokens",
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
@@ -443,6 +477,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune expired signals scratchpad entries",
     )
 
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
+    )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -556,13 +598,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/5"),
-        sweep_web_analytics_achievement_team_tracks.s(),
-        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week
@@ -869,13 +904,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recover stuck canvas builds",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        backfill_metric_embeddings_task.s(),
-        name="backfill catalog metric embeddings",
-    )
-
     sender.add_periodic_task(
         crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
@@ -1121,6 +1149,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="0"),
         recheck_pending_email_senders.s(),
         name="workflows pending email sender recheck",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="23"),
+        check_ses_sender_health.s(),
+        name="workflows ses sender health check",
     )
 
     add_periodic_task_with_expiry(
@@ -1403,6 +1438,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="publish cohort backfill run gauges",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        dispatch_static_cohort_reconciliations.s(),
+        name="dispatch static cohort reconciliations",
+    )
+
     # Poll PandaDoc for legal documents we still think are unsigned and archive
     # any signed PDFs that missed their webhook — the safety net that recovers
     # dropped completion webhooks and the current signed-but-stuck backlog.
@@ -1438,4 +1480,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # Under the dispatch interval, so a backed-up queue drops the stale dispatch
         # instead of the next one finding it still queued.
         expires_seconds=50 * 60,
+    )
+    # A pass still scoring absorbs the next dispatch, so passes never overlap.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        score_aeo_sentiment_backlog_task.s(),
+        name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
+    )
+    # More often than a stored result lives, so the views the page opens on are always stored.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_aeo_stored_results_task.s(),
+        name="AEO stored results refresh",
+        expires_seconds=9 * 60,
     )

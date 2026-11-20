@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceInputs,
     SourceResponse,
     build_dependent_resource,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     parse_datetime_value,
@@ -40,11 +42,6 @@ class CriteoResumeConfig:
     fanout_state: dict[str, Any] | None = None
     next_day: str | None = None
     end_day: str | None = None
-
-
-def flatten_entity(row: dict[str, Any]) -> dict[str, Any]:
-    attributes = row.get("attributes") or {}
-    return {**attributes, **{key: value for key, value in row.items() if key != "attributes"}}
 
 
 def report_start_date(config: CriteoSourceConfig) -> date:
@@ -207,7 +204,7 @@ class CriteoClient:
                 resume_hook=save_fanout,
                 initial_paginator_state=resume.fanout_state if resume else None,
             )
-            return cast(Resource, child).add_map(flatten_entity)
+            return cast(Resource, child).add_map(functools.partial(flatten_jsonapi, relationships_as_ids=False))
 
         def save_offset(state: dict[str, Any] | None) -> None:
             # Full refresh resumes append rows, so a terminal checkpoint prevents a duplicate final page.
@@ -227,7 +224,7 @@ class CriteoClient:
             None,
             resume_hook=save_offset,
             initial_paginator_state={"offset": resume.offset} if resume and resume.offset is not None else None,
-        ).add_map(flatten_entity)
+        ).add_map(functools.partial(flatten_jsonapi, relationships_as_ids=False))
 
     def validate(self, schema_name: str | None) -> None:
         self.auth(Request("GET", BASE_URL).prepare())

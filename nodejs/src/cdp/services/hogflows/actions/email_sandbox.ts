@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
-import { EmailStatusService, isTransactionalEmailRun } from '../../messaging/email-status.service'
+import { EmailStatusService, isTransactionalEmailRun, messageCreatedAtOf } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
@@ -76,7 +76,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
         }
         const stepResult = await this.testClient.send({ ...options, action })
         if (mocked && stepResult.status === 'accepted') {
-            this.log(options, 'Mocked the sandbox email send')
+            this.log(options, 'Mocked the send from the PostHog test sender')
         }
         return this.finish(options, stepResult)
     }
@@ -131,8 +131,8 @@ export class SandboxEmailActionHandler implements ActionHandler {
         this.log(
             options,
             stepResult.status === 'accepted'
-                ? 'Sandbox email accepted for delivery'
-                : `Sandbox email was not sent (${stepResult.status}): ${stepResult.reason}`
+                ? 'The PostHog test sender accepted the email for delivery'
+                : `The PostHog test sender didn't send the email (${stepResult.status}): ${stepResult.reason}`
         )
         return { result: stepResult, nextAction: findContinueAction(options.invocation) }
     }
@@ -148,7 +148,9 @@ export class SandboxEmailActionHandler implements ActionHandler {
             teamId: invocation.teamId,
             messageId: invocation.id,
             status: outcome === 'accepted' ? 'sent' : 'failed',
-            reason,
+            // The PostHog test sender adds no open or click tracking, so every email it sends is untracked.
+            reason: outcome === 'accepted' ? 'untracked' : reason,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
     }
 
@@ -166,7 +168,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 }
 
 function failureMessage(reason: string | undefined): string {
-    return (reason && FAILURE_MESSAGES[reason]) ?? `Sandbox email was not sent: ${reason}`
+    return (reason && FAILURE_MESSAGES[reason]) ?? `The PostHog test sender didn't send the email: ${reason}`
 }
 
 function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): SandboxEmailStepResult {

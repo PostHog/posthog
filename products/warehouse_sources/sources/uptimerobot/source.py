@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.uptimerobot._config import UptimerobotSourceConfig
 from products.warehouse_sources.sources.uptimerobot.settings import (
+    DAILY_UPTIME_INITIAL_LOOKBACK_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
@@ -113,6 +114,16 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
                     f"Response-time samples per monitor, fetched in 7-day windows. "
                     f"Only syncs the last {RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS} days on initial sync"
                 )
+            if endpoint == "monitor_daily_uptime":
+                return (
+                    f"Uptime percentage, downtime and incident count per monitor per finished UTC day. "
+                    f"Syncs the last {DAILY_UPTIME_INITIAL_LOOKBACK_DAYS} days on initial sync and on full refresh"
+                )
+            if endpoint in ("incident_alerts", "incident_activity_log"):
+                return (
+                    "Read for each incident. Incremental syncs only revisit incidents that are ongoing or "
+                    "resolved after the last synced entry, so a comment added later needs a full refresh"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -158,4 +169,5 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

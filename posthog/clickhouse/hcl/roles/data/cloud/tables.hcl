@@ -1243,6 +1243,6 @@ database "posthog" {
   }
 
   patch_table "writable_session_replay_events" {
-    drop_columns = ["ai_highlighted", "ai_tags_fixed", "ai_tags_freeform", "surfacing_score"]
+    drop_columns = ["ai_highlighted", "ai_tags_fixed", "ai_tags_freeform"]
   }
 }

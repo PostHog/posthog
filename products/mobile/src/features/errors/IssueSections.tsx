@@ -2,8 +2,10 @@ import { Fragment, type ReactElement, type ReactNode } from 'react'
 import type { LayoutChangeEvent } from 'react-native'
 import { Text, View } from 'react-native'
 
-import type { ErrorsWindow, IssueReleaseApi } from '@/api/errorTracking'
-import { Sparkline } from '@/ui/chart/Sparkline'
+import type { ErrorsWindow, IssueReleaseApi, IssueSort } from '@/api/errorTracking'
+import { ChangePill } from '@/features/views/DeltaPill'
+import { groupThousands } from '@/model/adapters/text'
+import { SparkBars } from '@/ui/chart/SparkBars'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { IconTile } from '@/ui/IconTile'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
@@ -22,16 +24,19 @@ import { IssueBadgePill, StatusChip } from './IssueBadges'
 import {
     agoPhrase,
     type BreakdownRow,
+    ISSUE_STATS,
     type IssueAssignee,
     type IssueBadge,
     type IssueFrame,
     type SessionSample,
+    STAT_LABELS,
+    statText,
     type TrendCaption,
 } from './issueModel'
 
 const WINDOWS: readonly ErrorsWindow[] = ['24h', '7d']
 const WINDOW_SHORT: Record<ErrorsWindow, string> = { '24h': 'last 24h', '7d': 'last 7d' }
-const CHART_LABEL: Record<ErrorsWindow, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days' }
+const CHART_HEIGHT = 72
 const CHART_START: Record<ErrorsWindow, string> = { '24h': '24h ago', '7d': '7d ago' }
 
 export function Section({
@@ -192,11 +197,7 @@ export function ImpactSection({
 }: ImpactSectionProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const tiles: [string, number | null][] = [
-        ['Users', users],
-        ['Sessions', sessions],
-        ['Occurrences', occurrences],
-    ]
+    const values: Record<IssueSort, number | null> = { users, sessions, occurrences }
     return (
         <Section
             title="Impact"
@@ -217,33 +218,66 @@ export function ImpactSection({
             }
         >
             <View style={styles.tiles}>
-                {tiles.map(([label, value]) => (
-                    <View key={label} style={styles.tile} testID={`issue-impact-${label.toLowerCase()}`}>
-                        <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-                            {value === null ? (loading ? '…' : '0') : value.toLocaleString()}
-                        </Text>
-                        <Text style={styles.tileLabel} numberOfLines={1}>
-                            {label}
-                        </Text>
-                        <Text style={styles.tileWindow}>{WINDOW_SHORT[window]}</Text>
-                    </View>
-                ))}
+                {ISSUE_STATS.map((stat) => {
+                    const value = values[stat]
+                    // A failed read has no numbers, and 0 would claim that nobody saw the error.
+                    const text = value === null ? (loading ? '…' : '–') : statText(stat, value)
+                    const notRecorded = stat === 'sessions' && value !== null && value <= 0
+                    const spoken =
+                        value === null
+                            ? loading
+                                ? 'loading'
+                                : 'unavailable'
+                            : notRecorded
+                              ? 'not recorded'
+                              : groupThousands(value)
+                    return (
+                        <View
+                            key={stat}
+                            style={styles.tile}
+                            accessible
+                            accessibilityLabel={`${STAT_LABELS[stat]}: ${spoken}, ${WINDOW_SHORT[window]}`}
+                            testID={`issue-impact-${stat}`}
+                        >
+                            <Text
+                                style={[styles.tileValue, (value === null || notRecorded) && styles.tileValueNone]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                            >
+                                {text}
+                            </Text>
+                            <Text style={styles.tileLabel} numberOfLines={1}>
+                                {STAT_LABELS[stat]}
+                            </Text>
+                            <Text style={[styles.tileWindow, notRecorded && styles.tileNote]}>
+                                {notRecorded ? 'not recorded' : WINDOW_SHORT[window]}
+                            </Text>
+                        </View>
+                    )
+                })}
             </View>
             {volume.length > 1 ? (
                 <View style={styles.card} testID="issue-volume">
                     <View style={styles.cardHead}>
-                        <Text style={styles.cardLabel}>{CHART_LABEL[window]}</Text>
+                        <Text style={styles.cardLabel}>Occurrences</Text>
                         {caption ? (
-                            <Text style={[styles.caption, caption.rising && styles.captionRising]}>{caption.text}</Text>
+                            <ChangePill
+                                direction={caption.arrow}
+                                text={caption.short}
+                                accessibilityLabel={caption.text}
+                                testID="issue-trend"
+                            />
                         ) : null}
                     </View>
-                    <Sparkline
-                        values={volume}
-                        highlightFrom={highlightFrom ?? 0}
-                        color={highlightFrom === null ? colors.muted : colors.orange}
-                        width="100%"
-                        height={72}
-                    />
+                    <View style={styles.chart}>
+                        <SparkBars
+                            values={volume}
+                            height={CHART_HEIGHT}
+                            color={colors.disabled}
+                            highlightColor={colors.orange}
+                            highlightFrom={highlightFrom}
+                        />
+                    </View>
                     <View style={styles.axis}>
                         <Text style={styles.axisText}>{CHART_START[window]}</Text>
                         <Text style={styles.axisText}>Now</Text>
@@ -600,9 +634,15 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.metaSmall,
         color: colors.ink,
     },
+    tileValueNone: {
+        color: colors.secondary,
+    },
     tileWindow: {
         ...type.monoSmall,
         color: colors.tertiary,
+    },
+    tileNote: {
+        color: colors.secondary,
     },
     card: {
         borderRadius: radii.card,
@@ -624,13 +664,9 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.metaSmall,
         color: colors.secondary,
     },
-    caption: {
-        ...type.metaSmall,
-        fontWeight: '600',
-        color: colors.secondary,
-    },
-    captionRising: {
-        color: colors.orange,
+    chart: {
+        paddingTop: 4,
+        paddingHorizontal: 14,
     },
     axis: {
         flexDirection: 'row',

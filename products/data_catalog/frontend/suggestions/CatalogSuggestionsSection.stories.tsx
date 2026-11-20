@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
@@ -83,7 +85,7 @@ const MIXED_SUGGESTIONS = [
         refresh_interval_basis: 'source_sync',
         refresh_mode: 'full',
     }),
-    suggestion('2', 'certify', 'stripe_charges'),
+    { ...suggestion('2', 'certify', 'stripe_charges'), assignee: MOCK_DEFAULT_USER },
     suggestion('3', 'deprecate', 'old_marketing_rollup', {
         materialized: true,
         refresh_seconds_per_month: 2700,

@@ -190,6 +190,7 @@ from posthog.schema_enums import (
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
+    LLMDetectorModel as LLMDetectorModel,
     LogPropertyFilterType as LogPropertyFilterType,
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
@@ -240,6 +241,7 @@ from posthog.schema_enums import (
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
     MetricsQueryLanguage as MetricsQueryLanguage,
+    MetricsQueryProvenanceMode as MetricsQueryProvenanceMode,
     MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
@@ -372,6 +374,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
+    YAxisPosition2 as YAxisPosition2,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -2029,6 +2032,27 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class ForecastSideRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    min_absolute_change: float | None = Field(
+        default=None,
+        description=("The value is at least this far from the expected value, in the series' units"),
+    )
+    min_relative_change: float | None = Field(
+        default=None,
+        description=("The value is at least this fraction away from the expected value. 1 = 100%"),
+    )
+    quantile: float | None = Field(
+        default=None,
+        description=(
+            "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps"
+            " of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+        ),
+    )
+
+
 class FormDismissPayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2190,17 +2214,6 @@ class IntegrationFilter(BaseModel):
         default=None,
         description=("Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"),
     )
-
-
-class LLMDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instructions: constr(max_length=2000) | None = Field(
-        default=None,
-        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
-    )
-    type: Literal["llm"] = "llm"
 
 
 class LLMSentimentMessage(BaseModel):
@@ -3434,6 +3447,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3443,6 +3457,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3454,6 +3469,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class RetentionValue(BaseModel):
@@ -4104,6 +4120,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,
@@ -6504,6 +6526,21 @@ class FileSystemImport(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class ForecastDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    above: ForecastSideRule | None = Field(
+        default=None,
+        description="Rule for a value higher than expected. Omit to ignore that side.",
+    )
+    below: ForecastSideRule | None = Field(
+        default=None,
+        description="Rule for a value lower than expected. Omit to ignore that side.",
+    )
+    type: Literal["forecast"] = "forecast"
+
+
 class FormResumePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6565,6 +6602,7 @@ class HeatmapSettings(BaseModel):
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
+    xAxisSortOrder: HeatmapSortOrder | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
 
@@ -6688,6 +6726,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -6707,7 +6751,9 @@ class HogQLQueryModifiers(BaseModel):
             "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate"
             " into the joined persons subquery, so the latest-version lookup only reads"
             " persons that the outer query's left-table filters can reach. Applies only"
-            " to a persons join from the query's own FROM table."
+            " to a persons join from the query's own FROM table. Unset, it applies to a"
+            " persons join from `posthog.flag_evaluations` or from the union of events"
+            " and flag_evaluations, and to no other join."
         ),
     )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
@@ -6760,11 +6806,11 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Read events from the native JSON events table (`true`) or the legacy"
-            " events table (`false`). When unset, a staff person's"
-            " `ph_new_events_schema` cookie applies, then the project's listing in the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an"
-            " internal rollout switch, and the project settings API ignores it."
+            " events table (`false`). When unset, a staff person's tab switch or"
+            " `ph_new_events_schema` cookie applies, then the project. A project reads"
+            " the native table once PostHog has moved it there. Before that, it can opt"
+            " in early by storing `true` here in its project settings. A stored `false`"
+            " is ignored."
         ),
     )
     usePreaggregatedIntermediateResults: bool | None = None
@@ -6835,6 +6881,24 @@ class InsightThreshold(BaseModel):
             "Whether bounds are compared as absolute values or as percentage change from the previous interval."
         ),
     )
+
+
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: constr(max_length=2000) | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    model: LLMDetectorModel | None = Field(
+        default=None,
+        description=(
+            "The model that judges each check: claude-haiku-5-5 or gpt-6-luna."
+            " Optional. When it is not set, the alert uses claude-haiku-5-5."
+        ),
+    )
+    type: Literal["llm"] = "llm"
 
 
 class LLMTrace(BaseModel):
@@ -7348,6 +7412,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adTable: str | None = Field(
+        default=None,
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
+    )
     campaignConversionActionTable: str | None = Field(
         default=None,
         description="Google Ads daily campaign conversions split by conversion action.",
@@ -7676,6 +7744,14 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Omit to get one line per series (at most 100), without combining them"),
     )
+    apdexThresholdMs: float | None = Field(
+        default=None,
+        description=(
+            "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a"
+            " request is satisfied at or under T and tolerating up to 4T. Defaults to"
+            " 500."
+        ),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -7699,6 +7775,18 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsQueryProvenance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: MetricsQueryProvenanceMode
+    precomputedUntil: str | None = Field(
+        default=None,
+        description=("Buckets before this time came from precomputed metrics. Absent when no clause read them."),
+    )
+    reasons: list[str] | None = Field(default=None, description="Why clauses ran raw, one per clause.")
 
 
 class MetricsVariableValue(BaseModel):
@@ -10217,6 +10305,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
         ),
+    )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description=("Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts."),
     )
     goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
         default=None, description="Horizontal goal lines drawn across the chart."
@@ -15532,6 +15624,7 @@ class CachedMetricsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    provenance: MetricsQueryProvenance | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18049,6 +18142,10 @@ class ChartSettings(BaseModel):
         default=None,
         description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
     )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description="Color each X-axis category in single-series bar charts.",
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -18080,6 +18177,8 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     valueLabelBackground: bool | None = None
+    valueLabelBackgroundColor: str | None = None
+    valueLabelColor: str | None = None
     valueLabelFontSize: float | None = None
     valueLabelPosition: ValueLabelPosition | None = None
     valueLabelRotation: float | None = None
@@ -22405,6 +22504,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
@@ -22801,6 +22904,7 @@ class MetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26869,6 +26973,7 @@ class QueryResponseAlternative73(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -35187,10 +35292,6 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
-    recommended_only: bool | None = Field(
-        default=None,
-        description=("Restrict results to recordings above the replay relevance threshold."),
-    )
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(
@@ -36427,6 +36528,7 @@ class FunnelsFilter(BaseModel):
             " funnels."
         ),
     )
+    showSummaryOnDashboards: bool | None = False
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -36666,6 +36768,10 @@ class TraceSpansQuery(BaseModel):
             " from `rootSpans`, which scopes whole-trace selection. The single-trace"
             " waterfall never sets this."
         ),
+    )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
     )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
@@ -36949,6 +37055,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ]
 ):
     root: (
@@ -36966,6 +37073,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
@@ -37033,7 +37141,7 @@ class ErrorTrackingQuery(BaseModel):
     useQueryV2: bool | None = None
     useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-    volumeResolution: int
+    volumeResolution: conint(ge=0, le=200)
     withAggregations: bool | None = None
     withFirstEvent: bool | None = None
     withLastEvent: bool | None = None

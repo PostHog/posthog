@@ -37,7 +37,7 @@ export function QuillAddInsightToDashboardModal({
 }): JSX.Element {
     return (
         <Dialog open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
-            <DialogContent size="wide" className="max-w-215" data-attr="add-insight-to-dashboard-modal">
+            <DialogContent size="wide" className="w-215 grid-cols-1" data-attr="add-insight-to-dashboard-modal">
                 <DialogHeader>
                     <DialogTitle>Add insight to dashboard</DialogTitle>
                 </DialogHeader>

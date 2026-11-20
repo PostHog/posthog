@@ -794,7 +794,7 @@ export interface ErrorTrackingExternalReferenceCreateApi {
 }
 
 /**
- * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
  */
 export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
 
@@ -803,7 +803,7 @@ export interface ErrorTrackingExternalReferenceLinkApi {
     integration_id: number
     /** ID of the error tracking issue to link the reference to. */
     issue: string
-    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
     external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
 }
 
@@ -1181,6 +1181,29 @@ export interface ErrorTrackingIssueSummaryResponseApi {
     reason: IssueSummaryUnavailableReasonEnumApi | null
 }
 
+export interface PatchedErrorTrackingIssueTagWriteApi {
+    /**
+     * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+     * @maxLength 64
+     */
+    key?: string
+    /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+    applied?: boolean
+}
+
+export interface ErrorTrackingIssueTagCorrectionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+    /** Whether the tag is applied to the issue after the change. */
+    applied: boolean
+}
+
 /**
  * * `set_status` - set_status
  * * `assign` - assign
@@ -1492,6 +1515,8 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
+    /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
     /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -2265,6 +2290,8 @@ export interface ErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+    ai_issue_summaries_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2296,6 +2323,8 @@ export interface PatchedErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+    ai_issue_summaries_enabled?: boolean
 }
 
 /**
@@ -2712,6 +2741,121 @@ export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
 }
 
+export interface ErrorTrackingIssueTagRuleFilterGroupApi {
+    type: FilterLogicalOperatorApi
+    values: EventPropertyFilterApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleFiltersApi {
+    type: FilterLogicalOperatorApi
+    values: (ErrorTrackingIssueTagRuleFilterGroupApi | EventPropertyFilterApi)[]
+}
+
+/**
+ * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+ * @nullable
+ */
+export type ErrorTrackingIssueTagRuleApiDisabledData = {
+    readonly message?: string
+    readonly issue?: { [key: string]: unknown }
+    readonly properties?: { [key: string]: unknown }
+} | null
+
+export interface ErrorTrackingIssueTagRuleApi {
+    /** Unique identifier of the tag rule. */
+    readonly id: string
+    /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
+    readonly key: string
+    /**
+     * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+     * @maxLength 128
+     */
+    label: string
+    /** What the tag means. Shown with the tag. */
+    description: string
+    /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /** Starts at 1, and goes up by one each time the filters change. */
+    readonly version: number
+    /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
+    order_key: number
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+     * @nullable
+     */
+    readonly disabled_data: ErrorTrackingIssueTagRuleApiDisabledData
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface ErrorTrackingIssueTagRuleListResponseApi {
+    /** Tag rules in ascending order key. */
+    results: ErrorTrackingIssueTagRuleApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleCreateRequestApi {
+    /**
+     * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+     * @maxLength 128
+     */
+    label: string
+    /**
+     * What the tag means. Shown with the tag. Defaults to empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /**
+     * Position in the list of tag rules. Lower values come first. Defaults to 0.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+}
+
+export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+/**
+ * Mapping from tag rule UUID to its new order key.
+ */
+export type PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingIssueTagRuleReorderRequestApi {
+    /** Mapping from tag rule UUID to its new order key. */
+    orders?: PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders
+}
+
 export type ErrorTrackingAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -2766,7 +2910,7 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string
 }

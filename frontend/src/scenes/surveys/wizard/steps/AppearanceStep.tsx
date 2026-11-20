@@ -14,6 +14,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AvailableFeature, SurveyAppearance, SurveyPosition, SurveyQuestionType } from '~/types'
 
+import { reportSurveyThemeSelected } from 'products/surveys/frontend/surveyUsage'
+
 import {
     INTRO_SCREEN_PAGE_INDEX,
     NewSurvey,
@@ -22,6 +24,7 @@ import {
     defaultSurveyAppearance,
     getMatchingSurveyThemeId,
 } from '../../constants'
+import { useSiteThemeCard } from '../../survey-appearance/SiteThemeCard'
 import { SurveyBehaviorOptions } from '../../survey-appearance/SurveyBehaviorOptions'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
@@ -59,9 +62,17 @@ export function AppearanceStep(): JSX.Element {
     }
 
     const handleThemeSelect = (theme: SurveyTheme): void => {
+        reportSurveyThemeSelected(survey, theme.id)
         setSelectedThemeId(theme.id)
         onAppearanceChange(theme.appearance)
     }
+
+    const siteThemeCard = useSiteThemeCard({
+        survey,
+        appearance,
+        onSelectTheme: handleThemeSelect,
+        disabled: !surveysStylingAvailable,
+    })
 
     const previewSurvey: NewSurvey = {
         ...survey,
@@ -93,6 +104,7 @@ export function AppearanceStep(): JSX.Element {
                     selectedThemeId={selectedThemeId}
                     onSelectTheme={handleThemeSelect}
                     disabled={!surveysStylingAvailable}
+                    leadingCard={siteThemeCard}
                 />
 
                 {/* Color customization */}

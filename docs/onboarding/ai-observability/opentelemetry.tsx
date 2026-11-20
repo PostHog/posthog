@@ -36,21 +36,21 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk "posthog[otel]<8" opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk "posthog[otel]~=8.0" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai@8 posthog-node@5 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai @posthog/ai@8 posthog-node@6 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Go',
                                 code: dedent`
-                                    go get github.com/posthog/posthog-go/otel go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
+                                    go get github.com/posthog/posthog-go/otel/v2 go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
                                 `,
                             },
                         ]}
@@ -133,7 +133,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     import (
                                         "context"
 
-                                        posthogotel "github.com/posthog/posthog-go/otel"
+                                        posthogotel "github.com/posthog/posthog-go/otel/v2"
                                         "go.opentelemetry.io/otel"
                                         "go.opentelemetry.io/otel/attribute"
                                         sdkresource "go.opentelemetry.io/otel/sdk/resource"

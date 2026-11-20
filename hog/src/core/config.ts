@@ -105,6 +105,12 @@ export const PostHogConfig = z
                     .describe(
                         'false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.'
                     ),
+                updateCheck: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'false stops every update check for everyone working in this folder, except the one `hog setup` runs. HOG_NO_UPDATE_CHECK does the same.'
+                    ),
                 rateLimit: z
                     .number()
                     .int()
@@ -212,21 +218,33 @@ export function configPathFor(runtime: Runtime, loaded: LoadedConfig | undefined
     return loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
 }
 
-// Changes one part of posthog.json and keeps everything else as written, including keys hog
-// doesn't know. Creates the file in the working folder when there is none.
+const DEFAULT_INDENT = 2
+// The whitespace in front of the first indented line: the file's own indentation.
+const INDENTATION = /^([ \t]+)\S/m
+
+// Writes the file the way it was formatted, so a change shows up as the changed lines only.
+function formatLike(original: string | undefined, raw: Record<string, unknown>): string {
+    if (original === undefined) {
+        return `${JSON.stringify(raw, null, DEFAULT_INDENT)}\n`
+    }
+    const indent = INDENTATION.exec(original)?.[1] ?? DEFAULT_INDENT
+    return `${JSON.stringify(raw, null, indent)}${original.endsWith('\n') ? '\n' : ''}`
+}
+
+// Changes one part of posthog.json and keeps everything else as written: keys hog doesn't know,
+// the key order and the file's indentation. Creates the file in the working folder when there is none.
 export async function updateConfig(
     runtime: Runtime,
     loaded: LoadedConfig | undefined,
     change: (raw: Record<string, unknown>) => void
 ): Promise<string> {
     const path = configPathFor(runtime, loaded)
-    const raw = loaded
-        ? parseJson(await runtime.readFile(path), JsonObject, {
-              code: 'invalid_config',
-              context: `${path} is not valid.`,
-          })
-        : { $schema: SCHEMA_URL }
+    const original = loaded ? await runtime.readFile(path) : undefined
+    const raw =
+        original === undefined
+            ? { $schema: SCHEMA_URL }
+            : parseJson(original, JsonObject, { code: 'invalid_config', context: `${path} is not valid.` })
     change(raw)
-    await runtime.writeFile(path, `${JSON.stringify(raw, null, 2)}\n`)
+    await runtime.writeFile(path, formatLike(original, raw))
     return path
 }

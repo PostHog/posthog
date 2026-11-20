@@ -277,6 +277,7 @@ describe('alertFormLogic', () => {
         })
         expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
             ui_version: 'redesigned',
+            detector_type: null,
         })
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
             action: 'created',
@@ -564,7 +565,10 @@ describe('alertFormLogic', () => {
         [false, 0],
     ])('saves a new alert with staged PagerDuty only when it can page (%s)', async (available, creates) => {
         jest.spyOn(generatedApi, 'alertsPagerdutyAvailabilityRetrieve').mockResolvedValue({ available })
-        jest.spyOn(generatedApi, 'alertsDestinationsPagerdutyCreate').mockResolvedValue({ hog_function_ids: [] })
+        jest.spyOn(generatedApi, 'alertsDestinationsPagerdutyCreate').mockResolvedValue({
+            id: 'row-1',
+            hog_function_ids: [],
+        })
         const logic = mountForm()
         logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
         alertNotificationLogic({}).actions.addPendingNotification({

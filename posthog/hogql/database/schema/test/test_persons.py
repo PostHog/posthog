@@ -41,6 +41,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.person.util import create_person
 from posthog.uuidt import UUIDT
@@ -508,6 +509,31 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
             pretty=False,
         )
         assert response.results[0][result_index] == 3
+
+    @parameterized.expand([("inner", "INNER JOIN"), ("right", "RIGHT JOIN")])
+    def test_join_matches_are_not_capped_by_limit(self, _name: str, join_type: str) -> None:
+        for i in range(4):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"join_person_{i}"],
+                properties={"join_key": str(i)},
+                created_at=datetime(2024, 1, 1, 12 + i),
+            )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"""
+            SELECT persons.properties.join_key
+            FROM persons {join_type} (SELECT '0' AS join_key) AS matches
+                ON persons.properties.join_key = matches.join_key
+            ORDER BY persons.created_at DESC
+            LIMIT 1
+            """,
+            self.team,
+            modifiers=self._v2_modifiers(),
+            workload=Workload.ONLINE,
+        )
+        assert response.results == [("0",)]
 
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):

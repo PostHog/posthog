@@ -1,25 +1,54 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
+
+import { AlertOnThisMenu } from './AlertOnThisMenu'
+import { serviceAlertTarget } from './alertPresets'
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { environmentLabel } from './environmentDisplay'
 import type { ServiceHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
+import { HealthTableLink } from './HealthTableLink'
 import { Sparkline } from './Sparkline'
 import { TelemetryLinks } from './TelemetryLinks'
 
-export function ServicesTab(): JSX.Element {
-    const { services, servicesHealthLoading, hasLoadError, resolvedEnvironment, timeRange, attentionCount } =
-        useValues(applicationObservabilityLogic)
-    const { showServiceEndpoints } = useActions(applicationObservabilityLogic)
+export interface ServicesTabProps {
+    /** Absent when traces alerts are off, which hides the row menu. */
+    onCreateAlert?: (form: TracesAlertFormType) => void
+}
+
+export function ServicesTab({ onCreateAlert }: ServicesTabProps): JSX.Element {
+    const {
+        services,
+        filteredServices,
+        search,
+        servicesHealthLoading,
+        hasLoadError,
+        environment,
+        timeRange,
+        attentionCount,
+    } = useValues(applicationObservabilityLogic)
+    const { showServiceEndpoints, setSearch } = useActions(applicationObservabilityLogic)
 
     const columns: LemonTableColumns<ServiceHealthApi> = [
         {
             title: 'Service',
             key: 'service_name',
-            render: (_, row) => <span className="font-semibold">{row.service_name}</span>,
+            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
+            render: (_, row) => (
+                <HealthTableLink
+                    to={urls.applicationObservabilityService(row.service_name, { range: timeRange, environment })}
+                    data-attr="apm-service-page"
+                >
+                    {row.service_name}
+                </HealthTableLink>
+            ),
         },
-        ...healthColumns<ServiceHealthApi>(),
+        ...healthColumns<ServiceHealthApi>(filteredServices),
         {
             title: 'Trend',
             key: 'sparkline',
@@ -37,20 +66,36 @@ export function ServicesTab(): JSX.Element {
                 </span>
             ),
         },
+        ...(onCreateAlert
+            ? [
+                  {
+                      key: 'actions',
+                      width: 0,
+                      render: (_: unknown, row: ServiceHealthApi) => (
+                          <AlertOnThisMenu
+                              target={serviceAlertTarget(row)}
+                              source="services"
+                              onCreateAlert={onCreateAlert}
+                          />
+                      ),
+                  },
+              ]
+            : []),
     ]
 
+    const inEnvironment = environment === null ? 'across all environments' : `in ${environmentLabel(environment)}`
     const attentionMessage =
         attentionCount > 0
-            ? `${attentionCount} ${attentionCount === 1 ? 'service needs' : 'services need'} attention in ${resolvedEnvironment}`
-            : `All quiet in ${resolvedEnvironment}`
+            ? `${attentionCount} ${attentionCount === 1 ? 'service needs' : 'services need'} attention ${inEnvironment}`
+            : `All quiet ${inEnvironment}`
 
     return (
         <div className="flex flex-col gap-2">
             {hasLoadError ? (
                 <LemonBanner type="error">
                     {services.length > 0
-                        ? `Couldn't refresh service health for ${resolvedEnvironment}. Showing the last successful results.`
-                        : `Couldn't load service health for ${resolvedEnvironment}. Try again shortly.`}
+                        ? `Couldn't refresh service health ${inEnvironment}. Showing the last successful results.`
+                        : `Couldn't load service health ${inEnvironment}. Try again shortly.`}
                 </LemonBanner>
             ) : (
                 !servicesHealthLoading &&
@@ -58,15 +103,26 @@ export function ServicesTab(): JSX.Element {
                     <LemonBanner type={attentionCount > 0 ? 'warning' : 'success'}>{attentionMessage}</LemonBanner>
                 )
             )}
+            <LemonInput
+                type="search"
+                size="small"
+                className="max-w-80"
+                placeholder="Search services"
+                value={search}
+                onChange={setSearch}
+                data-attr="apm-services-search"
+            />
             <LemonTable
                 columns={columns}
-                dataSource={services}
+                dataSource={filteredServices}
                 rowKey="service_name"
                 loading={servicesHealthLoading}
                 emptyState={
                     hasLoadError
                         ? "Couldn't load service health. Check your connection and try again."
-                        : 'No spans in this environment and time range. Send traces to see services here.'
+                        : services.length > 0
+                          ? `No services match "${search}".`
+                          : 'No spans in this environment and time range. Send traces to see services here.'
                 }
                 data-attr="apm-services-table"
             />

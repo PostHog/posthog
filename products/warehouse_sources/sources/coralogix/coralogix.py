@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.coralogix.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -70,11 +71,6 @@ def _make_session(api_key: str) -> requests.Session:
         allow_redirects=False,
         capture=False,
     )
-
-
-def _format_datetime(dt: datetime) -> str:
-    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -182,8 +178,8 @@ def _run_query(
         "metadata": {
             "tier": tier,
             "syntax": "QUERY_SYNTAX_DATAPRIME",
-            "startDate": _format_datetime(start),
-            "endDate": _format_datetime(end),
+            "startDate": format_datetime(start, "iso_z_micros"),
+            "endDate": format_datetime(end, "iso_z_micros"),
             "limit": QUERY_LIMIT,
         },
     }
@@ -284,7 +280,7 @@ def get_rows(
             continue
         if len(rows) >= QUERY_LIMIT:
             logger.warning(
-                f"Coralogix: {endpoint} window {_format_datetime(cursor)}..{_format_datetime(window_end)} still "
+                f"Coralogix: {endpoint} window {format_datetime(cursor, 'iso_z_micros')}..{format_datetime(window_end, 'iso_z_micros')} still "
                 f"hits the {QUERY_LIMIT}-row cap at the minimum window size; rows beyond the cap are skipped"
             )
 
@@ -294,7 +290,9 @@ def get_rows(
             yield batch
 
         # Save AFTER yielding so a crash re-runs the last window rather than skipping it.
-        resumable_source_manager.save_state(CoralogixResumeConfig(synced_until=_format_datetime(window_end)))
+        resumable_source_manager.save_state(
+            CoralogixResumeConfig(synced_until=format_datetime(window_end, "iso_z_micros"))
+        )
         cursor = window_end
 
         if len(rows) < QUERY_LIMIT // 4:
@@ -349,8 +347,8 @@ def validate_credentials(api_key: str, domain: str) -> bool:
         "metadata": {
             "tier": TIERS["frequent_search"],
             "syntax": "QUERY_SYNTAX_DATAPRIME",
-            "startDate": _format_datetime(end - timedelta(minutes=15)),
-            "endDate": _format_datetime(end),
+            "startDate": format_datetime(end - timedelta(minutes=15), "iso_z_micros"),
+            "endDate": format_datetime(end, "iso_z_micros"),
             "limit": 1,
         },
     }

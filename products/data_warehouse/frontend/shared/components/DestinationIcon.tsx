@@ -5,6 +5,7 @@ import IconS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBigQuery from 'public/services/bigquery.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconMotherDuck from 'public/services/motherduck.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
@@ -23,6 +24,7 @@ export const DESTINATION_ICON_MAP: Record<ExternalDataDestinationTypeEnumApi, st
     Databricks: IconDatabricks,
     AzureBlob: IconAzureBlob,
     S3: IconS3,
+    MotherDuck: IconMotherDuck,
 }
 
 const DESTINATION_TYPE_LABELS: Record<ExternalDataDestinationTypeEnumApi, string> = {
@@ -34,6 +36,7 @@ const DESTINATION_TYPE_LABELS: Record<ExternalDataDestinationTypeEnumApi, string
     Databricks: 'Databricks',
     AzureBlob: 'Azure Blob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 }
 
 /** The label a person should see for a destination type. The API serializes the raw enum value. */

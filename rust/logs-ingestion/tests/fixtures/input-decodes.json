@@ -111,6 +111,28 @@
    "sha256": "3994b676150ead8fa09f103ad9984576270f20a498ff655211eb5766f39fd891"
   }
  ],
+ "faults-team-lookup.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "ac8f57f25535a85a28dfff364bfd4e3b7b6829d622c2321c84c1cbf5544f1ef8"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "c16937a6293beceb794fe6ad7b8be7de407b1c04aff54d3aab59d6709f3a161c"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "d1010c4b77678252891c35a08362371cf10bd7a8ef1e485b22e4a6d6bc241908"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "9f7c5dacabf5b4d562ae246d37c911d2b730979cff4be1ee9fe78c59ea88da6d"
+  }
+ ],
  "faults-transient.json": [
   {
    "codec": "zstandard",

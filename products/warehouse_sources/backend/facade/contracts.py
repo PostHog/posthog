@@ -83,6 +83,13 @@ class LegacyHistoryTableError(Exception):
     """
 
 
+class AddedTableLocationError(ValueError):
+    """The path of a table to add is outside the source's bucket or folder, holds no importable files, or can't be read.
+
+    The message tells the user what to change.
+    """
+
+
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
@@ -651,6 +658,8 @@ class PlannedMigrationSchemas:
     planned: list[str]
     # Planned tables that skip columns PostHog would still read, so they stay off.
     kept_off: list[str]
+    # Planned tables that could sync incrementally but have no key to merge on, so they sync in full.
+    keyless: list[str]
 
 
 @dataclass(frozen=True)

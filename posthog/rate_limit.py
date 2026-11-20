@@ -542,6 +542,33 @@ class WorkloadSubjectLookupThrottle(UserRateThrottle):
     rate = "30/minute"
 
 
+class _OrganizationPersonalAPIKeyBulkActionThrottle(SimpleRateThrottle):
+    """One bucket per organization, shared by the roll all and revoke all actions.
+
+    Each bulk action writes every key that reaches the organization and emails each key owner. The bucket is per
+    organization, so a second admin gets no new budget. This is a plain `SimpleRateThrottle`, so it applies to session
+    requests and does not depend on the RATE_LIMIT_ENABLED instance setting.
+
+    The rates allow the incident path: a run, retries after a partial failure, and a revoke after a roll. The actions
+    on one key do not use this bucket, so an admin can still roll or revoke a single key when the bucket is empty.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        organization_id = PersonalApiKeyRateThrottle.safely_get_organization_id_from_view(view)
+        ident = organization_id or (request.user.pk if request.user.is_authenticated else self.get_ident(request))
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class OrganizationPersonalAPIKeyBulkActionBurstThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_burst"
+    rate = "3/minute"
+
+
+class OrganizationPersonalAPIKeyBulkActionSustainedThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_sustained"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -693,6 +720,22 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
+    if throttle.num_requests is None or throttle.duration is None:
+        return None
+    throttle.key = throttle.get_cache_key(request, view)
+    throttle.now = throttle.timer()
+    try:
+        cached_history = throttle.cache.get(throttle.key, [])
+    except Exception as e:
+        capture_exception(e)
+        return None
+    throttle.history = [hit for hit in cached_history if hit > throttle.now - throttle.duration]
+    if len(throttle.history) < throttle.num_requests:
+        return None
+    return throttle.wait()
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -706,6 +749,21 @@ class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
 class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "heatmap_preflight_sustained"
     rate = "300/hour"
+
+
+class DataQualityRunBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_burst"
+    rate = "20/minute"
+
+
+class DataQualityRunSustainedRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_sustained"
+    rate = "60/hour"
+
+
+class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_project"
+    rate = "180/hour"
 
 
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
@@ -1310,33 +1368,21 @@ class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the pending login's user id (from the session), not on request data. The base class
-        # would fall back to a request-body "email" field, which the code-verification request never
-        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
-        # it. The session is the source of truth for who is being verified.
+        # An unproven IdP subject must not spend another subject's or a password login's budget.
+        # Session state also prevents request-body email changes from minting fresh buckets per guess.
         from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+        identity = code_based_verifier.get_pending_budget_identity(request)
+        if identity:
+            ident = hashlib.sha256(identity.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
 
 
-class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+class CodeBasedVerificationResendThrottle(CodeBasedVerificationThrottle):
     scope = "code_based_verification_resend"
     rate = "1/minute"
-
-    def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import code_based_verifier
-
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
 
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
@@ -1959,7 +2005,7 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 def _is_llm_alert_simulation(request) -> bool:
-    """Whether an alert simulation request would make a billable model call.
+    """Whether an alert simulation request would make a billable model call: the AI and forecast detectors do.
 
     Reads the same field the simulate serializer parses. A form-encoded body carries
     ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
@@ -1974,11 +2020,11 @@ def _is_llm_alert_simulation(request) -> bool:
             detector_config = json.loads(detector_config)
         except ValueError:
             return False
-    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+    return isinstance(detector_config, dict) and detector_config.get("type") in ("llm", "forecast")
 
 
 class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Per-team cap on billable AI alert simulations.
+    """Per-team cap on billable AI and forecast alert simulations.
 
     Keyed per team so extra API keys or members do not multiply it, and applied to every
     authenticated caller: the generic burst and sustained throttles skip session users, so

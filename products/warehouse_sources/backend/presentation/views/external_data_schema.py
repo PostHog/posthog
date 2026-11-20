@@ -1338,6 +1338,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "access_method": {"type": "string"},
+                "direct_query_enabled": {"type": "boolean"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "requires_exact_column_metadata": {"type": "boolean"},
@@ -1345,6 +1346,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
                 "file_name": {"type": "string", "nullable": True},
+                "supports_table_discovery": {"type": "boolean"},
             },
         }
     )
@@ -1374,6 +1376,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source_type": source.source_type,
             # The schema page hides sync-history UI for direct-query sources, which have no jobs.
             "access_method": source.access_method,
+            # The schema page offers the live query switch only on a synced source that also serves live queries.
+            "direct_query_enabled": source.direct_query_enabled,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
@@ -1381,6 +1385,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
             "file_name": file_name,
+            # A source rooted at a whole bucket refuses schema discovery, so the schema page hides "Pull new schemas".
+            "supports_table_discovery": not source.is_self_managed_migration,
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
@@ -1671,6 +1677,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     else set()
                 )
                 if known:
+                    # Discovery keeps a stored column that left the source when dropping it would empty the
+                    # selection, and the column picker sends it back unseen. Drop it here, but never save an
+                    # empty selection, which would read every column.
+                    stored = set(instance.enabled_columns or [])
+                    stale = [c for c in enabled_columns if c not in known and c in stored]
+                    if stale:
+                        enabled_columns = [c for c in enabled_columns if c not in stale]
+                        if not enabled_columns:
+                            raise ValidationError(
+                                f"These columns no longer exist in the source: {', '.join(sorted(stale))}. "
+                                "Select at least one column to sync."
+                            )
+                        validated_data["enabled_columns"] = enabled_columns
+                        enabled_columns_changed = enabled_columns != instance.enabled_columns
                     unknown = [c for c in enabled_columns if c not in known]
                     if unknown:
                         raise ValidationError(
@@ -2967,7 +2987,17 @@ class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
     """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
 
     class Meta(ExternalDataSchemaSummarySerializer.Meta):
-        fields = ["id", "name", "source_id", "should_sync", "sync_type", "status", "last_synced_at", "latest_error"]
+        fields = [
+            "id",
+            "name",
+            "source_id",
+            "should_sync",
+            "live_query_enabled",
+            "sync_type",
+            "status",
+            "last_synced_at",
+            "latest_error",
+        ]
         read_only_fields = fields
 
 

@@ -264,7 +264,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - `kafka_outputs::KafkaOutputs` implements `IngestionOutputs` and awaits each delivery report.
 - `postgres` holds `PgTeamManager` and the rule caches, `redis_deps` holds `RedisQuotaLimiting` and a reconnecting Redis connection, `usage::GrpcUsageRecordBatch` the usage client, `lazy_loader::LazyLoader` the `LazyLoader` port.
 - `build_deps` builds what the Node server builds. `shadow_deps` applies the shadow rules to any deps.
-- Postgres errors from a lost connection, a pool timeout or one of Node's `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` become `DependencyUnavailableError`.
+- Postgres errors from a lost connection, a pool timeout, one of Node's `POSTGRES_UNAVAILABLE_SQLSTATES` or one of Node's `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` become `DependencyUnavailableError`.
 - `kafka_outputs::classify_produce_error` keeps the rdkafka code as a `KafkaProduceError`, named `MessageSizeTooLarge` for code 10 and `Error` otherwise, so the `logs` output rule applies to real delivery errors. An error with no code is a plain `Error`.
 
 ## Not reproduced
