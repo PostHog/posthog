@@ -3611,10 +3611,23 @@ class TestCohortCalculationTasks(APIBaseTest):
         # Verify insert_cohort_from_query was re-dispatched
         mock_insert_cohort_from_query.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
 
+    @parameterized.expand(
+        [
+            # Nothing will run the replace again, so rows it never copied would stay counted.
+            ("before_copy_deletes_its_rows", False, [(0, "kept")]),
+            # Postgres may hold some of its rows, so ClickHouse keeps them all.
+            ("after_copy_keeps_its_rows", True, [(0, "kept"), (REPLACE_ROW_OFFSET, "attempt")]),
+        ]
+    )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
     @patch("posthog.tasks.calculate_cohort.logger")
     def test_reset_stuck_static_cohorts_stops_after_max_errors(
-        self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
+        self,
+        _name: str,
+        copy_started: bool,
+        expected_rows: list[tuple[int, str]],
+        mock_logger: MagicMock,
+        mock_insert_cohort_from_query: MagicMock,
     ) -> None:
         now = timezone.now()
 
@@ -3633,15 +3646,36 @@ class TestCohortCalculationTasks(APIBaseTest):
             },
             pending_population_mode=CohortPopulationMode.REPLACE,
             population_marker=now - relativedelta(hours=2),
+            population_first_marker=now - relativedelta(hours=2),
+            population_copy_started=copy_started,
         )
         # Set created_at to more than 1 hour ago
         Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+        person_ids = {"kept": uuid4(), "attempt": uuid4()}
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                (uuid4(), person_ids["kept"], stuck_static_cohort.pk, self.team.pk, now - relativedelta(hours=3), 0),
+                (
+                    uuid4(),
+                    person_ids["attempt"],
+                    stuck_static_cohort.pk,
+                    self.team.pk,
+                    now - relativedelta(hours=2),
+                    REPLACE_ROW_OFFSET,
+                ),
+            ],
+        )
 
         reset_stuck_cohorts()
 
         stuck_static_cohort.refresh_from_db()
         self.assertFalse(stuck_static_cohort.is_calculating)
         mock_insert_cohort_from_query.delay.assert_not_called()
+        self.assertEqual(
+            sorted(_static_cohort_rows(self.team.pk, stuck_static_cohort.pk)),
+            sorted((str(person_ids[name]), offset) for offset, name in expected_rows),
+        )
         # Nothing will run the replace now, so a later edit must not inherit it.
         self.assertEqual(
             (stuck_static_cohort.pending_population_mode, stuck_static_cohort.population_marker), (None, None)

@@ -431,6 +431,19 @@ def reset_stuck_cohorts() -> None:
     for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
         0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
     ]:
+        supported_source = static_cohort_has_supported_population_source(cohort)
+        errors_after_reset = cohort.errors_calculating + 1
+        gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING
+        if gives_up:
+            # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
+            # counting them. Decided and done before the save below releases is_calculating: from then on a new
+            # claim can write rows at or after population_first_marker.
+            _delete_failed_replace_attempt(
+                cohort,
+                log_prefix="reset_stuck_static_cohort",
+                replacing=cohort.pending_population_mode == CohortPopulationMode.REPLACE,
+            )
+
         cohort.is_calculating = False
         cohort.population_marker = None
         cohort.errors_calculating = F("errors_calculating") + 1
@@ -438,7 +451,7 @@ def reset_stuck_cohorts() -> None:
         cohort.save(update_fields=["is_calculating", "population_marker", "errors_calculating", "last_error_at"])
         reset_static_cohort_ids.append(cohort.pk)
 
-        if not static_cohort_has_supported_population_source(cohort):
+        if not supported_source:
             logger.warning(
                 "reset_unsupported_stuck_static_cohort",
                 cohort_id=cohort.pk,
@@ -450,9 +463,8 @@ def reset_stuck_cohorts() -> None:
         # Re-trigger the population task for static cohorts whose membership
         # can be reconstructed from persisted data. The run fields stay, so a stuck replace is
         # redispatched as a replace.
-        # Refresh from DB to get the actual errors_calculating integer value after the F() expression save.
-        cohort.refresh_from_db(fields=["errors_calculating"])
-        if cohort.errors_calculating > MAX_ERRORS_CALCULATING:
+        cohort.errors_calculating = errors_after_reset
+        if gives_up:
             _end_pending_population(cohort.pk)
         else:
             logger.warning(
@@ -1017,24 +1029,17 @@ def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | N
     return owns_cohort
 
 
-def _delete_failed_replace_attempt(
-    cohort: Cohort,
-    *,
-    log_prefix: str,
-    processing_error: BaseException | None,
-    replacing: bool,
-    copy_started: bool,
-    first_marker: datetime | None,
-) -> None:
-    """Delete this run's ClickHouse replace rows when it failed before copying any into Postgres.
+def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> None:
+    """Delete a failed replace run's ClickHouse rows when none of its attempts copied any into Postgres.
 
-    Called while the run fields are still stored, so neither a new claim nor the stuck sweep can take the cohort
-    and write rows at or after ``first_marker`` before the delete is submitted. Earlier runs' rows sit below
-    ``first_marker`` and are never touched. Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
+    Called while the run fields are still stored and is_calculating is set, so neither a new claim nor the stuck
+    sweep can take the cohort and write rows at or after ``population_first_marker`` before the delete is submitted.
+    Earlier runs' rows sit below that marker and are never touched.
     """
     from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
 
-    if not (replacing and processing_error is not None and not copy_started and first_marker is not None):
+    first_marker = cohort.population_first_marker
+    if not (replacing and not cohort.population_copy_started and first_marker is not None):
         return
     try:
         delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, from_marker=first_marker)
@@ -1393,14 +1398,9 @@ def _populate_static_cohort(
                 # is_calculating would release that attempt's run. Nothing is cleared until the release at the end.
                 owns_cohort = _check_population_ownership(claimed, mode=claimed_mode)
                 if owns_cohort is True:
-                    _delete_failed_replace_attempt(
-                        claimed,
-                        log_prefix=log_prefix,
-                        processing_error=processing_error,
-                        replacing=replacing,
-                        copy_started=claimed.population_copy_started,
-                        first_marker=claimed.population_first_marker,
-                    )
+                    # Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
+                    if processing_error is not None:
+                        _delete_failed_replace_attempt(claimed, log_prefix=log_prefix, replacing=replacing)
                     # Recompute count before closing history so a replace records its new size, not the size before it ran.
                     claimed._refresh_count(team_id=claimed.team_id)
                 elif owns_cohort is False:
