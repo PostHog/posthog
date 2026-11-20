@@ -5,7 +5,8 @@ from decimal import Decimal
 
 from django.core.cache import cache
 from django.db import OperationalError, connections
-from django.db.models import Q
+from django.db.models import F, Q, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -62,6 +63,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
 )
 from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
@@ -1413,6 +1415,10 @@ def pause_inactive_signal_scouts() -> None:
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+# How long the state a write replaced or deleted stays readable, and how many earlier versions one key
+# keeps. Entries can hold 50,000 characters and some keys are rewritten on every run, so both bound it.
+SCRATCHPAD_REVISION_RETENTION_DAYS = 14
+SCRATCHPAD_REVISIONS_PER_KEY = 10
 
 
 def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
@@ -1430,6 +1436,31 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
     return deleted
 
 
+def prune_scratchpad_revisions(
+    retention_days: int = SCRATCHPAD_REVISION_RETENTION_DAYS, per_key: int = SCRATCHPAD_REVISIONS_PER_KEY
+) -> int:
+    """Hard-delete scratchpad revisions older than `retention_days`, and those past the newest `per_key` of a key.
+
+    Cross-team janitor sweep, like `prune_expired_scratchpad_entries`. Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    revisions = SignalScratchpadRevision.objects.unscoped()
+    past_cap = (
+        revisions.annotate(
+            position=Window(
+                RowNumber(),
+                partition_by=[F("team_id"), F("key")],
+                order_by=[F("changed_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(position__gt=per_key)
+        .values("id")
+    )
+    deleted, _ = revisions.filter(Q(changed_at__lt=cutoff) | Q(id__in=past_cap)).delete()
+    return deleted
+
+
 @shared_task(
     name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
     ignore_result=True,
@@ -1439,15 +1470,17 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
 )
 @skip_team_scope_audit
 def prune_expired_scratchpad_entries_task() -> None:
-    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+    """Daily janitor: hard-delete scratchpad entries long past their expiry, and old revisions.
 
     A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
     rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
     one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
     """
     deleted = 0
+    revisions_deleted = 0
     try:
         deleted = prune_expired_scratchpad_entries()
+        revisions_deleted = prune_scratchpad_revisions()
     except SoftTimeLimitExceeded:
         raise
     except OperationalError as exc:
@@ -1461,7 +1494,7 @@ def prune_expired_scratchpad_entries_task() -> None:
         else:
             capture_exception(exc)
             logger.exception("signals_scout.scratchpad_prune_failed")
-    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted, revisions_deleted=revisions_deleted)
 
 
 @shared_task(

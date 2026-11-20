@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,11 +11,14 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.models import SignalScratchpad, SignalScratchpadRevision
 from products.signals.backend.tasks import (
     SCRATCHPAD_EXPIRY_GRACE_DAYS,
+    SCRATCHPAD_REVISION_RETENTION_DAYS,
+    SCRATCHPAD_REVISIONS_PER_KEY,
     prune_expired_scratchpad_entries,
     prune_expired_scratchpad_entries_task,
+    prune_scratchpad_revisions,
 )
 
 
@@ -37,6 +41,27 @@ class TestPruneExpiredScratchpadEntries(BaseTest):
         assert deleted == 1
         survivors = set(SignalScratchpad.objects.unscoped().values_list("key", flat=True))
         assert survivors == {"durable", "live", "within_grace"}
+
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
+    def test_prunes_revisions_past_the_retention_window_or_the_per_key_cap(self) -> None:
+        now = timezone.now()
+        ages = {
+            **{("busy", f"v{i}"): timedelta(minutes=i) for i in range(SCRATCHPAD_REVISIONS_PER_KEY + 2)},
+            ("quiet", "recent"): timedelta(days=1),
+            ("quiet", "old"): timedelta(days=SCRATCHPAD_REVISION_RETENTION_DAYS + 1),
+        }
+        with team_scope(self.team.id):
+            for (key, content), age in ages.items():
+                revision = SignalScratchpadRevision.objects.create(
+                    team=self.team, key=key, content=content, change=SignalScratchpadRevision.Change.OVERWRITE
+                )
+                SignalScratchpadRevision.objects.filter(pk=revision.pk).update(changed_at=now - age)
+
+        deleted = prune_scratchpad_revisions()
+
+        assert deleted == 3
+        survivors = set(SignalScratchpadRevision.objects.unscoped().values_list("key", "content"))
+        assert survivors == {("busy", f"v{i}") for i in range(SCRATCHPAD_REVISIONS_PER_KEY)} | {("quiet", "recent")}
 
     @parameterized.expand(
         [

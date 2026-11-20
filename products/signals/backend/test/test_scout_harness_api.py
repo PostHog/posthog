@@ -2852,6 +2852,28 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(named.id)
 
+    def test_revisions_name_the_sandbox_run_and_survive_a_forget(self) -> None:
+        # A body `run_id` can name any run on the project, so the revision must name the run the
+        # token is bound to, or a scout could pin its overwrite on a sibling.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+        for content in ("v1", "v2"):
+            response = self.client.post(
+                self._list_url(), data={"key": "k1", "content": content, "run_id": str(named.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client.post(self._forget_url(), data={"key": "k1"}, format="json").json() == {"deleted": True}
+
+        response = self.client.get(self._list_url(), {"key": "k1", "include_revisions": "true"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [entry] = response.json()
+        assert [(r["content"], r["change"], r["changed_by_run_id"]) for r in entry["revisions"]] == [
+            ("v2", "forget", str(sandbox_run.id)),
+            ("v1", "overwrite", str(sandbox_run.id)),
+        ]
+
     @parameterized.expand(
         [
             ("not_in_use_key", "not-in-use:feature-flags", None, 1),

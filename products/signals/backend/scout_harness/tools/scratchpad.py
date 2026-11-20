@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import logging
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -24,7 +24,7 @@ from django.db.models import Q, QuerySet, TextField, Value
 from django.db.models.functions import Left
 from django.utils import timezone
 
-from products.signals.backend.models import SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalScoutRun, SignalScratchpad, SignalScratchpadRevision
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_PREFIX
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
@@ -63,6 +63,17 @@ _ENTRY_FIELDS = (
     "created_by_run__task_run__task_id",
 )
 
+_REVISION_FIELDS = (
+    "team_id",
+    "content",
+    "expires_at",
+    "change",
+    "changed_at",
+    "changed_by_identity",
+    "changed_by_run__skill_name",
+    "changed_by_run__task_run__task_id",
+)
+
 
 class InvalidScratchpadError(ValueError):
     """The agent tried to write a memory with invalid shape (empty key, oversized, etc)."""
@@ -86,6 +97,20 @@ class ScratchpadConflictError(Exception):
 
 
 @dataclass(frozen=True)
+class ScratchpadRevision:
+    """The state an entry held before one write replaced (`overwrite`) or deleted (`forget`) it."""
+
+    content: str
+    expires_at: str | None
+    change: str
+    changed_at: str
+    changed_by_run_id: str | None = None
+    # The run's skill name, or the `pipeline:*` identity when a report-pipeline stage made the change.
+    changed_by_skill: str | None = None
+    changed_by_run_url: str | None = None
+
+
+@dataclass(frozen=True)
 class ScratchpadEntry:
     key: str
     content: str
@@ -97,6 +122,8 @@ class ScratchpadEntry:
     # stored `pipeline:*` identity when a report-pipeline stage wrote it and there is no run.
     created_by_skill: str | None = None
     created_by_run_url: str | None = None
+    # Earlier versions, newest first. Only an exact-key read with `include_revisions` fills it.
+    revisions: list[ScratchpadRevision] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -114,6 +141,7 @@ def search_scratchpad(
     keys_only: bool = False,
     content_max_chars: int | None = None,
     include_expired: bool = False,
+    include_revisions: bool = False,
 ) -> list[ScratchpadEntry]:
     """Return memories the agent should consider when planning a run, newest first.
 
@@ -132,6 +160,11 @@ def search_scratchpad(
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
     across content *and* key means a key mentioned inside enough other bodies pushes the
     row you wanted past the limit.
+
+    `include_revisions` with `key` attaches the entry's earlier versions, newest first. A key
+    that `forget` deleted still has its revisions until the janitor removes them, so the read
+    returns a blank entry (no `created_at`) carrying them. It is ignored without `key`, so a
+    default search never reads the revision table.
 
     `skill_name` keeps the entries one writer created, the same writer `created_by_skill` names.
     A per-scout view needs this in SQL, because the newest rows across the fleet can fill the
@@ -177,7 +210,16 @@ def search_scratchpad(
     if date_to is not None:
         qs = qs.filter(updated_at__lt=date_to)
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
-    return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
+    entries = [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
+    if not (include_revisions and key):
+        return entries
+    revisions = _revisions_for_key(team_id=team_id, key=key)
+    if entries:
+        return [replace(entries[0], revisions=revisions)]
+    # Filtered rows (an expired entry, a window miss) still exist, so only a deleted key gets the blank.
+    if revisions and not SignalScratchpad.objects.filter(team_id=team_id, key=key).exists():
+        return [ScratchpadEntry(key=key, content="", revisions=revisions)]
+    return []
 
 
 def search_scratchpad_naming(
@@ -221,6 +263,7 @@ def remember(
     identity: str | None = None,
     expires_at: datetime | None = None,
     if_updated_at: datetime | None = None,
+    changed_by_run_id: str | None = None,
 ) -> ScratchpadEntry:
     """Write or update a memory entry. Idempotent on `(team, key)`.
 
@@ -238,6 +281,11 @@ def remember(
     the stored `updated_at` differs, or no entry has the key, nothing is written and
     `ScratchpadConflictError` is raised. Without it the last writer wins.
 
+    A write that changes an existing entry's `content` or `expires_at` first stores the previous
+    state as a `SignalScratchpadRevision`, attributed to `changed_by_run_id` (the run the caller's
+    token is bound to, not the body's `run_id`) or `identity`. Restoring is a plain write of the
+    earlier content.
+
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
@@ -252,6 +300,7 @@ def remember(
             identity=identity,
             expires_at=expires_at,
             if_updated_at=if_updated_at,
+            changed_by_run_id=changed_by_run_id,
         )
     except IntegrityError:
         # Lost the create race: our SELECT saw no row, but a concurrent request
@@ -267,6 +316,7 @@ def remember(
             identity=identity,
             expires_at=expires_at,
             if_updated_at=if_updated_at,
+            changed_by_run_id=changed_by_run_id,
         )
     return _to_entry(row)
 
@@ -304,6 +354,7 @@ def _upsert_entry(
     identity: str | None,
     expires_at: datetime | None,
     if_updated_at: datetime | None,
+    changed_by_run_id: str | None,
 ) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
@@ -323,6 +374,13 @@ def _upsert_entry(
                 created_by_identity=identity,
                 expires_at=expires_at,
             )
+        if existing.content != content or existing.expires_at != expires_at:
+            _store_revision(
+                existing,
+                change=SignalScratchpadRevision.Change.OVERWRITE,
+                changed_by_run_id=changed_by_run_id,
+                changed_by_identity=identity,
+            )
         existing.content = content
         existing.expires_at = expires_at
         # Don't overwrite `created_by_run` / `created_by_identity` so we keep the original
@@ -331,14 +389,74 @@ def _upsert_entry(
         return existing
 
 
-def forget(*, team_id: int, key: str) -> bool:
-    """Delete an entry by key. Returns whether anything was removed (False = no-op)."""
+def forget(
+    *, team_id: int, key: str, changed_by_run_id: str | None = None, changed_by_identity: str | None = None
+) -> bool:
+    """Delete an entry by key. Returns whether anything was removed (False = no-op).
+
+    The deleted state is stored as a revision first, so it stays readable by key until the
+    janitor removes it.
+    """
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
             return False
+        _store_revision(
+            existing,
+            change=SignalScratchpadRevision.Change.FORGET,
+            changed_by_run_id=changed_by_run_id,
+            changed_by_identity=changed_by_identity,
+        )
         existing.delete()
     return True
+
+
+def _store_revision(
+    entry: SignalScratchpad,
+    *,
+    change: SignalScratchpadRevision.Change,
+    changed_by_run_id: str | None,
+    changed_by_identity: str | None,
+) -> None:
+    SignalScratchpadRevision.objects.create(
+        team_id=entry.team_id,
+        key=entry.key,
+        content=entry.content,
+        expires_at=entry.expires_at,
+        change=change,
+        changed_by_run_id=changed_by_run_id,
+        changed_by_identity=changed_by_identity,
+    )
+
+
+def _revisions_for_key(*, team_id: int, key: str) -> list[ScratchpadRevision]:
+    rows = (
+        SignalScratchpadRevision.objects.filter(team_id=team_id, key=key)
+        .select_related("changed_by_run", "changed_by_run__task_run")
+        .only(*_REVISION_FIELDS)
+        .order_by("-changed_at", "-id")
+    )
+    revisions = []
+    for row in rows:
+        run_pk = getattr(row, "changed_by_run_id", None)
+        run = row.changed_by_run if run_pk else None
+        task_run = getattr(run, "task_run", None) if run is not None else None
+        revisions.append(
+            ScratchpadRevision(
+                content=row.content,
+                expires_at=row.expires_at.isoformat() if row.expires_at else None,
+                change=row.change,
+                changed_at=row.changed_at.isoformat(),
+                changed_by_run_id=str(run_pk) if run_pk else None,
+                changed_by_skill=run.skill_name if run is not None else row.changed_by_identity,
+                changed_by_run_url=_build_task_url(
+                    team_id=row.team_id,
+                    task_id=str(task_run.task_id) if task_run is not None else None,
+                    task_run_id=str(task_run.id) if task_run is not None else None,
+                ),
+            )
+        )
+    return revisions
 
 
 def _validate_entry(*, key: str, content: str, expires_at: datetime | None) -> None:

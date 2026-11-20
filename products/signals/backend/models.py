@@ -3943,6 +3943,10 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
     memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
     swept.
+
+    A `remember` that changes an entry's `content` or `expires_at`, and a `forget`, first
+    copy the previous state to `SignalScratchpadRevision`, so a bad write can be read back
+    and restored with a plain `remember`. The entry row itself keeps only its current state.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -4005,6 +4009,56 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 name="signal_scratchpad_key_trgm",
                 fastupdate=False,
             ),
+        ]
+
+
+class SignalScratchpadRevision(TeamScopedRootMixin, UUIDModel):
+    """The state a `SignalScratchpad` entry held before a write replaced or deleted it.
+
+    Written in the transaction that locks the entry, and only when the write changes
+    `content` or `expires_at`, so an identical rewrite stores nothing. Keyed on the entry's
+    `(team, key)` rather than a foreign key, because a `forget` deletes the entry and its
+    revisions stay readable by that key. The daily `prune_expired_scratchpad_entries` janitor
+    removes revisions older than `SCRATCHPAD_REVISION_RETENTION_DAYS` and any past
+    `SCRATCHPAD_REVISIONS_PER_KEY` for one key. A separate table leaves the hot entry row and
+    its search indexes alone. Private trial memory never reaches it.
+    """
+
+    class Change(models.TextChoices):
+        OVERWRITE = "overwrite"
+        FORGET = "forget"
+
+    # See SignalScoutConfig.all_teams for rationale: the janitor sweeps with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # No single-column index: the key index below leads with team_id.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    key = models.CharField(max_length=300)
+    # The entry's content and expiry before the change.
+    content = models.TextField()
+    expires_at = models.DateTimeField(null=True, blank=True)
+    change = models.CharField(max_length=16, choices=Change.choices)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    # Who made the change: the scout run its sandbox token is bound to, or the `pipeline:*`
+    # identity of a report-pipeline stage. Both null when a person deleted the entry.
+    changed_by_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    changed_by_identity = models.CharField(max_length=64, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal scratchpad revision"
+        verbose_name_plural = "Signal scratchpad revisions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "key", "-changed_at"], name="signal_scratchpad_rev_key_idx"),
+            models.Index(fields=["changed_at"], name="signal_scratchpad_rev_at_idx"),
         ]
 
 
