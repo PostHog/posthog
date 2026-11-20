@@ -256,7 +256,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                         <SceneMenuBarItem
                                             opensFloatingUi
                                             onClick={() =>
-                                                openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)
+                                                openSaveAsCohortDialog(createStaticCohort, {
+                                                    query: hogQL!,
+                                                    variables: hogQLVariables,
+                                                })
                                             }
                                             data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
                                         >

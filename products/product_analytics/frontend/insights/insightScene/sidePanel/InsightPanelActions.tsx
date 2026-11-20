@@ -218,7 +218,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             {showCohort && (
                 <ButtonPrimitive
                     data-attr={`${RESOURCE_TYPE}-save-as-cohort`}
-                    onClick={() => openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)}
+                    onClick={() =>
+                        openSaveAsCohortDialog(createStaticCohort, { query: hogQL!, variables: hogQLVariables })
+                    }
                     menuItem
                 >
                     <IconPeople />

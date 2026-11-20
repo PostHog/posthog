@@ -61,3 +61,35 @@ export const SAVE_AS_TARGETS: Record<SaveAsTargetId, SaveAsTargetMetadata> = {
         icon: IconPeople,
     },
 }
+
+export function getCohortSaveDisabledReason({
+    isDirectConnection,
+    isMultiQuery,
+    hasCurrentResults,
+    columns,
+    tables,
+}: {
+    isDirectConnection: boolean
+    isMultiQuery: boolean
+    hasCurrentResults: boolean
+    columns?: readonly unknown[] | null
+    tables?: readonly string[]
+}): string | undefined {
+    if (isDirectConnection) {
+        return 'Switch to PostHog (ClickHouse) to save a cohort'
+    }
+    if (isMultiQuery) {
+        return 'Use a single SQL query to save a cohort'
+    }
+    if (!hasCurrentResults) {
+        return 'Run the current query successfully before saving a cohort'
+    }
+
+    const hasPersonIdentifier = columns?.some(
+        (column) => column === 'person_id' || column === 'actor_id' || column === 'distinct_id'
+    )
+    const isPersonsTable = tables?.length && tables.every((table) => table === 'persons' || table === 'posthog.persons')
+    if (!hasPersonIdentifier && !(columns?.includes('id') && isPersonsTable)) {
+        return 'Return person_id, actor_id, distinct_id, or id from persons'
+    }
+}

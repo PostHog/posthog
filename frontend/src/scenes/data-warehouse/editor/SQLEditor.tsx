@@ -51,7 +51,7 @@ import {
 } from 'products/data_warehouse/frontend/sql_editor/LemonSaveAsMenu'
 import { QuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuerySaveConfirmation'
 import { QuillQuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuillQuerySaveConfirmation'
-import { SAVE_AS_TARGETS } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import { SAVE_AS_TARGETS, getCohortSaveDisabledReason } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -672,61 +672,29 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         <IconWarning data-attr="sql-editor-save-warning" className="ml-1" aria-hidden="true" />
     ) : null
 
-    const saveAsCohortDisabledReason = useMemo(() => {
-        if (saveAsDisabledReason) {
-            return saveAsDisabledReason
-        }
-        if (selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') {
-            return 'Switch to PostHog (ClickHouse) to save a cohort'
-        }
-        if (isMultiQuery) {
-            return 'Use a single SQL query to save a cohort'
-        }
-        const tables =
-            metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
-        const hasPersonId =
-            response &&
-            'columns' in response &&
-            response.columns?.some(
-                (column: unknown) =>
-                    column === 'person_id' ||
-                    column === 'actor_id' ||
-                    column === 'distinct_id' ||
-                    (column === 'id' && tables?.some((table) => table === 'persons' || table === 'posthog.persons'))
-            )
-        return hasPersonId ? undefined : 'Return person_id, actor_id, distinct_id, or id from persons'
-    }, [
-        saveAsDisabledReason,
-        selectedConnectionId,
-        sourceQuery.source.executionTarget,
-        isMultiQuery,
-        metadata,
-        activeQueryText,
-        queryInput,
-        response,
-    ])
-
-    const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
-        if (target === 'cohort') {
-            return saveAsCohortDisabledReason
-        }
-        if (target === 'insight') {
-            return saveAsInsightDisabledReason
-        }
-        if (target === 'view') {
-            return (
-                saveAsViewDisabledReason ??
-                saveAsDisabledReason ??
-                saveAsViewAccessDisabledReason ??
-                (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
-                    ? 'Run the latest query successfully to determine the view’s columns'
-                    : undefined)
-            )
-        }
-        if (target === 'endpoint') {
-            return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason
-        }
-        return saveAsDisabledReason
+    const saveAsDisabledReasons: Record<SaveAsTargetId, () => string | null | undefined> = {
+        cohort: () =>
+            saveAsDisabledReason ??
+            getCohortSaveDisabledReason({
+                isDirectConnection: !!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino',
+                isMultiQuery,
+                hasCurrentResults: !needsSaveConfirmation,
+                columns: response && 'columns' in response ? response.columns : undefined,
+                tables:
+                    metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim()
+                        ? metadata?.table_names
+                        : undefined,
+            }),
+        insight: () => saveAsInsightDisabledReason,
+        view: () =>
+            saveAsViewDisabledReason ??
+            saveAsDisabledReason ??
+            saveAsViewAccessDisabledReason ??
+            (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
+                ? 'Run the latest query successfully to determine the view’s columns'
+                : undefined),
+        endpoint: () => saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason,
+        metric: () => saveAsDisabledReason,
     }
 
     const hasContextualRecommendation = editorSource !== 'insight' || dashboardId !== null
@@ -734,7 +702,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         id: item.action,
         ...SAVE_AS_TARGETS[item.action],
         recommended: hasContextualRecommendation && item.action === saveAsMenuItems.primary.action,
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))
 
@@ -765,8 +733,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const legacySaveMenuItems = [
@@ -776,13 +744,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         { action: 'cohort' as const, label: 'Save as cohort...' },
     ].map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const onPrimarySaveClick = (): void =>
         confirmSave((candidates) => saveAsTarget(saveAsMenuItems.primary.action, candidates))
-    const primarySaveDisabledReason = disabledReasonForSaveAsTarget(saveAsMenuItems.primary.action)
+    const primarySaveDisabledReason = saveAsDisabledReasons[saveAsMenuItems.primary.action]()
 
     const {
         disabledReason: editingViewDisabledReason,

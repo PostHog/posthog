@@ -2,16 +2,11 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { AnyDataNode, HogQLFilters, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-
-const RESOURCE_TYPE = 'insight'
+import { AnyDataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 export function openSaveAsCohortDialog(
     createStaticCohort: (name: string, query: AnyDataNode) => void,
-    hogQL: string,
-    hogQLVariables?: Record<string, any>,
-    hogQLFilters?: HogQLFilters,
-    hogQLValues?: HogQLQuery['values']
+    query: Pick<HogQLQuery, 'query' | 'variables' | 'filters' | 'values'>
 ): void {
     LemonDialog.openForm({
         title: 'Save as static cohort',
@@ -24,21 +19,14 @@ export function openSaveAsCohortDialog(
         initialValues: { name: '' },
         content: (
             <LemonField name="name" label="Name">
-                <LemonInput
-                    data-attr={`${RESOURCE_TYPE}-save-as-cohort-name`}
-                    placeholder="Name of the new cohort"
-                    autoFocus
-                />
+                <LemonInput data-attr="insight-save-as-cohort-name" placeholder="Name of the new cohort" autoFocus />
             </LemonField>
         ),
         errors: { name: (name) => (!name ? 'You must enter a name' : undefined) },
         onSubmit: async ({ name }) => {
             createStaticCohort(name, {
                 kind: NodeKind.HogQLQuery,
-                query: hogQL,
-                variables: hogQLVariables,
-                filters: hogQLFilters,
-                values: hogQLValues,
+                ...query,
             })
         },
     })

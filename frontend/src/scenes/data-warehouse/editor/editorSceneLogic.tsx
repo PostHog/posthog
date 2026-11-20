@@ -31,7 +31,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
-import type { Node } from '~/queries/schema/schema-general'
+import type { AnyDataNode, Node } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
@@ -158,10 +158,10 @@ export interface editorSceneLogicValues {
 export interface editorSceneLogicActions {
     createStaticCohort: (
         name: string,
-        query: import('~/queries/schema/schema-general').AnyDataNode
+        query: AnyDataNode
     ) => {
         name: string
-        query: import('~/queries/schema/schema-general').AnyDataNode
+        query: AnyDataNode
     } // exportsLogic
     createNotebook: (
         location: NotebookTarget,
@@ -713,13 +713,12 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         },
         saveAsCohort: () => {
             const { query, variables, filters, values: queryValues } = values.sourceQuery.source
-            openSaveAsCohortDialog(
-                actions.createStaticCohort,
-                values.queryInput ?? query,
+            openSaveAsCohortDialog(actions.createStaticCohort, {
+                query: values.queryInput ?? query,
                 variables,
                 filters,
-                queryValues
-            )
+                values: queryValues,
+            })
         },
     })),
     selectors({
