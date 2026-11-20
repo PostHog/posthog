@@ -312,25 +312,12 @@ describe('SandboxSenderChoiceProvider', () => {
         const row = screen.getByTestId('workflow-email-test-sender')
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
         expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
+        expect(within(row).getByText('Reload this page after you verify a sender.')).toBeInTheDocument()
         expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/workflows\/channels$/)
         )
         expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
-    })
-
-    it('shows the From picker once a sender verified in another tab is found by Check again', async () => {
-        useSenderMocks([VERIFYING_SENDER])
-        showSenderRow()
-        await renderStep(SANDBOX_STEP, 'workflow-email-test-sender')
-
-        useSenderMocks([OWN_SENDER])
-        fireEvent.click(screen.getByTestId('workflow-email-test-sender-refresh'))
-        expect(await screen.findByTestId('workflow-email-sender-select')).toHaveTextContent('PostHog test sender')
-        expect(storedStep()?.type).toEqual('email_sandbox')
-
-        fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
-        await waitFor(() => expect(storedStep()?.type).toEqual('function_email'))
     })
 
     it.each<[string, string, IntegrationType[], boolean]>([
