@@ -1433,6 +1433,27 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         result.type = node.type
         return result
 
+    def _rewrite_json_function_on_property_document(self, node: ast.Call) -> ast.Expr | None:
+        """A JSON function over the document the property pass wrote for one native property, read from its path.
+
+        The property's text would serialize as a JSON string, which quotes a Bool or a number and hides a stored
+        object or array from the function. The path read gives the JSON text that the event's document holds. The
+        property pass writes this document only inside a JSON function, so the read is the same in every clause, and a
+        select column after grouping prints the same SQL as the GROUP BY key that names it.
+        """
+        if node.name not in JSON_KEY_PATH_FUNCTIONS or not node.args:
+            return None
+        rewritten = self._rewrite_json_function_on_property_text(node) or self._rewrite_scalar_json_extract(node)
+        if rewritten is not None:
+            return rewritten
+        prop = self._native_property_document(node.args[0])
+        if prop is None:
+            return None
+        _record_property_usage(self.context, prop.source.kind)
+        json_text = _json_property_json_text(prop.field_type, prop.key, source=prop.source)
+        document = _call("ifNull", [json_text, _sentinel("")])
+        return replace(node, args=[document, *[self.visit(arg) for arg in node.args[1:]]])
+
     def visit_call(self, node: ast.Call) -> ast.Expr:
         if node.name == "toJSONString" and len(node.args) == 1:
             exported_json_text = _exported_json_text_read(node.args[0])
@@ -1440,6 +1461,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 # The column already holds the JSON text, so serializing it again would quote it. The read is a plain
                 # column either way, so the drop stays safe after grouping and runs before the grouped shortcut below.
                 return self.visit(exported_json_text)
+
+        property_json_function = self._rewrite_json_function_on_property_document(node)
+        if property_json_function is not None:
+            return property_json_function
 
         if self._in_grouped_clause:
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
@@ -1485,14 +1510,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         boolean_conversion = self._rewrite_boolean_property_conversion(node)
         if boolean_conversion is not None:
             return boolean_conversion
-
-        json_function_on_text = self._rewrite_json_function_on_property_text(node)
-        if json_function_on_text is not None:
-            return json_function_on_text
-
-        scalar_json_extract = self._rewrite_scalar_json_extract(node)
-        if scalar_json_extract is not None:
-            return scalar_json_extract
 
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
