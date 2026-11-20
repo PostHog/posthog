@@ -208,6 +208,11 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM persons ARRAY JOIN (SELECT groupArray(event) FROM events WHERE event = 'b') AS names",
             ),
             (
+                "opaque_bound_in_another_timezone",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime(concat('2024-01-01', ' 01:00:00'), 'UTC')",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime(concat('2024-01-01', ' 01:00:00'), 'Asia/Tokyo')",
+            ),
+            (
                 "event_condition_narrowed_by_another_filter",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
                 "SELECT count() FROM events WHERE event = 'a' OR (event = 'b' AND properties.plan = 'pro')",
@@ -268,6 +273,14 @@ class TestReadSignature(SimpleTestCase):
             sql = f"SELECT ({sql}) AS n FROM events WHERE n > 0"
 
         assert read_signature(parse_select(sql)) is not None
+
+    def test_wide_scalar_subquery_referenced_many_times_is_read_once(self):
+        constants = ", ".join(str(i) for i in range(2000))
+        cte = f"WITH (SELECT count() FROM events WHERE event = 'x' AND length([{constants}]) > 0) AS n"
+        referenced_once = parse_select(f"{cte} SELECT n FROM events")
+        referenced_often = parse_select(f"{cte} SELECT {', '.join(['n'] * 250)} FROM events")
+
+        assert read_signature(referenced_often) == read_signature(referenced_once) is not None
 
     def test_query_reading_no_table_has_no_signature(self):
         assert read_signature(parse_select("SELECT 1")) is None

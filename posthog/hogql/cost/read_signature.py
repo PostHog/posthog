@@ -24,7 +24,7 @@ from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 _EVENTS_TABLE = "events"
 _EVENTS_TABLE_CHAINS = (["events"], ["posthog", "events"])
@@ -58,10 +58,10 @@ def _digest(text: str, length: int) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:length]
 
 
-def _opaque(expr: ast.Expr) -> str:
+def _opaque(expr: ast.Expr, budget: _Budget) -> str:
     # Source positions and resolved types differ between two parses of the same text, so they are cleared
     # before the expression is hashed.
-    return "?" + _digest(repr(clone_expr(expr, clear_types=True, clear_locations=True)), 8)
+    return "?" + _digest(repr(_BudgetedClone(budget).visit(expr)), 8)
 
 
 def _day(value: object, timezone: str | None = None) -> str | None:
@@ -82,7 +82,8 @@ def _day(value: object, timezone: str | None = None) -> str | None:
     return None
 
 
-def _bound(expr: ast.Expr) -> str:
+def _bound(expr: ast.Expr, budget: _Budget) -> str:
+    original = expr
     timezone: str | None = None
     while isinstance(expr, ast.Call) and expr.args:
         name = expr.name.lower()
@@ -105,7 +106,8 @@ def _bound(expr: ast.Expr) -> str:
             day = None
         if day is not None:
             return day
-    return _opaque(expr)
+    # The unwrapped conversions carry the timezone, so a bound that cannot be read as a day is hashed with them.
+    return _opaque(original, budget)
 
 
 def _string_constants(expr: ast.Expr) -> set[str] | None:
@@ -160,11 +162,12 @@ class _ExpandNames(CloningVisitor):
                 self.expanding.discard(name)
         return super().visit_field(node)
 
+    # A nested query is kept as the same node, not copied, so every reference to it is read once by its scope.
     def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
-        return clone_expr(node, clear_types=True, clear_locations=True)
+        return node
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.Expr:
-        return clone_expr(node, clear_types=True, clear_locations=True)
+        return node
 
 
 class _NestedQueries(TraversingVisitor):
@@ -319,9 +322,8 @@ class _ReadCollector:
             return False
         return all(len(chain) <= 2 and self._owner(chain, sources) is source for chain in fields.chains)
 
-    @staticmethod
-    def _pushable(source: _Source, relevant: list[ast.Expr]) -> list[ast.Expr]:
-        return [_Unqualify(source.alias).visit(conjunct) for conjunct in relevant]
+    def _pushable(self, source: _Source, relevant: list[ast.Expr]) -> list[ast.Expr]:
+        return [_Unqualify(source.alias, self.budget).visit(conjunct) for conjunct in relevant]
 
     def _is_events_field(self, expr: ast.Expr, name: str, source: _Source, sources: list[_Source]) -> bool:
         chain = _field_chain(expr)
@@ -365,8 +367,8 @@ class _ReadCollector:
                 and not conjunct.negated
                 and self._is_events_field(conjunct.expr, _TIMESTAMP_FIELD, source, sources)
             ):
-                lower.add(_bound(conjunct.low))
-                upper.add(_bound(conjunct.high))
+                lower.add(_bound(conjunct.low, self.budget))
+                upper.add(_bound(conjunct.high, self.budget))
                 continue
 
             if isinstance(conjunct, ast.CompareOperation) and conjunct.op in _LOWER_BOUND_OPS | _UPPER_BOUND_OPS:
@@ -374,7 +376,9 @@ class _ReadCollector:
                 if field_on_left or self._is_events_field(conjunct.right, _TIMESTAMP_FIELD, source, sources):
                     # `timestamp >= X` and `X <= timestamp` are the same lower bound.
                     is_lower = (conjunct.op in _LOWER_BOUND_OPS) == field_on_left
-                    (lower if is_lower else upper).add(_bound(conjunct.right if field_on_left else conjunct.left))
+                    (lower if is_lower else upper).add(
+                        _bound(conjunct.right if field_on_left else conjunct.left, self.budget)
+                    )
                     continue
 
             names = self._event_names(conjunct, source, sources)
@@ -389,7 +393,7 @@ class _ReadCollector:
                 for chain in fields.chains
                 for name in (_TIMESTAMP_FIELD, _EVENT_FIELD)
             ):
-                unrecognized.add(_opaque(conjunct))
+                unrecognized.add(_opaque(conjunct, self.budget))
 
         return "|".join(
             [
@@ -513,11 +517,11 @@ class _FieldChains(TraversingVisitor):
         return None
 
 
-class _Unqualify(CloningVisitor):
+class _Unqualify(_BudgetedClone):
     """Rewrite `alias.column` as `column`, the name of the subquery's output."""
 
-    def __init__(self, alias: str) -> None:
-        super().__init__(clear_types=True, clear_locations=True)
+    def __init__(self, alias: str, budget: _Budget) -> None:
+        super().__init__(budget)
         self.alias = alias
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
