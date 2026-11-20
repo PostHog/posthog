@@ -1,11 +1,49 @@
+import { gzipSync, strFromU8, strToU8 } from 'fflate'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
 import {
     parseExportedSessionRecording,
+    parseRawExportedSessionRecording,
     sessionRecordingFilePlaybackSceneLogic,
 } from './sessionRecordingFilePlaybackSceneLogic'
+
+jest.mock('../player/snapshot-processing/DecompressionWorkerManager')
+
+const encodeRawExport = (
+    blocks: (string | Uint8Array)[],
+    headerOverrides: Record<string, unknown> = {}
+): Uint8Array => {
+    const encoder = new TextEncoder()
+    const header = {
+        version: '2026-11-raw',
+        session_id: 'session-1',
+        person: null,
+        viewports: [{ timestamp: 1000, width: '1280', height: '720', href: 'https://example.com' }],
+        block_count: blocks.length,
+        ...headerOverrides,
+    }
+    const parts: Uint8Array[] = [encoder.encode('PHREC1\n' + JSON.stringify(header) + '\n')]
+    for (const block of blocks) {
+        // The mocked decompressor returns its input, so each block is its decompressed JSONL text.
+        const body = typeof block === 'string' ? encoder.encode(block) : block
+        const prefix = new Uint8Array(4)
+        new DataView(prefix.buffer).setUint32(0, body.byteLength)
+        parts.push(prefix, body)
+    }
+    const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+    let offset = 0
+    for (const part of parts) {
+        bytes.set(part, offset)
+        offset += part.byteLength
+    }
+    return bytes
+}
+
+const rawBlock = (index: number, windowId = 'window-a'): string =>
+    JSON.stringify([windowId, { type: 3, data: {}, timestamp: 1000 + index }])
 
 describe('sessionRecordingFilePlaybackLogic', () => {
     let logic: ReturnType<typeof sessionRecordingFilePlaybackSceneLogic.build>
@@ -70,6 +108,99 @@ describe('sessionRecordingFilePlaybackLogic', () => {
                 [2000, 2],
                 [3000, 1],
             ])
+        })
+    })
+
+    describe('parseRawExportedSessionRecording', () => {
+        it('parses every block with integer window ids and returns the header viewports', async () => {
+            const windows = ['window-a', 'window-b', 'window-a']
+
+            const parsed = await parseRawExportedSessionRecording(
+                encodeRawExport(windows.map((windowId, i) => rawBlock(i, windowId)))
+            )
+
+            expect(parsed.id).toEqual('session-1')
+            expect(parsed.snapshots.map((s) => [s.timestamp, s.windowId])).toEqual([
+                [1000, 1],
+                [1001, 2],
+                [1002, 1],
+            ])
+            expect(parsed.viewports).toEqual([
+                { timestamp: 1000, width: '1280', height: '720', href: 'https://example.com' },
+            ])
+        })
+
+        it('reports unreadable lines without sending them to analytics', async () => {
+            const onUnreadableLines = jest.fn()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            const parsed = await parseRawExportedSessionRecording(
+                encodeRawExport([rawBlock(0), 'not json']),
+                onUnreadableLines
+            )
+
+            expect(parsed.snapshots).toHaveLength(1)
+            expect(onUnreadableLines).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalled()
+        })
+
+        it('stops an import whose nested fields expand past what the blocks leave of the budget', async () => {
+            // The mocked decompressor returns each block as is, so a block can open with a snappy length varint.
+            const claim200MiB = new Uint8Array([0x80, 0x80, 0x80, 0x64, 0x0a])
+            const field = gzipSync(strToU8(JSON.stringify({ node: { id: 1 } })))
+            field.set([0x00, 0x00, 0xa0, 0x0f], field.byteLength - 4)
+            const nested = JSON.stringify([
+                'window-a',
+                { cv: '2024-10', type: 2, timestamp: 1000, data: strFromU8(field, true) },
+            ])
+            const filler = new Uint8Array([...claim200MiB, ...new TextEncoder().encode(rawBlock(0))])
+            const block = new Uint8Array([...claim200MiB, ...new TextEncoder().encode(nested)])
+
+            // Four blocks claim 800 MiB, which leaves 224 MiB for the 250 MiB the nested field declares.
+            const file = encodeRawExport([filler, filler, filler, block])
+            await expect(parseRawExportedSessionRecording(file)).rejects.toThrow('more data than can be played back')
+        })
+
+        it.each([
+            ['a truncated block', encodeRawExport([rawBlock(0), rawBlock(1)]).slice(0, -5), 'File is truncated'],
+            ['a block count mismatch', encodeRawExport([rawBlock(0)], { block_count: 2 }), 'header lists 2'],
+            ['an unknown version', encodeRawExport([rawBlock(0)], { version: '2099-01-raw' }), 'Unsupported'],
+            ['viewports that are not a list', encodeRawExport([rawBlock(0)], { viewports: {} }), 'valid header'],
+            [
+                'a viewport without a timestamp',
+                encodeRawExport([rawBlock(0)], { viewports: [{ width: '1', height: '1' }] }),
+                'valid header',
+            ],
+            [
+                'a viewport with a non-numeric width',
+                encodeRawExport([rawBlock(0)], {
+                    viewports: [{ timestamp: 1, width: 'x', height: '1', href: 'https://example.com' }],
+                }),
+                'valid header',
+            ],
+            ['a missing block count', encodeRawExport([rawBlock(0)], { block_count: undefined }), 'valid header'],
+            ['an empty block', encodeRawExport(['']), 'empty block'],
+            [
+                'a block that would expand past the limit',
+                // The varint says 4 GiB.
+                encodeRawExport([new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x0f, 0x00])]),
+                'too large',
+            ],
+            ['too many blocks', encodeRawExport(Array.from({ length: 100_001 }, (_, i) => rawBlock(i))), 'too large'],
+            [
+                'a header line over 8 MiB',
+                encodeRawExport([rawBlock(0)], {
+                    viewports: Array.from({ length: 200_001 }, () => ({
+                        timestamp: 1,
+                        width: '1',
+                        height: '1',
+                        href: '',
+                    })),
+                }),
+                'valid header',
+            ],
+        ])('rejects %s', async (_, bytes, message) => {
+            await expect(parseRawExportedSessionRecording(bytes)).rejects.toThrow(message)
         })
     })
 })
