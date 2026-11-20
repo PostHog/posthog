@@ -2162,6 +2162,33 @@ class TestCohortCalculationTasks(APIBaseTest):
             {matched.id, concurrent_add.id},
         )
 
+    def test_query_replace_caps_floor_at_marker_when_claim_clock_is_ahead(self) -> None:
+        run = uuid4().hex[:8]
+        matched = create_person(
+            team=self.team, distinct_ids=[f"{run}-match"], properties={"tag": f"{run}-match"}, uuid=uuid4()
+        )
+        flush_persons_and_events()
+        run_time = timezone.now().replace(microsecond=0)
+        # Claim host clock runs 30s ahead of the worker host (past the 5s margin), so without the cap
+        # claimed_at - margin would exceed marker and prune_stale_static_cohort_rows would delete the replace's own rows.
+        claimed_at = run_time + timedelta(seconds=30)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace clock ahead",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-match'"},
+        )
+        _claim_replace(cohort, claimed_at=claimed_at)
+
+        with time_machine.travel(run_time, tick=False):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertIsNotNone(cohort.last_replace_marker)
+        self.assertEqual(cohort.last_replace_floor, cohort.last_replace_marker)
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [matched.id])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(matched.uuid), REPLACE_ROW_OFFSET)])
+
     def test_query_replace_without_population_claimed_at_fails_and_keeps_members(self) -> None:
         member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
         cohort = Cohort.objects.create(
