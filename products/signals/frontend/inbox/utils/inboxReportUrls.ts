@@ -49,6 +49,8 @@ export function inboxReportBackLabel(backUrl: string): string {
             return 'Runs'
         case urls.inboxScratchpad():
             return 'Scratchpad'
+        case urls.projectHomepage():
+            return 'Home'
     }
     return path.startsWith(`${urls.inbox('scouts')}/`) ? 'Scout' : 'Back'
 }

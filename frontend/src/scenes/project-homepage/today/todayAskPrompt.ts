@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import {
@@ -5,6 +7,8 @@ import {
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
 } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+
+import { todayReportPath } from './todaySampleReports'
 
 /** What the Today page showed when the person asked, so PostHog AI can read the same reports. */
 export type TodayAskContext =
@@ -19,7 +23,7 @@ function markdownLink(text: string, href: string): string {
 
 // `link_source` tells the report page that a PostHog AI answer wrote the link.
 function todayReportHref(reportId: string): string {
-    return `${urls.todayReport(reportId)}?link_source=today`
+    return combineUrl(todayReportPath(reportId), { link_source: 'today' }).url
 }
 
 function reportsContext(reports: SignalReport[]): string[] {

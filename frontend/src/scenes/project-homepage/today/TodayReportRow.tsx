@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 
 import { dayjs } from 'lib/dayjs'
-import { urls } from 'scenes/urls'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
@@ -14,6 +13,7 @@ import { reportStateLabel } from './todayReportState'
 import { TodayRow } from './TodayRow'
 import { pullRequestFact, rowFacts } from './todayRowFacts'
 import { reportIcon } from './todayRowIcons'
+import { todayReportPath } from './todaySampleReports'
 import { reportTitle } from './todaySignalReports'
 import { TodayVerdictButtons } from './TodayVerdictButtons'
 import { type TodayReportVerdictTarget, todayVerdictLogic } from './todayVerdictLogic'
@@ -32,7 +32,7 @@ export function TodayReportRow({
     const { reportOpened, toggleReportRow } = useActions(todayLogic)
     const state = reportStateOverrides[report.id]
     const preview = reportPreviews[report.id]
-    const to = urls.todayReport(report.id)
+    const to = todayReportPath(report.id)
     const target: TodayReportVerdictTarget = {
         reportId: report.id,
         title: reportTitle(report),

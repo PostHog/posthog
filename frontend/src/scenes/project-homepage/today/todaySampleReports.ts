@@ -1,3 +1,7 @@
+import { combineUrl } from 'kea-router'
+
+import { urls } from 'scenes/urls'
+
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
@@ -10,6 +14,13 @@ const HOUR_MS = 60 * 60 * 1000
 
 export function isSampleReportId(reportId: string): boolean {
     return reportId.startsWith(SAMPLE_ID_PREFIX)
+}
+
+/** The inbox report page is the one report page. A sample has no inbox page, so it stays on Today. */
+export function todayReportPath(reportId: string): string {
+    return isSampleReportId(reportId)
+        ? urls.todayReport(reportId)
+        : combineUrl(urls.inboxReport('reports', reportId), { back: urls.projectHomepage() }).url
 }
 
 /** `?sample=1` turns sample data on, `?sample=0` turns it off, and anything else leaves it as it is. */
