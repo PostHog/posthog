@@ -2082,6 +2082,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("cancel_during_exchange",),
             ("access_unavailable",),
             ("access_revoked_during_exchange",),
+            ("access_unavailable_final",),
+            ("access_unavailable_final_persistent",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
@@ -2126,9 +2128,20 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     "code": "private-code",
                     "code_verifier": "private-verifier",
                 }
+            if kwargs.get("json", {}).get("grant_type") == "refresh_token" and outcome.startswith(
+                "access_unavailable_final"
+            ):
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+                self.desktop_access_decision.side_effect = [
+                    DesktopAccessResolutionError("Unavailable"),
+                    DesktopAccessDecision.ALLOWED
+                    if outcome == "access_unavailable_final"
+                    else DesktopAccessResolutionError("Unavailable"),
+                ]
             return self._openai_response(200, _codex_refresh_body("rt_rotated"))
 
         with (
+            patch("tenacity.nap.time.sleep"),
             patch("requests.request", side_effect=provider),
             patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as schedule,
             patch("posthog.tasks.codex_login.time.time", return_value=now) as clock,
@@ -2182,6 +2195,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             "poll_503",
             "poll_429",
             "access_unavailable",
+            "access_unavailable_final",
         )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
@@ -2203,6 +2217,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "cancel_during_exchange": "canceled",
                 "access_unavailable": "connected",
                 "access_revoked_during_exchange": "failed",
+                "access_unavailable_final": "connected",
+                "access_unavailable_final_persistent": "failed",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)

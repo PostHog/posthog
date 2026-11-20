@@ -7,6 +7,7 @@ from django.db import transaction
 import requests
 import structlog
 from celery import shared_task
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 from urllib3.exceptions import InvalidHeader
 from urllib3.util import Retry
 
@@ -176,7 +177,7 @@ def check_login_access(user: User, login: DeviceLogin) -> bool:
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
 @skip_team_scope_audit
 def complete_codex_login(user_id: int, login_id: str) -> None:
-    from posthog.api.user_integration_codex import ensure_codex_connect_enabled
+    from posthog.api.user_integration_codex import DesktopAccessUnavailable, ensure_codex_connect_enabled
 
     try:
         login = claim_login(user_id, login_id)
@@ -238,8 +239,12 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
             if get_login(user_id, login_id)["status"] != "pending":
                 return
             CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
-            user = User.objects.get(id=user_id, is_active=True)
-            ensure_codex_connect_enabled(user)
+            Retrying(
+                retry=retry_if_exception_type(DesktopAccessUnavailable),
+                stop=stop_after_attempt(2),
+                wait=wait_fixed(5),
+                reraise=True,
+            )(lambda: ensure_codex_connect_enabled(User.objects.get(id=user_id, is_active=True)))
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")
             transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
