@@ -853,6 +853,13 @@ describe('emailTemplaterLogic', () => {
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
         })
 
+        it('a flush picks up an edit the editor has not reported yet', async () => {
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
         it('switching the sender keeps a canvas edit made while the flush is exporting', async () => {
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED

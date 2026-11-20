@@ -1223,7 +1223,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!commitsLive || !values.isEmailEditorReady) {
                 return
             }
-            while (cache.pendingDesignEdit) {
+            // The old editor reports a typed edit up to a second late, so read the canvas even when nothing is pending.
+            let readCanvas = true
+            while (readCanvas || cache.pendingDesignEdit) {
+                readCanvas = false
                 const editsBeforeExport = cache.designEdits
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
