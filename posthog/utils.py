@@ -1837,6 +1837,7 @@ def get_instance_available_sso_providers() -> dict[str, bool]:
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
+        "chatgpt": bool(settings.SOCIAL_AUTH_CHATGPT_KEY and settings.SOCIAL_AUTH_CHATGPT_SECRET),
     }
 
     # Get license information
