@@ -3,27 +3,13 @@ import { Form, Field as KeaField } from 'kea-forms'
 import { useId } from 'react'
 
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
-import {
-    Button,
-    Field,
-    FieldError,
-    FieldLabel,
-    Item,
-    ItemContent,
-    ItemDescription,
-    Switch,
-    Text,
-    Textarea,
-} from '@posthog/quill'
+import { Button, Field, FieldError, FieldLabel, Switch, Textarea } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
@@ -182,47 +168,6 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
                 </div>
             )}
         </div>
-    )
-}
-
-export function FlagsSecureApiKeys(): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
-    if (todayRailNav) {
-        return (
-            <Item tone="warning" size="sm">
-                <ItemContent className="gap-2">
-                    <ItemDescription>
-                        The feature flags secure API key is deprecated. Create a <strong>project secret API key</strong>{' '}
-                        with the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset)
-                        instead. It's hashed at rest, scoped, and rotatable. Existing keys keep working, but they can no
-                        longer be viewed or rotated here.
-                    </ItemDescription>
-                    <Text size="xs" render={<p className="m-0" />}>
-                        <Button
-                            variant="link"
-                            size="inline"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.settings('environment-secret-api-keys')} />}
-                        >
-                            Create a project secret API key
-                        </Button>
-                    </Text>
-                </ItemContent>
-            </Item>
-        )
-    }
-
-    return (
-        <LemonBanner type="warning">
-            <p className="mb-1">
-                The feature flags secure API key is deprecated. Create a <strong>project secret API key</strong> with
-                the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset) instead. It's
-                hashed at rest, scoped, and rotatable. Existing keys keep working, but they can no longer be viewed or
-                rotated here.
-            </p>
-            <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
-        </LemonBanner>
     )
 }
 

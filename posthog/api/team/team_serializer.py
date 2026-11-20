@@ -75,13 +75,11 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
-# Credentials a project response carries that outlive a workload token: the project secret token and its backup,
-# the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
-# so without this a workload could read one and keep access after its token expires. The public project token
-# (`api_token`) stays.
+# Credentials a project response carries that outlive a workload token: the heatmaps
+# screenshot secret and the 7-day live events token. A workload token acts as the
+# organization owner, so without this a workload could read one and keep access after
+# its token expires. The public project token (`api_token`) stays.
 TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
-    "secret_api_token",
-    "secret_api_token_backup",
     "heatmaps_screenshot_secret",
     "live_events_token",
 )
@@ -223,8 +221,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -255,8 +251,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -289,7 +283,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens(representation)
 
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
