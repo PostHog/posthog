@@ -9,6 +9,8 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
+import type { TeamType } from '~/types'
+
 import { channelIcon } from '../Channels/ChannelsTag'
 import { SupportSetupAIAgent } from '../SupportSetupAIAgent/SupportSetupAIAgent'
 import { SupportSetupImports } from '../SupportSetupImports/SupportSetupImports'
@@ -39,25 +41,12 @@ interface SetupChannel {
     connected?: boolean
 }
 
-export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMode; preview: boolean }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { pendingChannel, pendingReason } = useValues(supportSetupCardLogic)
-    const { pickChannel } = useActions(supportSetupCardLogic)
-
-    const supportEnabled = !!currentTeam?.conversations_enabled
-    const adminRestriction = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-    // The server only lets project admins turn Support on. A preview never turns it on.
-    const enableRestriction = !supportEnabled && !preview ? adminRestriction : null
-    const settings = currentTeam?.conversations_settings
-    const widgetOn = supportEnabled && !!settings?.widget_enabled
-    const copy = widgetOn ? WIDGET_ON_COPY : COPY[mode]
-    const aiAgentAvailable = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_SUGGESTION_ORGS]
-
-    const channels: SetupChannel[] = [
+function setupChannels(
+    settings: TeamType['conversations_settings'] | undefined,
+    widgetOn: boolean,
+    teamsAvailable: boolean
+): SetupChannel[] {
+    return [
         {
             key: 'widget',
             icon: channelIcon.widget,
@@ -81,7 +70,7 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
             description: 'Turn Slack messages into tickets.',
             connected: !!settings?.slack_enabled,
         },
-        ...(featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]
+        ...(teamsAvailable
             ? [
                   {
                       key: 'teams' as const,
@@ -99,6 +88,27 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
             description: 'Send tickets from your own contact form or custom UI.',
         },
     ]
+}
+
+export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMode; preview: boolean }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { pendingChannel, pendingReason } = useValues(supportSetupCardLogic)
+    const { pickChannel } = useActions(supportSetupCardLogic)
+
+    const supportEnabled = !!currentTeam?.conversations_enabled
+    const adminRestriction = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    // The server only lets project admins turn Support on. A preview never turns it on.
+    const enableRestriction = !supportEnabled && !preview ? adminRestriction : null
+    const settings = currentTeam?.conversations_settings
+    const widgetOn = supportEnabled && !!settings?.widget_enabled
+    const copy = widgetOn ? WIDGET_ON_COPY : COPY[mode]
+    const aiAgentAvailable = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_SUGGESTION_ORGS]
+
+    const channels = setupChannels(settings, widgetOn, !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED])
 
     return (
         <div className="mt-2 flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">

@@ -58,7 +58,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission, is_scout_sandbox_request
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request, is_service_auth
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -2343,6 +2343,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = SetupTestTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         team = self.team
+
+        # The viewset permission also admits a person whose only editor grant is on one existing
+        # ticket. A new ticket belongs to no such grant, so it needs editor access to all tickets.
+        if not is_service_auth(request) and not self.user_access_control.check_access_level_for_resource(
+            "ticket", "editor"
+        ):
+            raise PermissionDenied("You do not have editor access to tickets.")
 
         if not team.conversations_enabled:
             return Response({"detail": "Support is not enabled."}, status=drf_status.HTTP_400_BAD_REQUEST)

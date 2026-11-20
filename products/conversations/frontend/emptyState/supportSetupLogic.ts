@@ -50,6 +50,13 @@ export interface supportSetupLogicActions {
     }
 }
 
+function startPoll(cache: Record<string, any>, checkSetup: () => void): void {
+    cache.disposables.add(() => {
+        const id = window.setInterval(checkSetup, POLL_INTERVAL_MS)
+        return () => clearInterval(id)
+    }, 'poll')
+}
+
 export type supportSetupLogicType = MakeLogicType<supportSetupLogicValues, supportSetupLogicActions>
 
 /**
@@ -127,24 +134,27 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
             }
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, cache }) => ({
         // kea-subscriptions fires once at mount for any value that isn't `undefined`, and
         // `currentTeam` defaults to `null`, so without this guard every mount checked twice:
         // once here and once from `afterMount`. Still fires on the null-to-team transition,
         // which is the case this subscription exists for.
-        currentTeam: (_, previousTeam) => {
-            if (previousTeam !== undefined) {
-                actions.checkSetup()
+        currentTeam: (team, previousTeam) => {
+            if (previousTeam === undefined) {
+                return
             }
+            // The poll stopped while Support was off. The setup card can turn Support on without
+            // a remount, so the poll must start again here.
+            if (team?.conversations_enabled && !previousTeam?.conversations_enabled) {
+                startPoll(cache, actions.checkSetup)
+            }
+            actions.checkSetup()
         },
     })),
     afterMount(({ actions, cache }) => {
         actions.checkSetup()
         // The poll stops for good once the first ticket arrives, or once a project with no
         // tickets is found to have support switched off.
-        cache.disposables.add(() => {
-            const id = window.setInterval(() => actions.checkSetup(), POLL_INTERVAL_MS)
-            return () => clearInterval(id)
-        }, 'poll')
+        startPoll(cache, actions.checkSetup)
     }),
 ])

@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -70,6 +71,31 @@ describe('supportSetupLogic', () => {
         expect(firstTicketCalls).toEqual([
             ['support setup first ticket detected', { channel_source: 'email', is_test: false }],
         ])
+    })
+
+    it('polls again after Support turns on without a remount', async () => {
+        // Only the poll interval is faked, because kea-test-utils waits on real timeouts.
+        jest.useFakeTimers({
+            doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask'],
+        })
+        try {
+            mockTicketsList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+            const logic = mountWithTeam(false)
+            await expectLogic(logic).toFinishAllListeners()
+            const status = (): string => productSetupStatusLogic({ productKey: ProductKey.CONVERSATIONS }).values.status
+            expect(status()).toBe('needs-setup')
+
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, conversations_enabled: true } as TeamType)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(status()).toBe('waiting-for-data')
+
+            mockTicketsList.mockResolvedValue({ count: 1, next: null, previous: null, results: [] })
+            jest.advanceTimersByTime(20000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(status()).toBe('has-data')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('fails open to unknown when the count query fails before any answer', async () => {

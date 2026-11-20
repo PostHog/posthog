@@ -2,17 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { supportSetupCardLogic } from '../SupportSetupCard/supportSetupCardLogic'
 
 export function SupportSetupTestTicket({ preview }: { preview: boolean }): JSX.Element {
     const { testMessage, testTicketLoading, pendingReason } = useValues(supportSetupCardLogic)
     const { setTestMessage, sendTestTicket } = useActions(supportSetupCardLogic)
 
-    const disabledReason = preview
+    // The button and the Enter key share one reason, so neither can send what the other blocks.
+    const blockedReason = preview
         ? 'This project already has tickets, so this preview does not send one.'
-        : !testTicketLoading
-          ? (pendingReason ?? undefined)
-          : undefined
+        : (getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? pendingReason)
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary px-4 py-3">
@@ -28,7 +31,7 @@ export function SupportSetupTestTicket({ preview }: { preview: boolean }): JSX.E
                     className="min-w-48 flex-1"
                     value={testMessage}
                     onChange={setTestMessage}
-                    onPressEnter={() => !disabledReason && !testTicketLoading && sendTestTicket()}
+                    onPressEnter={() => !blockedReason && sendTestTicket()}
                     placeholder="Write a message as a customer"
                     maxLength={5000}
                     aria-label="Test ticket message"
@@ -37,7 +40,7 @@ export function SupportSetupTestTicket({ preview }: { preview: boolean }): JSX.E
                 <LemonButton
                     type="primary"
                     loading={testTicketLoading}
-                    disabledReason={disabledReason}
+                    disabledReason={testTicketLoading ? undefined : (blockedReason ?? undefined)}
                     onClick={() => sendTestTicket()}
                     data-attr="support-setup-test-ticket-send"
                 >

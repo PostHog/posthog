@@ -3768,6 +3768,14 @@ class TestTicketAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status, response.json())
 
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_send_test_needs_resource_level_editor(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.post(f"/api/projects/{self.team.id}/conversations/tickets/send_test/")
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 2 if expected_status == 201 else 1)
+
     def test_user_access_level_reflects_resource_level(self) -> None:
         self._set_resource_level("viewer")
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
