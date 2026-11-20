@@ -132,7 +132,7 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
 
 5. Run `pnpm --filter=@posthog/frontend typegen:write` to generate types for [Kea](https://keajs.org/) state management logics used all over the frontend.
 
-Kea typegen runs the Go worker for TypeScript 7.1 and loads the forms visitor from `kea-forms`. The workspace install selects the worker for your platform.
+Kea typegen runs the Go worker for TypeScript 7.1 beta and loads the forms visitor from `kea-forms`. The workspace install selects the worker for your platform. Check the native compiler version with `pnpm --filter=@posthog/frontend typescript:version`. Frontend tools that import `typescript` use the TypeScript 6 JavaScript API.
 
 When iterating on one logic file, run `pnpm --filter=@posthog/frontend typegen:file <path-to-logic-file>` instead.
 The path can be absolute, repo-relative like `frontend/src/scenes/foo/fooLogic.ts`, or frontend-relative like `src/scenes/foo/fooLogic.ts`.
