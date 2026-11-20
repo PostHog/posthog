@@ -365,11 +365,14 @@ describe('emailSenderControlLogic', () => {
     })
 
     it('leaves a sandbox step when its pending canvas edit cannot be saved', async () => {
-        await openCanvasWithPendingEdit(() => {
+        const failingExport = jest.fn(() => {
             throw new Error('export failed')
         })
+        await openCanvasWithPendingEdit(failingExport)
 
+        await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
         await expectLogic(logic).toFinishListeners()
+        expect(failingExport).toHaveBeenCalled()
         expect(storedStep()).toMatchObject({ type: 'email_sandbox' })
     })
 })
