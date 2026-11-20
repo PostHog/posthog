@@ -21,6 +21,7 @@ import { TraceDrawerListId } from '../trace/traceDrawerLists'
 import { TraceDrawerRowsSync, useTraceDrawerTable, useTraceFullPageHref } from '../trace/TraceDrawerRowsHost'
 import { TraceListRow } from '../trace/traceListRows'
 import { tracesTableColumns } from './components/TracesTableColumns'
+import { traceCellsLogic } from './traceCellsLogic'
 import { TRACES_LIST_FILTERS, tracesListLogic } from './tracesListLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
@@ -40,13 +41,17 @@ export function TracesListHost(): JSX.Element {
     const { setPropertyFilters, setFilterTestAccounts, setSearchDraft, toggleQuickFilter, resetFilters } = useActions(
         listFiltersLogic(TRACES_LIST_FILTERS)
     )
+    const { previews, people, sentiments } = useValues(traceCellsLogic)
     const { dateFrom, dateTo } = useValues(shellScopeLogic)
     const { setDateRange } = useActions(shellScopeLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const fullPageHref = useTraceFullPageHref(LIST_ID)
     const linkTo = useCallback((item: TraceListItemApi): string => fullPageHref(toRow(item)), [fullPageHref])
-    const columns = useMemo(() => tracesTableColumns({ linkTo }), [linkTo])
+    const columns = useMemo(
+        () => tracesTableColumns({ linkTo, cells: { previews, people, sentiments } }),
+        [linkTo, previews, people, sentiments]
+    )
     const drawerRows = useMemo(() => items.map(toRow), [items])
     const { onRow } = useTraceDrawerTable(LIST_ID, TRACE_LINK, toRow)
 

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { TraceListApi } from '../../generated/api.schemas'
-import { makeTraceListItem } from './testFixtures'
+import { TRACE_CELL_URLS, makeTraceListItem, traceCellsMocks } from './testFixtures'
 import { TracesListHost } from './TracesListHost'
 
 const PAGE: TraceListApi = {
@@ -37,15 +37,24 @@ const PAGE: TraceListApi = {
     nextCursor: 'cursor-2',
 }
 
+const LIST_MOCK = { '/api/projects/:team_id/ai_observability/traces/': PAGE }
+const UNANSWERED_CELLS = Object.fromEntries(
+    Object.values(TRACE_CELL_URLS).map((url) => [url, () => new Promise(() => {})])
+)
+const FAILING_CELLS = Object.fromEntries(
+    Object.values(TRACE_CELL_URLS).map((url) => [url, () => [500, { detail: 'Cell read failed' }]])
+)
+
 const meta: Meta<typeof TracesListHost> = {
     title: 'Scenes-App/AI observability/Traces/Traces list',
     component: TracesListHost,
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/ai_observability/traces/': PAGE } })],
+    decorators: [mswDecorator({})],
     parameters: {
+        msw: { mocks: { get: LIST_MOCK, post: traceCellsMocks() } },
         mockDate: '2026-09-01',
         pageUrl: urls.aiObservabilityTraces(),
         featureFlags: [FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH],
-        testOptions: { snapshotBrowsers: [], waitForSelector: 'text=rag-query' },
+        testOptions: { snapshotBrowsers: [], waitForSelector: 'text=Ana Example' },
     },
 }
 export default meta
@@ -53,6 +62,20 @@ export default meta
 type Story = StoryObj<typeof TracesListHost>
 
 export const Rows: Story = {}
+
+export const SlowCellsLoading: Story = {
+    parameters: {
+        msw: { mocks: { post: UNANSWERED_CELLS } },
+        testOptions: { snapshotBrowsers: [], waitForSelector: 'text=rag-query' },
+    },
+}
+
+export const SlowCellsFailed: Story = {
+    parameters: {
+        msw: { mocks: { post: FAILING_CELLS } },
+        testOptions: { snapshotBrowsers: [], waitForSelector: '[role="img"][aria-label^="Couldn"]' },
+    },
+}
 
 export const NarrowContainer: Story = {
     decorators: [

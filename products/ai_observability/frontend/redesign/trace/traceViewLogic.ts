@@ -1,9 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
-import { ApiConfig, ApiError } from 'lib/api'
-import { shouldReportApiFailure } from 'lib/api-error'
+import { ApiConfig } from 'lib/api'
 
 import {
     aiObservabilityTracesEvaluationsRetrieve,
@@ -17,6 +15,7 @@ import type {
     TraceNodeDetailApi,
     TraceNodeRawApi,
 } from '../../generated/api.schemas'
+import { noEntries, readOrFailure, toLoadFailure } from '../shared/readOrFailure'
 import { encodeTraceIdSegment } from './traceIdSegment'
 import { stepLabelsOf } from './traceTreeLookups'
 import { traceViewTracking } from './traceViewTracking'
@@ -154,28 +153,6 @@ export type traceViewLogicType = MakeLogicType<
     TraceViewLogicProps,
     traceViewLogicMeta
 >
-
-function toLoadFailure(error: unknown): LoadFailure {
-    return error instanceof ApiError && error.status === 404 ? 'not_found' : 'failed'
-}
-
-async function readOrFailure<T>(request: Promise<T>): Promise<{ value: T } | { failure: LoadFailure }> {
-    try {
-        return { value: await request }
-    } catch (error) {
-        const failure = toLoadFailure(error)
-        if (failure === 'failed' && shouldReportApiFailure(error)) {
-            posthog.captureException(error)
-        }
-        return { failure }
-    }
-}
-
-// Node ids come from SDKs and URLs, so they can be any string. A plain object keyed by them returns an inherited
-// member for an id such as `constructor`, so node state is kept in maps.
-function noEntries<V>(): ReadonlyMap<string, V> {
-    return new Map()
-}
 
 function withEntry<V>(entries: ReadonlyMap<string, V>, nodeId: string, value: V): ReadonlyMap<string, V> {
     return new Map(entries).set(nodeId, value)
