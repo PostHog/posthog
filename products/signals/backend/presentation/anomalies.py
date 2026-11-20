@@ -112,7 +112,7 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. "
-            "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for "
+            "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for "
             "`day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with "
             "`group_by: insight`."
         ),
@@ -182,7 +182,7 @@ class AnomalySeriesPointsSerializer(serializers.Serializer):
     )
     date_from = ProjectDateTimeField(
         help_text=(
-            "The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for "
+            "The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 14 days for "
             "`day`, 26 weeks for `week` and 24 months for `month`."
         )
     )
