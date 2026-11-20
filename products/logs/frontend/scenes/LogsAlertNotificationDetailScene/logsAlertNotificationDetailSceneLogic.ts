@@ -42,8 +42,8 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
     alert: LogsAlertConfigurationDetailApi | null
-    alertId: string
     alertError: boolean
+    alertId: string
     alertLoading: boolean
     alertSettled: boolean
     breadcrumbs: Breadcrumb[]
