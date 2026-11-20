@@ -1266,6 +1266,8 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        # The same value `_create_run_row` stamps, which the report actions endpoint checks.
+        report_actions=granted_report_actions_for_run(config),
         tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
         trigger_workflow_id=trigger_workflow_id,
