@@ -5,6 +5,7 @@ describe('test run request schema', () => {
         const result = HogFlowsInvocationsCreateBody.safeParse({ configuration: {} })
 
         const paths = result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'))
+        expect(paths.some((path) => path.startsWith('configuration.'))).toBe(true)
         expect(paths).not.toContain('configuration.warnings')
     })
 })
