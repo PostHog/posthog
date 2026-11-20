@@ -34,7 +34,6 @@ rules:
       owners: team-apm
     - match:
           - '/common/usage-ingestion/*.test.*'
-          - '/common/services/billing-usage-keys.test.*'
       owners: team-billing
     - match:
           - '/common/api/*.test.*'

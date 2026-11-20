@@ -3,9 +3,16 @@ import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { RedisPool } from '../../types'
-import { BilledUsageKey } from './billing-usage-keys'
 
-export type QuotaResource = BilledUsageKey | 'workflow_push' | 'metrics_mb_ingested'
+// subset of resources that we care about in this service
+export type QuotaResource =
+    | 'events'
+    | 'cdp_trigger_events'
+    | 'workflow_emails'
+    | 'workflow_push'
+    | 'workflow_destinations'
+    | 'logs_mb_ingested'
+    | 'metrics_mb_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 
