@@ -1448,11 +1448,17 @@ class TestPromptBuilder(BaseTest):
             "team_id": self.team.id,
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             "github_read_access": True,
+            "repositories": ["PostHog/posthog"],
+            "activity_summary_search_available": True,
         }
         strict = build_run_prompt(loaded, **kwargs, strict_reviewer_selection=True)
         legacy = build_run_prompt(loaded, **kwargs)
 
         assert "No code evidence? Route to the most plausible owner." in strict
+        assert "Use one best match when exact ownership is unknown." in strict
+        assert "Return an empty list only when no relevant signal exists at all" in strict
+        assert "git log -S'<symbol-or-literal>'" in strict
+        assert 'use `mode: "building"` or the matching `product` filter' in strict
         assert "it is a route, not only evidence" in strict
         assert "Inspect relevant work." in strict
         assert "Always try to set it." not in strict
