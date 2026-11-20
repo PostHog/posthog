@@ -70,6 +70,12 @@ _TASK_RUN_LOOKUP_LEGS = {
     _TaskRunMatchRank.REPORTED_PR_URL: "pr_url_branch",
 }
 
+_BRANCH_MATCH_RANKS = (
+    _TaskRunMatchRank.SELF_DRIVING_HEAD_BRANCH,
+    _TaskRunMatchRank.SIGNED_HEAD_BRANCH,
+    _TaskRunMatchRank.WIZARD_HEAD_BRANCH,
+)
+
 
 def _indexed_candidate_matches(
     pr_url: str | None,
@@ -153,14 +159,37 @@ def _eligible_task_run_candidates(rank: _TaskRunMatchRank, runs: list[TaskRun]) 
     return runs
 
 
+def _reports_pull_request(run: TaskRun, pr_urls: set[str]) -> bool:
+    return any(url in pr_urls or canonical_github_pull_request_url(url) in pr_urls for url in read_pr_urls(run.output))
+
+
 def _select_task_run_candidate(
-    runs: dict[UUID, TaskRun], matches: dict[_TaskRunMatchRank, set[UUID]]
+    runs: dict[UUID, TaskRun], matches: dict[_TaskRunMatchRank, set[UUID]], pr_url: str | None
 ) -> tuple[TaskRun | None, str]:
+    pr_urls = {url for url in (pr_url, canonical_github_pull_request_url(pr_url) if pr_url else None) if url}
+    any_run_reports_pr = any(_reports_pull_request(run, pr_urls) for run in runs.values())
+    skipped_ambiguous_branch = False
     for rank in _TaskRunMatchRank:
         ranked_runs = [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs]
         eligible_runs = _eligible_task_run_candidates(rank, ranked_runs)
         if not eligible_runs:
             continue
+        if rank in _BRANCH_MATCH_RANKS:
+            reporting_runs = [run for run in eligible_runs if _reports_pull_request(run, pr_urls)]
+            if reporting_runs:
+                eligible_runs = reporting_runs
+            elif rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and (
+                any_run_reports_pr or len({run.task_id for run in eligible_runs}) > 1
+            ):
+                # Any task can push a fix to another task's PR branch, so a push alone doesn't
+                # show which task opened the PR. A wrong match links the PR to that task's reports.
+                logger.info(
+                    "github_webhook_task_run_lookup_ambiguous",
+                    pr_url=pr_url,
+                    run_ids=[str(run.id) for run in eligible_runs],
+                )
+                skipped_ambiguous_branch = True
+                continue
         if rank == _TaskRunMatchRank.VERIFIED_PR_URL:
             task_run = max(
                 eligible_runs,
@@ -171,7 +200,7 @@ def _select_task_run_candidate(
         else:
             task_run = max(eligible_runs, key=lambda run: (run.created_at, run.id))
         return task_run, _TASK_RUN_LOOKUP_LEGS[rank]
-    return None, "none"
+    return None, "ambiguous_head_branch" if skipped_ambiguous_branch else "none"
 
 
 def find_task_run(
@@ -188,6 +217,8 @@ def find_task_run(
 
     A checkout branch alone does not prove PR ownership: a discussion can inspect a shared
     branch without authoring a change. Legacy branch matches also require the exact reported PR URL.
+    Among runs that pushed to the PR branch, a run that reports the PR wins; when none reports it
+    and the pushes come from more than one task, nothing matches.
     """
     repository = repository.strip() if repository else None
 
@@ -199,12 +230,12 @@ def find_task_run(
     match = find_task_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
     task_id = match.task_id if match is not None else None
     matches = _indexed_candidate_matches(pr_url, branch, repository, team_ids=team_ids)
-    task_run, leg = _find_task_run_by_run_state(matches, repository, team_ids=team_ids, task_id=task_id)
+    task_run, leg = _find_task_run_by_run_state(matches, pr_url, repository, team_ids=team_ids, task_id=task_id)
     if task_run is None and match is not None and match.by_verified_pr_url:
         task_run, leg = _live_or_newest_run(match.task_id, team_ids=team_ids), "task_columns"
     by_task_columns = task_run is not None and match is not None
     if task_run is None and match is not None:
-        task_run, leg = _find_task_run_by_run_state(matches, repository, team_ids=team_ids, task_id=None)
+        task_run, leg = _find_task_run_by_run_state(matches, pr_url, repository, team_ids=team_ids, task_id=None)
     observe_github_webhook_task_lookup(leg=leg, by_task_columns=by_task_columns)
     return task_run
 
@@ -259,7 +290,12 @@ def _live_or_newest_run(task_id: UUID, *, team_ids: list[int]) -> TaskRun | None
 
 
 def _find_task_run_by_run_state(
-    matches: dict[_TaskRunMatchRank, set[UUID]], repository: str | None, *, team_ids: list[int], task_id: UUID | None
+    matches: dict[_TaskRunMatchRank, set[UUID]],
+    pr_url: str | None,
+    repository: str | None,
+    *,
+    team_ids: list[int],
+    task_id: UUID | None,
 ) -> tuple[TaskRun | None, str]:
     if not matches:
         return None, "none"
@@ -278,7 +314,7 @@ def _find_task_run_by_run_state(
         candidates = candidates.filter(_run_repository_filter(repository))
     candidate_ids = {candidate_id for candidate_ids in matches.values() for candidate_id in candidate_ids}
     runs = {run.id: run for run in candidates.filter(id__in=candidate_ids).select_related(*TASK_RUN_SELECT_RELATED)}
-    return _select_task_run_candidate(runs, matches)
+    return _select_task_run_candidate(runs, matches, pr_url)
 
 
 def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHubWebhookAnalyticsEvent) -> None:
