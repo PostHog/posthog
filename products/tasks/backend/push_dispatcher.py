@@ -31,6 +31,7 @@ from posthog.push_notifications import mobile_push_payload_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.mobile_push import (
     enqueue_mobile_pr_outcome,
@@ -281,6 +282,10 @@ def _enqueue_inner(
 ) -> bool:
     if not settings.TEST:
         close_old_connections()
+
+    if organization_deactivated(task_run.team_id):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="organization_deactivated").inc()
+        return False
 
     from products.signals.backend.facade.api import (  # noqa: PLC0415 — avoid a product import cycle
         notify_report_task_push,

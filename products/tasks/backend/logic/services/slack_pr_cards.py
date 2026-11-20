@@ -9,6 +9,7 @@ import structlog
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +44,7 @@ def post_pr_closed_slack_update(run_id: str, pr_url: str, *, merged: bool = Fals
 
 def _post_pr_closed_card(run_id: str, pr_url: str, *, merged: bool) -> bool:
     task_run = TaskRun.objects.select_related("task").filter(id=run_id).first()
-    if task_run is None:
+    if task_run is None or organization_deactivated(task_run.team_id):
         return False
     mapping = (
         SlackThreadTaskMapping.objects.filter(team_id=task_run.team_id, task_id=task_run.task_id)

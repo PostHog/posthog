@@ -90,6 +90,20 @@ class TestPostPrClosedSlackUpdate(TestCase):
         assert posts == expected_posts
 
     @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_deactivated_organization_gets_no_card_until_reactivated(self, mock_post):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+        organization = self.team.organization
+        organization.is_active = False
+        organization.save()
+
+        assert post_pr_closed_slack_update(str(self.task_run.id), PR_URL) is False
+        mock_post.assert_not_called()
+
+        organization.is_active = True
+        organization.save()
+        assert post_pr_closed_slack_update(str(self.task_run.id), PR_URL) is True
+
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
     def test_merge_after_reopen_still_posts(self, mock_post):
         SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
 

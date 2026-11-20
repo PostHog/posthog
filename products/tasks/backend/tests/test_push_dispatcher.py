@@ -81,6 +81,31 @@ class TestPushDispatcher(TestCase):
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
 
+    @parameterized.expand([("run_completed",), ("pr_merged",)])
+    @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_deactivated_organization_gets_no_push(self, trigger, mock_delay, _flag):
+        if trigger == "pr_merged":
+            self.task.origin_product = Task.OriginProduct.SLACK
+            self.task.state = {"mobile_push_user_ids": [self.user.id]}
+            self.task.save(update_fields=["origin_product", "state"])
+        self.organization.is_active = False
+        self.organization.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if trigger == "pr_merged":
+                notify_task_pull_request_outcome(
+                    task_id=str(self.task.id),
+                    run_id=str(self.task_run.id),
+                    team_id=self.team.id,
+                    pr_url="https://github.com/example/project/pull/1",
+                    merged=True,
+                )
+            else:
+                notify_task_run_completed(self.task_run)
+
+        mock_delay.assert_not_called()
+
     @parameterized.expand([(True,), (False,)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_cancel_push_reads_persisted_actor(self, cancelled_by_recipient: bool, mock_delay: Mock) -> None:
