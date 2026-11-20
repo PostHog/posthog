@@ -1,6 +1,11 @@
+import re
+import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -8,19 +13,22 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
-    set_organization_flag_evaluations_mode,
+    set_organizations_flag_evaluations_mode,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -50,6 +58,20 @@ class TestSetFlagEvaluationsMode(BaseTest):
             organization=organization, defaults={"flag_evaluations_mode": mode}
         )
 
+    def _ids_file(self, *lines: object) -> str:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "ids.txt"
+        path.write_text("".join(f"{line}\n" for line in lines))
+        return str(path)
+
+    def _organizations_without_config(self, count: int) -> list[Organization]:
+        # bulk_create skips the post_save handler, so these organizations have no config row, like
+        # the organizations created before the row existed.
+        return Organization.objects.bulk_create(
+            [Organization(name=f"Organization {i}", slug=uuid4().hex) for i in range(count)]
+        )
+
     def test_an_organization_without_a_row_gets_one_at_the_target(self) -> None:
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
 
@@ -67,9 +89,15 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIn("Would set mode 1 on 1 organization(s).", output)
         self.assertIsNone(self._stored_mode(self.organization))
 
-    @parameterized.expand([("flag_evaluations_only", "2", True), ("read_flag_evaluations", "1", False)])
+    @parameterized.expand(
+        [
+            ("flag_evaluations_only", "2", (), True, True),
+            ("read_flag_evaluations", "1", (), True, False),
+            ("skipped_count", "2", ("--skip-experiment-count",), False, False),
+        ]
+    )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
-        self, _name: str, mode: str, expects_warning: bool
+        self, _name: str, mode: str, extra_args: tuple[str, ...], expects_count: bool, expects_warning: bool
     ) -> None:
         create_experiment(
             team_id=self.team.id,
@@ -79,9 +107,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
             metrics=[FLAG_CALL_METRIC],
         )
 
-        output = self._run("--mode", mode, "--organization-id", str(self.organization.id), "--dry-run")
+        output = self._run("--mode", mode, "--organization-id", str(self.organization.id), "--dry-run", *extra_args)
 
-        self.assertIn("1 experiment(s) reading $feature_flag_called from events", output)
+        self.assertEqual("1 experiment(s) reading $feature_flag_called from events" in output, expects_count)
         self.assertEqual("1 running experiment(s) read $feature_flag_called from events" in output, expects_warning)
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
@@ -137,41 +165,212 @@ class TestSetFlagEvaluationsMode(BaseTest):
         # The stale read stands in for a staff write that raises the organization between the
         # helper's read and its write.
         with patch(
-            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_mode",
-            return_value=FlagEvaluationsMode.EVENTS,
+            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_modes",
+            return_value={self.organization.id: FlagEvaluationsMode.EVENTS},
         ):
-            change = set_organization_flag_evaluations_mode(
-                self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, allow_downgrade=False, dry_run=False
+            [change] = set_organizations_flag_evaluations_mode(
+                [self.organization], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, allow_downgrade=False, dry_run=False
             )
 
         self.assertFalse(change.changed)
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
-    def test_unknown_organization_id_fails_before_writing(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "unknown_organization_id",
+                lambda self, missing: ("--organization-id", str(self.organization.id), "--organization-id", missing),
+                "Unknown organization",
+            ),
+            (
+                "unknown_id_in_ids_file",
+                lambda self, missing: ("--organization-ids-file", self._ids_file(self.organization.id, missing)),
+                "Unknown organization",
+            ),
+            (
+                "unknown_id_in_exclude_file",
+                lambda self, missing: (
+                    "--organization-id",
+                    str(self.organization.id),
+                    "--exclude-organization-ids-file",
+                    self._ids_file(missing),
+                ),
+                "Unknown organization",
+            ),
+            (
+                "line_that_is_not_an_id",
+                lambda self, missing: (
+                    "--organization-ids-file",
+                    self._ids_file("organization_id", self.organization.id),
+                ),
+                "'organization_id' is not an organization id",
+            ),
+            (
+                "line_that_is_not_an_id_in_exclude_file",
+                lambda self, missing: ("--all-organizations", "--exclude-organization-ids-file", self._ids_file("2")),
+                "'2' is not an organization id",
+            ),
+            (
+                "changed_ids_file_on_a_dry_run",
+                lambda self, missing: (
+                    "--organization-id",
+                    str(self.organization.id),
+                    "--dry-run",
+                    "--write-changed-ids",
+                    self._ids_file(),
+                ),
+                "a dry run changes none",
+            ),
+        ]
+    )
+    def test_refuses_the_run_before_writing(self, _name: str, build_args: Any, message: str) -> None:
         missing_id = "00000000-0000-0000-0000-000000000000"
 
-        with self.assertRaisesMessage(CommandError, missing_id):
-            self._run("--mode", "1", "--organization-id", str(self.organization.id), "--organization-id", missing_id)
+        with self.assertRaisesMessage(CommandError, message):
+            self._run("--mode", "1", *build_args(self, missing_id))
 
         self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.EVENTS)
 
-    def test_a_failure_partway_leaves_every_organization_unchanged(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_later_chunk_fails", "set_organizations_flag_evaluations_mode", True),
+            ("the_ids_file_sync_fails", "os.fsync", False),
+        ]
+    )
+    def test_a_failure_partway_keeps_the_ids_file_in_step_with_the_writes_and_a_rerun_finishes(
+        self, _name: str, failing_call: str, first_chunk_commits: bool
+    ) -> None:
         second = Organization.objects.create(name="Second organization")
+        changed_ids_file = self._ids_file()
+        args = (
+            "--mode",
+            "1",
+            "--organization-id",
+            str(self.organization.id),
+            "--organization-id",
+            str(second.id),
+            "--chunk-size",
+            "1",
+            "--write-changed-ids",
+            changed_ids_file,
+        )
 
-        def fail_on_second(organization: Organization, *args: Any, **kwargs: Any) -> OrganizationModeChange:
-            if organization.id == second.id:
+        def fail_on_second(
+            organizations: Sequence[Organization], *args: Any, **kwargs: Any
+        ) -> list[OrganizationModeChange]:
+            if organizations[0].id == second.id:
                 raise RuntimeError("write failed")
-            return set_organization_flag_evaluations_mode(organization, *args, **kwargs)
+            return set_organizations_flag_evaluations_mode(organizations, *args, **kwargs)
 
+        side_effect = (
+            fail_on_second
+            if failing_call == "set_organizations_flag_evaluations_mode"
+            else [RuntimeError("sync failed"), None]
+        )
         with (
             patch(
-                "products.feature_flags.backend.management.commands.set_flag_evaluations_mode.set_organization_flag_evaluations_mode",
-                side_effect=fail_on_second,
+                f"products.feature_flags.backend.management.commands.set_flag_evaluations_mode.{failing_call}",
+                side_effect=side_effect,
             ),
             self.assertRaises(RuntimeError),
         ):
-            self._run(
-                "--mode", "1", "--organization-id", str(self.organization.id), "--organization-id", str(second.id)
-            )
+            self._run(*args)
 
-        self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(
+            get_organization_flag_evaluations_mode(self.organization.id),
+            FlagEvaluationsMode.READ_FLAG_EVALUATIONS if first_chunk_commits else FlagEvaluationsMode.EVENTS,
+        )
+        self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(
+            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if first_chunk_commits else []
+        )
+
+        self._run(*args)
+
+        self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
+
+    def test_all_organizations_skips_the_excluded_ones(self) -> None:
+        included, excluded = self._organizations_without_config(2)
+
+        self._run("--mode", "2", "--all-organizations", "--exclude-organization-ids-file", self._ids_file(excluded.id))
+
+        self.assertEqual(get_organization_flag_evaluations_mode(included.id), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.assertEqual(
+            get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+        )
+        self.assertEqual(get_organization_flag_evaluations_mode(excluded.id), FlagEvaluationsMode.EVENTS)
+
+    def test_a_rollback_from_the_changed_ids_file_lowers_only_the_organizations_the_run_moved(self) -> None:
+        already_on_two, moved, deleted_later = self._organizations_without_config(3)
+        self._store_mode(already_on_two, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file()
+        ids_file = self._ids_file(already_on_two.id, moved.id, moved.id, deleted_later.id)
+
+        self._run("--mode", "2", "--organization-ids-file", ids_file, "--write-changed-ids", changed_ids_file)
+        deleted_later.delete()
+        output = self._run(
+            "--mode",
+            "0",
+            "--allow-downgrade",
+            "--organization-ids-file",
+            changed_ids_file,
+            "--skip-unknown-organization-ids",
+        )
+
+        self.assertIn(f"Skipping 1 unknown organization id(s) in {changed_ids_file}.", output)
+        self.assertEqual(self._stored_mode(moved), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(self._stored_mode(already_on_two), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+    @parameterized.expand(
+        [
+            ("one_chunk_prints_a_line_per_organization", "1000", "2 team(s)): mode 1, unchanged", "chunk 1/"),
+            (
+                "several_chunks_print_a_line_per_chunk",
+                "1",
+                "chunk 3/3: 3/3 organization(s) done, 1 changed",
+                "team(s)",
+            ),
+        ]
+    )
+    def test_a_dry_run_reports_what_the_run_does(
+        self, _name: str, chunk_size: str, expected_line: str, unexpected_text: str
+    ) -> None:
+        Team.objects.create(organization=self.organization, name="Second team")
+        on_two, without_row = self._organizations_without_config(2)
+        self._store_mode(on_two, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        args = ["--mode", "1", "--chunk-size", chunk_size, "--skip-experiment-count"]
+        for organization in (self.organization, on_two, without_row):
+            args += ["--organization-id", str(organization.id)]
+
+        dry_run_output = self._run(*args, "--dry-run")
+        output = self._run(*args)
+
+        def without_timing(text: str) -> str:
+            return re.sub(r", \d+s elapsed", "", text)
+
+        self.assertEqual(without_timing(dry_run_output.replace("Would set", "Set")), without_timing(output))
+        self.assertIn("Set mode 1 on 1 organization(s).", output)
+        self.assertIn("Left 1 organization(s) above mode 1.", output)
+        self.assertIn(expected_line, output)
+        self.assertNotIn(unexpected_text, output)
+
+    def test_a_chunk_takes_the_same_number_of_queries_for_any_number_of_organizations(self) -> None:
+        def count_queries(organizations: list[Organization]) -> int:
+            with CaptureQueriesContext(connection) as queries:
+                self._run(
+                    "--mode",
+                    "1",
+                    "--skip-experiment-count",
+                    "--organization-ids-file",
+                    self._ids_file(*(organization.id for organization in organizations)),
+                )
+            return len(queries)
+
+        # The first run fills caches, such as the content type cache, that would add queries to only one of the
+        # measured runs.
+        count_queries(self._organizations_without_config(1))
+        self.assertEqual(
+            count_queries(self._organizations_without_config(3)), count_queries(self._organizations_without_config(30))
+        )
