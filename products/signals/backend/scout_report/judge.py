@@ -37,7 +37,11 @@ from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SO
 from products.signals.backend.scout_report.persistence import ScoutReportSignal
 from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.metrics import increment_scout_report_safety_refusal
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse, judge_report_safety
+from products.signals.backend.temporal.report_safety_judge import (
+    SafetyJudgeResponse,
+    judge_report_safety,
+    suggested_prompts_signal,
+)
 from products.signals.backend.temporal.types import SignalData
 
 logger = logging.getLogger(__name__)
@@ -125,34 +129,6 @@ def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
     )
 
 
-def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
-    """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
-
-    These carry further than a chart's text does: a reader clicks one and its wording is handed
-    straight to an agent run with the report as context, so an injected instruction here is executed
-    rather than merely read. Returns None when there are none, so a report without them produces a
-    judge prompt byte-identical to before.
-    """
-    if not suggested_prompts:
-        return None
-    # The label is part of the content because the judge's rendering shows source product/type but
-    # not `source_id` — without it the judge reads an action prompt ("add the null check and open a
-    # PR") as an anonymous signal containing instructions directed at an agent, which its system
-    # prompt treats as an injection marker, and benign action suggestions get reports suppressed.
-    # The system prompt (`REPORT_SAFETY_JUDGE_SYSTEM_PROMPT`) tells the judge what this label means.
-    return SignalData(
-        signal_id=str(uuid.uuid4()),
-        content="Suggested prompts (each is a request a reader can click to send to the coding agent):\n\n"
-        + "\n\n".join(suggested_prompts),
-        source_product=SOURCE_PRODUCT,
-        source_type=SOURCE_TYPE,
-        source_id="report_suggested_prompts",
-        weight=0.0,
-        timestamp=timezone.now(),
-        extra={},
-    )
-
-
 def _metric_signal(metrics: Sequence[ReportMetric]) -> SignalData | None:
     """Put every agent-authored metric label, caption, snapshot, and query before the safety judge."""
     if not metrics:
@@ -179,7 +155,7 @@ def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | No
     produces a judge prompt byte-identical to before."""
     if not reviewer_reasons:
         return None
-    # Labeled for the same reason as `_suggested_prompts_signal`: the rendering drops `source_id`,
+    # Labeled for the same reason as `suggested_prompts_signal`: the rendering drops `source_id`,
     # and the judge needs to know these are routing rationales, not free-standing signals.
     return SignalData(
         signal_id=str(uuid.uuid4()),
@@ -298,7 +274,7 @@ async def judge_scout_report(
     """
     chart_signal = _chart_signal(charts)
     metric_signal = _metric_signal(metrics)
-    prompts_signal = _suggested_prompts_signal(suggested_prompts)
+    prompts_signal = suggested_prompts_signal(suggested_prompts)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     link_signal = _link_reasons_signal(link_reasons)
     tags_signal = _report_tags_signal(tags)
@@ -362,7 +338,7 @@ async def judge_edited_report_content(
     metric_signal = _metric_signal(metrics)
     if metric_signal is not None:
         safety_input.append(metric_signal)
-    prompts_signal = _suggested_prompts_signal(suggested_prompts)
+    prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is not None:
         safety_input.append(prompts_signal)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)

@@ -237,11 +237,8 @@ class ReportDecision:
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
     # `None` for the no-repo branch, which does no research and so never asks.
     charts_enabled: bool | None = None
-    # Suggested prompts to store with the title/summary. `[]` when the decision carries a freshly
-    # written title and summary, because the pipeline does not author prompts yet: whatever a scout
-    # suggested was written against the prose this decision replaces, so leaving it would put
-    # prompts about the old report under the new one. `None` for the no-repo branch, which keeps
-    # the prose and so keeps the prompts too.
+    # Suggested prompts to store with the title/summary (see `RunAgenticReportOutput.suggested_prompts`).
+    # `None` for the no-repo branch, which keeps the prose and so keeps the prompts too.
     suggested_prompts: list[str] | None = field(default_factory=list)
     # The report's whole tag set to store with the title/summary, or `None` to keep the stored set.
     # `None` for the no-repo branch, which does no research.
@@ -732,6 +729,7 @@ class SignalReportSummaryWorkflow:
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
                     tags=agentic_result.tags,
+                    suggested_prompts=agentic_result.suggested_prompts,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -1200,8 +1198,7 @@ class MarkReportReadyInput:
     # workflow history replays as.
     layers: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
-    # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
-    # scout wrote were written against the summary this transition is replacing.
+    # default. The research pipeline passes a judged list, which may be `[]`.
     suggested_prompts: list[str] | None = None
     # The chart rollout state the research run saw, for the completion event. Not persisted.
     charts_enabled: bool | None = None
