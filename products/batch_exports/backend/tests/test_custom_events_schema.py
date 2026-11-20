@@ -210,6 +210,9 @@ class TestSerializeEventsQuerySchema(BaseTest):
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
     def test_new_schema_rejects_a_restricted_properties_object(self, get_restricted_properties):
+        """When saving for the native table, a restricted user cannot save `SELECT properties`, because the native
+        table cannot select a restricted properties object. The save fails, so no export stores a query that cannot run.
+        """
         get_restricted_properties.return_value = {
             RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
         }
