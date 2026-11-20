@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { objectsEqual } from 'lib/utils/objects'
 
 import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter } from '~/types'
@@ -146,7 +145,14 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                         select: ['id', 'person_display_name -- Person', 'properties'],
                         limit: PREVIEW_PERSON_LIMIT,
                     }
-                    const response = await api.query<ActorsQuery>(query)
+                    let response
+                    try {
+                        response = await api.query<ActorsQuery>(query)
+                    } catch (error) {
+                        // A failure from a lookup that a newer one replaced must not end the newer one's loading.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     return (response.results ?? []).map(parsePerson)
                 },
@@ -168,13 +174,10 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
         ],
     }),
 
-    // Reload on the value rather than on the action, so the first lookup runs on mount, and a host
-    // that hands over the same audience again does not look everyone up twice.
+    // Reload on the value rather than on the action, so the first lookup runs on mount.
     subscriptions(({ actions }) => ({
-        audience: (audience: AnyPersonScopeFilter[], previous: AnyPersonScopeFilter[] | undefined) => {
-            if (previous === undefined || !objectsEqual(audience, previous)) {
-                actions.loadPersons()
-            }
+        audience: () => {
+            actions.loadPersons()
         },
     })),
 ])

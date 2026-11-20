@@ -204,11 +204,15 @@ describe('broadcastPreviewLogic', () => {
         expect(logic.values.previewPerson?.id).toBe(expected)
     })
 
-    it('drops the pick when the audience reloads', async () => {
+    it.each([
+        ['a new audience', PRO_PLAN],
+        ['the same audience applied again', []],
+    ])('drops the pick when %s reloads the people', async (_name, audience) => {
         await mountWith([NO_EMAIL, ADA])
         logic.actions.selectPerson('person-anon')
-        wizard.actions.setAudienceProperties(PRO_PLAN)
-        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
+        await expectLogic(logic, () => wizard.actions.setAudienceProperties([...audience])).toDispatchActions([
+            'loadPersonsSuccess',
+        ])
 
         expect(logic.values.selectedPersonId).toBeNull()
         expect(logic.values.previewPerson?.id).toBe('person-ada')
@@ -229,6 +233,28 @@ describe('broadcastPreviewLogic', () => {
         respond({ results: [ADA] })
         await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
         expect(logic.values).toMatchObject({ personsFailed: false, personsLoading: false })
+    })
+
+    it('keeps loading when a replaced lookup fails after a newer one starts', async () => {
+        await mountWith([ADA])
+        silenceKeaLoadersErrors()
+        let rejectOld: (error: Error) => void = () => {}
+        let resolveNew: (value: unknown) => void = () => {}
+        query
+            .mockReturnValueOnce(new Promise((_, reject) => (rejectOld = reject)))
+            .mockReturnValueOnce(new Promise((resolve) => (resolveNew = resolve)))
+        logic.actions.loadPersons()
+        await waitFor(() => expect(query).toHaveBeenCalledTimes(2))
+        logic.actions.loadPersons()
+        await waitFor(() => expect(query).toHaveBeenCalledTimes(3))
+
+        rejectOld(new Error('query failed'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values).toMatchObject({ personsLoading: true, personsFailed: false })
+
+        resolveNew({ results: [GRACE] })
+        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
+        expect(logic.values.persons.map((person) => person.id)).toEqual(['person-grace'])
     })
 
     it('re-renders the email and push merge tags when the person or the message changes', async () => {
