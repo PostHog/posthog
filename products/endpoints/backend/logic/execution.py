@@ -85,7 +85,7 @@ from products.endpoints.backend.logic.materialized_serving import serving_state_
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
+from products.endpoints.backend.logs import RunRequestShape, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
@@ -572,6 +572,10 @@ class EndpointExecutionService(PydanticModelMixin):
         query_kind_metric = query_kind_label(version_obj.query)
         execution_status: str | None = None
         execution_id = str(uuid.uuid4())
+        # A cache hit runs no query, and a fallback or a stale cache runs two. This tag is the
+        # only key that joins the queries of a run to its log_entries row.
+        tag_queries(endpoint_execution_id=execution_id)
+        request_shape = self._request_shape(data, limit=limit, offset=offset)
         error_label: str | None = None
         _start_time = time.monotonic()
         _duration = 0.0
@@ -711,8 +715,10 @@ class EndpointExecutionService(PydanticModelMixin):
                     message=build_execution_message(
                         succeeded=False,
                         execution_type=execution_type,
+                        duration_ms=round(_duration * 1000),
                         version=version_obj.version,
                         error=error_label,
+                        request=request_shape,
                     ),
                 )
 
@@ -729,6 +735,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 duration_ms=round(_duration * 1000),
                 rows=result_row_count,
                 version=version_obj.version,
+                request=request_shape,
             ),
         )
 
@@ -772,6 +779,17 @@ class EndpointExecutionService(PydanticModelMixin):
         except Exception:
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
         return cache_outcome, result_row_count
+
+    def _request_shape(self, data: EndpointRunRequest, *, limit: int | None, offset: int | None) -> RunRequestShape:
+        access = get_query_tag_value("access_method")
+        return RunRequestShape(
+            refresh=data.refresh.value if data.refresh else None,
+            access=str(access) if access else ("session" if self._is_interactive_session() else None),
+            variables=len(data.variables) if data.variables else 0,
+            filters_override=bool(data.filters_override),
+            limit=limit,
+            offset=offset,
+        )
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
         """Record last execution time (30-minute granularity, API key calls only)."""
