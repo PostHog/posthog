@@ -109,7 +109,7 @@ def _enabled() -> bool:
     return bool(settings.AI_GATEWAY_REDIS_URL)
 
 
-def deactivated_teams_needing_a_blob() -> QuerySet[Team]:
+def deactivated_teams_to_verify() -> QuerySet[Team]:
     """Teams of deactivated orgs that can still spend at the gateway: tokens minted within the
     deactivated window are live, or the team has a standing gateway credential."""
     from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
@@ -149,19 +149,13 @@ def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] 
         Organization.objects.filter(id__in={team.organization_id for team in teams}).values_list("id", "is_active")
     )
     active = {team.id: active_by_org.get(team.organization_id) is not False for team in teams}
-    inactive_ids = [team.id for team in teams if not active[team.id]]
-    reachable = (
-        set(deactivated_teams_needing_a_blob().filter(id__in=inactive_ids).values_list("id", flat=True))
-        if inactive_ids
-        else set()
-    )
     limited = get_teams_limited_until([team.api_token for team in teams if active[team.id]], AI_GATEWAY_QUOTA_BUCKETS)
     blobs: dict[int, dict[str, Any] | None] = {}
     for team in teams:
         if active[team.id]:
             blobs[team.id] = build_quota_blob(team.id, limited[team.api_token], True, now)
         else:
-            blobs[team.id] = build_quota_blob(team.id, {}, False, now) if team.id in reachable else None
+            blobs[team.id] = build_quota_blob(team.id, {}, False, now)
     return blobs
 
 
@@ -322,7 +316,7 @@ def _missing_blobs(team_ids: set[int]) -> set[int]:
 
 
 def reconcile_quota_projection() -> dict[str, int]:
-    """Re-projects every team limited on an AI bucket or in a reachable deactivated org, and every
+    """Re-projects every team limited on an AI bucket or in a deactivated org, and every
     team with a blob, which deletes a stray one."""
     if not _enabled():
         return {"candidates": 0, "written": 0, "cleared": 0, "failed": 0}
@@ -342,16 +336,10 @@ def reconcile_quota_projection() -> dict[str, int]:
     # A deleted team is never re-projected; drop its tracking once its blob has expired.
     _untrack(have - set(have_active), expired_before=now_ts)
     deactivated_have = {team_id for team_id, active in have_active.items() if active is False}
-    # Only deactivated teams that can still spend keep a blob. A present one is left until its
-    # window, so the tick does not rewrite every deactivated team; one that can no longer spend
-    # is re-projected once, which deletes it.
-    reachable = set(deactivated_teams_needing_a_blob().values_list("id", flat=True))
-    ids = (
-        expiring
-        | (set(have_active) - deactivated_have)
-        | (deactivated_have - reachable)
-        | _missing_blobs(reachable - expiring)
-    )
+    deactivated = set(Team.objects.filter(organization__is_active=False).values_list("id", flat=True))
+    # Only teams that can still reach the gateway get a key check, so round trips per tick stay bounded.
+    to_verify = set(deactivated_teams_to_verify().values_list("id", flat=True))
+    ids = expiring | (set(have_active) - deactivated_have) | (deactivated - have) | _missing_blobs(to_verify - expiring)
     candidates = Team.objects.filter(Q(api_token__in=tokens) | Q(id__in=ids))
     total = candidates.count()
     projected = _project_teams(candidates)
