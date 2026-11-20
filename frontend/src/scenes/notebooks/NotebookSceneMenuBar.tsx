@@ -46,6 +46,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
         useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
     const showKernelToggle = isMarkdownNotebookContent(content)
@@ -159,15 +160,19 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         Jupyter mode
                     </SceneMenuBarCheckboxItem>
                 )}
-                <SceneMenuBarSeparator />
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => selectNotebook(shortId)}
-                    data-attr={`${RESOURCE_TYPE}-menubar-open-in-panel`}
-                >
-                    <IconOpenSidebar />
-                    Open in context panel
-                </SceneMenuBarItem>
+                {!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
+                    <>
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem
+                            opensFloatingUi
+                            onClick={() => selectNotebook(shortId)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-open-in-panel`}
+                        >
+                            <IconOpenSidebar />
+                            Open in context panel
+                        </SceneMenuBarItem>
+                    </>
+                )}
             </SceneMenuBarMenu>
         </SceneMenuBar>
     )

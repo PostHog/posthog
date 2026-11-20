@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -43,7 +44,15 @@ describe('sidePanelLogic', () => {
         await expectLogic(sceneLogic).toDispatchActions(['setScene'])
     }
 
+    const turnOnTodayRailNav = (): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        })
+    }
+
     beforeEach(async () => {
+        // featureFlagLogic persists its flags, so a flag one test turns on would leak into the next
+        localStorage.clear()
         initKeaTests()
         ;(api.get as jest.Mock).mockResolvedValue({
             tabs: [],
@@ -91,6 +100,40 @@ describe('sidePanelLogic', () => {
             await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: true, selectedTab: tab })
         }
     )
+
+    it.each([
+        [
+            'a link opens it',
+            async (): Promise<void> => {
+                turnOnTodayRailNav()
+                await navigate(urls.settings('user'), { panel: 'notebook' })
+            },
+        ],
+        [
+            'a link opened it before the logic mounted',
+            async (): Promise<void> => {
+                turnOnTodayRailNav()
+                sidePanelStateLogic.mount()
+                logic.unmount()
+                await navigate(urls.settings('user'), { panel: 'notebook' })
+                expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+                logic = sidePanelLogic.build()
+                logic.mount()
+            },
+        ],
+        [
+            'the flag turns on with it open',
+            async (): Promise<void> => {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Notebooks)
+                expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+                turnOnTodayRailNav()
+            },
+        ],
+    ])('under today-rail-nav, leaves out the Notebooks tab and closes it when %s', async (_case, open) => {
+        await open()
+        expect(logic.values.enabledTabs).not.toContain(SidePanelTab.Notebooks)
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
 
     it('closes a context-bound tab when navigating between settings sections', async () => {
         await navigate(urls.settings('user'))
