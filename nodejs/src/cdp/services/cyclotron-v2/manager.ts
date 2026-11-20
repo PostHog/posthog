@@ -690,8 +690,10 @@ export class CyclotronV2Manager {
                 [ids.map((id) => id.toLowerCase())]
             )
             await client.query('COMMIT')
-            const claims = new Map(rows.map(({ id, fingerprint, reply }) => [id, { fingerprint, reply }]))
-            return ids.map((id) => claims.get(id.toLowerCase()) ?? null)
+            // Postgres accepts a UUID in any case and with or without hyphens, and answers with its canonical spelling.
+            const spelling = (id: string): string => id.toLowerCase().replace(/-/g, '')
+            const claims = new Map(rows.map(({ id, fingerprint, reply }) => [spelling(id), { fingerprint, reply }]))
+            return ids.map((id) => claims.get(spelling(id)) ?? null)
         } catch (error) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw error

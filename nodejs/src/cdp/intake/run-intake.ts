@@ -113,7 +113,7 @@ export class RunIntake {
         } catch (error) {
             logger.warn('[CdpIntake] Claim lookup failed, producing the runs without it', {
                 kind,
-                runs: claims.length,
+                run_ids: claims.map((claim) => claim.runId),
                 error: error instanceof Error ? error.message : String(error),
             })
         } finally {
