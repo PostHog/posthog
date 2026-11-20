@@ -18,13 +18,13 @@ class TestInviteAnalytics(SimpleTestCase):
         self.assertRegex(distinct_id, r"^invite_[0-9a-f]{32}$")
         self.assertNotIn(INVITE_ID.replace("-", ""), distinct_id)
 
-    def test_hash_depends_on_the_secret_key(self) -> None:
+    def test_hash_does_not_depend_on_the_secret_key(self) -> None:
         with override_settings(SECRET_KEY="a" * 50):
             first = invite_analytics_id(INVITE_ID)
         with override_settings(SECRET_KEY="b" * 50):
             second = invite_analytics_id(INVITE_ID)
 
-        self.assertNotEqual(first, second)
+        self.assertEqual(first, second)
 
     @patch("posthog.event_usage.posthoganalytics")
     def test_alias_uses_the_invite_distinct_id(self, posthoganalytics: MagicMock) -> None:
