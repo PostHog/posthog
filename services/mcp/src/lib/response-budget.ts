@@ -139,7 +139,8 @@ export function clipLines(text: string, maxBytes: number, wholeResult = false): 
     const pointers = lines.filter(
         (line, index) => POINTER_LINE.test(line) || (index === lines.length - 1 && TRAILING_NOTICE_LINE.test(line))
     )
-    let rows = lines.filter((line) => !pointers.includes(line))
+    const pointerLines = new Set(pointers)
+    let rows = lines.filter((line) => !pointerLines.has(line))
     let room = maxBytes - byteLength(prefix) - byteLength(suffix) - byteLength(pointers.join('\n')) - 1
     if (room < MIN_STRING_KEEP_BYTES) {
         prefix = suffix = ''
