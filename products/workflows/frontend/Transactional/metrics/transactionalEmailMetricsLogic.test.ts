@@ -12,29 +12,13 @@ import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic
 
 const COUNTS = { sent: 3, delivered: 2, bounced: 1, complained: 0, opened: 1, clicked: 0, failed: 0 }
 const EMAIL_ROWS = [
-    {
-        ...COUNTS,
-        key: 'tpl-1',
-        label: 'Order receipt',
-        template_id: 'tpl-1',
-        code_email_id: null,
-        workflow_id: 'flow-1',
-    },
-    {
-        ...COUNTS,
-        key: 'flow-2',
-        label: 'sign-in-code',
-        template_id: null,
-        code_email_id: 'code-1',
-        workflow_id: 'flow-2',
-    },
-    { ...COUNTS, key: 'flow-3', label: '', template_id: null, code_email_id: null, workflow_id: null },
+    { ...COUNTS, key: 'tpl-1', label: 'Order receipt', template_id: 'tpl-1', code_email_id: null },
+    { ...COUNTS, key: 'flow-2', label: 'sign-in-code', template_id: null, code_email_id: 'code-1' },
+    { ...COUNTS, key: 'flow-3', label: null, template_id: null, code_email_id: null },
 ]
 
-const TEMPLATES = [
-    { id: 'tpl-1', name: 'Order receipt', transactional_hog_flow_id: 'flow-1' },
-    { id: 'tpl-4', name: 'Password reset', transactional_hog_flow_id: 'flow-4' },
-]
+const TEMPLATES = [{ id: 'tpl-1', name: 'Order receipt', transactional_hog_flow_id: 'flow-1' }]
+const CODE_EMAILS = [{ id: 'code-1', key: 'sign-in-code', hog_flow_id: 'flow-2' }]
 
 describe('transactionalEmailMetricsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailMetricsLogic.build>
@@ -48,6 +32,7 @@ describe('transactionalEmailMetricsLogic', () => {
                 ],
                 '/api/projects/:team_id/transactional_email_log/stats_over_time/': [200, { results: [] }],
                 '/api/projects/:team_id/messaging_templates/': [200, { count: TEMPLATES.length, results: TEMPLATES }],
+                '/api/projects/:team_id/transactional_code_emails/': [200, CODE_EMAILS],
             },
         })
         initKeaTests()
@@ -97,7 +82,7 @@ describe('transactionalEmailMetricsLogic', () => {
         expect(logic.values.templateStatsLinks).toEqual(links)
     })
 
-    it('offers each transactional template and each emailed workflow once, sent from code too', async () => {
+    it('offers the transactional templates and the emails sent from code, whatever the period', async () => {
         logic = transactionalEmailMetricsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -105,7 +90,6 @@ describe('transactionalEmailMetricsLogic', () => {
 
         expect(logic.values.resultsEmailOptions).toEqual([
             { value: 'flow-1', label: 'Order receipt' },
-            { value: 'flow-4', label: 'Password reset' },
             { value: 'flow-2', label: 'sign-in-code' },
         ])
     })

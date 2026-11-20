@@ -452,7 +452,6 @@ class TransactionalEmailStatsRow:
     label: str
     template_id: str | None
     code_email_id: str | None
-    workflow_id: str | None
     sent: int
     delivered: int
     bounced: int

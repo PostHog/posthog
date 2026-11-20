@@ -155,11 +155,6 @@ class TransactionalEmailStatsRowSerializer(serializers.Serializer):
         help_text="The email sent from code under a `template_key`, for a row of sends that have no template. "
         "Null otherwise.",
     )
-    workflow_id = serializers.CharField(
-        allow_null=True,
-        help_text="The workflow behind this row's emails, which the results endpoint takes as `workflow_id`. "
-        "Null for a sending domain, or for an email whose workflow was deleted.",
-    )
     sent = serializers.IntegerField(help_text="Emails that reached the email provider.")
     delivered = serializers.IntegerField(help_text="Emails the recipient's mail server accepted.")
     bounced = serializers.IntegerField(help_text="Emails that bounced.")

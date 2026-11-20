@@ -10,9 +10,16 @@ import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, resultsEmailOptions, results, resultsLoading, resultsFailed, canLoadResults } =
-        useValues(transactionalEmailMetricsLogic)
-    const { setResultsQuery, loadResults } = useActions(transactionalEmailMetricsLogic)
+    const {
+        resultsQuery,
+        resultsEmailOptions,
+        results,
+        resultsLoading,
+        resultsFailed,
+        canLoadResults,
+        codeEmailsFailed,
+    } = useValues(transactionalEmailMetricsLogic)
+    const { setResultsQuery, loadResults, loadCodeEmails } = useActions(transactionalEmailMetricsLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -66,6 +73,19 @@ export function TransactionalEmailResults(): JSX.Element {
                 message="Your email templates couldn't load, so the list may be missing some emails. Check your connection and try again."
                 dataAttr="transactional-email-results-templates-retry"
             />
+            {codeEmailsFailed ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadCodeEmails(),
+                        'data-attr': 'transactional-email-results-code-emails-retry',
+                    }}
+                >
+                    Your emails sent from code couldn't load, so the list may be missing some emails. Check your
+                    connection and try again.
+                </LemonBanner>
+            ) : null}
             {!canLoadResults ? (
                 <p className="text-secondary text-sm m-0">
                     Choose an email and the event that counts as a conversion, such as a signup or a purchase.
