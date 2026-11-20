@@ -138,7 +138,7 @@ jobs:
                       .[0].reasons as $all
                       | ($all[:20][] | gsub("[^ -~]"; "?") | .[:300] | @html),
                         (if ($all | length) > 20 then "…and \(($all | length) - 20) more" else empty end)
-                  ' "$RUNNER_TEMP/result/result.json")
+                  ' "$RUNNER_TEMP/result.json")
                   minor=""
                   if [ "$BUMP" = minor ]; then
                       minor=$'\n\nThis pull request changes the catalog format version, so its changeset needs `minor`.'
