@@ -55,6 +55,8 @@ DOWNLOAD_TIMEOUT_SECONDS = 300
 DOWNLOAD_BUDGET_SECONDS = 30 * 60
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 PARSE_CHUNK_CHARS = 1024 * 1024
+# One event is a few kilobytes; a larger pending object means a broken file, so stop before it fills memory.
+MAX_EXPORT_OBJECT_CHARS = 16 * 1024 * 1024
 JSON_SEPARATORS = frozenset(" \t\r\n,")
 RETRY_BUDGET_SECONDS = 240
 
@@ -237,6 +239,8 @@ def _iter_json_objects(text: IO[str]) -> Iterator[dict[str, Any]]:
         except json.JSONDecodeError:
             if at_end:
                 raise AppcuesExportError("The Appcues export file is not valid JSON") from None
+            if len(buffer) - position > MAX_EXPORT_OBJECT_CHARS:
+                raise AppcuesExportError("The Appcues export file holds an object larger than 16 MB") from None
             refill()
             continue
         if not isinstance(value, dict):

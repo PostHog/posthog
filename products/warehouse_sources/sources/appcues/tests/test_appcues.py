@@ -327,8 +327,19 @@ def test_export_parser_streams_both_json_shapes_across_read_boundaries(
     assert list(appcues._iter_json_objects(io.StringIO(text))) == objects
 
 
-@pytest.mark.parametrize(("text", "error"), [('[{"a": 1}, {"a"', "not valid JSON"), ("[1, 2]", "not an event")])
-def test_export_parser_rejects_a_broken_file(text: str, error: str) -> None:
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        ('[{"a": 1}, {"a"', "not valid JSON"),
+        ("[1, 2]", "not an event"),
+        ('[{"a": "' + "x" * 200 + '"}]', "larger than 16 MB"),
+        ('[{"a": "' + "x" * 200, "larger than 16 MB"),
+    ],
+)
+def test_export_parser_rejects_a_broken_file(monkeypatch: pytest.MonkeyPatch, text: str, error: str) -> None:
+    monkeypatch.setattr(appcues, "PARSE_CHUNK_CHARS", 16)
+    monkeypatch.setattr(appcues, "MAX_EXPORT_OBJECT_CHARS", 64)
+
     with pytest.raises(AppcuesExportError, match=error):
         list(appcues._iter_json_objects(io.StringIO(text)))
 
