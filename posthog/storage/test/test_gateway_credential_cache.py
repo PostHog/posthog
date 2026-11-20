@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
@@ -341,6 +342,32 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
         clear_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
+
+    def test_a_team_that_resolves_late_cannot_skip_the_organization_check(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_lookup = gateway_credential_cache._team_for_credential
+        lookups: list[ProjectSecretAPIKey | OAuthAccessToken] = []
+
+        def miss_the_first_lookup(looked_up, memo):
+            lookups.append(looked_up)
+            return None if len(lookups) == 1 else real_lookup(looked_up, memo)
+
+        with patch.object(gateway_credential_cache, "_team_for_credential", side_effect=miss_the_first_lookup):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    @parameterized.expand([("active", True, True), ("deactivated", False, False)])
+    def test_the_loader_follows_the_organization_state(self, _name, is_active, loads):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=is_active)
+        cache_hash = credential_hash(credential)
+        assert cache_hash is not None
+
+        loaded = hypercache.load_fn(cache_hash)
+
+        self.assertEqual(isinstance(loaded, dict), loads)
 
     def test_scope_removal_clears_blob(self):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
@@ -1158,6 +1185,34 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
                 self.organization.save()
 
         self.assertEqual(queued, [str(self.organization.pk)])
+
+    def test_organization_deactivation_stops_sweeping_once_its_time_budget_is_spent(self):
+        for _ in range(5):
+            self._make_secret_key([GATEWAY_SCOPE])
+        clock = [0.0]
+        fake_time = SimpleNamespace(monotonic=lambda: clock[0])
+        real_delete = hypercache.delete_cache_entry
+        attempted: list[str] = []
+
+        def slow_delete(cache_hash: str, kinds: list[str]) -> None:
+            attempted.append(cache_hash)
+            clock[0] += 3.0
+            real_delete(cache_hash, kinds=kinds)
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch("posthog.tasks.gateway_credential.time", fake_time),
+            patch("posthog.storage.gateway_credential_cache.time", fake_time),
+            patch.object(hypercache, "delete_cache_entry", side_effect=slow_delete),
+            patch("posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay"),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            self.organization.is_active = False
+            self.organization.save()
+
+        self.assertEqual(len(attempted), 2)
 
     @parameterized.expand([("broker_up", True), ("broker_down", False)])
     def test_organization_deactivation_queues_a_follow_up_without_failing_the_save(self, _name, broker_up):
