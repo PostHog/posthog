@@ -70,6 +70,7 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -344,6 +345,9 @@ export class RequestStateResolver {
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
+        // Wrappers gate writes on the `exec` name, so they never get `exec-write`.
+        const splitWrites =
+            useSingleExec && props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -409,6 +413,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
