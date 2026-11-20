@@ -14,8 +14,9 @@ from parameterized import parameterized
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
+from products.signals.backend.constants import REPORT_POINTER_SWEEP_IDENTITY, SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.models import SignalReport, SignalScratchpad, SignalScratchpadRevision
+from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad
 from products.signals.backend.tasks import (
     REPORT_POINTER_MIN_AGE_DAYS,
     REPORT_POINTER_SWEEP_CURSOR_KEY,
@@ -156,6 +157,13 @@ class TestExpireDanglingReportPointers(BaseTest):
         rows = list(SignalScratchpad.objects.unscoped().filter(team=self.team))
         assert {row.key for row in rows if row.expires_at is not None} == (set(dangling) if write else set())
         assert {row.key: (row.content, row.updated_at) for row in rows} == before
+        revisions = SignalScratchpadRevision.objects.unscoped().filter(team=self.team)
+        assert {(r.key, r.content, r.expires_at, r.changed_by_identity) for r in revisions} == (
+            {(key, before[key][0], None, REPORT_POINTER_SWEEP_IDENTITY) for key in dangling} if write else set()
+        )
+        if write:
+            [marker] = search_scratchpad(team_id=self.team.id, key="report:deleted", include_change_hints=True)
+            assert (marker.expired, marker.last_changed_by_skill) == (True, REPORT_POINTER_SWEEP_IDENTITY)
 
     def test_capped_sweep_resumes_from_its_cursor_on_the_next_run(self) -> None:
         self._pointer("report:live", self._report(SignalReport.Status.READY))
