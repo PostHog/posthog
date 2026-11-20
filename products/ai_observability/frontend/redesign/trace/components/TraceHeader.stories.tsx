@@ -4,6 +4,8 @@ import type { MouseEvent } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { withWidth } from '../storyFixtures'
 import { TraceHeader } from './TraceHeader'
 
@@ -69,9 +71,21 @@ export const ButtonsBelowSearch: Story = {
     args: { ...fullHeader, name: 'support-agent.handle-inbound-ticket.classify-and-route', hasError: true },
     decorators: [withWidth(448)],
 }
-export const WithDistributedTrace: Story = { args: linkedHeader }
-export const WithDistributedTraceBelowTitle: Story = { args: linkedHeader, decorators: [withWidth(673)] }
-export const WithDistributedTraceNarrow: Story = { args: linkedHeader, decorators: [withWidth(448)] }
+// The link needs Tracing access, and the default story context grants none.
+const withTracingAccess = (): (() => void) => {
+    const context = window.POSTHOG_APP_CONTEXT!
+    const previous = context.resource_access_control
+    context.resource_access_control = { ...previous, [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer }
+    return () => {
+        context.resource_access_control = previous
+    }
+}
+export const WithDistributedTrace: Story = { args: linkedHeader, beforeEach: withTracingAccess }
+export const WithDistributedTraceNarrow: Story = {
+    args: linkedHeader,
+    decorators: [withWidth(448)],
+    beforeEach: withTracingAccess,
+}
 export const WithSearch: Story = { args: { search } }
 export const Narrow: Story = {
     args: { name: 'a-very-long-trace-name-that-should-truncate-cleanly', copyAction, exportAction },
