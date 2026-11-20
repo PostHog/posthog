@@ -6,8 +6,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { AccessControlLevel } from '~/types'
+
 import { visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi } from '../generated/api.schemas'
+import { isOffByChoice } from '../replay_scanners/scannerStatus'
+import { captureScheduleOffer } from '../replay_scanners/scheduleOffer'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
@@ -102,17 +107,35 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                 }
             }
             const skipped = sessionIds.length - started - failed
-            const scannerName = values.scanners.find((s) => s.id === scannerId)?.name ?? 'scanner'
+            const scanner = values.scanners.find((s) => s.id === scannerId)
+            const scannerName = scanner?.name ?? 'scanner'
 
             if (started > 0) {
                 refreshVisionQuota()
+                const offerSchedule =
+                    isOffByChoice(scanner) &&
+                    !getReplayVisionEditDisabledReason(
+                        scanner?.user_access_level as AccessControlLevel | null | undefined
+                    )
+                if (offerSchedule) {
+                    captureScheduleOffer('shown', 'recordings_list', scannerId)
+                }
+                const startedMessage = `Started scanning ${started} recording${started === 1 ? '' : 's'} with “${scannerName}”`
+                // The schedule switch and its monthly estimate are on the scanner page, so the offer sends people there.
                 lemonToast.success(
-                    `Started scanning ${started} recording${started === 1 ? '' : 's'} with “${scannerName}”`,
+                    offerSchedule ? `${startedMessage}. Want it to scan new recordings automatically?` : startedMessage,
                     {
                         button: {
-                            label: 'Go to scanner page',
-                            action: () => router.actions.push(urls.replayVision(scannerId)),
-                            dataAttr: 'vision-bulk-scan-go-to-scanner',
+                            label: offerSchedule ? 'Set up schedule' : 'Go to scanner page',
+                            action: () => {
+                                if (offerSchedule) {
+                                    captureScheduleOffer('opened_scanner', 'recordings_list', scannerId)
+                                }
+                                router.actions.push(urls.replayVision(scannerId))
+                            },
+                            dataAttr: offerSchedule
+                                ? 'vision-bulk-scan-schedule-offer'
+                                : 'vision-bulk-scan-go-to-scanner',
                         },
                     }
                 )
