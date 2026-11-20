@@ -2,10 +2,13 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useAttachedContext, useComposerOverride, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
+import { notebookNodeGeneratedWidgetLogic } from '../NotebookNodeGeneratedWidget/notebookNodeGeneratedWidgetLogic'
+import { appSourceCells } from './notebookAppLayout'
 import { notebookAppLogic } from './notebookAppLogic'
 
 const APP_COMPOSER = {
@@ -16,6 +19,7 @@ const APP_COMPOSER = {
 export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): null {
     const source = notebookLogic({ shortId })
     const { notebook, localContent, notebookLoading, canEditNotebook, isTemplate } = useValues(source)
+    const { currentTeamId } = useValues(teamLogic)
     const dismissGroup = `notebook-app:${shortId}`
     useAttachedContext([
         { type: 'notebook', key: shortId, label: notebook?.title || 'Notebook', dismissGroup },
@@ -54,6 +58,46 @@ export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): n
             }
             if (!app.isMounted() && source.values.canEditNotebook && !source.values.isTemplate) {
                 router.actions.push(urls.notebook(shortId), { view: 'builder' })
+            }
+        },
+    })
+    useMcpToolApplyBack({
+        tools: [
+            'notebooks-add-cell',
+            'notebooks-update-cell',
+            'notebooks-delete-cell',
+            'notebooks-set-variables',
+            'notebooks-run-cell',
+            'notebooks-run-cell-result',
+            'notebooks-run',
+            'notebooks-run-status',
+            'notebooks-widget-generate',
+            'notebooks-widget-status',
+            'notebooks-widget-attach',
+        ],
+        targetKey: dismissGroup,
+        applyOn: 'turn_end',
+        matches: (event, { innerInput }) =>
+            (innerInput?.notebook_id ?? innerInput?.short_id) === shortId && !event.invocation.error,
+        onApply: async () => {
+            if (source.values.localContent !== null || source.values.notebookLoading) {
+                return
+            }
+            try {
+                await source.asyncActions.loadNotebook()
+            } catch {
+                return
+            }
+            for (const cell of appSourceCells(source.values.markdownEditorValue)) {
+                if (cell.type === 'component' && cell.tagName === 'Widget') {
+                    notebookNodeGeneratedWidgetLogic
+                        .findMounted({
+                            projectId: currentTeamId,
+                            notebookShortId: shortId,
+                            nodeId: cell.id,
+                        })
+                        ?.actions.refreshData()
+                }
             }
         },
     })

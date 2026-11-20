@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { initKeaTests } from '~/test/init'
@@ -555,31 +556,111 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.versions).toEqual([currentVersion])
     })
 
-    it('refreshes the signed preview URL before reloading the frame', async () => {
-        let resolveReload: (status: WidgetStatusApi) => void = () => undefined
-        jest.mocked(notebooksWidgetStatus)
-            .mockResolvedValueOnce(
-                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
-            )
-            .mockImplementationOnce(
-                () =>
-                    new Promise((resolve) => {
-                        resolveReload = resolve
+    it.each(['manual', 'run all', 'source cell'] as const)(
+        'refreshes the signed preview URL after %s',
+        async (trigger) => {
+            const content: JSONContent = {
+                type: 'doc',
+                content: [
+                    {
+                        type: NotebookNodeType.SQLV2,
+                        attrs: { nodeId: 'source', returnVariable: 'revenue', code: 'SELECT {target} AS target' },
+                    },
+                ],
+            }
+            let resolveReload: (status: WidgetStatusApi) => void = () => undefined
+            jest.mocked(notebooksWidgetStatus)
+                .mockResolvedValueOnce(
+                    status({
+                        lifecycle_status: 'ready',
+                        artifact_url: 'https://example.com/widget-old.html',
+                        current_version_id: 'version-1',
+                        frame_names: ['revenue'],
                     })
+                )
+                .mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            resolveReload = resolve
+                        })
+                )
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const staleness = notebookNodeStalenessLogic({ shortId: props.notebookShortId })
+            staleness.actions.nodeRunFinished('source', 'failed', content)
+            staleness.actions.nodeRunFinished('unrelated', 'done', content)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+            if (trigger === 'manual') {
+                logic.actions.refreshData()
+            } else if (trigger === 'source cell') {
+                staleness.actions.nodeRunFinished('source', 'done', content)
+            } else {
+                logic.actions.runFinished({
+                    run_id: 'run-1',
+                    status: 'done',
+                    trigger: 'ui',
+                    variables: [],
+                    cell_count: 1,
+                    current_index: 1,
+                    cells: [],
+                    created_at: '2026-01-01T00:00:00Z',
+                })
+            }
+            expect(logic.values.dataRefreshInFlight).toBe(true)
+            resolveReload(
+                status({
+                    lifecycle_status: 'ready',
+                    artifact_url: 'https://example.com/widget-new.html',
+                    current_version_id: 'version-1',
+                    frame_names: ['revenue'],
+                })
             )
-        logic = notebookNodeGeneratedWidgetLogic(props)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.refreshData()
-        expect(logic.values.dataRefreshInFlight).toBe(true)
-        resolveReload(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' }))
-        await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
+            expect(logic.values.frameRevision).toBe(1)
+            expect(logic.values.dataRefreshInFlight).toBe(false)
+        }
+    )
 
-        expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
-        expect(logic.values.frameRevision).toBe(1)
-        expect(logic.values.dataRefreshInFlight).toBe(false)
-    })
+    it.each(['done', 'failed'] as const)(
+        'refreshes a widget once when its source reruns before a stale chain ends with an unrelated %s cell',
+        async (lastCellStatus) => {
+            const content: JSONContent = {
+                type: 'doc',
+                content: ['source', 'unrelated'].map((nodeId) => ({
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId, returnVariable: nodeId, code: 'SELECT 1' },
+                })),
+            }
+            const ready = status({
+                lifecycle_status: 'ready',
+                current_version_id: 'version-1',
+                frame_names: ['source'],
+            })
+            jest.mocked(notebooksWidgetStatus)
+                .mockResolvedValueOnce({ ...ready, artifact_url: 'https://example.com/old.html' })
+                .mockResolvedValueOnce({ ...ready, artifact_url: 'https://example.com/new.html' })
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const staleness = notebookNodeStalenessLogic({ shortId: props.notebookShortId })
+            staleness.actions.registerChainNode('source')
+            staleness.actions.registerChainNode('unrelated')
+            staleness.actions.markStaleNodeIds(['source', 'unrelated'])
+            staleness.actions.runStaleChain(content)
+
+            staleness.actions.nodeRunFinished('source', 'done', content)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+            staleness.actions.nodeRunFinished('unrelated', lastCellStatus, content)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
+            expect(logic.values.status?.artifact_url).toBe('https://example.com/new.html')
+        }
+    )
 
     it('reloads the preview when a newer status request supersedes the refresh', async () => {
         let resolveRefresh: (status: WidgetStatusApi) => void = () => undefined
