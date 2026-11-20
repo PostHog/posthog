@@ -8,7 +8,7 @@ import { TodayRailPreviewItem, TodayRailPreviewList } from './TodayRailPreviewLi
 const item = (name: string): TodayRailPreviewItem => ({ name, href: `/insights/${name}`, icon: <span /> })
 
 const railEvents = (capture: jest.SpyInstance): unknown[][] =>
-    capture.mock.calls.filter(([event]) => String(event).startsWith('today rail card'))
+    capture.mock.calls.filter(([event]) => String(event).startsWith('rail card'))
 
 describe('TodayRailPreviewList usage events', () => {
     let capture: jest.SpyInstance
@@ -42,8 +42,8 @@ describe('TodayRailPreviewList usage events', () => {
         rerender(<TodayRailPreviewList {...props} pane="people" pins={[item('pin')]} recents={[]} />)
 
         expect(railEvents(capture)).toEqual([
-            ['today rail card shown', { pane: 'analytics', recent_count: 2, pinned_count: 1 }],
-            ['today rail card shown', { pane: 'people', recent_count: 0, pinned_count: 1 }],
+            ['rail card shown', { pane: 'analytics', recent_count: 2, pinned_count: 1 }],
+            ['rail card shown', { pane: 'people', recent_count: 0, pinned_count: 1 }],
         ])
     })
 
@@ -64,6 +64,6 @@ describe('TodayRailPreviewList usage events', () => {
 
         fireEvent.click(getByTitle(name), modifiers)
 
-        expect(railEvents(capture)).toEqual([['today rail card item opened', { pane: 'analytics', ...expected }]])
+        expect(railEvents(capture)).toEqual([['rail card item opened', { pane: 'analytics', ...expected }]])
     })
 })

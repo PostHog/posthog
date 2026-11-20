@@ -48,10 +48,10 @@ export const todayRailCardLogic = kea<todayRailCardLogicType>([
     }),
     listeners({
         cardShown: ({ pane, recentCount, pinnedCount }) => {
-            posthog.capture('today rail card shown', { pane, recent_count: recentCount, pinned_count: pinnedCount })
+            posthog.capture('rail card shown', { pane, recent_count: recentCount, pinned_count: pinnedCount })
         },
         itemOpened: ({ pane, section, position, newTab }) => {
-            posthog.capture('today rail card item opened', { pane, section, position, new_tab: newTab })
+            posthog.capture('rail card item opened', { pane, section, position, new_tab: newTab })
         },
     }),
 ])
