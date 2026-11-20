@@ -56,6 +56,9 @@ export function CheatCodeRedemption({
                             open, on this page or any other, and $5 of credit goes to your organization. Each
                             organization can use it once.
                         </p>
+                        <p className="text-muted">
+                            Heads up: you need billing set up with a card on file. Pay-as-you-go counts.
+                        </p>
                         <div className="flex flex-wrap gap-2" translate="no" data-attr="cheat-code-keys">
                             {keys.map((key, index) => (
                                 <KeyboardShortcut key={index} {...{ [key]: true }} className="h-10 min-w-10 text-lg" />
