@@ -12,7 +12,7 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 from posthog.models import User
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
-from products.logs.backend.alert_check_query import AlertCheckQuery
+from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedAlertCheckQuery
 from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.natural_language_query import gather_filter_context
@@ -88,7 +88,20 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert read(_APP, self.user) > 0
         assert (read(_PIPELINE, self.user) > 0) == (access != "restricted")
-        assert read(_PIPELINE, None) == 0
+        assert (read(_PIPELINE, None) > 0) == (reader == "alert_check")
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_scheduled_alert_check_counts_pipeline_logs_under_a_team_rule(self) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team, name="pipeline errors", filters={"serviceNames": [_PIPELINE]}, window_minutes=60
+        )
+
+        result = BatchedAlertCheckQuery(team=self.team, alerts=[alert], date_from=_START, date_to=_NOW).execute_periods(
+            60, 1
+        )
+
+        assert sum(bucket.count for bucket in result.per_alert[str(alert.id)]) == 3
 
     @parameterized.expand([("restricted", 0), ("granted", 3), ("admin", 3)])
     @time_machine.travel(_NOW, tick=False)
