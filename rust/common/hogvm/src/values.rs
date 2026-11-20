@@ -615,7 +615,7 @@ pub fn compare_values(
 
 /// Lexicographic order of two numeric arrays, a shorter prefix sorting first, as ClickHouse orders
 /// the arrays `sortableSemver` returns. An element that is not a number is an error.
-pub(crate) fn compare_numeric_arrays(
+fn compare_numeric_arrays(
     a: &[HogValue],
     b: &[HogValue],
     heap: &VmHeap,
@@ -635,7 +635,7 @@ pub(crate) fn compare_numeric_arrays(
     Ok(a.len().cmp(&b.len()))
 }
 
-pub(crate) fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
+fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
     match op {
         NumOp::Gt => ordering.is_gt(),
         NumOp::Gte => ordering.is_ge(),
