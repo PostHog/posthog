@@ -63,7 +63,7 @@ WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
 MAX_READY_BYTES = 128 * 1024 * 1024
-CACHE_READ_CHUNK = 25
+CACHE_READ_CHUNK = 5
 MAX_UNREAD_LINES = WORKERS_PER_BATCH
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
@@ -151,7 +151,8 @@ def _release_batch(org_id: UUID) -> None:
 
 
 REFRESH_WORKERS = 2
-MAX_QUEUED_REFRESHES = 16
+MAX_QUEUED_REFRESHES = 64
+MAX_REFRESHES_PER_BATCH = 20
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
 _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
 
@@ -335,7 +336,14 @@ def _refresh_all(*, team: Team, user: User, dashboard_id: Optional[int], queries
                 logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
     finally:
         connections.close_all()
-        _refresh_slots.release()
+        for _query in queries:
+            _refresh_slots.release()
+
+
+def _expire_if_alive(batch_ref: "weakref.ReferenceType[QueryBatch]") -> None:
+    batch = batch_ref()
+    if batch is not None:
+        batch._expire()
 
 
 def _render_body(line: dict[str, Any]) -> bytes:
@@ -393,7 +401,8 @@ class QueryBatch:
             raise
         # A client that stops reading parks the stream inside a send, where no deadline check runs, so a timer
         # enforces it: it drops the held results, frees the run slot and cancels running queries.
-        self._watchdog = Timer(max(0.0, self._deadline - monotonic()), self._expire)
+        # A weak target, so a response dropped before it is iterated is still collected and its slot released.
+        self._watchdog = Timer(max(0.0, self._deadline - monotonic()), _expire_if_alive, args=(weakref.ref(self),))
         self._watchdog.daemon = True
         self._watchdog.start()
 
@@ -425,6 +434,10 @@ class QueryBatch:
         indices = list(resolved)
         for chunk_start in range(0, len(indices), CACHE_READ_CHUNK):
             chunk = indices[chunk_start : chunk_start + CACHE_READ_CHUNK]
+            if monotonic() >= self._deadline:
+                for index in chunk:
+                    self._add_ready({"i": index, "error": _TIMED_OUT})
+                continue
             if self._ready_bytes >= MAX_READY_BYTES:
                 # Past the budget, later entries are never fetched, so their blobs are not downloaded either.
                 for index in chunk:
@@ -475,8 +488,12 @@ class QueryBatch:
                         # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
                         to_run.append(index)
                     continue
-                if not item.cache_only and planned.query_runner.requires_fresh_calculation():
-                    to_run.append(index)
+                if planned.query_runner.requires_fresh_calculation():
+                    # Never served from the cache, cache-only or not, as `/query` never serves it.
+                    if item.cache_only:
+                        self._add_ready(_miss_line(index, planned.cache_key))
+                    else:
+                        to_run.append(index)
                     continue
                 same_entry = _served_key(planned, item)
                 if same_entry in served:
@@ -572,9 +589,15 @@ class QueryBatch:
         # After the cached lines are written, so a stale board is not held back by its own refreshes.
         if not self._to_refresh:
             return
-        queries, self._to_refresh = self._to_refresh, []
-        # A refresh that finds the queue full is dropped: the stale result is already served and the next read retries.
-        if not _refresh_slots.acquire(blocking=False):
+        candidates, self._to_refresh = self._to_refresh[:MAX_REFRESHES_PER_BATCH], []
+        # One slot per query, since each enqueues its own calculation. A refresh that finds the queue full is dropped:
+        # the stale result is already served and the next read retries.
+        queries: list[ResolvedQuery] = []
+        for query in candidates:
+            if not _refresh_slots.acquire(blocking=False):
+                break
+            queries.append(query)
+        if not queries:
             return
 
         # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
@@ -588,7 +611,8 @@ class QueryBatch:
         try:
             _refresh_pool.submit(self._context.copy().run, refresh_all)
         except RuntimeError:
-            _refresh_slots.release()
+            for _query in queries:
+                _refresh_slots.release()
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         if self._cancelled:
