@@ -2,6 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
+
+import { AlertOnThisMenu } from './AlertOnThisMenu'
+import { endpointAlertTarget } from './alertPresets'
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { endpointOperationUrl } from './endpointOperationUrl'
 import { EndpointTimeSpent } from './EndpointTimeSpent'
@@ -10,7 +14,12 @@ import { healthColumns } from './healthColumns'
 import { HealthTableLink } from './HealthTableLink'
 import { TelemetryLinks } from './TelemetryLinks'
 
-export function EndpointsTab(): JSX.Element {
+export interface EndpointsTabProps {
+    /** Absent when traces alerts are off, which hides the row menu. */
+    onCreateAlert?: (form: TracesAlertFormType) => void
+}
+
+export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element {
     const {
         endpoints,
         filteredEndpoints,
@@ -36,6 +45,8 @@ export function EndpointsTab(): JSX.Element {
             render: (_, row) => (
                 <HealthTableLink
                     to={endpointOperationUrl(row, { date_from: timeRange, date_to: null })}
+                    className="block max-w-44 truncate"
+                    title={row.endpoint}
                     data-attr="apm-endpoint-operation"
                 >
                     {row.endpoint}
@@ -46,18 +57,37 @@ export function EndpointsTab(): JSX.Element {
             title: 'Service',
             key: 'service_name',
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
-            render: (_, row) => row.service_name,
+            render: (_, row) => (
+                <span className="block max-w-32 truncate" title={row.service_name}>
+                    {row.service_name}
+                </span>
+            ),
         },
         ...healthColumns<EndpointHealthApi>(filteredEndpoints),
         {
             title: 'Open in',
             key: 'links',
             render: (_, row) => (
-                <span className="flex gap-2">
+                <span className="flex gap-2 whitespace-nowrap">
                     <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
                 </span>
             ),
         },
+        ...(onCreateAlert
+            ? [
+                  {
+                      key: 'actions',
+                      width: 0,
+                      render: (_: unknown, row: EndpointHealthApi) => (
+                          <AlertOnThisMenu
+                              target={endpointAlertTarget(row)}
+                              source="endpoints"
+                              onCreateAlert={onCreateAlert}
+                          />
+                      ),
+                  },
+              ]
+            : []),
     ]
 
     return (

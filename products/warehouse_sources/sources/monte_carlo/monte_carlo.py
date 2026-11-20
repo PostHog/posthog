@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.monte_carlo.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -75,11 +76,6 @@ def _get_headers(api_key_id: str, api_key_secret: str) -> dict[str, str]:
         "x-mcd-token": api_key_secret,
         "Content-Type": "application/json",
     }
-
-
-def _format_datetime(dt: datetime) -> str:
-    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
 def _parse_incremental_value(value: Any) -> datetime | None:
@@ -236,7 +232,7 @@ def _get_event_rows(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     start = _parse_incremental_value(db_incremental_field_last_value)
-    start_time = _format_datetime(start) if start is not None else None
+    start_time = format_datetime(start) if start is not None else None
     cursor: str | None = None
     if resume is not None and resume.cursor:
         # Replay the cursor against the filter it was issued for.
@@ -318,7 +314,7 @@ def _get_alert_rows(
     windows, resume_cursor = _resumed_windows(start, now, resume, logger, config.name)
 
     for index, (window_after, window_before) in enumerate(windows):
-        time_range = {"after": _format_datetime(window_after), "before": _format_datetime(window_before)}
+        time_range = {"after": format_datetime(window_after), "before": format_datetime(window_before)}
         cursor = resume_cursor
         resume_cursor = None  # only the resumed-into window starts from the saved cursor
 
@@ -353,8 +349,8 @@ def _get_dbt_test_result_rows(
     windows, resume_cursor = _resumed_windows(start, now, resume, logger, config.name)
 
     for window_after, window_before in windows:
-        run_start_time = _format_datetime(window_after)
-        run_end_time = _format_datetime(window_before)
+        run_start_time = format_datetime(window_after)
+        run_end_time = format_datetime(window_before)
         cursor = resume_cursor
         resume_cursor = None
 
@@ -415,8 +411,8 @@ def _get_fh_event_rows(
             start_offset = resume.offset or 0
             logger.debug(f"Monte Carlo: resuming {config.name} from monitor offset {start_offset}")
 
-    start_time = _format_datetime(start)
-    windows = [(_format_datetime(after), _format_datetime(before)) for after, before in _alert_windows(start, now)]
+    start_time = format_datetime(start)
+    windows = [(format_datetime(after), format_datetime(before)) for after, before in _alert_windows(start, now)]
 
     for monitor_index, monitor_uuid in _iter_monitor_uuids(session, logger, FH_EVENT_MONITOR_TYPES, start_offset):
         # Earlier monitors are fully yielded. A resume re-reads this monitor, and merge dedupes it.

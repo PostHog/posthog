@@ -1,10 +1,17 @@
 import { randomUUID } from 'crypto'
+import { mkdtempDisposableSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { Controller } from '../cloud/admission'
+import type { Aws } from '../cloud/aws'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
-import type { RunManifest } from '../cloud/lease'
+import { PROFILE, pinClockAfterMinuteStart } from '../cloud/fixtures'
+import { RunManifest, keyOf, lease, runManifestOf } from '../cloud/lease'
+import { CloudProfile } from '../cloud/profile'
 import type { WriterSample } from '../probe/writer-probe'
 import { FailoverActuation, FailoverOptions, SqlIdentity, failOver } from './failover'
 
@@ -12,7 +19,7 @@ const HOLD_MS = 30 * 60_000
 const OBSERVE_WITHIN_MS = 400
 const IDLE = { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } }
 
-type Run = { cloud: FakeCloud; manifest: RunManifest; cluster: string; writer: string; reader: string }
+type Run = { cloud: FakeCloud; manifest: RunManifest; cluster: string; writer: string; reader: string; aws?: Aws }
 
 function runOf(options: Partial<FakeCloudOptions> = {}): Run {
     const cloud = new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, ...IDLE, ...options })
@@ -28,9 +35,43 @@ const probeThroughPooler = ({ cloud, cluster }: Run): (() => WriterSample[]) => 
     }
 }
 
+const MINUTE_MS = 60_000
+
+const flagOf = (args: string[], flag: string): string => args[args.indexOf(flag) + 1]
+
+type CapacityAnswer = { ascending: boolean; until: number; minutes: number[] }
+
+const answeringCapacity = (cloud: FakeCloud, answerOf: (asked: CapacityAnswer) => unknown): Aws => ({
+    call: (args) => {
+        if (args[1] !== 'get-metric-data') {
+            return cloud.call(args)
+        }
+        const until = Date.parse(flagOf(args, '--end-time'))
+        const ascending = flagOf(args, '--scan-by') === 'TimestampAscending'
+        const minutes = [5, 4, 3, 2, 1].map((back) => until - back * MINUTE_MS)
+        return Promise.resolve(answerOf({ ascending, until, minutes: ascending ? minutes : minutes.reverse() }))
+    },
+    text: (args) => cloud.text(args),
+})
+
+const idleAnswer = ({ minutes }: CapacityAnswer, fields: Record<string, unknown> = {}): unknown => ({
+    Messages: [],
+    MetricDataResults: [
+        {
+            Id: 'acu',
+            Label: 'ServerlessDatabaseCapacity',
+            Timestamps: minutes.map((at) => new Date(at).toISOString().replace('.000Z', '+00:00')),
+            Values: minutes.map(() => 1),
+            StatusCode: 'Complete',
+            Messages: [],
+            ...fields,
+        },
+    ],
+})
+
 const failOverOn = (run: Run, overrides: Partial<FailoverOptions> = {}) =>
     failOver({
-        aws: run.cloud,
+        aws: run.aws ?? run.cloud,
         manifest: run.manifest,
         holdMs: HOLD_MS,
         identity: () => {
@@ -50,6 +91,14 @@ const OBSERVED = [
 ]
 
 describe('pg.failover', () => {
+    beforeEach(() => {
+        pinClockAfterMinuteStart()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     it.each<[string, Partial<FakeCloudOptions>, (run: Run) => void, RegExp]>([
         [
             'a caller outside the run account',
@@ -101,10 +150,106 @@ describe('pg.failover', () => {
             /with writer .*-reader, not .*-writer writing beside/,
         ],
         [
-            'a reader at 2 ACU in its last five minutes',
-            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            'a reader above the idle limit in its last five minutes',
+            { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             () => undefined,
-            /was above 1 ACU in its last 5 minutes: 2 at /,
+            /was above its 2.5 ACU idle limit in its last 5 minutes: 3 at /,
+        ],
+        [
+            'a reader above the lower idle limit its run manifest names',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] } },
+            (run) => (run.manifest.readerIdleMaxAcu = 1.5),
+            /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /,
+        ],
+        [
+            'a capacity read with fewer values than timestamps',
+            { shortValuesOf: 'Maximum' },
+            () => undefined,
+            /-reader's capacity read has 5 timestamps and 4 values/,
+        ],
+        [
+            'a capacity read with a value that is not a finite number',
+            { liveReaderAcu: { maxima: [1, 1, Number.NaN, 1, 1] } },
+            () => undefined,
+            /-reader's capacity read has a value that is not a finite number at /,
+        ],
+        [
+            'a capacity read with no status',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] }, omitsCapacityStatus: true },
+            () => undefined,
+            /-reader's capacity read came back with no status, not Complete/,
+        ],
+        [
+            'a capacity read with a timestamp that is not a time',
+            { unknownTimestampOf: 'Maximum' },
+            () => undefined,
+            /-reader's capacity read has a timestamp that is not a time: unknown/,
+        ],
+        [
+            'a capacity read in descending time order',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: [...asked.minutes].sort((a, b) => b - a) })
+                )),
+            /-reader's capacity read is not in ascending time order at /,
+        ],
+        [
+            'a capacity read with a minute after the window it asked for',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: asked.minutes.map((at) => at + 5 * MINUTE_MS) })
+                )),
+            /-reader's capacity read has a timestamp outside the .* it asked for: /,
+        ],
+        [
+            'a capacity read with a reading under the minimum its run manifest names before its last five minutes',
+            { liveReaderAcu: { maxima: [1, 0, 1, 1, 1, 1, 1] } },
+            () => undefined,
+            /-reader's capacity read has a value below 1 at /,
+        ],
+        [
+            'a capacity read whose minutes sit off the minute',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: asked.minutes.map((at) => at + MINUTE_MS / 2) })
+                )),
+            /-reader's capacity read has a timestamp off the 60s period of its window: /,
+        ],
+        [
+            'a capacity read whose times are finer than a millisecond',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer(asked, {
+                        Timestamps: asked.minutes.map((at) => new Date(at).toISOString().replace('.000Z', '.0001Z')),
+                    })
+                )),
+            /-reader's capacity read has a timestamp that is not a time: /,
+        ],
+        [
+            'a capacity read that is only one page',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) => ({
+                    ...(idleAnswer(asked) as object),
+                    NextToken: 'page-2',
+                }))),
+            /CloudWatch answered with a NextToken, so the answer is only one page/,
+        ],
+        [
+            'a run manifest without the reader idle limit',
+            {},
+            (run) => delete run.manifest.readerIdleMaxAcu,
+            /names no idle limit for .*-reader, so set readerAcu\.idleMax in the cloud profile/,
+        ],
+        [
+            'a run manifest without the reader minimum',
+            {},
+            (run) => delete run.manifest.readerMinAcu,
+            /names no minimum for .*-reader, so lease the run again/,
         ],
         [
             'a reader with fewer than five capacity minutes',
@@ -117,6 +262,12 @@ describe('pg.failover', () => {
             { liveReaderAcu: { maxima: [1, 1, 1, null, 1, 1] } },
             () => undefined,
             /has 2 consecutive complete capacity minutes, under the 5 it needs/,
+        ],
+        [
+            'a capacity query that ends before the newest complete minute',
+            { now: () => new Date(Date.now() + MINUTE_MS) },
+            () => undefined,
+            /has 4 consecutive complete capacity minutes, under the 5 it needs/,
         ],
         [
             'a reader whose newest capacity minute is over three minutes old',
@@ -132,22 +283,93 @@ describe('pg.failover', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('promotes the reader, observes each recovery stage, then fails back to the original writer', async () => {
-        const run = runOf()
+    const leasedHostRun = async (cloud: FakeCloud, dir: string, idleMax: number): Promise<Run> => {
+        const controller = {
+            aws: cloud,
+            now: () => new Date(),
+            print: () => undefined,
+            warn: () => undefined,
+        } as unknown as Controller
+        const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
+        const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
+        const { runId } = await lease(
+            controller,
+            { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
+            { owner: 'scenario-tests', commit: 'abc123' }
+        )
+        const file = path.join(dir, `${runId}.json`)
+        writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
+        const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
+        return { cloud, ...cloud.runCluster(runId), manifest }
+    }
+
+    const cloudReading = (maxima: number[]): FakeCloud =>
+        new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, liveReaderAcu: { maxima } })
+
+    it('refuses a reader under the minimum its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([1, 0.5, 1, 1, 1])
+
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 2.5))).rejects.toThrow(
+            /-reader's capacity read has a value below 1 at /
+        )
+        expect(cloud.promotions).toEqual([])
+    })
+
+    it('refuses a reader above the idle limit its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 1.5))).rejects.toThrow(
+            /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /
+        )
+        expect(cloud.promotions).toEqual([])
+    })
+
+    it('promotes a reader inside the bounds its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+        const run = await leasedHostRun(cloud, dir.path, 2.5)
 
         const actuation = await failOverOn(run)
-        await expect(actuation.observed()).resolves.toBe(true)
-        expect(run.cloud.writerOf(run.cluster)).toBe(run.reader)
         await actuation.release()
 
-        expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
+        expect(cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
+    })
+
+    it.each([
+        ['at its minimum', [1, 1, 1, 1, 1]],
+        ['idle above its minimum, under the idle limit', [2, 2, 2, 2, 2]],
+        ['at the idle limit', [2, 2.5, 2, 2, 2]],
+    ])(
+        'promotes a reader %s, observes each recovery stage, then fails back to the original writer',
+        async (_story, maxima) => {
+            const run = runOf({ liveReaderAcu: { maxima } })
+
+            const actuation = await failOverOn(run)
+            await expect(actuation.observed()).resolves.toBe(true)
+            expect(run.cloud.writerOf(run.cluster)).toBe(run.reader)
+            await actuation.release()
+
+            expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
+            expect(run.cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
+            expect(actuation.journal()).toEqual({
+                intentAt: expect.any(String),
+                observations: OBSERVED,
+                releaseIntentAt: expect.any(String),
+                releaseObservations: OBSERVED,
+            })
+        }
+    )
+
+    it('promotes on an idle capacity read in the GetMetricData shape, which comes ascending only when asked', async () => {
+        const run = runOf()
+        run.aws = answeringCapacity(run.cloud, (asked) => idleAnswer(asked))
+
+        const actuation = await failOverOn(run)
+        await actuation.release()
+
         expect(run.cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
-        expect(actuation.journal()).toEqual({
-            intentAt: expect.any(String),
-            observations: OBSERVED,
-            releaseIntentAt: expect.any(String),
-            releaseObservations: OBSERVED,
-        })
     })
 
     it('counts no probe commit that still lands on the old writer', async () => {

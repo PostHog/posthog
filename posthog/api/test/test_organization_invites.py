@@ -458,14 +458,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (subject, most_specific, bulk)
+            (subject, most_specific, bulk, False)
             for subject in ["default", "default_role", "member"]
             for most_specific in [False, True]
             for bulk in [False, True]
         ]
+        + [
+            (subject, most_specific, False, True)
+            for subject in ["default_role", "member"]
+            for most_specific in [False, True]
+        ]
     )
     def test_invite_fails_if_inviter_does_not_have_access_to_team(
-        self, subject: str, most_specific: bool, bulk: bool
+        self, subject: str, most_specific: bool, bulk: bool, under_member_default: bool
     ) -> None:
         email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
@@ -492,6 +497,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             role=role,
             organization_member=self.organization_membership if subject == "member" else None,
         )
+        if under_member_default:
+            AccessControl.objects.create(
+                team=private_team, access_level="member", resource="project", resource_id=str(private_team.id)
+            )
         denied_response = self.client.get(f"/api/projects/{private_team.id}/")
         self.assertEqual(denied_response.status_code, status.HTTP_404_NOT_FOUND)
         payload = {
@@ -562,10 +571,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
     @parameterized.expand(
-        [(subject, most_specific) for subject in ["default", "role", "member"] for most_specific in [False, True]]
+        [
+            (subject, most_specific, False)
+            for subject in ["default", "role", "member"]
+            for most_specific in [False, True]
+        ]
+        + [(subject, most_specific, True) for subject in ["role", "member"] for most_specific in [False, True]]
     )
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(
-        self, subject: str, most_specific: bool
+        self, subject: str, most_specific: bool, under_admin_default: bool
     ) -> None:
         email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
@@ -592,6 +606,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             role=role,
             organization_member=organization_membership if subject == "member" else None,
         )
+        if under_admin_default:
+            AccessControl.objects.create(
+                team=restricted_team, access_level="admin", resource="project", resource_id=str(restricted_team.id)
+            )
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {

@@ -1,17 +1,19 @@
 """Imports suppressions, topics and unsubscribes from Resend.
 
 Resend has no read-only key, so the customer hands over one that can do anything in their account. The run keeps it
-only until it ends, and a new import asks for it again. People never move: the contact steps read only who opted out.
+only until it ends, and a new import asks for it again. Contacts become people only in the contacts step, matched by
+email; the other contact steps read only who opted out.
 """
 
 import re
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from email.utils import parseaddr
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 from django.utils.dateparse import parse_datetime
 
@@ -39,6 +41,15 @@ from products.messaging.backend.provider_imports.base import (
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
+)
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
+    save_contact_properties,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
@@ -108,9 +119,8 @@ class ResendImportProvider(ImportProvider):
     )
     api_key_url = "https://resend.com/api-keys"
     not_imported = (
-        "Contacts don't become people in PostHog, so a segment an automation adds people to becomes an empty static "
-        "cohort. API keys, webhooks, send history and stats stay in Resend, so "
-        "rebuild what you need."
+        "A segment an automation adds people to becomes an empty static cohort. API keys, webhooks, send history and "
+        "stats stay in Resend, so rebuild what you need."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -150,8 +160,8 @@ class ResendImportProvider(ImportProvider):
             key="opt_outs",
             label="Unsubscribed contacts",
             description=(
-                "Opts contacts who unsubscribed in Resend out of all marketing email. PostHog reads their email "
-                "address only and doesn't create people from your contacts."
+                "Opts contacts who unsubscribed in Resend out of all marketing email, by email address. This works "
+                "whether or not you import the contacts as people."
             ),
             count_labels=(
                 ("opted_out", "Newly opted out"),
@@ -167,6 +177,34 @@ class ResendImportProvider(ImportProvider):
                 "time, so PostHog reads about 7,000 contacts an hour. Large lists can take a day."
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
+        ),
+        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
+        # they left in Resend.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
+                "PostHog has none. Fills a cohort with all your contacts. Each person updated counts as one event. "
+                "Needs Suppression list, Unsubscribed contacts and Topic preferences selected too, so no one who left in "
+                "Resend gets marketing email."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=("suppressions", "opt_outs", "topic_opt_outs"),
+            needs=("suppressions", "opt_outs", "topic_opt_outs"),
+        ),
+        new_people_step("Resend"),
+        ImportStepSpec(
+            key="contact_properties",
+            label="Contact properties",
+            description=(
+                "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
+                "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
+                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
+            ),
+            count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
+            requires=("contacts",),
+            needs=("contacts",),
         ),
         ImportStepSpec(
             key="templates",
@@ -205,7 +243,9 @@ class ResendImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():
@@ -227,6 +267,12 @@ class ResendImportProvider(ImportProvider):
                     yield from _fetch_topics(client, context, checkpoint)
                 case "suppressions":
                     yield from _fetch_suppressions(client, context, checkpoint)
+                case "contacts":
+                    yield from _fetch_contacts(client, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
+                case "contact_properties":
+                    yield from _fetch_contact_properties(client, context, checkpoint)
                 case "opt_outs":
                     yield from _fetch_opt_outs(client, context, checkpoint)
                 case "topic_opt_outs":
@@ -360,6 +406,79 @@ def _timestamp(value: Any) -> datetime | None:
         return parse_datetime(value) if isinstance(value, str) else None
     except ValueError:
         return None
+
+
+def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[ImportPage]:
+    # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
+    contacts = ContactCollector()
+    for page in client.pages("/contacts"):
+        _collect(contacts, page.data)
+    everyone = contacts.everyone
+    yield ImportPage(
+        processed=len(everyone),
+        save=partial(
+            save_contact_lists,
+            context,
+            _everyone(everyone),
+            (),
+            contacts.other_spellings,
+        ),
+    )
+
+
+def _property_value(value: Any) -> Any:
+    # A contact's record wraps each property as {"value": ..., "type": ...}.
+    return value.get("value") if isinstance(value, dict) else value
+
+
+def _everyone(rows: tuple[dict[str, str], ...]) -> ContactList:
+    return ContactList(
+        cohort_name="Resend contacts",
+        cohort_description="Imported from Resend contacts.",
+        source="your Resend contacts",
+        rows=rows,
+    )
+
+
+def _fetch_contact_properties(
+    client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    # Only a contact's own record holds its properties, so each contact costs one request, and an account that
+    # defines none shouldn't read its whole contact list.
+    if "contacts" not in context.steps or not any(page.data for page in client.pages("/contact-properties")):
+        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
+        return
+    for page in client.pages("/contacts", _after(checkpoint)):
+        contacts = ContactCollector()
+        for contact in page.data:
+            contact_id = contact.get("id")
+            if not contact_id:
+                continue
+            try:
+                properties = client.get(f"/contacts/{quote(str(contact_id), safe='')}").get("properties")
+            except ResendAPIError as e:
+                # The contact was deleted after the page listed it.
+                if e.status_code == 404:
+                    continue
+                raise
+            if isinstance(properties, dict) and properties:
+                contacts.add(contact.get("email"), {name: _property_value(value) for name, value in properties.items()})
+        rows = tuple(row for row in contacts.everyone if len(row) > 1)
+        yield ImportPage(
+            processed=len(page.data),
+            save=partial(save_contact_properties, context, _everyone(rows), len(page.data)),
+            checkpoint=_next_checkpoint(page.next_after),
+        )
+
+
+def _collect(contacts: ContactCollector, page: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = (
+        contacts.add(
+            contact.get("email"), {"first_name": contact.get("first_name"), "last_name": contact.get("last_name")}
+        )
+        for contact in page
+    )
+    return [row for row in rows if row]
 
 
 def _fetch_opt_outs(
