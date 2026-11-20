@@ -1,0 +1,144 @@
+name: Test mobile PR on iOS
+run-name: iOS simulator for PR ${{ inputs.pr }}
+
+on:
+    workflow_dispatch:
+        inputs:
+            pr:
+                description: Pull request number
+                required: true
+                type: string
+            revision:
+                description: Authorized PR head SHA
+                required: true
+                type: string
+            scripts_revision:
+                description: Default-branch commit containing the simulator scripts
+                required: true
+                type: string
+            request_run_id:
+                description: Default-branch workflow run that authorized this build
+                required: true
+                type: string
+            requester_id:
+                description: GitHub user ID of the organization member requesting the build
+                required: true
+                type: string
+
+permissions: {}
+cache-mode: none
+
+jobs:
+    verify-request:
+        if: >-
+            github.repository == 'PostHog/posthog' && github.ref_type == 'branch' && github.ref != 'refs/heads/master' &&
+            github.actor == 'github-actions[bot]' && github.run_attempt == 1 && github.sha == inputs.revision
+        runs-on: ubuntu-24.04
+        timeout-minutes: 3
+        permissions:
+            actions: read
+        steps:
+            - name: Verify the default-branch request authorizes this run
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+                  REQUESTER_ID: ${{ inputs.requester_id }}
+                  SCRIPTS_REVISION: ${{ inputs.scripts_revision }}
+              shell: bash
+              run: |
+                  [[ "$REQUEST_RUN_ID" =~ ^[1-9][0-9]*$ && "$REQUESTER_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+                  api="repos/$GITHUB_REPOSITORY/actions/runs/$REQUEST_RUN_ID"
+                  gh api "$api" | jq -e --arg actor "$REQUESTER_ID" --arg sha "$SCRIPTS_REVISION" '
+                      .path == ".github/workflows/mobile-pr-simulator.yml" and .event == "issue_comment" and
+                      .head_branch == "master" and .head_sha == $sha and .head_repository.id == .repository.id and
+                      (.actor.id | tostring) == $actor' > /dev/null
+                  # The requesting workflow records the build ID returned by dispatch.
+                  for _ in {1..12}; do
+                      artifact_id=$(gh api "$api/artifacts" --jq ".artifacts[] | select(.name == \"ios-simulator-request-$REQUESTER_ID\") | .id")
+                      if [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]; then
+                          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > request.zip
+                          [[ "$(unzip -p request.zip simulator-request)" == "$GITHUB_RUN_ID" ]] || exit 1
+                          exit 0
+                      fi
+                      sleep 5
+                  done
+                  echo "::error::The requesting workflow did not authorize this build."
+                  exit 1
+
+    simulator:
+        needs: verify-request
+        concurrency:
+            group: ios-simulator-build-${{ inputs.requester_id }}
+            cancel-in-progress: false
+        if: github.run_attempt == 1
+        runs-on: macos-26
+        timeout-minutes: 75
+        env:
+            SCRIPTS_REVISION: ${{ inputs.scripts_revision }}
+            CI: '1'
+            DO_NOT_TRACK: '1'
+            EXPO_NO_DOTENV: '1'
+            EXPO_NO_TELEMETRY: '1'
+        steps:
+            - name: Fetch the public PR revision
+              env:
+                  PR: ${{ inputs.pr }}
+                  REVISION: ${{ inputs.revision }}
+              run: |
+                  [[ "$GITHUB_RUN_ATTEMPT" == 1 ]] || { echo "::error::Submit a fresh simulator request."; exit 1; }
+                  [[ "$PR" =~ ^[1-9][0-9]*$ && "$REVISION" =~ ^[0-9a-f]{40}$ && "$SCRIPTS_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+                  git init --quiet
+                  git remote add origin https://github.com/PostHog/posthog.git
+                  git sparse-checkout init --no-cone
+                  git sparse-checkout set --no-cone /products/mobile/
+                  git fetch --no-tags --depth=1 --filter=blob:none origin "refs/pull/$PR/head"
+                  if [[ "$(git rev-parse FETCH_HEAD)" != "$REVISION" ]]; then
+                      echo "::error::The PR head changed. Start a new run with its current commit."
+                      exit 1
+                  fi
+                  git checkout --quiet --detach FETCH_HEAD
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+                  package-manager-cache: false
+                  token: ''
+
+            - name: Install the mobile workspace and simulator tools
+              working-directory: products/mobile
+              run: |
+                  npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund pnpm@10.29.3 @swmansion/argent@0.30.1
+                  echo "$RUNNER_TEMP/tools/node_modules/.bin" >> "$GITHUB_PATH"
+                  "$RUNNER_TEMP/tools/node_modules/.bin/pnpm" install --frozen-lockfile
+
+            - name: Build the bundled app
+              env:
+                  ARGENT_APP_DIR: ${{ github.workspace }}/products/mobile
+              run: |
+                  mkdir "$RUNNER_TEMP/build"
+                  curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      "https://raw.githubusercontent.com/PostHog/posthog/$SCRIPTS_REVISION/products/mobile/scripts/ci-argent-build.sh" \
+                      --output "$RUNNER_TEMP/ci-argent-build.sh"
+                  bash "$RUNNER_TEMP/ci-argent-build.sh" "$RUNNER_TEMP/build" "$RUNNER_TEMP/build-logs"
+
+            - name: Run demo walkthroughs and capture screenshots
+              env:
+                  ARGENT_APP_DIR: ${{ github.workspace }}/products/mobile
+              run: |
+                  curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      "https://raw.githubusercontent.com/PostHog/posthog/$SCRIPTS_REVISION/products/mobile/scripts/ci-argent.sh" \
+                      --output "$RUNNER_TEMP/ci-argent.sh"
+                  bash "$RUNNER_TEMP/ci-argent.sh" \
+                      "$RUNNER_TEMP/build/Build/Products/Release-iphonesimulator/PostHogApp.app" \
+                      "$RUNNER_TEMP/results" --screenshots
+
+            - name: Save walkthrough reports and screenshots
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ios-pr-${{ inputs.pr }}-${{ inputs.revision }}
+                  path: |
+                      ${{ runner.temp }}/results/*.json
+                      ${{ runner.temp }}/results/**/*.png
+                  retention-days: 3
+                  if-no-files-found: warn

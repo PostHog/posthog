@@ -20,7 +20,7 @@ self-hosted-runner:
 # output-type anchor keeps this scoped to that action.
 paths:
     # actionlint 1.7.12 predates GitHub's token-enforced cache-mode setting.
-    '**/mobile-pr-simulator.yml':
+    '**/mobile-pr-simulator-build.yml':
         ignore:
             - 'unexpected key "cache-mode" for "workflow" section'
     '.github/workflows/**/*.yml':

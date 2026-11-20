@@ -71,6 +71,7 @@ class SchemaRestoreCleanupFailed(SchemaRestoreError):
 @dataclass(frozen=True)
 class SchemaArtifact:
     id: int
+    run_id: int
     name: str
     expired: bool
     size_in_bytes: int
@@ -377,6 +378,7 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
             return None
         return SchemaArtifact(
             id=_require_type(raw.get("id"), int),
+            run_id=_require_type(workflow_run.get("id"), int),
             name=_require_type(raw.get("name"), str),
             expired=_require_type(raw.get("expired"), bool),
             size_in_bytes=_require_type(raw.get("size_in_bytes"), int),
@@ -467,15 +469,28 @@ def find_newest_compatible_artifact(
         if not isinstance(raw_artifacts, list):
             raise SchemaRestoreError("GitHub artifacts API returned no artifact list")
 
-        for raw_artifact in raw_artifacts:
-            if isinstance(raw_artifact, Mapping):
-                artifact = _artifact_from_api(raw_artifact)
-                if artifact is not None:
-                    fetched.append(artifact)
-
-        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
-        if selected is not None:
-            return selected
+        page_artifacts = [
+            artifact
+            for raw in raw_artifacts
+            if isinstance(raw, Mapping) and (artifact := _artifact_from_api(raw)) is not None
+        ]
+        fetched.extend(page_artifacts)
+        for candidate in _filter_and_sort_candidates(page_artifacts, base_branch=base_branch):
+            run_response = http.get(
+                f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/runs/{candidate.run_id}",
+                headers=github_headers(token),
+                timeout=30,
+            )
+            if run_response.status_code == 404:
+                continue
+            run_response.raise_for_status()
+            run = run_response.json()
+            if (
+                isinstance(run, Mapping)
+                and run.get("path") == ".github/workflows/ci-backend-schema-mirror.yml"
+                and run.get("event") in ("schedule", "workflow_dispatch")
+            ):
+                return candidate
 
         if "next" not in response.links:
             break
