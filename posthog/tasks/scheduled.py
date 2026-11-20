@@ -125,7 +125,10 @@ from products.feature_flags.backend.tasks import (
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
-from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
+from products.managed_warehouse.backend.facade.tasks import (
+    check_managed_warehouse_budgets,
+    push_all_warehouse_member_teams,
+)
 from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
@@ -1352,6 +1355,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="23"),
         push_all_warehouse_member_teams.s(),
         name="push managed warehouse member teams to hogtower",
+        expires=3000,
+    )
+
+    # Emails org admins once per 50, 80 and 100 percent of the monthly warehouse budget.
+    sender.add_periodic_task(
+        crontab(minute="11"),
+        check_managed_warehouse_budgets.s(),
+        name="check managed warehouse budgets",
         expires=3000,
     )
 

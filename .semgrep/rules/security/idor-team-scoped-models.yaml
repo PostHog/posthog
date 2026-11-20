@@ -1501,6 +1501,7 @@ rules:
                               |IdJagIdentity
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseOrgSettings
                               |ManagedWarehouseSourceLifecycle
                               |ManagedWarehouseViewTranslationJob
                               |OrganizationMembership
@@ -1587,6 +1588,7 @@ rules:
                         |IdJagIdentity
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseOrgSettings
                         |ManagedWarehouseSourceLifecycle
                         |ManagedWarehouseViewTranslationJob
                         |OrganizationMembership

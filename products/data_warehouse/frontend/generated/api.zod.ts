@@ -213,6 +213,95 @@ export const ManagedViewsetsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier.
+ * @summary Estimate a managed warehouse query
+ */
+export const managedWarehouseConsoleEstimateCreateBodyQueryMax = 100000
+
+export const managedWarehouseConsoleEstimateCreateBodySendRawQueryDefault = false
+
+export const ManagedWarehouseConsoleEstimateCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(managedWarehouseConsoleEstimateCreateBodyQueryMax)
+        .describe('The SQL editor query to estimate, HogQL or raw Trino SQL.'),
+    send_raw_query: zod
+        .boolean()
+        .default(managedWarehouseConsoleEstimateCreateBodySendRawQueryDefault)
+        .describe('True when the query is raw Trino SQL. False when it is HogQL.'),
+    variables: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe(
+            'SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.'
+        ),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.'),
+})
+
+/**
+ * Create the project's Trino login for the mode, or give an existing one a new password. The password is in this response only.
+ * @summary Create or rotate a managed warehouse project login
+ */
+
+export const ManagedWarehouseConsoleLoginsCreateBody = /* @__PURE__ */ zod.object({
+    team_id: zod.number().min(1).describe('Project the login is limited to.'),
+    mode: zod
+        .enum(['reader', 'user'])
+        .describe('\* `reader` - Read only\n\* `user` - Read and write')
+        .describe(
+            "reader can only read the project's data. user can also write to it.\n\n\* `reader` - Read only\n\* `user` - Read and write"
+        ),
+})
+
+/**
+ * Disable a login so it can no longer connect, or enable it again.
+ * @summary Switch a managed warehouse login on or off
+ */
+export const ManagedWarehouseConsoleLoginsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    disabled: zod.boolean().optional().describe('True switches the login off. False switches it back on.'),
+})
+
+/**
+ * Ask Trino to cancel a running query. Organization admins may cancel any query. Other members may cancel queries of their own SQL editor principal.
+ * @summary Cancel a managed warehouse query
+ */
+export const ManagedWarehouseConsoleQueriesCancelCreateBody = /* @__PURE__ */ zod.object({
+    principal: zod
+        .string()
+        .optional()
+        .describe(
+            'The principal the caller saw on the query. Members who are not organization admins may only cancel queries of their own SQL editor principal.'
+        ),
+})
+
+/**
+ * Change the per-query scan cap or monthly budget. Fields left out stay as they are.
+ * @summary Update managed warehouse spend settings
+ */
+export const managedWarehouseConsoleSettingsPartialUpdateBodyMaxScanBytesPerQueryMin = 1073741824
+export const managedWarehouseConsoleSettingsPartialUpdateBodyMaxScanBytesPerQueryMax = 2147483647
+
+export const managedWarehouseConsoleSettingsPartialUpdateBodyMonthlyBudgetUsdRegExp = new RegExp(
+    '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
+)
+
+export const ManagedWarehouseConsoleSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    max_scan_bytes_per_query: zod
+        .number()
+        .min(managedWarehouseConsoleSettingsPartialUpdateBodyMaxScanBytesPerQueryMin)
+        .max(managedWarehouseConsoleSettingsPartialUpdateBodyMaxScanBytesPerQueryMax)
+        .nullish()
+        .describe('Largest number of bytes a single SQL editor query may scan, at least 1 GiB. Null removes the cap.'),
+    monthly_budget_usd: zod
+        .stringFormat('decimal', managedWarehouseConsoleSettingsPartialUpdateBodyMonthlyBudgetUsdRegExp)
+        .nullish()
+        .describe('Monthly budget in USD, more than 0. Null removes the budget.'),
+})
+
+/**
  * Create, Read, Update and Delete Query Tab State.
  */
 export const QueryTabStateCreateBody = /* @__PURE__ */ zod.object({

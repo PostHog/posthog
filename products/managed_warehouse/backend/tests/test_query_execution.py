@@ -145,6 +145,7 @@ def test_the_cache_key_and_the_connection_share_one_canary_decision(
     assert used_canary is first
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("canary", [False, True])
 def test_a_managed_trino_run_connects_the_way_the_runner_decided(team: Team, canary: bool) -> None:
     user = User(id=9, distinct_id="user-9")
@@ -177,7 +178,11 @@ def test_a_managed_trino_run_connects_the_way_the_runner_decided(team: Team, can
             canary=canary,
         )
     connect.assert_called_once_with(
-        str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}", canary=canary
+        str(team.organization_id),
+        principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+        canary=canary,
+        source="posthog-sql-editor",
+        session_properties=None,
     )
 
 
@@ -281,7 +286,11 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
             limit_context=limit_context,
         )
     connect.assert_called_once_with(
-        str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}", canary=False
+        str(team.organization_id),
+        principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+        canary=False,
+        source="posthog-sql-editor",
+        session_properties=None,
     )
     cursor.execute.assert_called_once_with(
         f'SELECT ? AS "value" OFFSET {offset or 0} ROWS LIMIT {expected_limit + 1}', ["quoted ' value"]
@@ -377,3 +386,95 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
     assert response.results == [("100%",)]
     assert response.clickhouse == sql
     assert response.hogql is None
+
+
+class _ScanLimitError(Exception):
+    error_name = "EXCEEDED_SCAN_LIMIT"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "max_scan_bytes, max_execution_time, expected_properties, expected_timeout",
+    [
+        (None, None, None, 600),
+        (None, 60, None, 600),
+        (None, 10, None, 10),
+        (10 * 1024**3, 60, {"query_max_scan_physical_bytes": "10737418240B"}, 600),
+        (None, 900, None, 900),
+    ],
+)
+def test_editor_run_sends_scan_cap_and_the_longer_of_the_two_timeouts(
+    team: Team,
+    max_scan_bytes: int | None,
+    max_execution_time: int,
+    expected_properties: dict[str, str] | None,
+    expected_timeout: int,
+) -> None:
+    result = MagicMock(results=[], print_columns=[], types=[], error=None)
+    with (
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+        patch(
+            "products.managed_warehouse.backend.sql_editor_limits.get_max_scan_bytes_per_query",
+            return_value=max_scan_bytes,
+        ),
+        patch("products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino") as connect,
+        patch("products.managed_warehouse.backend.query_execution.execute_trino_query", return_value=result) as run,
+    ):
+        execute_managed_trino_query(
+            HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=True),
+            team=team,
+            user=User(id=9),
+            user_access_control=None,
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
+            timings=HogQLTimings(),
+            limit_context=LimitContext.QUERY,
+        )
+    assert run.call_args.args[0].timeout_seconds == expected_timeout
+    assert connect.call_args.kwargs["source"] == "posthog-sql-editor"
+    assert connect.call_args.kwargs["session_properties"] == expected_properties
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "max_scan_bytes, cause, message",
+    [
+        (10 * 1024**3, _ScanLimitError("Exceeded scan limit"), "scan more than 10 GiB.*raise the limit"),
+        (10 * 1024**3, RuntimeError("other failure"), "other failure"),
+        (None, _ScanLimitError("Exceeded scan limit"), "Exceeded scan limit"),
+    ],
+)
+def test_editor_run_maps_the_trino_scan_limit_error(
+    team: Team, max_scan_bytes: int | None, cause: Exception, message: str
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise ExposedHogQLError(str(cause)) from cause
+
+    with (
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+        patch(
+            "products.managed_warehouse.backend.sql_editor_limits.get_max_scan_bytes_per_query",
+            return_value=max_scan_bytes,
+        ),
+        patch("products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino"),
+        patch("products.managed_warehouse.backend.query_execution.execute_trino_query", side_effect=fail),
+    ):
+        with pytest.raises(ExposedHogQLError, match=message):
+            execute_managed_trino_query(
+                HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=True),
+                team=team,
+                user=User(id=9),
+                user_access_control=None,
+                settings=HogQLGlobalSettings(),
+                timings=HogQLTimings(),
+                limit_context=LimitContext.QUERY,
+            )

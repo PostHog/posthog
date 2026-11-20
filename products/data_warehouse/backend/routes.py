@@ -7,6 +7,7 @@ from products.data_warehouse.backend.presentation.views import (
     data_warehouse,
     expression,
     managed_viewset,
+    managed_warehouse_console,
     query_tab_state,
     saved_query_column_annotation,
     saved_query_draft,
@@ -56,6 +57,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"warehouse_saved_query_drafts",
         saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
         "project_warehouse_saved_query_drafts",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"managed_warehouse_console",
+        managed_warehouse_console.ManagedWarehouseConsoleViewSet,
+        "project_managed_warehouse_console",
         ["team_id"],
     )
     routers.projects.register(

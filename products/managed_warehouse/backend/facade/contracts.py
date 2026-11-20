@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -22,6 +23,33 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 __all__ = [
+    "ControlPlaneRejectedError",
+    "InvalidLoginTeamError",
+    "LoginKind",
+    "LoginMode",
+    "LoginNotFoundError",
+    "ProtectedLoginError",
+    "WarehouseLogin",
+    "WarehouseLoginCredential",
+    "ConsoleSettings",
+    "ControlPlaneNotConfiguredError",
+    "ControlPlaneUnavailableError",
+    "ControlPlaneUpstreamError",
+    "QueryHistoryPage",
+    "QueryHistoryRow",
+    "QueryNotFoundError",
+    "QueryCostEstimate",
+    "QueryCostTable",
+    "QueryCostWarning",
+    "StorageOverview",
+    "StorageTableUsage",
+    "UsageBreakdownRow",
+    "UsageBudget",
+    "UsageComputeSummary",
+    "UsageDailyPoint",
+    "UsageStorageSummary",
+    "UsageSummary",
+    "WarehouseNotFoundError",
     "CPUnavailableError",
     "DuckLakeBackfillCatalog",
     "DuckLakeDayReplacement",
@@ -590,3 +618,216 @@ class HoglakeBackfillCatalog(Protocol):
         expected_rows: int,
         replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
     ) -> int: ...
+
+
+class ControlPlaneNotConfiguredError(RuntimeError):
+    """The deployment has no managed warehouse control plane to ask."""
+
+
+class WarehouseNotFoundError(LookupError):
+    """The control plane has no warehouse for the organization."""
+
+
+class ControlPlaneUnavailableError(RuntimeError):
+    """The control plane or its catalog answered 503, so a retry later may succeed."""
+
+
+class ControlPlaneUpstreamError(RuntimeError):
+    """The control plane failed, timed out, or answered something unusable."""
+
+
+class QueryNotFoundError(LookupError):
+    """The query is unknown to Trino, or it already finished."""
+
+
+@frozen
+class UsageComputeSummary:
+    billable_bytes: int
+    failed_billable_bytes: int
+    logical_bytes: int
+    queries: int
+    free_bytes: int
+    estimated_cost_usd: Decimal
+
+
+@frozen
+class UsageStorageSummary:
+    gib_months: Decimal
+    average_bytes: int
+    free_gib_months: Decimal
+    estimated_cost_usd: Decimal
+
+
+@frozen
+class UsageDailyPoint:
+    date: date
+    billable_bytes: int
+    queries: int
+    storage_average_bytes: int
+
+
+@frozen
+class UsageBreakdownRow:
+    key: str
+    label: str
+    queries: int
+    billable_bytes: int
+    estimated_cost_share_usd: Decimal
+
+
+@frozen
+class UsageBudget:
+    monthly_budget_usd: Decimal | None
+    share_used: Decimal | None
+
+
+@frozen
+class UsageSummary:
+    """One UTC calendar month of managed warehouse usage and its estimated spend."""
+
+    period_start: date
+    # Exclusive: the first day of the next month.
+    period_end: date
+    compute: UsageComputeSummary
+    storage: UsageStorageSummary
+    total_estimated_cost_usd: Decimal
+    forecast_total_usd: Decimal | None
+    daily: tuple[UsageDailyPoint, ...]
+    breakdown: tuple[UsageBreakdownRow, ...]
+    budget: UsageBudget
+
+
+@frozen
+class QueryHistoryRow:
+    id: int
+    query_id: str
+    principal: str
+    principal_label: str
+    team_id: int | None
+    source: str
+    source_label: str
+    state: str
+    error_code: str | None
+    error_type: str | None
+    created_at: str | None
+    completed_at: str | None
+    elapsed_ms: int | None
+    queued_ms: int | None
+    logical_bytes_scanned: int
+    billable: bool
+    billable_bytes: int
+    cpu_seconds: float | None
+    # None when the viewer cannot access the project the query ran for.
+    query: str | None
+    # Marginal price of the row's billable bytes. The monthly free tier is not applied per row.
+    estimated_cost_usd: Decimal
+
+
+@frozen
+class QueryHistoryPage:
+    queries: tuple[QueryHistoryRow, ...]
+    # Opaque keyset cursor for the next page. None on the last page.
+    next_cursor: str | None
+
+
+@frozen
+class StorageTableUsage:
+    schema: str
+    table: str
+    data_bytes: int
+    delete_bytes: int
+    file_count: int
+    row_count: int
+    last_modified_at: str | None
+
+
+@frozen
+class StorageOverview:
+    tables: tuple[StorageTableUsage, ...]
+    total_bytes: int
+    pending_deletion_files: int
+    read_at: str | None
+    # Opaque control plane status. None when the control plane could not report it.
+    maintenance: dict[str, Any] | None
+
+
+@frozen
+class ConsoleSettings:
+    max_scan_bytes_per_query: int | None
+    monthly_budget_usd: Decimal | None
+
+
+class ControlPlaneRejectedError(RuntimeError):
+    """The control plane refused the request as invalid. The message is safe to show."""
+
+    def __init__(self, message: str, *, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class LoginNotFoundError(LookupError):
+    """The warehouse has no login with that name."""
+
+
+class ProtectedLoginError(ValueError):
+    """The root login cannot be disabled, deleted or rotated from the console."""
+
+
+class InvalidLoginTeamError(ValueError):
+    """The project does not belong to the organization."""
+
+
+LoginKind = Literal["root", "project_reader", "project_user", "other"]
+LoginMode = Literal["reader", "user"]
+
+
+@frozen
+class WarehouseLogin:
+    """A Trino login of the warehouse, with its last 30 days of activity."""
+
+    username: str
+    kind: LoginKind
+    team_id: int | None
+    scope_label: str
+    disabled: bool
+    created_at: str | None
+    updated_at: str | None
+    queries_30d: int
+    billable_bytes_30d: int
+
+
+@frozen
+class WarehouseLoginCredential:
+    """A login with its new password. The password is shown once and never stored in PostHog."""
+
+    login: WarehouseLogin
+    password: str = field(repr=False)
+
+
+QueryCostWarning = Literal["no_filter_on_large_table", "exceeds_cap", "size_unknown"]
+
+
+@frozen
+class QueryCostTable:
+    catalog: str
+    schema: str
+    table: str
+    # Stored data bytes of the table, or None when the storage listing has no matching table.
+    size_bytes: int | None
+    # Whether the query constrains at least one column of the table.
+    has_filter: bool
+
+
+@frozen
+class QueryCostEstimate:
+    """An upper bound on what a SQL editor query can scan, before it runs."""
+
+    tables: tuple[QueryCostTable, ...]
+    upper_bound_bytes: int | None
+    # Marginal compute price of the upper bound. The monthly free tier is not applied.
+    estimated_cost_usd: Decimal | None
+    cap_bytes: int | None
+    exceeds_cap: bool
+    # False when any table has an unknown size, so the upper bound undercounts.
+    complete: bool
+    warnings: tuple[QueryCostWarning, ...]

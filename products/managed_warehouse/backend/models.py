@@ -274,3 +274,23 @@ class ManagedWarehouseViewTranslationResult(TeamScopedRootMixin, UpdatedMetaFiel
                 name="mw_view_translation_status_idx",
             )
         ]
+
+
+class ManagedWarehouseOrgSettings(UUIDModel):
+    """Per-organization spend controls for the managed warehouse console."""
+
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+    )
+    max_scan_bytes_per_query = models.BigIntegerField(null=True, blank=True)
+    monthly_budget_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    budget_alert_month = models.DateField(null=True, blank=True)
+    budget_alert_threshold = models.PositiveSmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_managedwarehouseorgsettings"

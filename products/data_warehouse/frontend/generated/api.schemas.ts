@@ -1392,6 +1392,480 @@ export interface DataWarehouseManagedViewSetUpdateResponseApi {
     kind: DataWarehouseManagedViewSetKindEnumApi
 }
 
+/**
+ * SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.
+ * @nullable
+ */
+export type QueryEstimateRequestApiVariables = { [key: string]: unknown } | null
+
+/**
+ * HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.
+ * @nullable
+ */
+export type QueryEstimateRequestApiFilters = { [key: string]: unknown } | null
+
+export interface QueryEstimateRequestApi {
+    /**
+     * The SQL editor query to estimate, HogQL or raw Trino SQL.
+     * @maxLength 100000
+     */
+    query: string
+    /** True when the query is raw Trino SQL. False when it is HogQL. */
+    send_raw_query?: boolean
+    /**
+     * SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.
+     * @nullable
+     */
+    variables?: QueryEstimateRequestApiVariables
+    /**
+     * HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.
+     * @nullable
+     */
+    filters?: QueryEstimateRequestApiFilters
+}
+
+export interface QueryEstimateTableApi {
+    /** Trino catalog the query reads. */
+    catalog: string
+    /** Schema the table lives in. */
+    schema: string
+    /** Table name. */
+    table: string
+    /**
+     * Bytes of live data files, or null when the table is not in the storage listing.
+     * @nullable
+     */
+    size_bytes: number | null
+    /** Whether the query limits at least one column of this table. */
+    has_filter: boolean
+}
+
+/**
+ * * `no_filter_on_large_table` - No filter on a large table
+ * * `exceeds_cap` - Exceeds the per-query cap
+ * * `size_unknown` - Size unknown
+ */
+export type QueryEstimateWarningEnumApi = (typeof QueryEstimateWarningEnumApi)[keyof typeof QueryEstimateWarningEnumApi]
+
+export const QueryEstimateWarningEnumApi = {
+    NoFilterOnLargeTable: 'no_filter_on_large_table',
+    ExceedsCap: 'exceeds_cap',
+    SizeUnknown: 'size_unknown',
+} as const
+
+export interface QueryEstimateResponseApi {
+    /** Tables the query reads. */
+    tables: QueryEstimateTableApi[]
+    /**
+     * Most bytes the query can scan: the stored size of every table it reads. Null when no table size is known.
+     * @nullable
+     */
+    upper_bound_bytes: number | null
+    /**
+     * Compute cost of the upper bound at the marginal rate, before the monthly free tier. Null when unknown.
+     * @nullable
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_usd: string | null
+    /**
+     * The organization's per-query scan cap, or null for no cap.
+     * @nullable
+     */
+    cap_bytes: number | null
+    /** Whether the upper bound is above the cap. */
+    exceeds_cap: boolean
+    /** False when a table has an unknown size, so the upper bound may be too low. */
+    complete: boolean
+    /** Things to check before running the query. */
+    warnings: QueryEstimateWarningEnumApi[]
+}
+
+export interface ConsoleErrorApi {
+    /** What went wrong and what to do next. */
+    error: string
+}
+
+/**
+ * * `root` - Root
+ * * `project_reader` - Project, read only
+ * * `project_user` - Project, read and write
+ * * `other` - Other
+ */
+export type LoginKindEnumApi = (typeof LoginKindEnumApi)[keyof typeof LoginKindEnumApi]
+
+export const LoginKindEnumApi = {
+    Root: 'root',
+    ProjectReader: 'project_reader',
+    ProjectUser: 'project_user',
+    Other: 'other',
+} as const
+
+export interface WarehouseLoginApi {
+    /** Trino user name of the login. */
+    username: string
+    /** Whether this is the root login, a project login, or another login. Only project logins can be changed.
+     *
+     * * `root` - Root
+     * * `project_reader` - Project, read only
+     * * `project_user` - Project, read and write
+     * * `other` - Other */
+    kind: LoginKindEnumApi
+    /**
+     * Project a project login is limited to.
+     * @nullable
+     */
+    team_id: number | null
+    /** What the login can do, for example Read only · Project name. */
+    scope_label: string
+    /** Whether the login is switched off. */
+    disabled: boolean
+    /**
+     * When the login was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * When the login last changed.
+     * @nullable
+     */
+    updated_at: string | null
+    /** Queries the login ran in the last 30 days. */
+    queries_30d: number
+    /** Bytes billed to the login in the last 30 days. */
+    billable_bytes_30d: number
+}
+
+export interface WarehouseLoginListApi {
+    /** Every login of the warehouse, by name. */
+    logins: WarehouseLoginApi[]
+}
+
+/**
+ * * `reader` - Read only
+ * * `user` - Read and write
+ */
+export type LoginModeEnumApi = (typeof LoginModeEnumApi)[keyof typeof LoginModeEnumApi]
+
+export const LoginModeEnumApi = {
+    Reader: 'reader',
+    User: 'user',
+} as const
+
+export interface CreateLoginRequestApi {
+    /**
+     * Project the login is limited to.
+     * @minimum 1
+     */
+    team_id: number
+    /** reader can only read the project's data. user can also write to it.
+     *
+     * * `reader` - Read only
+     * * `user` - Read and write */
+    mode: LoginModeEnumApi
+}
+
+export interface WarehouseLoginCredentialApi {
+    /** The login. */
+    login: WarehouseLoginApi
+    /** The new password. It is shown once and PostHog does not keep it, so copy it now. */
+    password: string
+}
+
+export interface PatchedUpdateLoginRequestApi {
+    /** True switches the login off. False switches it back on. */
+    disabled?: boolean
+}
+
+/**
+ * * `FINISHED` - Finished
+ * * `FAILED` - Failed
+ */
+export type QueryHistoryStateEnumApi = (typeof QueryHistoryStateEnumApi)[keyof typeof QueryHistoryStateEnumApi]
+
+export const QueryHistoryStateEnumApi = {
+    Finished: 'FINISHED',
+    Failed: 'FAILED',
+} as const
+
+export interface QueryHistoryRowApi {
+    /** Row id, used as the page cursor. */
+    id: number
+    /** Trino query id. */
+    query_id: string
+    /** Trino user that ran the query. */
+    principal: string
+    /** Readable name for the principal. */
+    principal_label: string
+    /**
+     * Project the query ran for, when known.
+     * @nullable
+     */
+    team_id: number | null
+    /** Client source that sent the query. */
+    source: string
+    /** Readable name for the source. */
+    source_label: string
+    /** Final Trino state.
+     *
+     * * `FINISHED` - Finished
+     * * `FAILED` - Failed */
+    state: QueryHistoryStateEnumApi
+    /**
+     * Trino error code of a failed query.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Trino error type of a failed query.
+     * @nullable
+     */
+    error_type: string | null
+    /**
+     * When the query was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * When the query completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Wall time in milliseconds.
+     * @nullable
+     */
+    elapsed_ms: number | null
+    /**
+     * Time spent queued in milliseconds.
+     * @nullable
+     */
+    queued_ms: number | null
+    /** Logical bytes the query scanned. */
+    logical_bytes_scanned: number
+    /** Whether the query counts toward billing. */
+    billable: boolean
+    /** Bytes billed for the query: the scanned bytes when billable, else 0. */
+    billable_bytes: number
+    /**
+     * CPU seconds the query used.
+     * @nullable
+     */
+    cpu_seconds: number | null
+    /**
+     * SQL text of the query. Null when you cannot access the project the query ran for.
+     * @nullable
+     */
+    query: string | null
+    /**
+     * Estimated cost of the query at the per-TiB price. The monthly free tier is not applied per query.
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_usd: string
+}
+
+export interface QueryHistoryResponseApi {
+    /** Queries, newest first. */
+    queries: QueryHistoryRowApi[]
+    /**
+     * Pass as cursor to get the next page. Null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+export interface CancelQueryRequestApi {
+    /** The principal the caller saw on the query. Members who are not organization admins may only cancel queries of their own SQL editor principal. */
+    principal?: string
+}
+
+export interface CancelQueryResponseApi {
+    /** Always cancel_requested. Trino stops the query shortly after. */
+    status: string
+}
+
+export interface ConsoleSettingsApi {
+    /**
+     * Largest number of bytes a single SQL editor query may scan, or null for no cap.
+     * @nullable
+     */
+    max_scan_bytes_per_query: number | null
+    /**
+     * Monthly budget in USD, or null for none.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_budget_usd: string | null
+}
+
+export interface PatchedConsoleSettingsUpdateApi {
+    /**
+     * Largest number of bytes a single SQL editor query may scan, at least 1 GiB. Null removes the cap.
+     * @minimum 1073741824
+     * @maximum 2147483647
+     * @nullable
+     */
+    max_scan_bytes_per_query?: number | null
+    /**
+     * Monthly budget in USD, more than 0. Null removes the budget.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_budget_usd?: string | null
+}
+
+/**
+ * Maintenance status as the control plane reports it. Null when it could not be read.
+ * @nullable
+ */
+export type StorageResponseApiMaintenance = { [key: string]: unknown } | null
+
+export interface StorageTableApi {
+    /** Schema the table lives in. */
+    schema: string
+    /** Table name. */
+    table: string
+    /** Bytes of live data files. */
+    data_bytes: number
+    /** Bytes of delete files not yet compacted away. */
+    delete_bytes: number
+    /** Number of data files. */
+    file_count: number
+    /** Number of rows. */
+    row_count: number
+    /**
+     * When the table last changed.
+     * @nullable
+     */
+    last_modified_at: string | null
+}
+
+export interface StorageResponseApi {
+    /** Storage per table. */
+    tables: StorageTableApi[]
+    /** Bytes stored across all tables. */
+    total_bytes: number
+    /** Files waiting to be deleted from object storage. */
+    pending_deletion_files: number
+    /**
+     * When the catalog was read.
+     * @nullable
+     */
+    read_at: string | null
+    /**
+     * Maintenance status as the control plane reports it. Null when it could not be read.
+     * @nullable
+     */
+    maintenance: StorageResponseApiMaintenance
+}
+
+export interface UsageComputeApi {
+    /** Bytes billed for compute this period, failed queries included. */
+    billable_bytes: number
+    /** The part of the billed bytes that failed or was canceled. */
+    failed_billable_bytes: number
+    /** Logical bytes scanned this period. */
+    logical_bytes: number
+    /** Number of queries run this period. */
+    queries: number
+    /** Billable bytes included free each month. */
+    free_bytes: number
+    /**
+     * Estimated compute cost in USD after the free tier.
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_usd: string
+}
+
+export interface UsageStorageApi {
+    /**
+     * Storage used this period, in GiB-months.
+     * @pattern ^-?\d{0,18}(?:\.\d{0,6})?$
+     */
+    gib_months: string
+    /** Average bytes stored over the period. */
+    average_bytes: number
+    /**
+     * GiB-months of storage included free each month.
+     * @pattern ^-?\d{0,18}(?:\.\d{0,6})?$
+     */
+    free_gib_months: string
+    /**
+     * Estimated storage cost in USD after the free tier.
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_usd: string
+}
+
+export interface UsageDailyApi {
+    /** UTC day. */
+    date: string
+    /** Bytes billed for compute that day. */
+    billable_bytes: number
+    /** Number of queries run that day. */
+    queries: number
+    /** Average bytes stored that day. */
+    storage_average_bytes: number
+}
+
+export interface UsageBreakdownApi {
+    /** Raw group key: a client source, a Trino principal, or a project id. */
+    key: string
+    /** Readable name for the key. */
+    label: string
+    /** Number of queries in the group. */
+    queries: number
+    /** Bytes billed for compute in the group. */
+    billable_bytes: number
+    /**
+     * The group's share of the compute cost after the free tier, in proportion to billable bytes.
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_share_usd: string
+}
+
+export interface UsageBudgetApi {
+    /**
+     * Monthly budget in USD, or null when none is set.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_budget_usd: string | null
+    /**
+     * Estimated spend divided by the budget (1 is the whole budget), or null without a budget.
+     * @nullable
+     * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+     */
+    share_used: string | null
+}
+
+export interface UsageSummaryApi {
+    /** First day of the period. */
+    period_start: string
+    /** First day after the period. */
+    period_end: string
+    /** Compute usage and estimated cost. */
+    compute: UsageComputeApi
+    /** Storage usage and estimated cost. */
+    storage: UsageStorageApi
+    /**
+     * Estimated compute plus storage cost so far this period, in USD.
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    total_estimated_cost_usd: string
+    /**
+     * Estimated cost for the whole month at the current pace. Null unless the period is the current month.
+     * @nullable
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    forecast_total_usd: string | null
+    /** One entry for every day of the period up to today. */
+    daily: UsageDailyApi[]
+    /** The 20 biggest groups, plus an Other row for the rest. */
+    breakdown: UsageBreakdownApi[]
+    /** Spend against the monthly budget. */
+    budget: UsageBudgetApi
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /**
@@ -3394,6 +3868,95 @@ export type InsightVariablesListParams = {
      */
     page?: number
 }
+
+export type ManagedWarehouseConsoleQueriesRetrieveParams = {
+    /**
+     * Cursor for the next page. Use next_cursor of the previous page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Only queries created at or after this time.
+     */
+    from?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Only queries run by this Trino principal.
+     * @minLength 1
+     */
+    principal?: string
+    /**
+     * Only queries from this client source.
+     * @minLength 1
+     */
+    source?: string
+    /**
+     * Only queries that finished or failed.
+     *
+     * * `FINISHED` - Finished
+     * * `FAILED` - Failed
+     * @minLength 1
+     */
+    state?: ManagedWarehouseConsoleQueriesRetrieveState
+    /**
+     * Only queries run for this project.
+     */
+    team_id?: number
+    /**
+     * Only queries created before this time.
+     */
+    to?: string
+}
+
+export type ManagedWarehouseConsoleQueriesRetrieveState =
+    (typeof ManagedWarehouseConsoleQueriesRetrieveState)[keyof typeof ManagedWarehouseConsoleQueriesRetrieveState]
+
+export const ManagedWarehouseConsoleQueriesRetrieveState = {
+    Finished: 'FINISHED',
+    Failed: 'FAILED',
+} as const
+
+export type ManagedWarehouseConsoleUsageRetrieveParams = {
+    /**
+     * How to break the compute spend down.
+     *
+     * * `source` - Source
+     * * `principal` - Principal
+     * * `team` - Project
+     * @minLength 1
+     */
+    group_by?: ManagedWarehouseConsoleUsageRetrieveGroupBy
+    /**
+     * UTC calendar month to report.
+     *
+     * * `current_month` - Current month
+     * * `last_month` - Last month
+     * @minLength 1
+     */
+    period?: ManagedWarehouseConsoleUsageRetrievePeriod
+}
+
+export type ManagedWarehouseConsoleUsageRetrieveGroupBy =
+    (typeof ManagedWarehouseConsoleUsageRetrieveGroupBy)[keyof typeof ManagedWarehouseConsoleUsageRetrieveGroupBy]
+
+export const ManagedWarehouseConsoleUsageRetrieveGroupBy = {
+    Source: 'source',
+    Principal: 'principal',
+    Team: 'team',
+} as const
+
+export type ManagedWarehouseConsoleUsageRetrievePeriod =
+    (typeof ManagedWarehouseConsoleUsageRetrievePeriod)[keyof typeof ManagedWarehouseConsoleUsageRetrievePeriod]
+
+export const ManagedWarehouseConsoleUsageRetrievePeriod = {
+    CurrentMonth: 'current_month',
+    LastMonth: 'last_month',
+} as const
 
 export type QueryTabStateListParams = {
     /**

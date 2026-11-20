@@ -453,3 +453,27 @@ def test_use_trino_canary_needs_a_flagged_user_on_an_interactive_run(
         assert flag.call_args.kwargs["groups"] == {"organization": "org-1"}
         assert flag.call_args.kwargs["only_evaluate_locally"] is False
         assert flag.call_args.kwargs["send_feature_flag_events"] is False
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_source, expected_properties",
+    [
+        ({}, "posthog", None),
+        (
+            {"source": "posthog-sql-editor", "session_properties": {"query_max_scan_physical_bytes": "1024B"}},
+            "posthog-sql-editor",
+            {"query_max_scan_physical_bytes": "1024B"},
+        ),
+    ],
+)
+def test_connection_passes_the_source_and_session_properties_to_the_driver(
+    kwargs: dict[str, object], expected_source: str, expected_properties: dict[str, str] | None
+) -> None:
+    with (
+        mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response()),
+        mock.patch("trino.dbapi.connect") as driver_connect,
+    ):
+        with connect_managed_warehouse_trino("org-1", **kwargs):  # type: ignore[arg-type]
+            pass
+    assert driver_connect.call_args.kwargs["source"] == expected_source
+    assert driver_connect.call_args.kwargs["session_properties"] == expected_properties

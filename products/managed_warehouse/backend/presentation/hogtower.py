@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import json
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 from urllib.parse import quote
 
@@ -58,6 +59,8 @@ class TranslatedResponse:
 
     status_code: int
     body: Any
+    # False when the body is the raw-text fallback for a response that was not JSON.
+    from_json: bool = True
 
     def json(self) -> Any:
         return self.body
@@ -91,7 +94,7 @@ def _send(
     try:
         body = resp.json()
     except ValueError:
-        body = {"error": resp.text[:500]}
+        return TranslatedResponse(resp.status_code, {"error": resp.text[:500]}, from_json=False)
     return TranslatedResponse(resp.status_code, body)
 
 
@@ -583,3 +586,96 @@ def remove_member(
     hogtower revokes every team credential the member owns in the same transaction.
     """
     return _send("DELETE", _member_path(organization_id, user_uuid), json_body={"version": version}, timeout=timeout)
+
+
+# --- console routes -----------------------------------------------------------------------
+
+CONSOLE_TIMEOUT_SECONDS = 10
+CONSOLE_STORAGE_TIMEOUT_SECONDS = 20
+# Calls that only add context to a page. They must not hold the page for long.
+CONSOLE_SECONDARY_TIMEOUT_SECONDS = 5
+
+
+def _warehouse_path(organization_id: object) -> str:
+    return f"/warehouses/{quote(str(organization_id), safe='')}"
+
+
+def get_usage(
+    organization_id: object,
+    *,
+    date_from: date,
+    date_to: date,
+    group_by: str,
+    timeout: int | float = CONSOLE_TIMEOUT_SECONDS,
+) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/usage: compute and storage usage, ``date_to`` exclusive."""
+    params = {"from": date_from.isoformat(), "to": date_to.isoformat(), "group_by": group_by}
+    return _send("GET", f"{_warehouse_path(organization_id)}/usage", params=params, timeout=timeout)
+
+
+def list_query_history(organization_id: object, *, params: dict) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/queries: finished Trino queries, newest first."""
+    return _send("GET", f"{_warehouse_path(organization_id)}/queries", params=params, timeout=CONSOLE_TIMEOUT_SECONDS)
+
+
+def cancel_query(organization_id: object, query_id: str, *, principal: str | None = None) -> TranslatedResponse:
+    """v2 DELETE /warehouses/:id/trino/queries/:query_id: ask Trino to cancel a running query.
+
+    With ``principal``, hogtower answers 404 unless the running query's Trino user is that principal.
+    """
+    return _send(
+        "DELETE",
+        f"{_warehouse_path(organization_id)}/trino/queries/{quote(query_id, safe='')}",
+        params={"principal": principal} if principal else None,
+        timeout=CONSOLE_TIMEOUT_SECONDS,
+    )
+
+
+def list_storage_tables(organization_id: object) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/storage/tables: per-table storage from the catalog."""
+    return _send("GET", f"{_warehouse_path(organization_id)}/storage/tables", timeout=CONSOLE_STORAGE_TIMEOUT_SECONDS)
+
+
+def get_maintenance(organization_id: object, *, timeout: int | float = CONSOLE_TIMEOUT_SECONDS) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/maintenance: read-only maintenance status."""
+    return _send("GET", f"{_warehouse_path(organization_id)}/maintenance", timeout=timeout)
+
+
+def list_users(organization_id: object) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/users: the warehouse's Trino logins, never their passwords."""
+    return _send("GET", f"{_warehouse_path(organization_id)}/users", timeout=CONSOLE_TIMEOUT_SECONDS)
+
+
+def put_project_login(organization_id: object, team_id: int, mode: str) -> TranslatedResponse:
+    """v2 PUT /warehouses/:id/teams/:team_id/logins/:mode: mint or rotate a project login.
+
+    ``mode`` is ``reader`` or ``user``. The generated password is in the response only.
+    """
+    path = f"{_warehouse_path(organization_id)}/teams/{int(team_id)}/logins/{quote(mode, safe='')}"
+    return _send("PUT", path, timeout=CONSOLE_TIMEOUT_SECONDS)
+
+
+def patch_user(
+    organization_id: object, username: str, *, disabled: bool | None = None, rotate_password: bool = False
+) -> TranslatedResponse:
+    """v2 PATCH /warehouses/:id/users/:username: set the kill switch or rotate the password."""
+    body: dict[str, Any] = {}
+    if disabled is not None:
+        body["disabled"] = disabled
+    if rotate_password:
+        body["rotate_password"] = True
+    return _send(
+        "PATCH",
+        f"{_warehouse_path(organization_id)}/users/{quote(username, safe='')}",
+        json_body=body,
+        timeout=CONSOLE_TIMEOUT_SECONDS,
+    )
+
+
+def delete_user(organization_id: object, username: str) -> TranslatedResponse:
+    """v2 DELETE /warehouses/:id/users/:username."""
+    return _send(
+        "DELETE",
+        f"{_warehouse_path(organization_id)}/users/{quote(username, safe='')}",
+        timeout=CONSOLE_TIMEOUT_SECONDS,
+    )

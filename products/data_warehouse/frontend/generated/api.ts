@@ -9,9 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CancelQueryRequestApi,
+    CancelQueryResponseApi,
     CheckDatabaseNameResponseApi,
     CheckIncrementalApi,
     CheckSchemaNameResponseApi,
+    ConsoleSettingsApi,
+    CreateLoginRequestApi,
     CreateTableFromUploadApi,
     DataHealthIssuesResponseApi,
     DataModelingJobApi,
@@ -44,6 +48,8 @@ import type {
     IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehouseConsoleQueriesRetrieveParams,
+    ManagedWarehouseConsoleUsageRetrieveParams,
     ManagedWarehouseDataStatusResponseApi,
     ManagedWarehouseMonitoringSeriesResponseApi,
     ManagedWarehouseMonitoringSnapshotResponseApi,
@@ -63,6 +69,7 @@ import type {
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
     PaginatedWarehouseColumnAnnotationListApi,
+    PatchedConsoleSettingsUpdateApi,
     PatchedDataQualityGateConfigApi,
     PatchedDataWarehouseExpressionApi,
     PatchedDataWarehouseSavedQueryApi,
@@ -72,6 +79,7 @@ import type {
     PatchedInsightVariableApi,
     PatchedQueryTabStateApi,
     PatchedTableApi,
+    PatchedUpdateLoginRequestApi,
     PatchedViewLinkApi,
     PatchedWarehouseColumnAnnotationApi,
     PipelineActivityResponseApi,
@@ -79,6 +87,9 @@ import type {
     PipelineRowsStatsResponseApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
+    QueryEstimateRequestApi,
+    QueryEstimateResponseApi,
+    QueryHistoryResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
     QueryTabStateUserRetrieveParams,
@@ -94,15 +105,20 @@ import type {
     SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
     SavedQueryRunResponseApi,
+    StorageResponseApi,
     TableApi,
     TableHistoryTableApi,
     UploadedFileApi,
+    UsageSummaryApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
     WarehouseExpressionsListParams,
+    WarehouseLoginApi,
+    WarehouseLoginCredentialApi,
+    WarehouseLoginListApi,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
@@ -1166,6 +1182,276 @@ export const managedViewsetsUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseManagedViewSetApi),
+    })
+}
+
+export const getManagedWarehouseConsoleEstimateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/estimate/`
+}
+
+/**
+ * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier.
+ * @summary Estimate a managed warehouse query
+ */
+export const managedWarehouseConsoleEstimateCreate = async (
+    projectId: string,
+    queryEstimateRequestApi: QueryEstimateRequestApi,
+    options?: RequestInit
+): Promise<QueryEstimateResponseApi> => {
+    return apiMutator<QueryEstimateResponseApi>(getManagedWarehouseConsoleEstimateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(queryEstimateRequestApi),
+    })
+}
+
+export const getManagedWarehouseConsoleLoginsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/logins/`
+}
+
+/**
+ * The Trino logins customers connect with, each with queries and billed bytes of the last 30 days.
+ * @summary List managed warehouse logins
+ */
+export const managedWarehouseConsoleLoginsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseLoginListApi> => {
+    return apiMutator<WarehouseLoginListApi>(getManagedWarehouseConsoleLoginsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedWarehouseConsoleLoginsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/logins/`
+}
+
+/**
+ * Create the project's Trino login for the mode, or give an existing one a new password. The password is in this response only.
+ * @summary Create or rotate a managed warehouse project login
+ */
+export const managedWarehouseConsoleLoginsCreate = async (
+    projectId: string,
+    createLoginRequestApi: CreateLoginRequestApi,
+    options?: RequestInit
+): Promise<WarehouseLoginCredentialApi> => {
+    return apiMutator<WarehouseLoginCredentialApi>(getManagedWarehouseConsoleLoginsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createLoginRequestApi),
+    })
+}
+
+export const getManagedWarehouseConsoleLoginsPartialUpdateUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/logins/${username}/`
+}
+
+/**
+ * Disable a login so it can no longer connect, or enable it again.
+ * @summary Switch a managed warehouse login on or off
+ */
+export const managedWarehouseConsoleLoginsPartialUpdate = async (
+    projectId: string,
+    username: string,
+    patchedUpdateLoginRequestApi?: PatchedUpdateLoginRequestApi,
+    options?: RequestInit
+): Promise<WarehouseLoginApi> => {
+    return apiMutator<WarehouseLoginApi>(getManagedWarehouseConsoleLoginsPartialUpdateUrl(projectId, username), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateLoginRequestApi),
+    })
+}
+
+export const getManagedWarehouseConsoleLoginsDestroyUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/logins/${username}/`
+}
+
+/**
+ * Delete a login. Anything still using its password stops connecting.
+ * @summary Delete a managed warehouse login
+ */
+export const managedWarehouseConsoleLoginsDestroy = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getManagedWarehouseConsoleLoginsDestroyUrl(projectId, username), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getManagedWarehouseConsoleLoginsRotateCreateUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/logins/${username}/rotate/`
+}
+
+/**
+ * Replace the login's password. The old one stops working. The new one is in this response only.
+ * @summary Rotate a managed warehouse login password
+ */
+export const managedWarehouseConsoleLoginsRotateCreate = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<WarehouseLoginCredentialApi> => {
+    return apiMutator<WarehouseLoginCredentialApi>(
+        getManagedWarehouseConsoleLoginsRotateCreateUrl(projectId, username),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getManagedWarehouseConsoleQueriesRetrieveUrl = (
+    projectId: string,
+    params?: ManagedWarehouseConsoleQueriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_warehouse_console/queries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_warehouse_console/queries/`
+}
+
+/**
+ * Finished queries of the organization's warehouse, newest first, each with an estimated cost.
+ * @summary List managed warehouse query history
+ */
+export const managedWarehouseConsoleQueriesRetrieve = async (
+    projectId: string,
+    params?: ManagedWarehouseConsoleQueriesRetrieveParams,
+    options?: RequestInit
+): Promise<QueryHistoryResponseApi> => {
+    return apiMutator<QueryHistoryResponseApi>(getManagedWarehouseConsoleQueriesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedWarehouseConsoleQueriesCancelCreateUrl = (projectId: string, queryId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/queries/${queryId}/cancel/`
+}
+
+/**
+ * Ask Trino to cancel a running query. Organization admins may cancel any query. Other members may cancel queries of their own SQL editor principal.
+ * @summary Cancel a managed warehouse query
+ */
+export const managedWarehouseConsoleQueriesCancelCreate = async (
+    projectId: string,
+    queryId: string,
+    cancelQueryRequestApi?: CancelQueryRequestApi,
+    options?: RequestInit
+): Promise<CancelQueryResponseApi> => {
+    return apiMutator<CancelQueryResponseApi>(getManagedWarehouseConsoleQueriesCancelCreateUrl(projectId, queryId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cancelQueryRequestApi),
+    })
+}
+
+export const getManagedWarehouseConsoleSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/settings/`
+}
+
+/**
+ * The per-query scan cap and monthly budget of the organization's warehouse.
+ * @summary Get managed warehouse spend settings
+ */
+export const managedWarehouseConsoleSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ConsoleSettingsApi> => {
+    return apiMutator<ConsoleSettingsApi>(getManagedWarehouseConsoleSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedWarehouseConsoleSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/settings/`
+}
+
+/**
+ * Change the per-query scan cap or monthly budget. Fields left out stay as they are.
+ * @summary Update managed warehouse spend settings
+ */
+export const managedWarehouseConsoleSettingsPartialUpdate = async (
+    projectId: string,
+    patchedConsoleSettingsUpdateApi?: PatchedConsoleSettingsUpdateApi,
+    options?: RequestInit
+): Promise<ConsoleSettingsApi> => {
+    return apiMutator<ConsoleSettingsApi>(getManagedWarehouseConsoleSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedConsoleSettingsUpdateApi),
+    })
+}
+
+export const getManagedWarehouseConsoleStorageRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/storage/`
+}
+
+/**
+ * Storage per table from the catalog, and the read-only maintenance status.
+ * @summary Get managed warehouse storage
+ */
+export const managedWarehouseConsoleStorageRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<StorageResponseApi> => {
+    return apiMutator<StorageResponseApi>(getManagedWarehouseConsoleStorageRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedWarehouseConsoleUsageRetrieveUrl = (
+    projectId: string,
+    params?: ManagedWarehouseConsoleUsageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_warehouse_console/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_warehouse_console/usage/`
+}
+
+/**
+ * Compute and storage usage for a UTC calendar month, with estimated spend, a forecast for the current month and a breakdown by source, principal or project.
+ * @summary Get managed warehouse usage
+ */
+export const managedWarehouseConsoleUsageRetrieve = async (
+    projectId: string,
+    params?: ManagedWarehouseConsoleUsageRetrieveParams,
+    options?: RequestInit
+): Promise<UsageSummaryApi> => {
+    return apiMutator<UsageSummaryApi>(getManagedWarehouseConsoleUsageRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

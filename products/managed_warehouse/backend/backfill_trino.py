@@ -41,7 +41,7 @@ from products.managed_warehouse.backend.facade.feature_flags import (
     HOGLAKE_BACKFILL_REGISTRATION_FLAG,
     HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG,
 )
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_connection import TRINO_SOURCE_IMPORT, connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
 
 if TYPE_CHECKING:
@@ -298,7 +298,7 @@ class TrinoBackfillCatalog(_StatementRunner):
         cls, organization_id: str, *, canary: bool = False, team_id: int | None = None
     ) -> Iterator[TrinoBackfillCatalog]:
         with connect_managed_warehouse_trino(
-            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary
+            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary, source=TRINO_SOURCE_IMPORT
         ) as connection:
             yield cls(connection, team_id=team_id)
 
@@ -440,7 +440,7 @@ class HoglakeBackfillCatalog(_StatementRunner):
     @contextlib.contextmanager
     def connect(cls, organization_id: str, *, canary: bool = False, team_id: int) -> Iterator[HoglakeBackfillCatalog]:
         with connect_managed_warehouse_trino(
-            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary
+            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary, source=TRINO_SOURCE_IMPORT
         ) as connection:
             yield cls(connection, team_id=team_id)
 

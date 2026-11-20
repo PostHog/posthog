@@ -25,7 +25,10 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.table_binding import get_data_modeling_table_names
 from products.managed_warehouse.backend.trino_compiler import TrinoTarget, compile_hogql_to_trino_sql
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_connection import (
+    TRINO_SOURCE_MATERIALIZATION,
+    connect_managed_warehouse_trino,
+)
 
 if TYPE_CHECKING:
     from trino.dbapi import Cursor
@@ -68,7 +71,9 @@ def execute_trino_shadow_materialization(
     query_id = UUID(str(saved_query_id))
     table_name = get_data_modeling_table_names(team_id, [query_id])[query_id]
     with connect_managed_warehouse_trino(
-        organization_id, principal=f"posthog:trino-materialization:team:{team_id}:view:{saved_query_id}"
+        organization_id,
+        principal=f"posthog:trino-materialization:team:{team_id}:view:{saved_query_id}",
+        source=TRINO_SOURCE_MATERIALIZATION,
     ) as connection:
         schema = f"{escape_trino_identifier(connection.catalog)}.{escape_trino_identifier(schema_name)}"
         table = f"{schema}.{escape_trino_identifier(table_name)}"
