@@ -153,5 +153,7 @@ from personhog.types.v1.person_pb2 import (
     RESTORE_OUTCOME_INSERTED,
     RESTORE_OUTCOME_EXISTS_LIVE,
     RESTORE_OUTCOME_EXISTS_TOMBSTONED,
+    RESTORE_OUTCOME_TOO_LARGE,
+    RAISE_OUTCOME_TOO_LARGE,
     PersonVersionFloorResult,
 )

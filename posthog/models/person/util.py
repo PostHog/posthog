@@ -43,6 +43,7 @@ from posthog.personhog_client.proto import (
     DELETE_PERSON_OUTCOME_DELETED,
     DELETE_PERSON_OUTCOME_NOT_FOUND,
     DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
+    RAISE_OUTCOME_TOO_LARGE,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonOutcome,
@@ -1167,7 +1168,9 @@ def raise_person_version(team_id: int, person: Person, min_version: int) -> Pers
     request = RaisePersonVersionFloorsRequest(
         team_id=team_id, floors=[PersonVersionFloorProto(person_uuid=str(person.uuid), min_version=min_version)]
     )
-    personhog_call("raise_person_version_floors", lambda: _get_client().raise_person_version_floors(request))
+    response = personhog_call("raise_person_version_floors", lambda: _get_client().raise_person_version_floors(request))
+    if any(result.outcome == RAISE_OUTCOME_TOO_LARGE for result in response.results):
+        raise PersonRaiseRefused(f"person {person.uuid} is too large to raise")
     return None
 
 

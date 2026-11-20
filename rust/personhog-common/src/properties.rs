@@ -305,6 +305,12 @@ pub fn rewrite_out_of_range_numbers(text: &str) -> String {
     out
 }
 
+/// The ceiling of the `check_properties_size` constraint on `posthog_person`.
+pub const PROPERTIES_SIZE_LIMIT_BYTES: usize = 655_360;
+
+/// The size an oversized row is trimmed to, so it keeps headroom under the limit.
+pub const PROPERTIES_TRIM_TARGET_BYTES: usize = 524_288;
+
 /// The size Postgres will report for this value as a `jsonb` column —
 /// `pg_column_size(value::jsonb)` — computed without touching Postgres.
 pub fn jsonb_column_size(value: &Value) -> usize {

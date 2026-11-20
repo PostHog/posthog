@@ -7,6 +7,7 @@ mod repair;
 
 use std::time::Instant;
 
+use personhog_common::properties::{PROPERTIES_SIZE_LIMIT_BYTES, PROPERTIES_TRIM_TARGET_BYTES};
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
 use sqlx::Postgres;
@@ -44,6 +45,8 @@ pub struct PostgresStorage {
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
     pub(crate) hash_key_override_statement_timeout_ms: u64,
+    pub(crate) properties_size_limit: usize,
+    pub(crate) properties_trim_target: usize,
 }
 
 impl PostgresStorage {
@@ -68,7 +71,17 @@ impl PostgresStorage {
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
             hash_key_override_statement_timeout_ms,
+            properties_size_limit: PROPERTIES_SIZE_LIMIT_BYTES,
+            properties_trim_target: PROPERTIES_TRIM_TARGET_BYTES,
         }
+    }
+
+    /// Override the person properties size limits. Tests use small limits, because the
+    /// `check_properties_size` constraint rejects a row over the real limit.
+    pub fn with_properties_size_limits(mut self, limit: usize, trim_target: usize) -> Self {
+        self.properties_size_limit = limit;
+        self.properties_trim_target = trim_target;
+        self
     }
 
     /// Get the appropriate pool based on consistency level.

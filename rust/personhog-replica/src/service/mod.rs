@@ -1982,6 +1982,7 @@ fn raise_outcome_to_proto(outcome: storage::types::RaiseOutcome) -> ProtoRaiseOu
         storage::types::RaiseOutcome::AtOrAbove => ProtoRaiseOutcome::AtOrAbove,
         storage::types::RaiseOutcome::NotLive => ProtoRaiseOutcome::NotLive,
         storage::types::RaiseOutcome::Missing => ProtoRaiseOutcome::Missing,
+        storage::types::RaiseOutcome::TooLarge => ProtoRaiseOutcome::TooLarge,
     }
 }
 
@@ -1991,6 +1992,7 @@ fn restore_outcome_to_proto(outcome: storage::types::RestoreOutcome) -> ProtoRes
         storage::types::RestoreOutcome::ExistsLive => ProtoRestoreOutcome::ExistsLive,
         storage::types::RestoreOutcome::ExistsTombstoned => ProtoRestoreOutcome::ExistsTombstoned,
         storage::types::RestoreOutcome::NoDistinctId => ProtoRestoreOutcome::NoDistinctId,
+        storage::types::RestoreOutcome::TooLarge => ProtoRestoreOutcome::TooLarge,
     }
 }
 

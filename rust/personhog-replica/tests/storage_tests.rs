@@ -5109,6 +5109,26 @@ async fn test_get_distinct_ids_for_person_paginated() {
     ctx.cleanup().await.ok();
 }
 
+/// Random alphanumeric text, which pglz cannot compress, so the stored size stays above a test limit.
+fn incompressible_text(len: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
+async fn stored_properties_size(pool: &sqlx::PgPool, team_id: i64, person_id: i64) -> i32 {
+    sqlx::query_scalar(
+        "SELECT pg_column_size(properties) FROM posthog_person WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id as i32)
+    .bind(person_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn test_raise_person_version_floors_raises_only_live_persons() {
     let ctx = TestContext::new().await;
@@ -5123,9 +5143,30 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
     let tombstoned = ctx.insert_person("raise_tombstoned", None).await.unwrap();
     ctx.tombstone_person(tombstoned.id, None).await.unwrap();
     let missing = Uuid::new_v4();
+    let trimmable = ctx
+        .insert_person(
+            "raise_trimmable",
+            Some(serde_json::json!({
+                "email": "big@example.com",
+                "a_extra": incompressible_text(1_000),
+                "b_extra": incompressible_text(1_000),
+            })),
+        )
+        .await
+        .unwrap();
+    let protected_only = ctx
+        .insert_person(
+            "raise_protected_only",
+            Some(serde_json::json!({"email": incompressible_text(2_200)})),
+        )
+        .await
+        .unwrap();
+    for person in [&trimmable, &protected_only] {
+        assert!(stored_properties_size(&ctx.pool, ctx.team_id, person.id).await > 2_000);
+    }
+    let storage = ctx.storage_with_properties_size_limits(2_000, 1_500);
 
-    let results = ctx
-        .storage
+    let results = storage
         .raise_person_version_floors(
             ctx.team_id,
             &[
@@ -5133,6 +5174,8 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
                 (high.uuid, 10),
                 (tombstoned.uuid, 10),
                 (missing, 10),
+                (trimmable.uuid, 10),
+                (protected_only.uuid, 10),
             ],
         )
         .await
@@ -5149,8 +5192,30 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
             (high.uuid, RaiseOutcome::AtOrAbove, 50),
             (tombstoned.uuid, RaiseOutcome::NotLive, 1),
             (missing, RaiseOutcome::Missing, 0),
+            (trimmable.uuid, RaiseOutcome::Raised, 10),
+            (protected_only.uuid, RaiseOutcome::TooLarge, 0),
         ]
     );
+    let trimmed = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, trimmable.uuid)
+        .await
+        .unwrap()
+        .expect("live");
+    assert_eq!(trimmed.version, Some(10));
+    let trimmed_properties: serde_json::Value =
+        serde_json::from_str(trimmed.properties.as_deref().unwrap()).unwrap();
+    let mut kept: Vec<&String> = trimmed_properties.as_object().unwrap().keys().collect();
+    kept.sort();
+    assert_eq!(kept, ["b_extra", "email"]);
+    let refused = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, protected_only.uuid)
+        .await
+        .unwrap()
+        .expect("live");
+    assert_eq!(refused.version, Some(0));
+    assert!(stored_properties_size(&ctx.pool, ctx.team_id, protected_only.id).await > 2_000);
     let (tomb_deleted, tomb_version, _, _) =
         tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
     assert!(tomb_deleted);
@@ -5189,15 +5254,20 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
         distinct_ids: Vec::new(),
     };
     let absent = Uuid::new_v4();
+    let oversized = RestoredPerson {
+        properties: serde_json::json!({"email": incompressible_text(2_200)}),
+        ..restored(Uuid::new_v4())
+    };
 
     let results = ctx
-        .storage
+        .storage_with_properties_size_limits(2_000, 1_500)
         .restore_persons(
             ctx.team_id,
             &[
                 restored(absent),
                 restored(live.uuid),
                 restored(tombstoned.uuid),
+                oversized.clone(),
             ],
         )
         .await
@@ -5211,8 +5281,15 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
             (absent, RestoreOutcome::Inserted),
             (live.uuid, RestoreOutcome::ExistsLive),
             (tombstoned.uuid, RestoreOutcome::ExistsTombstoned),
+            (oversized.uuid, RestoreOutcome::TooLarge),
         ]
     );
+    assert!(ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, oversized.uuid)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!((results[1].person_id, results[1].version), (live.id, 0));
     assert_eq!(
         (results[2].person_id, results[2].version),

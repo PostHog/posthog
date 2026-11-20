@@ -54,6 +54,7 @@ class RaiseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RAISE_OUTCOME_AT_OR_ABOVE: _ClassVar[RaiseOutcome]
     RAISE_OUTCOME_NOT_LIVE: _ClassVar[RaiseOutcome]
     RAISE_OUTCOME_MISSING: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_TOO_LARGE: _ClassVar[RaiseOutcome]
 
 class RestoreOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -62,6 +63,7 @@ class RestoreOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RESTORE_OUTCOME_EXISTS_LIVE: _ClassVar[RestoreOutcome]
     RESTORE_OUTCOME_EXISTS_TOMBSTONED: _ClassVar[RestoreOutcome]
     RESTORE_OUTCOME_NO_DISTINCT_ID: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_TOO_LARGE: _ClassVar[RestoreOutcome]
 
 class DistinctIdWriteAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -97,11 +99,13 @@ RAISE_OUTCOME_RAISED: RaiseOutcome
 RAISE_OUTCOME_AT_OR_ABOVE: RaiseOutcome
 RAISE_OUTCOME_NOT_LIVE: RaiseOutcome
 RAISE_OUTCOME_MISSING: RaiseOutcome
+RAISE_OUTCOME_TOO_LARGE: RaiseOutcome
 RESTORE_OUTCOME_UNSPECIFIED: RestoreOutcome
 RESTORE_OUTCOME_INSERTED: RestoreOutcome
 RESTORE_OUTCOME_EXISTS_LIVE: RestoreOutcome
 RESTORE_OUTCOME_EXISTS_TOMBSTONED: RestoreOutcome
 RESTORE_OUTCOME_NO_DISTINCT_ID: RestoreOutcome
+RESTORE_OUTCOME_TOO_LARGE: RestoreOutcome
 DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_INSERT: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_RAISE: DistinctIdWriteAction

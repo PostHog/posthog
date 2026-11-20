@@ -34,6 +34,7 @@ from posthog.personhog_client.proto import (
     RESTORE_OUTCOME_EXISTS_LIVE,
     RESTORE_OUTCOME_INSERTED,
     RESTORE_OUTCOME_NO_DISTINCT_ID,
+    RESTORE_OUTCOME_TOO_LARGE,
     DistinctIdWrite,
     RestoredDistinctId,
     RestoredPerson,
@@ -324,6 +325,10 @@ def _restore_persons(
                         )
                     restored[result.person_uuid] = ids
                     context.action(row, "restored", version=int(result.version))
+                elif result.outcome == RESTORE_OUTCOME_TOO_LARGE:
+                    for skipped in [row, *id_rows[result.person_uuid]]:
+                        context.action(skipped, "skipped_too_large")
+                    continue
                 elif result.outcome == RESTORE_OUTCOME_NO_DISTINCT_ID:
                     context.action(row, "skipped_no_distinct_id")
                 else:
