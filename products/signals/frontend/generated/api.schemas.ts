@@ -3225,6 +3225,156 @@ export interface ReportMonitoringOutcomeApi {
     follow_up: MonitoringFollowUpApi | null
 }
 
+/**
+ * * `part_of` - Part of
+ * * `plan` - Plan
+ * * `recurrence_of` - Recurrence of
+ * * `duplicate_of` - Duplicate of
+ * * `depends_on` - Depends on
+ * * `follow_up_of` - Follow-up of
+ */
+export type LinkStripKindEnumApi = (typeof LinkStripKindEnumApi)[keyof typeof LinkStripKindEnumApi]
+
+export const LinkStripKindEnumApi = {
+    PartOf: 'part_of',
+    Plan: 'plan',
+    RecurrenceOf: 'recurrence_of',
+    DuplicateOf: 'duplicate_of',
+    DependsOn: 'depends_on',
+    FollowUpOf: 'follow_up_of',
+} as const
+
+export interface LinkedReportRefApi {
+    /** The linked report's id. */
+    id: string
+    /**
+     * The linked report's title.
+     * @nullable
+     */
+    title: string | null
+    /** The linked report's status. Monitoring reads as resolved when its rollout is disabled.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /**
+     * The linked report's primary implementation pull request, if one is attached.
+     * @nullable
+     */
+    implementation_pr_url: string | null
+    /** Latest known state of that pull request: unknown, draft, open, closed, or merged.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+}
+
+/**
+ * * `merged` - Merged
+ * * `in_review` - In review
+ * * `waiting` - Waiting
+ * * `dismissed` - Dismissed
+ */
+export type PlanStepStateEnumApi = (typeof PlanStepStateEnumApi)[keyof typeof PlanStepStateEnumApi]
+
+export const PlanStepStateEnumApi = {
+    Merged: 'merged',
+    InReview: 'in_review',
+    Waiting: 'waiting',
+    Dismissed: 'dismissed',
+} as const
+
+export interface LinkPlanStepApi {
+    /** The step's report id. */
+    id: string
+    /**
+     * The step's report title.
+     * @nullable
+     */
+    title: string | null
+    /** `merged`: the step's pull request merged or the step resolved. `in_review`: the step has a pull request that is not closed. `waiting`: no work is in flight yet. `dismissed`: the step was archived.
+     *
+     * * `merged` - Merged
+     * * `in_review` - In review
+     * * `waiting` - Waiting
+     * * `dismissed` - Dismissed */
+    state: PlanStepStateEnumApi
+}
+
+export interface LinkPlanSummaryApi {
+    /** The plan's report id. */
+    id: string
+    /**
+     * The plan's report title.
+     * @nullable
+     */
+    title: string | null
+    /** The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out. */
+    steps: LinkPlanStepApi[]
+    /** The step to show for the whole plan: the first step in review, else the first waiting step, else the last step. */
+    lead_step_id: string
+}
+
+/**
+ * * `depends_on` - Depends on
+ * * `part_of` - Part of
+ * * `follow_up_of` - Follow-up of
+ * * `duplicate_of` - Duplicate of
+ * * `recurrence_of` - Recurrence of
+ */
+export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
+
+export const ReportLinkKindEnumApi = {
+    DependsOn: 'depends_on',
+    PartOf: 'part_of',
+    FollowUpOf: 'follow_up_of',
+    DuplicateOf: 'duplicate_of',
+    RecurrenceOf: 'recurrence_of',
+} as const
+
+export interface OtherReportLinkApi {
+    /** How this report relates to the other.
+     *
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of */
+    kind: ReportLinkKindEnumApi
+    /** The other report. */
+    report: LinkedReportRefApi
+}
+
+export interface ReportLinkSummaryApi {
+    /** The link the inbox row shows. `part_of`: this report is a step of `plan`. `plan`: this report is the plan, and `plan` lists its steps. Other values name an outgoing link to `report`. The order of preference is plan, `recurrence_of`, `duplicate_of`, `depends_on`, `follow_up_of`.
+     *
+     * * `part_of` - Part of
+     * * `plan` - Plan
+     * * `recurrence_of` - Recurrence of
+     * * `duplicate_of` - Duplicate of
+     * * `depends_on` - Depends on
+     * * `follow_up_of` - Follow-up of */
+    kind: LinkStripKindEnumApi
+    /** The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`. */
+    report: LinkedReportRefApi | null
+    /** The plan, when `kind` is `part_of` or `plan`. Null otherwise. */
+    plan: LinkPlanSummaryApi | null
+    /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out, and so is a `follow_up_of` to the report a `recurrence_of` strip names. */
+    other_links: OtherReportLinkApi[]
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -3390,6 +3540,8 @@ export interface SignalReportListApi {
     readonly monitoring_summary: ReportMonitoringSummaryApi | null
     /** How Monitoring ended, for a resolved or closed report that went through it. Null otherwise, and when Monitoring is disabled. */
     readonly monitoring_outcome: ReportMonitoringOutcomeApi | null
+    /** The one link the inbox row shows, read for the whole page at once. Null when the report links to no live report, is no plan, or the inbox card links rollout is off for the organization. */
+    readonly link_summary: ReportLinkSummaryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -3556,23 +3708,6 @@ export interface ReportMetricWriteApi {
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
-
-/**
- * * `depends_on` - Depends on
- * * `part_of` - Part of
- * * `follow_up_of` - Follow-up of
- * * `duplicate_of` - Duplicate of
- * * `recurrence_of` - Recurrence of
- */
-export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
-
-export const ReportLinkKindEnumApi = {
-    DependsOn: 'depends_on',
-    PartOf: 'part_of',
-    FollowUpOf: 'follow_up_of',
-    DuplicateOf: 'duplicate_of',
-    RecurrenceOf: 'recurrence_of',
-} as const
 
 /**
  * One typed, directed link to write on the report being emitted or edited.
