@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
@@ -27,6 +28,14 @@ const drainStallsCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
+function isShadowCopy(value: Buffer | null | undefined): boolean {
+    try {
+        return parseJSON(value?.toString() ?? '')?.shadow === true
+    } catch {
+        return false
+    }
+}
+
 const TOPICS: Record<
     RunKind,
     { topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC' | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'; groupId: string }
@@ -47,6 +56,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     private kafkaConsumer: KafkaConsumerInterface
     private drainConsumer?: KafkaConsumerInterface
     private groupId: string
+    private lastBatch: Promise<unknown> = Promise.resolve()
     private cyclotron: CyclotronV2Manager
     private deadLetters: CdpDeadLetterService
     private stateOpener: EncryptedFields
@@ -92,24 +102,30 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        await insertIntakeBatch(
-            messages,
-            {
-                cyclotron: this.cyclotron,
-                deadLetters: this.deadLetters,
-                invocationResults: this.invocationResultsService.invocationResultsRowsService,
-                emailStatus: this.invocationResultsService.emailStatusService,
-                stateOpener: this.stateOpener,
-            },
-            { kind: this.kind, claimRetry: CLAIM_RETRY }
+        // One at a time, because a main and a drain batch share the row buffers, and a hand-off takes every queued row.
+        const batch = this.lastBatch.then(() =>
+            insertIntakeBatch(
+                messages,
+                {
+                    cyclotron: this.cyclotron,
+                    deadLetters: this.deadLetters,
+                    invocationResults: this.invocationResultsService.invocationResultsRowsService,
+                    emailStatus: this.invocationResultsService.emailStatusService,
+                    stateOpener: this.stateOpener,
+                },
+                { kind: this.kind, claimRetry: CLAIM_RETRY }
+            )
         )
+        this.lastBatch = batch.catch(() => undefined)
+        await batch
     }
 
     // Both intake consumers park on one topic, so each drains only the records its own group parked.
     public async drainBatch(messages: Message[]): Promise<void> {
         const replays: Message[] = []
         for (const message of messages) {
-            if (parseKafkaHeaders(message.headers).dlq_consumer_group !== this.groupId) {
+            // The route already inserted a shadow copy's run, so even one that fails to decode has nothing to replay.
+            if (parseKafkaHeaders(message.headers).dlq_consumer_group !== this.groupId || isShadowCopy(message.value)) {
                 continue
             }
             // Checked before any claim, so a held batch never inserts part of itself, and never parks a record again.
@@ -117,10 +133,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
             if (decoded.status !== 'decoded') {
                 throw new Error(`Dead letter at offset ${message.offset} still fails: ${decoded.reason}`)
             }
-            // The route already inserted a shadow copy's run, and its claim may have expired by now.
-            if (!decoded.message.shadow) {
-                replays.push(message)
-            }
+            replays.push(message)
         }
         await this.processBatch(replays)
     }
