@@ -94,6 +94,7 @@ from products.signals.backend.report_actionability_update import INBOX_ACTIONABI
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_link_summary import link_summaries
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
@@ -951,6 +952,85 @@ class TestSignalReportListAPI(APIBaseTest):
         }
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
         assert row["plan"] is None
+
+    def _link(self, source: SignalReport, target: SignalReport, kind: ReportLinkKind) -> None:
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=ReportLink(kind=kind, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def test_list_renders_without_strips_when_the_link_read_fails(self) -> None:
+        plan = self._create_report(title="the plan")
+        layer = self._create_report(title="a layer")
+        self._link(layer, plan, ReportLinkKind.PART_OF)
+
+        with (
+            patch("products.signals.backend.views.organization_inbox_card_links_enabled", return_value=True),
+            patch("products.signals.backend.views.link_summaries", side_effect=RuntimeError("database unavailable")),
+        ):
+            response = self.client.get(self._list_url(scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"]: row["link_summary"] for row in response.json()["results"]} == {
+            str(plan.id): None,
+            str(layer.id): None,
+        }
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_list_rows_carry_the_link_their_strip_shows(self, _name: str, enabled: bool) -> None:
+        plan = self._create_report(title="the plan")
+        first = self._create_report(title="first layer")
+        second = self._create_report(title="second layer")
+        resolved = self._create_report(title="the old report", status=SignalReport.Status.RESOLVED)
+        recurrence = self._create_report(title="it came back")
+        unlinked = self._create_report(title="no links")
+        for layer in (first, second):
+            self._link(layer, plan, ReportLinkKind.PART_OF)
+        self._link(second, first, ReportLinkKind.DEPENDS_ON)
+        self._create_assignment(first, pr_url="https://github.com/org/repo/pull/7")
+        self._link(recurrence, resolved, ReportLinkKind.RECURRENCE_OF)
+
+        with patch("products.signals.backend.views.organization_inbox_card_links_enabled", return_value=enabled):
+            response = self.client.get(self._list_url(scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row["link_summary"] for row in response.json()["results"]}
+        if not enabled:
+            assert set(rows.values()) == {None}
+            return
+        assert rows[str(unlinked.id)] is None
+        assert rows[str(second.id)]["kind"] == "part_of"
+        assert rows[str(second.id)]["other_links"] == []
+        assert rows[str(second.id)]["plan"]["lead_step_id"] == str(first.id)
+        assert [step["state"] for step in rows[str(second.id)]["plan"]["steps"]] == ["in_review", "waiting"]
+        assert rows[str(plan.id)]["kind"] == "plan"
+        assert rows[str(recurrence.id)]["kind"] == "recurrence_of"
+        assert rows[str(recurrence.id)]["report"]["id"] == str(resolved.id)
+        assert rows[str(recurrence.id)]["report"]["status"] == "resolved"
+
+    def test_link_summaries_issue_constant_queries(self) -> None:
+        def seed(count: int) -> list[str]:
+            ids = []
+            for i in range(count):
+                plan = self._create_report(title=f"plan {i}")
+                layer = self._create_report(title=f"layer {i}")
+                self._link(layer, plan, ReportLinkKind.PART_OF)
+                self._link(layer, self._create_report(title=f"old {i}"), ReportLinkKind.RECURRENCE_OF)
+                ids += [str(plan.id), str(layer.id)]
+            return ids
+
+        single = seed(1)
+        with CaptureQueriesContext(connection) as for_one:
+            link_summaries(team_id=self.team.id, report_ids=single, monitoring_enabled=True)
+
+        page = single + seed(4)
+        with CaptureQueriesContext(connection) as for_many:
+            result = link_summaries(team_id=self.team.id, report_ids=page, monitoring_enabled=True)
+
+        assert len(result) == 10
+        assert len(for_many.captured_queries) == len(for_one.captured_queries)
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
