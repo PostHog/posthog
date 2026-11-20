@@ -46,7 +46,7 @@ function parseAttributes(text) {
 
 /**
  * Returns the ids of the tests that have a failure or an error in a pytest JUnit report.
- * Tests in different classes can share a file and a name, so a passing entry never hides a failing one.
+ * The id is `file::Class::name`, so tests in different classes that share a file and a name stay distinct.
  */
 export function failedTestIds(xml) {
     // pytest JUnit has no DTD or entities. Refuse a report that does, as the backend gate does.
@@ -59,8 +59,10 @@ export function failedTestIds(xml) {
             continue
         }
         const attributes = parseAttributes(match[1])
-        const file = attributes.file || attributes.classname || ''
-        ids.add([file, attributes.name ?? ''].filter(Boolean).join('::'))
+        const { file = '', classname = '', name = '' } = attributes
+        const modulePath = file.replace(/\.py$/, '').replaceAll('/', '.')
+        const className = classname.startsWith(`${modulePath}.`) ? classname.slice(modulePath.length + 1) : ''
+        ids.add([file || classname, className, name].filter(Boolean).join('::'))
     }
     return [...ids]
 }
@@ -79,8 +81,9 @@ export function collectFailures(dir) {
             .readdirSync(path.join(dir, artifact.name), { recursive: true })
             .filter((file) => /(^|\/)junit-[^/]*\.xml$/.test(file))
         for (const file of files) {
-            const product = /^junit-product-(.+)\.xml$/.exec(path.basename(file))?.[1]
-            const shard = product ? `products/${product}` : artifact.name.replace(/^junit-results-backend-/, '')
+            const shard = artifact.name
+                .replace(/^junit-results-backend-/, '')
+                .replace(/^product-junit-results-/, 'products-')
             reports += 1
             const xml = fs.readFileSync(path.join(dir, artifact.name, file), 'utf8')
             for (const test of failedTestIds(xml)) {

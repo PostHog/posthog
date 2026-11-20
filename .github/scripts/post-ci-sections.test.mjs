@@ -274,15 +274,16 @@ describe('quarantined failures section', () => {
         <testcase classname="posthog.api.test.test_a.TestA" name="test_fails" file="posthog/api/test/test_a.py"><failure message="assert 400 == 201">boom</failure></testcase>
         <testcase classname="posthog.api.test.test_a.TestA" name="test_errors[a&amp;b]" file="posthog/api/test/test_a.py"><error message="setup">boom</error></testcase>
         <testcase classname="posthog.api.test.test_a.TestA" name="test_shared" file="posthog/api/test/test_a.py"><failure message="inherited">x</failure></testcase>
-        <testcase classname="posthog.api.test.test_a.TestB" name="test_shared" file="posthog/api/test/test_a.py"/>
+        <testcase classname="posthog.api.test.test_a.TestB" name="test_shared" file="posthog/api/test/test_a.py"><failure message="other class">x</failure></testcase>
         <testcase classname="posthog.api.test.test_a.TestA" name="test_skipped" file="posthog/api/test/test_a.py"><skipped message="s"/></testcase>
     </testsuite></testsuites>`
 
-    it('lists tests with a failure or error, even when a same-named test in another class passes', () => {
+    it('lists each failing test with its class, even when another class has a test with the same name', () => {
         assert.deepEqual(failedTestIds(report), [
-            'posthog/api/test/test_a.py::test_fails',
-            'posthog/api/test/test_a.py::test_errors[a&b]',
-            'posthog/api/test/test_a.py::test_shared',
+            'posthog/api/test/test_a.py::TestA::test_fails',
+            'posthog/api/test/test_a.py::TestA::test_errors[a&b]',
+            'posthog/api/test/test_a.py::TestA::test_shared',
+            'posthog/api/test/test_a.py::TestB::test_shared',
         ])
     })
 
@@ -294,23 +295,13 @@ describe('quarantined failures section', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'junit-'))
         fs.mkdirSync(path.join(dir, 'junit-results-backend-core-4'))
         fs.writeFileSync(path.join(dir, 'junit-results-backend-core-4', 'junit-core.xml'), report)
-        fs.mkdirSync(path.join(dir, 'product-junit-results-0'))
-        fs.writeFileSync(
-            path.join(dir, 'product-junit-results-0', 'junit-product-surveys.xml'),
-            report.replaceAll('posthog/api/test/', 'products/surveys/backend/test/')
-        )
-        const failures = collectFailures(dir)
-        assert.deepEqual(
-            failures.map((failure) => `${failure.shard} ${failure.test}`),
-            [
-                'core-4 posthog/api/test/test_a.py::test_errors[a&b]',
-                'core-4 posthog/api/test/test_a.py::test_fails',
-                'core-4 posthog/api/test/test_a.py::test_shared',
-                'products/surveys products/surveys/backend/test/test_a.py::test_errors[a&b]',
-                'products/surveys products/surveys/backend/test/test_a.py::test_fails',
-                'products/surveys products/surveys/backend/test/test_a.py::test_shared',
-            ]
-        )
+        for (const shard of ['0', '1']) {
+            fs.mkdirSync(path.join(dir, `product-junit-results-${shard}`))
+            fs.writeFileSync(path.join(dir, `product-junit-results-${shard}`, 'junit-product-surveys.xml'), report)
+        }
+        const shards = new Set(collectFailures(dir).map((failure) => failure.shard))
+        assert.deepEqual([...shards].sort(), ['core-4', 'products-0', 'products-1'])
+        assert.equal(collectFailures(dir).filter((failure) => failure.shard === 'core-4').length, 4)
         assert.equal(collectFailures(path.join(dir, 'missing')), null)
         assert.equal(collectFailures(fs.mkdtempSync(path.join(os.tmpdir(), 'junit-empty-'))), null)
     })
