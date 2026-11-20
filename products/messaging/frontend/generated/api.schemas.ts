@@ -498,6 +498,11 @@ export interface WebhookUrlApi {
 }
 
 /**
+ * The settings the run started with, by setting key.
+ */
+export type ProviderImportRunApiSettings = { [key: string]: string }
+
+/**
  * * `customerio` - Customer.io
  * * `resend` - Resend
  * * `postmark` - Postmark
@@ -649,7 +654,14 @@ export interface ProviderImportRunApi {
      * @nullable
      */
     finished_at: string | null
+    /** The settings the run started with, by setting key. */
+    settings: ProviderImportRunApiSettings
 }
+
+/**
+ * Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.
+ */
+export type StartProviderImportApiSettings = { [key: string]: string }
 
 export interface StartProviderImportApi {
     /** The provider to import from.
@@ -670,6 +682,8 @@ export interface StartProviderImportApi {
      * @maxLength 512
      */
     api_key?: string
+    /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required. */
+    settings?: StartProviderImportApiSettings
 }
 
 export interface ImportStepOptionApi {
@@ -679,6 +693,29 @@ export interface ImportStepOptionApi {
     label: string
     /** What the step imports and where it lands in PostHog. */
     description: string
+}
+
+export interface ImportSettingChoiceApi {
+    /** Value to send for this setting when starting an import. */
+    value: string
+    /** Display name of the choice. */
+    label: string
+}
+
+export interface ImportSettingOptionApi {
+    /** Setting key to use in `settings` when starting an import, such as `region`. */
+    key: string
+    /** Display name of the setting. */
+    label: string
+    /** What the setting changes, and how to choose. */
+    help: string
+    /** The values the setting accepts. */
+    choices: ImportSettingChoiceApi[]
+    /**
+     * The value used when the request leaves this setting out. Null means it's required.
+     * @nullable
+     */
+    default: string | null
 }
 
 export interface ImportProviderOptionApi {
@@ -708,6 +745,8 @@ export interface ImportProviderOptionApi {
     not_imported: string
     /** What the person does once the import has finished, in order. */
     next_steps: string[]
+    /** Choices to make before starting an import, such as a region. Often empty. */
+    settings: ImportSettingOptionApi[]
 }
 
 /**

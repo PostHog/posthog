@@ -8,7 +8,7 @@ people. A send to any address reads the blocking rules this import fills, so Pos
 import hashlib
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -181,7 +181,9 @@ class SendGridImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():

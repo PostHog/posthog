@@ -100,6 +100,8 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_a
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
+# The most check runs `get_check_runs` returns. A listing of this size may have stopped short.
+MAX_CHECK_RUNS = _MAX_PAGES * _PER_PAGE
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
 # GitHub's limit on the files that one compare response lists.
@@ -416,8 +418,17 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
 
 
 @frozen
+class RepositoryIdentity:
+    """What a GitHub Actions OIDC token says about the repository that ran the job."""
+
+    id: int
+    full_name: str
+    default_branch: str
+
+
+@frozen
 class GitObjectId:
-    """One object on the default branch, as GraphQL's `object(expression:)` reports it."""
+    """One object of a commit, as GraphQL's `object(expression:)` reports it."""
 
     # GraphQL's type name: "Blob" for a file, "Tree" for a directory, "Commit" for a submodule.
     kind: str
@@ -1116,6 +1127,7 @@ class StamphogGitHubClient:
         *,
         check_name: str | None = None,
         app_id: int | None = None,
+        all_runs: bool = False,
         priority: Priority = Priority.CRITICAL,
     ) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
@@ -1123,9 +1135,12 @@ class StamphogGitHubClient:
         Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
         migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
         deny-list. Without them the hosted path can't see that success and over-refuses safe migration PRs.
-        ``check_name`` and ``app_id`` make GitHub return only that check's runs. Bounded by ``_MAX_PAGES``.
+        ``check_name`` and ``app_id`` make GitHub return only that check's runs. GitHub returns only the
+        newest run of each name unless ``all_runs`` asks for every one. Bounded by ``_MAX_PAGES``.
         """
         only = {key: value for key, value in (("check_name", check_name), ("app_id", app_id)) if value is not None}
+        if all_runs:
+            only["filter"] = "all"
         check_runs: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
@@ -1148,6 +1163,55 @@ class StamphogGitHubClient:
             if len(page_runs) < _PER_PAGE:
                 break
         return check_runs
+
+    def count_check_suites(self, repo: str, ref: str, *, priority: Priority = Priority.CRITICAL) -> int:
+        """How many check suites GitHub holds for a commit, from one minimal page."""
+        path = f"/repos/{repo}/commits/{ref}/check-suites"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/commits/{ref}/check-suites",
+            params={"per_page": 1},
+            priority=priority,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to count check suites {repo}@{ref}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        total = data.get("total_count") if isinstance(data, dict) else None
+        if type(total) is not int:
+            raise StamphogGitHubError(f"Unexpected check suites payload for {repo}@{ref}")
+        return total
+
+    def get_repository_identity(self, repo: str, *, priority: Priority = Priority.CRITICAL) -> RepositoryIdentity:
+        """The repository's id, its name as GitHub spells it, and its default branch."""
+        path = f"/repos/{repo}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}", priority=priority)
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch repository {repo}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        if not isinstance(data, dict):
+            raise StamphogGitHubError(f"Unexpected repository payload for {repo}")
+        repo_id, full_name, default_branch = data.get("id"), data.get("full_name"), data.get("default_branch")
+        if type(repo_id) is not int or not isinstance(full_name, str) or not isinstance(default_branch, str):
+            raise StamphogGitHubError(f"Unexpected repository payload for {repo}")
+        return RepositoryIdentity(id=repo_id, full_name=full_name, default_branch=default_branch)
+
+    def get_workflow_job(self, repo: str, job_id: int, *, priority: Priority = Priority.CRITICAL) -> dict | None:
+        """One Actions job of this repository, or None when the repository has no such job."""
+        path = f"/repos/{repo}/actions/jobs/{job_id}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/actions/jobs/{job_id}", priority=priority)
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch job {repo}/{job_id}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        return data if isinstance(data, dict) else None
 
     def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
         """Return the author's merged-PR numbers in this repo (best-effort).
@@ -1363,8 +1427,16 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
-        """The object at each of ``paths`` on the default branch now, None for a path it lacks.
+    def get_default_branch_objects(
+        self, repo: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
+        """The object at each of ``paths`` on the default branch now, None for a path it lacks."""
+        return self.get_objects(repo, "HEAD", paths, priority=priority)
+
+    def get_objects(
+        self, repo: str, revision: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
+        """The object at each of ``paths`` in ``revision``, None for a path it lacks.
 
         A path that ends in `/` names a directory, and is looked up without the slash. The answer
         carries the object's type, so the caller can tell a tree from a blob. The paths come from a
@@ -1380,8 +1452,8 @@ class StamphogGitHubClient:
             f"query($owner: String!, $name: String!, {declarations}) "
             f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
         )
-        variables = {f"p{index}": f"HEAD:{path.removesuffix('/')}" for index, path in enumerate(paths)}
-        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        variables = {f"p{index}": f"{revision}:{path.removesuffix('/')}" for index, path in enumerate(paths)}
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=priority)
         objects: dict[str, GitObjectId | None] = {}
         for index, path in enumerate(paths):
             found = repository.get(f"p{index}") or {}

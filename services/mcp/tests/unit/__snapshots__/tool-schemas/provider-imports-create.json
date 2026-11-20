@@ -11,6 +11,17 @@
             "enum": ["customerio", "resend", "postmark", "sendgrid"],
             "type": "string"
         },
+        "settings": {
+            "additionalProperties": {
+                "maxLength": 64,
+                "type": "string"
+            },
+            "description": "Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "steps": {
             "description": "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.",
             "items": {

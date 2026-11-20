@@ -24,7 +24,8 @@ import structlog
 from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -51,6 +52,7 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.attestation_checks import PendingCheck, all_reported
+from products.stamphog.backend.logic.attestation_policy import WorkflowPublisher, workflow_publisher
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
@@ -79,6 +81,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -2081,7 +2084,7 @@ _ATTESTATION_WAKE = "attestation_check_wake"
 _ATTESTATION_WAKES_PER_HEAD = 3
 
 
-def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
+def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck | WorkflowPublisher]:
     """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
     A gate denial is saved as a GATED WAIT too, so the engine's own verdict decides. A PR that another
@@ -2093,8 +2096,14 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     entries = ((gate_result.get("classification") or {}).get("attestations") or {}).get("pending")
     if not isinstance(entries, list):
         return []
-    checks = [PendingCheck.from_entry(entry) for entry in entries]
-    return [check for check in checks if check is not None]
+    # A workflow entry names its publisher instead of an App, and any job can post a check run of its
+    # name, so only a result the publisher signed counts as reported.
+    pending: list[PendingCheck | WorkflowPublisher] = []
+    for entry in entries:
+        check = PendingCheck.from_entry(entry) or workflow_publisher(entry)
+        if check is not None:
+            pending.append(check)
+    return pending
 
 
 def waits_on_attestations(run: ReviewRun) -> bool:
@@ -2132,7 +2141,16 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    if not all_reported(client, repo_config.repository, run.head_sha, pending):
+    app_checks = [check for check in pending if isinstance(check, PendingCheck)]
+    if not all_reported(client, repo_config.repository, run.head_sha, app_checks):
+        return False
+    proofs = WorkflowProofs(
+        client, repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha, priority=Priority.BATCH
+    )
+    try:
+        if not all(proofs.has_result(check) for check in pending if isinstance(check, WorkflowPublisher)):
+            return False
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations
