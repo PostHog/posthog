@@ -9728,10 +9728,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         with patch("products.feature_flags.backend.api.feature_flag.use_blast_radius_query_v2", return_value=use_v2):
             self._restrict_for_member("email", PropertyDefinition.Type.PERSON)
-            after = self.client.post(url, {"condition": condition})
+            response = self.client.post(url, {"condition": condition})
 
-        assert after.status_code == status.HTTP_200_OK
-        assert (after.json()["affected"], after.json()["total"]) == (0, 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
     def test_user_blast_radius_honors_member_group_property_access(self):
         create_group_type_mapping(
@@ -9751,9 +9751,26 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         url = f"/api/projects/{self.team.id}/feature_flags/user_blast_radius"
 
         self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=0)
-        after = self.client.post(url, body)
+        response = self.client.post(url, body)
 
-        assert (after.json()["affected"], after.json()["total"]) == (0, 2)
+        assert (response.json()["affected"], response.json()["total"]) == (0, 2)
+
+    def test_access_controls_action_keeps_its_api_key_scope(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="scoped", created_by=self.user)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:read", "access_control:read"],
+            secure_value=hash_key_value(key),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/access_controls",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [

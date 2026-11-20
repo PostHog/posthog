@@ -4386,6 +4386,7 @@ class FeatureFlagViewSet(
     # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
+    request_dependent_scope_actions = frozenset({"user_blast_radius"})
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -6037,11 +6038,11 @@ class FeatureFlagViewSet(
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Sizing a condition counts persons (or groups) by their property values, so a key also needs
-        # the scope that reads them, as the workflows sizing endpoint does.
+        # the scope that reads them.
         if self.action == "user_blast_radius":
             data = request.data if isinstance(request.data, dict) else {}
             return ["feature_flag:read", "person:read" if data.get("group_type_index") is None else "group:read"]
-        return None
+        return super().dangerously_get_required_scopes(request, view)
 
     @extend_schema(
         request=UserBlastRadiusRequestSerializer,
