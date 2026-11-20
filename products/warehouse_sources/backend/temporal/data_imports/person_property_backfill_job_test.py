@@ -64,6 +64,7 @@ class TestBackfillWarehousePersonPropertiesActivity:
             "changed": 3,
             "existing": 0,
             "produced": 3,
+            "removed": 0,
             "skipped_missing_person": 1,
             "per_source": [],
         }

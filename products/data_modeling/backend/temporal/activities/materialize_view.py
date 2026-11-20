@@ -39,6 +39,7 @@ from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -389,6 +390,13 @@ class MaterializeViewResult:
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
+
+
+@frozen
+class _FullMaterializationResult:
+    row_count: int
+    file_uris: list[str]
+    person_property_complete_table_read: bool
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, storage_name: str) -> str:
@@ -1069,7 +1077,7 @@ async def _materialize_fully(
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
     person_property_staging_cleared: bool = False,
-) -> tuple[int, list[str], bool]:
+) -> _FullMaterializationResult:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
     # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
@@ -1175,7 +1183,11 @@ async def _materialize_fully(
             mode="full_refresh",
             table_uri=table_uri,
         )
-    return row_count, file_uris, person_property_complete_table_read
+    return _FullMaterializationResult(
+        row_count=row_count,
+        file_uris=file_uris,
+        person_property_complete_table_read=person_property_complete_table_read,
+    )
 
 
 async def _materialize_incrementally(
@@ -1443,7 +1455,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         person_property_sink,
                     )
                 else:
-                    row_count, file_uris, person_property_complete_table_read = await _materialize_fully(
+                    full_materialization = await _materialize_fully(
                         objects,
                         plan,
                         hogql_query,
@@ -1454,6 +1466,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         person_property_sink,
                         person_property_staging_cleared,
                     )
+                    row_count = full_materialization.row_count
+                    file_uris = full_materialization.file_uris
+                    person_property_complete_table_read = full_materialization.person_property_complete_table_read
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
