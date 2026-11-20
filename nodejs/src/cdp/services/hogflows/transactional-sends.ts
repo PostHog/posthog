@@ -483,20 +483,34 @@ export class TransactionalSends {
         return invocation
     }
 
-    // In async mode a slow lookup fails open, because the email worker repeats those checks before it sends. The
-    // quota is the exception: the worker does not check it, so it is still checked when the others fail open.
-    private async refusalWithinBudget(
+    private refusalWithinBudget(
         teamId: number,
         hogFlow: HogFlow,
         recipients: string[],
         senderKind: SenderKind | undefined
     ): Promise<TransactionalSendRefusal | null> {
+        return this.withinRefusalBudget(
+            teamId,
+            hogFlow,
+            () => this.refusal(teamId, hogFlow, recipients, senderKind),
+            (quotaLimited) => (quotaLimited ? 'quota_limited' : null)
+        )
+    }
+
+    // In async mode a slow lookup fails open, because the email worker repeats those checks before it sends. The
+    // quota is the exception: the worker does not check it, so it is still checked when the others fail open.
+    private async withinRefusalBudget<T>(
+        teamId: number,
+        hogFlow: HogFlow,
+        checks: () => Promise<T>,
+        failedOpen: (quotaLimited: boolean) => T
+    ): Promise<T> {
         let timer: NodeJS.Timeout | undefined
         const late = new Promise<'late'>(
             (resolve) => (timer = setTimeout(() => resolve('late'), ASYNC_REFUSAL_BUDGET_MS))
         )
         try {
-            const refusal = await Promise.race([this.refusal(teamId, hogFlow, recipients, senderKind), late])
+            const refusal = await Promise.race([checks(), late])
             if (refusal !== 'late') {
                 return refusal
             }
@@ -510,9 +524,7 @@ export class TransactionalSends {
         } finally {
             clearTimeout(timer)
         }
-        return (await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)).isLimited
-            ? 'quota_limited'
-            : null
+        return failedOpen((await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)).isLimited)
     }
 
     // The email worker skips a send for these reasons too, but only after the caller has its answer. Checking them

@@ -1498,7 +1498,7 @@ export class CdpApi {
             const verificationDeadline = deadlineAfter(ATTACHMENT_VERIFICATION_DEADLINE_MS)
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
-                transactionalEmailRequestsTotal.inc({ outcome })
+                transactionalEmailRequestsTotal.inc({ outcome, route: 'single' })
                 return res.status(status).json(body)
             }
             const replyWith = ({ outcome, status, body }: SendReply) => reply(outcome, status, body)
@@ -1518,7 +1518,7 @@ export class CdpApi {
                         tokenClaims
                     )
                 ) {
-                    transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized' })
+                    transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized', route: 'single' })
                     return
                 }
                 stages.start('validate')
