@@ -132,18 +132,13 @@ The `search` filter on `inbox-reports-list` matches the exact text only.
 
 ### Routing and claims
 
-A report is a finding. It does not mean that someone is working on the problem.
-Two sets of fields answer two different questions:
-
-- **Routing: who should read the report.** `suggested_reviewers` and `is_suggested_reviewer`.
-  A suggested reviewer has not accepted the report and is not working on it.
-- **Claims: who is working on the report.** `work_state` and `assignee`.
-  `work_state: unclaimed` means no active claim and no pull request in progress, so the report is free to take, whoever its suggested reviewers are.
-  `working` means an active claim, and `in_review` means a draft, open, or unknown-state pull request.
-  `done` means the report is resolved, closed, or in monitoring.
-  `assignee: null` alone does not mean free: a report stays `in_review` when its holder released the claim and left a pull request.
-  A report with `status: suppressed`, which the `dismissed`, `held_back`, and `all` views return, can be `unclaimed`, but it is not free: it cannot be claimed until it is restored.
-
+A report is a finding, not a sign that someone is working on the problem.
+**Routing** (`suggested_reviewers`, `is_suggested_reviewer`) says who should read it. A suggested reviewer has not accepted the report and is not working on it.
+**Claims** (`work_state`, `assignee`) say who is working on it.
+`work_state: unclaimed` means no active claim and no pull request in progress, so the report is free to take, whoever its suggested reviewers are.
+`working` means an active claim, `in_review` a draft, open, or unknown-state pull request, and `done` a resolved, closed, or monitoring report.
+`assignee: null` alone does not mean free: a report stays `in_review` when its holder released the claim and left a pull request.
+A report with `status: suppressed`, which the `dismissed`, `held_back`, and `all` views return, can be `unclaimed`, but it is not free: it cannot be claimed until it is restored.
 `inbox-reports-search` results do not carry the claim fields, so read a match with `inbox-reports-retrieve` before you decide.
 To list only the free reports, pass `unclaimed: true` to `inbox-reports-list`.
 
@@ -210,19 +205,14 @@ How the flag is produced:
 
 Practical implications for triage:
 
-- A `true` value means "you are a suggested reviewer for this report": a person well placed
-  to act on it. It is routing, not a claim, and it does not mean that you or anyone else is
-  working on the report. When the pipeline derived the reviewers, that usually means you wrote (or
-  recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it
-  means they judged you the right person to read it. It's a recommendation, not authoritative.
+- A `true` value means "you are a suggested reviewer for this report": a person well placed to act on it. It is routing, not a claim, and it does not mean that you or anyone else is working on the report.
+  When the pipeline derived the reviewers, that usually means you wrote (or recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it means they judged you the right person to read it. It's a recommendation, not authoritative.
 - A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else wrote
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
-- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`. When no stored
-  personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the
-  ones routed to the user as a suggested reviewer. Mention the rest as a secondary group rather
-  than mixing them in.
+- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`.
+  When no stored personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the ones routed to the user as a suggested reviewer. Mention the rest as a secondary group rather than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.
@@ -387,7 +377,6 @@ inbox-reports-list
 - No match: continue the investigation, and do not mention the check.
 - A match: read it with `inbox-reports-retrieve` before you read code.
   Use the research as a starting point, and verify it against the code.
-  A match is research, not a sign that someone is fixing the problem: `work_state` and `assignee` say whether someone is.
 - The report's `work_state` is `unclaimed` and the report is not dismissed: the fix is free to take. Claim the report before you change code.
 - Someone else claimed the report: say who holds it and since when (`assignee.claimed_at`), and do not duplicate the work.
 - The report has an open pull request: continue that work. Do not open a second pull request.
