@@ -150,6 +150,14 @@ def write_findings(report_dir: str | None, findings: dict[str, list[dict]]) -> N
 
 def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
     """Scan one tree with jscpd and return its clone list."""
+    if len(formats) > 1:
+        # Clone candidates never cross formats. Separate processes release their token maps
+        # between formats instead of retaining the whole mixed-language tree in memory.
+        clones = []
+        for format_name in formats:
+            clones.extend(run_jscpd(scan_root, out_dir / format_name, [format_name]))
+        return clones
+
     try:
         proc = subprocess.run(
             [

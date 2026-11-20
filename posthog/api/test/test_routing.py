@@ -478,7 +478,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
 
 @override_settings(ROOT_URLCONF=__name__)
-class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
+class TestDeactivatedOrganizationBlocksRequests(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.key_value = generate_random_token_personal()
@@ -511,12 +511,19 @@ class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
         self.assertEqual(response.json()["code"], "organization_deactivated")
         self.assertIn("Access revoked due to unpaid balance.", response.json()["detail"])
 
-    def test_session_auth_still_reaches_a_deactivated_organization(self):
-        self._deactivate()
+    @parameterized.expand([(False, 403), (True, 200), (None, 200)])
+    def test_session_auth_checks_organization_activation(self, is_active, expected_status):
+        self.organization.is_active = is_active
+        self.organization.save(update_fields=["is_active"])
 
         response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 403:
+            self.assertEqual(response.json()["code"], "organization_deactivated")
+            self.organization.is_active = True
+            self.organization.save(update_fields=["is_active"])
+            self.assertEqual(self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/").status_code, 200)
 
     def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
         self._deactivate()

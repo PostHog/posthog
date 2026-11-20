@@ -1317,11 +1317,16 @@ class TestOrganizationAPI(APIBaseTest):
         self.client.delete(f"/api/organizations/{self.organization.id}")
 
         response = self.client.get(f"/api/organizations/{self.organization.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["is_pending_deletion"])
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "organization_pending_deletion")
+
+        listing = self.client.get("/api/organizations/")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        organization = next(org for org in listing.json()["results"] if org["id"] == str(self.organization.id))
+        self.assertTrue(organization["is_pending_deletion"])
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
-    def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
+    def test_delete_organization_already_pending_deletion_is_forbidden(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
 
@@ -1329,8 +1334,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save(update_fields=["is_pending_deletion"])
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already being deleted", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "organization_pending_deletion")
         mock_delete_task.assert_not_called()
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")

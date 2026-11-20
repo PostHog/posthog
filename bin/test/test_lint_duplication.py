@@ -23,6 +23,7 @@ from bin.lint_duplication import (
     is_test_file,
     main,
     mark_new_clones,
+    run_jscpd,
 )
 
 
@@ -226,6 +227,28 @@ class TestChangedFilesBetween(unittest.TestCase):
             (repo / "untracked.py").write_text("generated\n")
 
             self.assertEqual(changed_files_between(baseline, "HEAD", repo), {"tracked.py"})
+
+
+class TestRunJscpd(unittest.TestCase):
+    def test_mixed_formats_retain_every_clone_without_combining_scanner_memory(self) -> None:
+        formats = ["python", "typescript", "tsx"]
+        expected = [make_clone(f"first.{fmt}", f"second.{fmt}", 100, fmt=fmt) for fmt in formats]
+
+        def scanner(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+            selected_format = command[command.index("--format") + 1]
+            if "," in selected_format:
+                return subprocess.CompletedProcess(command, 137, stdout="", stderr="Killed")
+            output = Path(command[command.index("--output") + 1])
+            output.mkdir(parents=True)
+            clones = [clone for clone in expected if clone["format"] == selected_format]
+            (output / "jscpd-report.json").write_text(json.dumps({"duplicates": clones}))
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch("bin.lint_duplication.subprocess.run", side_effect=scanner),
+        ):
+            self.assertEqual(run_jscpd(Path(temp_dir), Path(temp_dir) / "report", formats), expected)
 
 
 class TestFormatsTouched(unittest.TestCase):

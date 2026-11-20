@@ -270,6 +270,8 @@ When authorizing an application, users can scope access to:
 
 This is configured during the authorization step, not in the application settings.
 
+API views using `ActiveOrganizationPermission` apply the same organization activation check to session and token authentication. Only an explicit `is_active=False` deactivates an organization; `NULL` remains active. Billing and organization discovery remain available so members can pay or switch organizations.
+
 OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. OAuth consent, automatic approval, and first-party approval check every organization reachable by the grant before issuing an authorization code. Declining consent remains available. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
 
 Personal API key creation, scope changes, expiry changes, and rotation check the organizations named by both organization and project scopes. Unscoped keys check all of the owner's current organizations. A denied request leaves the credential unchanged. New GitHub team integrations require project membership; updating an existing integration requires management access. Both paths check the target organization's IP policy before consuming authorization state.

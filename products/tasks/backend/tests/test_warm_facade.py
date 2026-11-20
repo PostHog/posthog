@@ -1621,7 +1621,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert "await_user_message" not in run.state
         assert run.state["pr_base_branch"] is None
 
-    @parameterized.expand([(False, 429, "posthog_code_billing_limit_exceeded"), (True, 403, "permission_denied")])
+    @parameterized.expand(
+        [(False, 429, "posthog_code_billing_limit_exceeded"), (True, 403, "organization_pending_deletion")]
+    )
     def test_create_endpoint_denies_before_warm_activation(self, pending_deletion, expected_status, expected_code):
         warm_task, run = self._warm_run()
         self.organization.is_pending_deletion = pending_deletion
