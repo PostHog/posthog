@@ -14,7 +14,6 @@ import { parseJsonOrUndefined } from '../src/core/json'
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
 const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
-const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
 const RELEASE_BUILD_JOB = 'build'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
@@ -63,7 +62,6 @@ const Metafile = z.object({
         z.object({ imports: z.array(z.object({ path: z.string(), external: z.boolean().optional() })).optional() })
     ),
 })
-const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
 const Workflow = z.object({
     jobs: z.record(
         z.string(),
@@ -376,18 +374,6 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     return { files, importers }
 }
 
-// Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
-export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
-    const patterns = TriggerWorkflow.parse(parseYaml(workflow)).on.pull_request.paths
-    return [...compiled].filter(
-        (file) =>
-            !patterns.reduce((matched, pattern) => {
-                const negated = pattern.startsWith('!')
-                return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
-            }, false)
-    )
-}
-
 export function releaseCheckoutPatterns(workflow: string): string[] {
     const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
     const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
@@ -495,8 +481,7 @@ if (import.meta.main) {
         readHead: read('HEAD'),
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
-    const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
     process.stdout.write(
-        `${JSON.stringify({ ...result, untriggered, compiled: [...compiled.files].sort(), outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+        `${JSON.stringify({ ...result, compiled: [...compiled.files].sort(), outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
     )
 }
