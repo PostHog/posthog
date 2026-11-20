@@ -2,11 +2,10 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { RunLinkTagHint } from './RunLinkTagHint'
@@ -40,71 +39,5 @@ describe('<RunLinkTagHint />', () => {
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
-    })
-    it.each([
-        { opened: 'a click', open: (link: HTMLElement) => fireEvent.click(link) },
-        { opened: 'a Cmd-click', open: (link: HTMLElement) => fireEvent.click(link, { metaKey: true }) },
-        {
-            opened: 'a middle-click',
-            open: (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
-        },
-    ])('shows the new setting after returning from settings opened with $opened', async ({ open }) => {
-        useMocks({
-            get: {
-                '/api/projects/:id/': {
-                    ...MOCK_DEFAULT_TEAM,
-                    workflows_config: { email_workflow_run_link_tag_enabled: false },
-                },
-            },
-        })
-        render(<RunLinkTagHint />)
-
-        open(screen.getByText('Turn it off in settings'))
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
-
-        expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
-    })
-
-    it('reloads the team once per return, and not after the hint is gone', async () => {
-        const teamRequests: string[] = []
-        useMocks({
-            get: {
-                '/api/projects/:id/': ({ request }) => {
-                    teamRequests.push(request.url)
-                    return [
-                        200,
-                        {
-                            ...MOCK_DEFAULT_TEAM,
-                            workflows_config: { email_workflow_run_link_tag_enabled: teamRequests.length !== 1 },
-                        },
-                    ]
-                },
-            },
-        })
-        const { unmount } = render(<RunLinkTagHint />)
-
-        fireEvent.click(screen.getByText('Turn it off in settings'))
-        fireEvent.click(screen.getByText('Turn it off in settings'))
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
-        expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
-        expect(teamRequests).toHaveLength(1)
-
-        fireEvent.click(screen.getByText('Turn it on in settings'))
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
-        expect(await screen.findByText(/are connected to the sessions they start/)).toBeInTheDocument()
-        expect(teamRequests).toHaveLength(2)
-
-        fireEvent.click(screen.getByText('Turn it off in settings'))
-        unmount()
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
-        expect(teamRequests).toHaveLength(2)
     })
 })

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -13,6 +13,7 @@ import { IntegrationType } from '~/types'
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { RunLinkTagHint } from '../../Workflows/hogflows/steps/components/RunLinkTagHint'
 import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
 import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
@@ -26,7 +27,6 @@ import {
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { isMissingContentError } from './broadcastContentErrors'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
-import { BroadcastTrackingSettings } from './BroadcastTrackingSettings'
 
 export function BroadcastContentStep(): JSX.Element {
     const {
@@ -184,11 +184,29 @@ export function BroadcastContentStep(): JSX.Element {
                     <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
                 </span>
             ) : null}
-            <BroadcastTrackingSettings
-                trackingEnabled={emailSettings.trackingEnabled}
-                utmTagsEnabled={emailSettings.utmTagsEnabled}
-                onChange={setEmailSettings}
-            />
+            <div className="flex flex-wrap gap-2">
+                <LemonSwitch
+                    label="Track opens and link clicks"
+                    checked={emailSettings.trackingEnabled}
+                    onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
+                    bordered
+                    data-attr="broadcast-tracking-toggle"
+                />
+                <LemonSwitch
+                    label="Add UTM tags to links"
+                    checked={emailSettings.utmTagsEnabled}
+                    onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
+                    bordered
+                    data-attr="broadcast-utm-tags-toggle"
+                />
+            </div>
+            {emailSettings.trackingEnabled ? (
+                <RunLinkTagHint />
+            ) : (
+                <span className="text-xs text-secondary">
+                    Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
+                </span>
+            )}
             {emailSettings.utmTagsEnabled && (
                 <>
                     <UtmTagFields
