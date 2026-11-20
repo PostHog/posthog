@@ -30,8 +30,7 @@ export interface SymbolSetUpload {
     chunkId: string
     releaseId: string | null
     data: Uint8Array | StoredData
-    // Set when the hash covers something other than the whole container, like event-mode sourcemaps,
-    // or when the container waits on disk, so that nothing reads it back only to hash it.
+    // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
     contentHash?: string
 }
 

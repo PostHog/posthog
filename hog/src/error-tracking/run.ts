@@ -1143,8 +1143,6 @@ function packageNative(
             // Sources come from the whole binary, so every slice of a fat binary carries all of them.
             const steps = new Map<string, ReturnType<typeof sourceStep>>()
             const folder = resolve(cwd, artifact.root.path)
-            // A bundle that fails part of the way through uploads nothing, so its symbol sets wait
-            // here until every slice is packaged.
             const uploads: SymbolSetUpload[] = []
             for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
                 if (includeSource && !steps.has(slice.path)) {

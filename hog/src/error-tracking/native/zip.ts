@@ -19,9 +19,7 @@ const DOS_DATE = 0x0021
 const UNIX_FILE_0644 = 0x81a40000
 const UTF8_NAME = 0x0800
 
-// Stock zlib's settings for level 6. Any other value changes the compressed bytes.
 const DEFLATE_OPTIONS = { raw: true, level: 6, windowBits: 15, memLevel: 8, strategy: 0 } as const
-// The size of each piece of compressed output, which doesn't change the bytes.
 const DEFLATE_CHUNK_SIZE = 1024 * 1024
 
 export const crc32 = (bytes: Uint8Array): number => zlibCrc32(bytes)
@@ -145,7 +143,6 @@ export class ZipWriter {
         this.push(end)
 
         const archive = Buffer.concat(this.chunks, this.length)
-        // The pieces are a second copy of the archive, so they go before the caller compresses it.
         this.chunks.length = 0
         return archive
     }
