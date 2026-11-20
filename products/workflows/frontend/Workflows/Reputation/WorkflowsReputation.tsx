@@ -414,8 +414,12 @@ function TeamRatesCard({
     )
 }
 
-function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
+function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element | null {
     const next = allowance.next_tier
+    if (next === undefined) {
+        // A page newer than the API it talks to, for a moment during a deploy.
+        return null
+    }
     if (!next) {
         return (
             <div data-attr="workflows-sending-allowance-next">
@@ -431,7 +435,7 @@ function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): 
             </div>
         )
     }
-    const waitUntil = next.not_before && dayjs(next.not_before).isAfter(dayjs()) ? dayjs(next.not_before) : null
+    const waitUntil = dayjs(next.not_before).isAfter(dayjs()) ? dayjs(next.not_before) : null
     return (
         <div data-attr="workflows-sending-allowance-next">
             <MetricLabel
@@ -453,27 +457,39 @@ function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): 
             </div>
             {waitUntil && (
                 <div className="text-xs text-secondary mt-1">
-                    Not before {waitUntil.format('MMM D')}, since your allowance changed recently.
+                    The earliest it can go up is {waitUntil.format('MMM D')}.
                 </div>
             )}
         </div>
     )
 }
 
-function RecentRateRow({ label, rate, limit }: { label: string; rate: number; limit: number }): JSX.Element {
-    const over = rate > limit
+function RecentRateRow({
+    label,
+    rate,
+    limit,
+    judged,
+}: {
+    label: string
+    rate: number
+    limit: number
+    judged: boolean
+}): JSX.Element {
+    const over = judged && rate > limit
     return (
         <div className="flex items-center justify-between gap-4">
             <span>{label}</span>
             <span className="inline-flex items-center gap-2 tabular-nums">
                 <span className={over ? 'font-semibold text-danger' : 'font-semibold'}>{formatRate(rate)}</span>
-                <span className="text-secondary">(limit {formatRate(limit)})</span>
+                <span className={over ? 'text-danger' : 'text-secondary'}>
+                    {over ? `over the ${formatRate(limit)} limit` : `(limit ${formatRate(limit)})`}
+                </span>
             </span>
         </div>
     )
 }
 
-function RecentRates({ rates }: { rates: EmailSendingRecentRatesApi }): JSX.Element {
+function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier: number }): JSX.Element {
     const overButTooFew =
         rates.within_limits &&
         (rates.bounce_rate > rates.max_bounce_rate || rates.complaint_rate > rates.max_complaint_rate)
@@ -481,14 +497,26 @@ function RecentRates({ rates }: { rates: EmailSendingRecentRatesApi }): JSX.Elem
         <div className="space-y-1" data-attr="workflows-sending-allowance-recent-rates">
             <MetricLabel
                 label={`Last ${rates.window_days} days`}
-                tooltip={`The daily check lowers your allowance when either rate goes over its limit over the last ${rates.window_days} days. The rates further down this page cover 30 days, so they can look fine while these do not.`}
+                tooltip={`The daily check can lower your allowance when either rate goes over its limit over the last ${rates.window_days} days. The rates further down this page cover 30 days, so they can look fine while these do not.`}
             />
-            <RecentRateRow label="Bounces" rate={rates.bounce_rate} limit={rates.max_bounce_rate} />
-            <RecentRateRow label="Spam complaints" rate={rates.complaint_rate} limit={rates.max_complaint_rate} />
+            <RecentRateRow
+                label="Bounces"
+                rate={rates.bounce_rate}
+                limit={rates.max_bounce_rate}
+                judged={!rates.within_limits}
+            />
+            <RecentRateRow
+                label="Spam complaints"
+                rate={rates.complaint_rate}
+                limit={rates.max_complaint_rate}
+                judged={!rates.within_limits}
+            />
             <div className="text-xs text-secondary">
                 {humanFriendlyNumber(rates.emails_sent)} emails in the last {rates.window_days} days.{' '}
                 {!rates.within_limits
-                    ? 'Your allowance can go down at the next daily check.'
+                    ? tier > 0
+                        ? 'Rates over the limit can lower your allowance.'
+                        : 'Rates over the limit keep your allowance from going up.'
                     : overButTooFew
                       ? 'Too few emails to judge yet, so this does not lower your allowance.'
                       : null}
@@ -510,7 +538,7 @@ const ALLOWANCE_CHANGE_REASONS: Record<string, string> = {
 }
 
 function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowanceChangeApi[] }): JSX.Element | null {
-    if (changes.length === 0) {
+    if (!changes?.length) {
         return null
     }
     return (
@@ -519,8 +547,8 @@ function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowance
                 label="Recent changes"
                 tooltip="Changes to your daily allowance over the last 90 days, newest first."
             />
-            {changes.map((change) => (
-                <div key={change.changed_at} className="flex gap-3">
+            {changes.map((change, index) => (
+                <div key={`${change.changed_at}-${index}`} className="flex gap-3">
                     <span className="text-secondary w-14 shrink-0 tabular-nums">
                         {dayjs(change.changed_at).format('MMM D')}
                     </span>
@@ -597,7 +625,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 </div>
                 {allowance.recent_rates && (
                     <div className="lg:border-l lg:pl-6">
-                        <RecentRates rates={allowance.recent_rates} />
+                        <RecentRates rates={allowance.recent_rates} tier={allowance.tier} />
                     </div>
                 )}
             </div>

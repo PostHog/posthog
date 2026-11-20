@@ -2452,11 +2452,8 @@ export interface EmailSendingNextTierApi {
     readonly days_required: number
     /** Days since the last tier change the project reached daily_target on, up to days_required. */
     readonly days_reached: number
-    /**
-     * The earliest time the next tier can be granted. Null when the project has never changed tier.
-     * @nullable
-     */
-    readonly not_before: string | null
+    /** The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation. */
+    readonly not_before: string
 }
 
 /**

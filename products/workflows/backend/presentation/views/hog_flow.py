@@ -3249,8 +3249,7 @@ class EmailSendingNextTierSerializer(serializers.Serializer):
     )
     not_before = serializers.DateTimeField(
         read_only=True,
-        allow_null=True,
-        help_text="The earliest time the next tier can be granted. Null when the project has never changed tier.",
+        help_text="The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation.",
     )
 
 
