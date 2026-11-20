@@ -60,16 +60,17 @@ class QueryStructures(TraversingVisitor):
         self.ctes: dict[int, ast.CTE] = {}
         self.references: Counter[int] = Counter()
         self._visited_ctes: set[int] = set()
-        self._scalar_ctes: dict[int, int] = {}
+        self._scalar_scopes: list[dict[str, int]] = []
         self.cross_join_equalities = 0
         self.date_arrays_before_breakdown_limit = False
 
     def visit_field(self, node: ast.Field) -> None:
-        # A scalar CTE reference carries only the CTE's first column type, so that type object names the CTE.
+        # A scalar CTE reference keeps only the CTE's name, because an expression CTE has no query type to match on.
         if isinstance(node.type, ast.FieldAliasType):
-            type_id = self._scalar_ctes.get(id(node.type.type))
-            if type_id is not None:
-                self._visit_once(type_id)
+            for scope in reversed(self._scalar_scopes):
+                if node.type.alias in scope:
+                    self._visit_once(scope[node.type.alias])
+                    break
 
     def visit_cte(self, node: ast.CTE) -> None:
         # ClickHouse never runs a CTE body that nothing references, so bodies are visited from their references.
@@ -109,13 +110,19 @@ class QueryStructures(TraversingVisitor):
         return next(iter(sources.aliases)) if len(sources.aliases) == 1 and not sources.unknown else None
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        scalar_scope: dict[str, int] = {}
+        self._scalar_scopes.append(scalar_scope)
+        try:
+            self._visit_select_query(node, scalar_scope)
+        finally:
+            self._scalar_scopes.pop()
+
+    def _visit_select_query(self, node: ast.SelectQuery, scalar_scope: dict[str, int]) -> None:
         for cte in (node.ctes or {}).values():
             if cte.expr.type is not None:
                 self.ctes[id(cte.expr.type)] = cte
-                if cte.cte_type == "column" and isinstance(cte.expr.type, ast.SelectQueryType):
-                    first_column = next(iter(cte.expr.type.columns.values()), None)
-                    if first_column is not None:
-                        self._scalar_ctes[id(first_column)] = id(cte.expr.type)
+                if cte.cte_type == "column":
+                    scalar_scope[cte.name] = id(cte.expr.type)
                 self._visit_cte_body(id(cte.expr.type))
         calls = _LocalCalls()
         for expr in node.select:
