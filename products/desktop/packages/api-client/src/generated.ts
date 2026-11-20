@@ -5079,6 +5079,7 @@ export namespace Schemas {
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
         metric: MetricChartSettings | null;
+        movingAverageIntervals: number | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -5086,6 +5087,7 @@ export namespace Schemas {
         seriesBreakdownColumn: string | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showMovingAverage: boolean | null;
         showNullsAsZero: boolean | null;
         showPieTotal: boolean | null;
         showTotalRow: boolean | null;
@@ -12619,12 +12621,14 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
         | "transactional_emails"
-        | "transactional_email_keys";
+        | "transactional_email_keys"
+        | "transactional_push";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -13092,6 +13096,7 @@ export namespace Schemas {
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
          * * `transactional_email_keys` - Transactional email keys
+         * * `transactional_push` - Transactional push notifications
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -17764,8 +17769,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         flags_persistence_default?: (boolean | null) | undefined;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
         /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          */
@@ -20073,7 +20076,11 @@ export namespace Endpoints {
                 name: string;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops" | "transactional_emails";
+                origin_product:
+                    | "broadcasts"
+                    | "loops"
+                    | "transactional_emails"
+                    | "transactional_push";
                 search: string;
                 source_record: string;
                 status: "active" | "archived" | "draft";

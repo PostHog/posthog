@@ -80,7 +80,7 @@ export interface workflowsReputationLogicActions {
             target?: 'modal' | 'sidePanel'
         }
     ) => Partial<SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+        target?: 'modal' | 'sidePanel'
     } // supportLogic
     loadReputation: () => {
         value: true
