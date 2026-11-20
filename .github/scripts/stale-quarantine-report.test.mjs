@@ -12,17 +12,18 @@ describe('stale quarantine report', () => {
         const flagged = classifyQuarantines(
             [
                 test('ran clean', 30, { runCount: MIN_RUNS, failureCount: 0 }),
+                test('ran clean longer', 60, { runCount: MIN_RUNS, failureCount: 0 }),
                 test('still failing', 30, { runCount: 100, failureCount: 1 }),
                 test('too few runs', 30, { runCount: MIN_RUNS - 1, failureCount: 0 }),
-                test('no runs', 40, null),
                 test('zero runs', 20, { runCount: 0, failureCount: 0 }),
+                test('no runs', 40, null),
                 test('quarantined inside the window', WINDOW_DAYS - 1, { runCount: 500, failureCount: 0 }),
                 { name: 'no start date', quarantinedSince: null, metrics: { runCount: 500, failureCount: 0 } },
             ],
             now
         )
         const named = (kind) => flagged.filter((item) => item.kind === kind).map(({ test }) => test.name)
-        assert.deepEqual(named('passing'), ['ran clean'])
+        assert.deepEqual(named('passing'), ['ran clean longer', 'ran clean'])
         assert.deepEqual(named('notRunning'), ['no runs', 'zero runs'])
     })
 

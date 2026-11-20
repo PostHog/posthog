@@ -89,41 +89,38 @@ export async function fetchQuarantined(collectionId, get = trunkGet) {
     throw new Error(`Trunk quarantine list for ${collectionId} exceeded ${MAX_PAGES} pages`)
 }
 
-function rowFor({ test, quarantinedDays, runs }) {
+function rowFor({ test, quarantinedDays, runs, kind }) {
     const name = test.className ? `${test.className}.${test.name}` : test.name
-    const label = test.variant ? `${name} [${test.variant}]` : name
+    const label = (test.variant ? `${name} [${test.variant}]` : name).slice(-60)
     return [
-        test.url ? linkedCell([{ url: test.url, text: label.slice(-60) }]) : cell(label.slice(-60)),
+        test.url ? linkedCell([{ url: test.url, text: label }]) : cell(label),
+        cell(kind === 'passing' ? 'ran clean' : 'did not run'),
         cell(`${quarantinedDays}d`),
         cell(String(runs)),
     ]
 }
 
-function tableBlocks(heading, rows) {
-    if (rows.length === 0) {
+// Slack accepts one table block per message, so both kinds share a table.
+function sections(items) {
+    if (items.length === 0) {
         return []
     }
     return [
-        { type: 'section', text: { type: 'mrkdwn', text: heading } },
+        {
+            type: 'section',
+            text: {
+                type: 'mrkdwn',
+                text: `*Quarantined for ${WINDOW_DAYS}+ days.* "ran clean": ${MIN_RUNS}+ runs and no failure, so remove the override or check why the flaky status has not resolved. "did not run": the test may be deleted, skipped or renamed.`,
+            },
+        },
         {
             type: 'table',
-            column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'right' }],
-            rows: [[cell('test'), cell('quarantined'), cell(`runs, ${WINDOW_DAYS}d`)], ...rows],
+            column_settings: [{ align: 'left' }, { align: 'left' }, { align: 'right' }, { align: 'right' }],
+            rows: [
+                [cell('test'), cell('status'), cell('quarantined'), cell(`runs, ${WINDOW_DAYS}d`)],
+                ...items.map(rowFor),
+            ],
         },
-    ]
-}
-
-function sections(items) {
-    const rowsOf = (kind) => items.filter((item) => item.kind === kind).map(rowFor)
-    return [
-        ...tableBlocks(
-            `*Quarantined, ran ${MIN_RUNS}+ times in ${WINDOW_DAYS} days with no failure.* Remove the override, or check why the flaky status has not resolved.`,
-            rowsOf('passing')
-        ),
-        ...tableBlocks(
-            `*Quarantined, did not run in ${WINDOW_DAYS} days.* The test may be deleted, skipped or renamed.`,
-            rowsOf('notRunning')
-        ),
     ]
 }
 
@@ -160,11 +157,9 @@ const teamReport = {
     threadSliceBlocks: (team, reason) => [
         {
             type: 'section',
-            text: {
-                type: 'mrkdwn',
-                text: `${reason} ${team.channel}: ${team.rows.length} stale quarantine(s) for ${teamLabel(team.owner)}`,
-            },
+            text: { type: 'mrkdwn', text: `*${teamLabel(team.owner)}* _(${reason} ${team.channel})_` },
         },
+        ...sections(team.rows),
     ],
 }
 

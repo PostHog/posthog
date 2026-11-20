@@ -31,7 +31,8 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        # One Trunk page can take 3 x 150s aborts plus 2 x 30s backoffs, about 8.5 minutes.
+        timeout-minutes: 15
         # Manual dispatch is master-only so branch-controlled code cannot run with the secrets.
         if: >-
             github.repository == 'PostHog/posthog' &&
@@ -69,7 +70,7 @@ jobs:
 
             # Nobody watches a scheduled run, and a broken report looks the same as nothing being stale.
             - name: Notify Slack on report failure
-              if: failure() && github.event_name == 'schedule'
+              if: (failure() || cancelled()) && github.event_name == 'schedule'
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
