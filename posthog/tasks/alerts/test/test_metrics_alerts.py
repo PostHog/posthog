@@ -1,9 +1,12 @@
 import datetime as dt
 from typing import Any, Optional
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import dateutil.parser
 from parameterized import parameterized
@@ -17,6 +20,8 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.alerts.metrics_investigation import MAX_SUMMARY_LENGTH
 from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
+from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.metrics.backend.facade.contracts import (
     InvestigationEvidence,
@@ -93,8 +98,9 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         formula: Optional[str] = None,
         date_range: Optional[dict[str, str]] = None,
         sql: Optional[str] = None,
+        promql: Optional[str] = None,
     ) -> dict:
-        if sql is not None:
+        if sql is not None or promql is not None:
             clauses = []
         elif clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
@@ -108,6 +114,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             query_dict["dateRange"] = date_range
         if sql is not None:
             query_dict.update(language="sql", sql=sql)
+        if promql is not None:
+            query_dict.update(language="promql", promql=promql)
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -238,6 +246,24 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
         breach_messages = mock_send_breaches.call_args.args[1]
         assert any(stopped_metric in message for message in breach_messages), breach_messages
+
+    @override_settings(SNUFFLE_METRICS_URL="", SNUFFLE_APM_URL="")
+    @patch(
+        "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled", return_value=True
+    )
+    def test_promql_alert_without_snuffle_is_unavailable_data_not_a_failure(
+        self,
+        _mock_runner_flags: MagicMock,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+    ) -> None:
+        # A deployment with no Snuffle can't run PromQL. That is config, not a broken alert, so the check
+        # must raise the error evaluate_alert records without capturing an exception or disabling the alert.
+        alert = self.create_alert(self.create_metrics_insight(promql=f"avg({self.metric_name})"), upper=20.0)
+
+        with pytest.raises(AlertDataUnavailableError, match="PromQL queries are not available"):
+            check_alert_for_insight(AlertConfiguration.objects.get(pk=alert["id"]))
 
     def test_group_by_fires_on_any_breaching_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
