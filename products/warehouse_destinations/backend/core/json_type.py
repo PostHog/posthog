@@ -33,6 +33,12 @@ def load_json(value: str | None) -> typing.Any:
     if not value:
         return None
 
+    # A valid document parses as is. The repairs below would break its structural whitespace.
+    try:
+        return orjson.loads(value.encode("utf-8", "replace"))
+    except orjson.JSONDecodeError:
+        pass
+
     if re.search("([\t\n\r\f\v])", value):
         value = value.encode("unicode-escape").decode("utf-8")
 

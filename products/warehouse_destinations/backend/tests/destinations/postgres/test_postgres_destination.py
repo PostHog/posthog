@@ -968,15 +968,18 @@ async def test_json_and_text_values_round_trip(postgres_config, pg, schema, json
     properties = {"nested": {"a": [1, 2]}, "quote": 'say "hi"', "tab": "a\tb", "null": "\u0000"}
     # Postgres refuses an empty text and a raw newline inside a JSON string as JSON input.
     unescaped_newline = '{"line": "a\nb"}'
+    # Valid JSON keeps its structure and exact numbers: a float would round the big integer.
+    formatted = '{\n\t"n": 18446744073709551617,\n\t"list": [\n1,\n2\n]\n}'
+    formatted_array = "[\n1,\n2\n]"
     batch = pa.RecordBatch.from_arrays(
         [
-            pa.array([1, 2, 3, 4]),
+            pa.array([1, 2, 3, 4, 5, 6]),
             pa.ExtensionArray.from_storage(
                 typing.cast(pa.BaseExtensionType, json_type),
-                pa.array([json.dumps(properties), None, "", unescaped_newline]),
+                pa.array([json.dumps(properties), None, "", unescaped_newline, formatted, formatted_array]),
             ),
-            pa.array([["a", "{b}"], [], None, None], type=pa.list_(pa.string())),
-            pa.array(['line\nbreak\t"quoted"', "", None, None]),
+            pa.array([["a", "{b}"], [], None, None, None, None], type=pa.list_(pa.string())),
+            pa.array(['line\nbreak\t"quoted"', "", None, None, None, None]),
         ],
         schema=arrow_schema,
     )
@@ -989,6 +992,8 @@ async def test_json_and_text_values_round_trip(postgres_config, pg, schema, json
         (2, None, [], ""),
         (3, None, None, None),
         (4, {"line": "a\nb"}, None, None),
+        (5, {"n": 18446744073709551617, "list": [1, 2]}, None, None),
+        (6, [1, 2], None, None),
     ]
 
 

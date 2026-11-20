@@ -166,9 +166,20 @@ def _to_json_text(value: typing.Any, *, from_map: bool) -> str | None:
 
 
 def _normalize_json_text(value: str | None) -> str | None:
-    """Repair a JSON text with `load_json`, then encode it again, so that Postgres accepts it."""
+    """Return a JSON text that Postgres accepts.
+
+    A valid text goes through unchanged, so Postgres keeps numbers a Python float cannot hold. Any
+    other text is repaired with `load_json` and encoded again.
+    """
     if value is None:
         return None
+    if value:
+        try:
+            orjson.loads(value.encode("utf-8", "replace"))
+        except orjson.JSONDecodeError:
+            pass
+        else:
+            return value
     decoded = load_json(value)
     if decoded is None:
         # An empty text has no JSON value. The text "null" is the JSON null.
