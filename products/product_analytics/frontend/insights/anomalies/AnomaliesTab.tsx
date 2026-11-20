@@ -74,6 +74,14 @@ export function AnomaliesTab(): JSX.Element {
                             {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, flags are less reliable.`}
                         </LemonBanner>
                     )}
+                    {anomalies.series_capped && (
+                        <div data-attr="anomalies-tab-series-capped">
+                            <LemonBanner type="warning">
+                                This search found more series than it can read at once, so some anomalies may be
+                                missing. Narrow the date range or the filters to see them all.
+                            </LemonBanner>
+                        </div>
+                    )}
                     <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
                         <span>
                             {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
