@@ -2076,6 +2076,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("failed",),
             ("access_revoked",),
             ("cancel_after_store",),
+            ("cancel_cache_get",),
+            ("cancel_cache_set",),
             ("cancel_old_connection",),
             ("poll_timeout",),
             ("poll_503",),
@@ -2206,10 +2208,20 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
             with self.captureOnCommitCallbacks(execute=True):
                 complete_codex_login(self.user.id, login_id)
-                if outcome in ("cancel_after_store", "cancel_old_connection"):
+                if outcome in ("cancel_after_store", "cancel_old_connection", "cancel_cache_get", "cancel_cache_set"):
                     assert get_login(self.user.id, login_id)["status"] == "pending"
                     if outcome == "cancel_old_connection":
                         self._connect()
+                    if outcome.startswith("cancel_cache_"):
+                        with patch.object(
+                            caches["codex_login"],
+                            outcome.removeprefix("cancel_cache_"),
+                            side_effect=RedisError("Unavailable"),
+                        ):
+                            failed_cancel = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                            assert failed_cancel.status_code == 500
+                        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+                        assert not any(url.endswith("/revoke") for url in requests_seen)
                     response = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
                     assert response.status_code == 204
                     assert not any(event.get("event") == "codex subscription disconnected" for event in events)
@@ -2218,7 +2230,9 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
 
         assert [
             event["distinct_id"] for event in events if event.get("event") == "codex subscription disconnected"
-        ] == ([self.user.distinct_id] if outcome == "cancel_after_store" else [])
+        ] == (
+            [self.user.distinct_id] if outcome in ("cancel_after_store", "cancel_cache_get", "cancel_cache_set") else []
+        )
         connected = outcome in (
             "success",
             "cancel_old_connection",
@@ -2244,6 +2258,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "failed": "failed",
                 "access_revoked": "failed",
                 "cancel_after_store": "canceled",
+                "cancel_cache_get": "canceled",
+                "cancel_cache_set": "canceled",
                 "cancel_old_connection": "expired",
                 "poll_timeout": "connected",
                 "poll_503": "connected",

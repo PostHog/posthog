@@ -81,6 +81,12 @@ def start_login(user_id: int, login_id: str) -> CodexLogin:
 def cancel_login(user_id: int, login_id: str) -> None:
     with transaction.atomic():
         CodexUserIntegration._lock_user(user_id)
+        if get_login(user_id, login_id)["status"] != "expired":
+            caches["codex_login"].set(
+                login_key(user_id),
+                {"login_id": login_id, "status": "canceled", "user_code": None},
+                timeout=LOGIN_TIMEOUT,
+            )
         integration = CodexUserIntegration.for_user(user_id)
         if integration and integration.integration.config.get("device_login_id") == login_id:
             user = integration.integration.user
@@ -88,12 +94,6 @@ def cancel_login(user_id: int, login_id: str) -> None:
             transaction.on_commit(
                 lambda: report_user_action(user, "codex subscription disconnected", {"method": "device_code"}),
                 robust=True,
-            )
-        if get_login(user_id, login_id)["status"] != "expired":
-            caches["codex_login"].set(
-                login_key(user_id),
-                {"login_id": login_id, "status": "canceled", "user_code": None},
-                timeout=LOGIN_TIMEOUT,
             )
 
 
