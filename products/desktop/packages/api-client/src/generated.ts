@@ -6704,6 +6704,7 @@ export namespace Schemas {
         interval: IntervalTypeEnum | NullEnum;
         compareFilter: CompareFilter | null;
         filterTestAccounts: boolean | null;
+        metricVariables: Array<MetricsDashboardVariable> | null;
     }>;
     export type _DashboardPatchTileLayoutBoxOpenApi = {
         /**
