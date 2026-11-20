@@ -133,12 +133,14 @@ _JS_INFINITY = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.
 
 
 def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
-    target_hosts = set(_hosts_in(_request_targets(content)))
+    url_inputs = _template_url_inputs(content)
+    target_hosts = set(_hosts_in(_request_targets(content, url_inputs)))
     hosts = target_hosts | set(_hosts_in(_texts(content)))
+    reference_hosts = target_hosts | set(_hosts_in(_texts(content, url_inputs)))
     matched = set()
     if any(_is_internal(host) for host in target_hosts):
         matched.add(Rule.INTERNAL_HOST)
-    elif any(_is_internal(host) for host in hosts):
+    elif any(_is_internal(host) for host in reference_hosts):
         matched.add(Rule.INTERNAL_HOST_REFERENCE)
     if any(_is_request_catcher(host) for host in hosts):
         matched.add(Rule.REQUEST_CATCHER)
@@ -529,11 +531,168 @@ def _to_float(number: int | float) -> float:
         return math.inf if number > 0 else -math.inf
 
 
-def _all_inputs(content: HogFunctionContent) -> Iterator[JsonValue]:
-    yield from content.inputs.values()
-    for mapping in content.mappings:
-        if isinstance(mapping, dict) and isinstance(inputs := mapping.get("inputs"), dict):
-            yield from inputs.values()
+def _all_inputs(content: HogFunctionContent, keys: frozenset[str] | None = None) -> Iterator[JsonValue]:
+    """Every input value, or only the values under `keys`. A mapping's inputs share keys with the function's,
+    because the runtime merges them into one `inputs` global."""
+    for inputs in (
+        content.inputs,
+        *(mapping.get("inputs") for mapping in content.mappings if isinstance(mapping, dict)),
+    ):
+        if isinstance(inputs, dict):
+            yield from (value for key, value in inputs.items() if keys is None or key in keys)
+
+
+def _template_url_inputs(content: HogFunctionContent) -> frozenset[str] | None:
+    """The input keys that can reach the URL of a `fetch` call in unedited template code, or None when any input
+    could. A stock template can put an input only in a request body, such as a Slack button link, so a local URL
+    there is message content and never a request target. Edited and custom code is never traced, because the tracer
+    does not follow every path a value can take, such as a dict changed through a second name, and a customer can
+    write code that takes one."""
+    if content.type != "destination" or content.code_modified_from_template is not False:
+        return None
+    try:
+        keys = _url_inputs_of(_parse_code(content.hog))
+    except Exception:
+        # A parse error, a tree too deep to walk, or code the tracer cannot follow.
+        return None
+    # The runtime renders the inputs in order, and a template in one input can read the inputs before it, so a URL
+    # input that names `inputs` could carry the host of any other input.
+    if any("inputs" in text for text in _strings(list(_all_inputs(content, keys)))):
+        return None
+    return keys
+
+
+# The globals a destination reads besides `inputs`. None of them holds an input value.
+_HOG_GLOBALS = frozenset({"event", "person", "project", "source", "groups", "context", "variables"})
+
+
+class _Untraceable(Exception):
+    pass
+
+
+def _url_inputs_of(program: ast.AST) -> frozenset[str]:
+    code = _RequestCodeVisitor()
+    code.visit(program)
+    tracer = _UrlInputTracer(code)
+    for url in code.fetch_urls:
+        tracer.visit(url)
+    return frozenset(tracer.keys)
+
+
+class _RequestCodeVisitor(TraversingVisitor):
+    """Collects the first argument of each `fetch` call and every value each variable name is given, ignoring
+    scope, so a name stands for the union of all the values that any variable of that name can hold. Raises
+    `_Untraceable` when a request target cannot be found this way: a `fetch` inside a function or lambda, where
+    the URL can come from a parameter, or `fetch` passed around as a value."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fetch_urls: list[ast.Expr] = []
+        self.values: dict[str, list[ast.Expr]] = {}
+        self.functions: set[str] = set()
+        self._function_depth = 0
+
+    def _assign(self, name: str, value: ast.Expr) -> None:
+        self.values.setdefault(name, []).append(value)
+
+    def visit_function(self, node: ast.Function) -> None:
+        self.functions.add(node.name)
+        self._function_depth += 1
+        try:
+            super().visit_function(node)
+        finally:
+            self._function_depth -= 1
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._function_depth += 1
+        try:
+            super().visit_lambda(node)
+        finally:
+            self._function_depth -= 1
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        super().visit_variable_declaration(node)
+        if node.expr is not None:
+            self._assign(node.name, node.expr)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        super().visit_variable_assignment(node)
+        # `body['url'] := inputs.url` changes what `body` holds, so the value counts for the base name.
+        name = _base_name(node.left)
+        if name is None:
+            raise _Untraceable
+        self._assign(name, node.right)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        super().visit_for_in_statement(node)
+        for name in (node.valueVar, node.keyVar):
+            if name:
+                self._assign(name, node.expr)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if node.name != "fetch":
+            return
+        if self._function_depth:
+            raise _Untraceable
+        if node.args:
+            self.fetch_urls.append(node.args[0])
+
+    def visit_field(self, node: ast.Field) -> None:
+        super().visit_field(node)
+        if node.chain[0] == "fetch":
+            raise _Untraceable
+
+
+class _UrlInputTracer(TraversingVisitor):
+    """Collects the input keys that an expression can read, following each variable to every value it is given.
+    Raises `_Untraceable` for anything that could read an input it cannot name: all of `inputs`, an input key
+    computed at runtime, a name that is neither a variable nor a global, or a call to a function the code declares."""
+
+    def __init__(self, code: _RequestCodeVisitor) -> None:
+        super().__init__()
+        self.keys: set[str] = set()
+        self._code = code
+        self._followed: set[str] = set()
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        if not _is_all_inputs(node.array):
+            super().visit_array_access(node)
+        elif isinstance(node.property, ast.Constant) and isinstance(node.property.value, str):
+            self.keys.add(node.property.value)
+        else:
+            raise _Untraceable
+
+    def visit_field(self, node: ast.Field) -> None:
+        name, *path = node.chain
+        if name == "inputs":
+            if not path or not isinstance(path[0], str):
+                raise _Untraceable
+            self.keys.add(path[0])
+        elif name in self._code.values:
+            if name not in self._followed:
+                self._followed.add(name)
+                for value in self._code.values[name]:
+                    self.visit(value)
+        elif name not in _HOG_GLOBALS:
+            raise _Untraceable
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name in self._code.functions or node.name in self._code.values:
+            raise _Untraceable
+        super().visit_call(node)
+
+
+def _is_all_inputs(node: ast.Expr) -> bool:
+    return isinstance(node, ast.Field) and node.chain == ["inputs"]
+
+
+def _base_name(node: ast.Expr) -> str | None:
+    while isinstance(node, ast.ArrayAccess | ast.TupleAccess):
+        node = node.array if isinstance(node, ast.ArrayAccess) else node.tuple
+    if isinstance(node, ast.Field) and isinstance(node.chain[0], str):
+        return node.chain[0]
+    return None
 
 
 def _input_values(content: HogFunctionContent) -> Iterator[JsonValue]:
@@ -542,19 +701,19 @@ def _input_values(content: HogFunctionContent) -> Iterator[JsonValue]:
             yield entry.get("value")
 
 
-def _request_targets(content: HogFunctionContent) -> Iterator[str]:
+def _request_targets(content: HogFunctionContent, url_inputs: frozenset[str] | None) -> Iterator[str]:
     """The strings a destination sends a request to. A transformation runs without network access."""
     if content.type != "destination":
         return
-    yield from _strings(list(_all_inputs(content)))
+    yield from _strings(list(_all_inputs(content, url_inputs)))
     yield from (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(content.hog))
 
 
-def _texts(content: HogFunctionContent) -> Iterator[str]:
+def _texts(content: HogFunctionContent, input_keys: frozenset[str] | None = None) -> Iterator[str]:
     """The strings that run or reach a request. Filters are left out, because they only match events, and an
     event filter on a local `$current_url` is ordinary."""
     yield content.hog
-    yield from _strings(list(_all_inputs(content)))
+    yield from _strings(list(_all_inputs(content, input_keys)))
     yield from _strings(content.masking)
 
 
