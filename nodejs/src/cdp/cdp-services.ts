@@ -2,7 +2,7 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisOptions, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -331,6 +331,28 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
+// RedisV2 rethrows a pool error, such as an acquire timeout, even for a caller that passes failOpen.
+// The shadow pools fail to acquire for as long as Valkey is down, so they extend failOpen to those
+// errors. Otherwise a fire-and-forget failOpen call, such as the push service's key write, rejects
+// with no handler, and the process stops on the unhandled rejection.
+function failOpenOnPoolErrors(pool: RedisV2): RedisV2 {
+    const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
+        try {
+            return await call()
+        } catch (error) {
+            if (!options.failOpen) {
+                throw error
+            }
+            logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
+            return null
+        }
+    }
+    return {
+        useClient: (options, callback) => failOpen(options, () => pool.useClient(options, callback)),
+        usePipeline: (options, callback) => failOpen(options, () => pool.usePipeline(options, callback)),
+    }
+}
+
 /**
  * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
  * Throws when CDP_VALKEY_HOST is unset: a CDP process that cannot reach Valkey is
@@ -373,66 +395,57 @@ export function createCdpValkeyShadowPools(
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
 
-    const writer = createRedisV2PoolFromConfig({
-        connection: {
-            url: config.CDP_VALKEY_HOST,
-            options: {
-                port: config.CDP_VALKEY_PORT,
-                password: config.CDP_VALKEY_PASSWORD,
-                commandTimeout: shadowCommandTimeoutMs,
-                tls,
-            },
-            name: `${name}-shadow`,
-            exitOnRepeatedErrors: false,
-        },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        acquireTimeoutMillis: shadowCommandTimeoutMs,
-    })
-
     // The config is required, but reachability is not fatal: features not named in
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
-    // CDP down, at boot or later. Both pools use non-fatal clients for that reason. Features
-    // that have moved over surface it as failing reads instead.
-    void writer
-        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
-        .catch((err) => {
-            logger.error(
-                '🪞',
-                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
-                { err }
-            )
-        })
-
-    let reader: RedisV2 = writer
-    if (config.CDP_VALKEY_READER_HOST) {
-        reader = createRedisV2PoolFromConfig({
-            connection: {
-                url: config.CDP_VALKEY_READER_HOST,
-                options: {
-                    port: config.CDP_VALKEY_READER_PORT,
-                    password: config.CDP_VALKEY_PASSWORD,
-                    commandTimeout: shadowCommandTimeoutMs,
-                    tls,
+    // CDP down, at boot or later. Features that have moved over surface it as failing reads.
+    // A command issued while the connection is down fails at once instead of waiting in the
+    // offline queue, and a command in flight when it drops is not sent again on reconnect.
+    // Either one would replay a write that the caller already counted as failed, for example
+    // a watcher state or a masker counter, over the newer value written to Redis since.
+    const createShadowPool = (host: string, port: number, poolName: string, role: string): RedisV2 => {
+        const pool = failOpenOnPoolErrors(
+            createRedisV2PoolFromConfig({
+                connection: {
+                    url: host,
+                    options: {
+                        port,
+                        password: config.CDP_VALKEY_PASSWORD,
+                        commandTimeout: shadowCommandTimeoutMs,
+                        enableOfflineQueue: false,
+                        autoResendUnfulfilledCommands: false,
+                        tls,
+                    },
+                    name: poolName,
+                    exitOnRepeatedErrors: false,
                 },
-                name: `${name}-shadow-reader`,
-                exitOnRepeatedErrors: false,
-            },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-            acquireTimeoutMillis: shadowCommandTimeoutMs,
-        })
+                poolMinSize: config.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+                acquireTimeoutMillis: shadowCommandTimeoutMs,
+                discardStalledClients: true,
+            })
+        )
 
-        void reader
+        void pool
             .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🪞',
-                    `[${name}] shadow reader at ${config.CDP_VALKEY_READER_HOST}:${config.CDP_VALKEY_READER_PORT} failed startup health check`,
+                    `[${name}] shadow ${role} at ${host}:${port} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
                     { err }
                 )
             })
+        return pool
     }
+
+    const writer = createShadowPool(config.CDP_VALKEY_HOST, config.CDP_VALKEY_PORT, `${name}-shadow`, 'writer')
+    const reader = config.CDP_VALKEY_READER_HOST
+        ? createShadowPool(
+              config.CDP_VALKEY_READER_HOST,
+              config.CDP_VALKEY_READER_PORT,
+              `${name}-shadow-reader`,
+              'reader'
+          )
+        : writer
 
     return { writer, reader }
 }
