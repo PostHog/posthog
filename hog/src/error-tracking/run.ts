@@ -647,7 +647,7 @@ async function uploadArtifacts(
         reported.id = release.id
         return release.id
     }
-    const collect = (releaseId?: string): JsEntry[] => {
+    const collectEntries = (releaseId?: string): JsEntry[] => {
         const collected: JsEntry[] = []
         for (const owned of pairs(skipped, 'take')) {
             collected.push(jsEntry(owned, { ...entryOptions, releaseId }))
@@ -677,9 +677,9 @@ async function uploadArtifacts(
             ? some(pairs([], 'read'), () => true)
             : some(pairs([], 'read'), ({ pair }) => isUploadable(pair) && pair.map.releaseId === null)
         stampedRelease = await jsRelease(needed)
-        entries = collect(stampedRelease)
+        entries = collectEntries(stampedRelease)
     } else {
-        entries = collect()
+        entries = collectEntries()
         await reportJsRelease(entries)
     }
     const uploadable = entries.filter((entry) => entry.uploadable)

@@ -20,15 +20,20 @@ const UNIX_FILE_0644 = 0x81a40000
 const UTF8_NAME = 0x0800
 
 const DEFLATE_OPTIONS = { raw: true, level: 6, windowBits: 15, memLevel: 8, strategy: 0 } as const
-const DEFLATE_CHUNK_SIZE = 1024 * 1024
+const MAX_DEFLATE_CHUNK_SIZE = 1024 * 1024
+const MIN_DEFLATE_CHUNK_SIZE = 1024
 
 export const crc32 = (bytes: Uint8Array): number => zlibCrc32(bytes)
 
 function deflateChunks(data: Uint8Array): Uint8Array[] {
     const chunks: Uint8Array[] = []
-    const deflater = new Deflate({ ...DEFLATE_OPTIONS, chunkSize: DEFLATE_CHUNK_SIZE })
-    deflater.onData = (chunk) => {
-        chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk))
+    // pako allocates a buffer of this size for every call, so a small file gets a small one.
+    const chunkSize = Math.min(MAX_DEFLATE_CHUNK_SIZE, Math.max(MIN_DEFLATE_CHUNK_SIZE, data.length))
+    const deflater = new Deflate({ ...DEFLATE_OPTIONS, chunkSize })
+    deflater.onData = (data) => {
+        const chunk = data instanceof Uint8Array ? data : new Uint8Array(data)
+        // A chunk that isn't full is a view of the whole buffer, and keeping it would keep all of it.
+        chunks.push(chunk.length < chunkSize ? chunk.slice() : chunk)
     }
     deflater.onEnd = () => {}
 

@@ -419,6 +419,8 @@ export interface JsonSink {
 }
 
 const UTF8_CHUNK_SIZE = 1024 * 1024
+// A writer often holds one short value, so it starts small and takes full chunks once that is full.
+const FIRST_UTF8_CHUNK_SIZE = 4096
 const SHORT_STRING_LENGTH = 64
 const MAX_UTF8_BYTES_PER_CODE_UNIT = 3
 const utf8Encoder = new TextEncoder()
@@ -426,7 +428,7 @@ const utf8Encoder = new TextEncoder()
 // A joined string costs two bytes per character once one character is outside Latin-1.
 export class Utf8Writer implements JsonSink {
     private readonly full: Buffer[] = []
-    private current = Buffer.allocUnsafe(UTF8_CHUNK_SIZE)
+    private current = Buffer.allocUnsafe(FIRST_UTF8_CHUNK_SIZE)
     private used = 0
 
     push(...pieces: string[]): void {
@@ -461,7 +463,7 @@ export class Utf8Writer implements JsonSink {
 
     finish(): Buffer[] {
         const last = this.current.subarray(0, this.used)
-        return [...this.full, this.used < UTF8_CHUNK_SIZE / 2 ? Buffer.from(last) : last]
+        return [...this.full, this.used < this.current.length / 2 ? Buffer.from(last) : last]
     }
 }
 
