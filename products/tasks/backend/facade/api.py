@@ -3702,6 +3702,7 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
+    from products.tasks.backend.logic.services.compute_quota import organization_deactivated  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.activities.post_slack_update import (  # noqa: PLC0415 — keep temporalio off the api import path
         PostSlackUpdateInput,
         post_slack_update,
@@ -3712,7 +3713,8 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
             notify_implementation_prs_opened,
         )
 
-        notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
+        if not organization_deactivated(run.team_id):
+            notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
