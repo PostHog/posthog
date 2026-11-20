@@ -308,6 +308,7 @@ jobs:
                       timing_scripts
                       tasks_temporal
                       repo_invariants
+                      hoglint
                       sdk_manifests
                       product_yamls
                       openapi_types
