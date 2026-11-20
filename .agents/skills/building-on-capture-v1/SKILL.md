@@ -96,7 +96,7 @@ This applies to the legacy handlers and to the v1 handlers.
 - Capture request handlers and processing code must not deserialize `event.properties`, read a value from it or write a value into it.
 - The v1 endpoints (`/i/v1/*`) must not gain a new use of `event.properties`. A value capture must read, act on or change is an option: see [Choose an option or a property](#choose-an-option-or-a-property).
 - Only the ingestion processors that consume the events capture publishes read or change `event.properties`.
-- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties and the v1 legacy property splice. Do not copy them or add to them.
+- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties. Do not copy them or add to them.
 
 ## Rules for every capture change
 
