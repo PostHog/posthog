@@ -10818,6 +10818,23 @@
             "readOnlyHint": true
         }
     },
+    "llma-offline-experiment-item-payload-update": {
+        "description": "Update fields in an item's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item payload",
+        "title": "Update offline experiment item payload",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-offline-experiment-item-result-list": {
         "description": "List a single item's results with their exact immutable scorer configurations. Optionally filter by scorer definition or version UUIDs. Execution status ok can still be a failing score under the pinned passing rule. Reasoning is available separately through result-payload-get. Preserve count and next_cursor and keep filters unchanged when paging.",
         "category": "AI observability",
@@ -10833,6 +10850,23 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-item-update": {
+        "description": "Edit an offline item's case, trial, model, or trace reference.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item",
+        "title": "Update offline experiment item",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-list": {
@@ -10880,6 +10914,40 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-result-payload-update": {
+        "description": "Update fields in a result's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result payload",
+        "title": "Update offline experiment result payload",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-offline-experiment-result-update": {
+        "description": "Update a reported score. The server recalculates its existing composite results.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result",
+        "title": "Update offline experiment result",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-scorer-summary-list": {
@@ -16001,8 +16069,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-settings-update": {
         "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates replaces the whole mapping, so include every type to keep. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the setting-up-supabase-auth-emails skill before you set up or change the connection.",
@@ -16017,8 +16084,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "supabase-auth-emails-starter-templates-create": {
         "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up the connection.",
@@ -16033,8 +16099,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-supabase-auth-emails"
+        }
     },
     "suppressions-add": {
         "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. An address that already has an entry keeps it. A bounce also makes that entry block transactional email, unless someone removed it from the list. Repeating a call is safe.",

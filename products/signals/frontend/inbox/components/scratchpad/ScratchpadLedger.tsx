@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
+import { useInboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { PIPELINE_WRITER_PREFIX, isPipelineWriter, stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, scratchpadKindOf, scratchpadReportIdOf } from '../../utils/scratchpadKeys'
 
@@ -141,12 +142,13 @@ function KeyCell({
     entry: ScratchpadEntryApi
     reportTitles: Record<string, string | null>
 }): JSX.Element {
+    const reportUrl = useInboxReportDetailUrl()
     const reportId = scratchpadReportIdOf(entry.key)
     if (reportId) {
         const title = reportTitles[reportId]
         return (
             <Tooltip title={entry.key}>
-                <Link to={urls.inboxReport('reports', reportId)} subtle className="truncate text-xs">
+                <Link to={reportUrl(reportId)} subtle className="truncate text-xs">
                     {/* Enough of the UUID to tell two apart while the title is loading, or gone. */}
                     Report: {title || reportId.slice(0, 8)}
                 </Link>
