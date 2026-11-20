@@ -8,7 +8,6 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
 import {
     DEFAULT_MAX_RESPONSE_TOKENS,
     RESPONSE_BUDGET_KEY,
@@ -242,13 +241,18 @@ describe('boundText', () => {
         expect(bounded.body_next_offset).toBe(start + [...bounded.body].length)
     })
 
-    it('leaves text inside a field as written, even where it looks like a TOON header', () => {
-        const notes = `steps[9000]:\n${'  - a step the customer wrote\n'.repeat(3_000)}`
+    it.each([
+        ['a field', true],
+        ['a whole text result', false],
+    ])('leaves text in %s as written, even where it looks like a TOON header', (_, inField) => {
+        const notes = `steps[9000]:\n${'  - a step the vendor wrote\n'.repeat(3_000)}`
         const value = { notes }
 
-        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+        const bounded = inField
+            ? JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))).notes
+            : boundText(notes, BUDGET)
 
-        expect(bounded.notes.startsWith('steps[9000]:\n')).toBe(true)
+        expect(bounded).toContain('steps[9000]:\n')
     })
 
     it('counts a next offset in bytes when the pager reports no total length', () => {
@@ -267,16 +271,6 @@ describe('boundText', () => {
 
         expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
         expect(JSON.parse(bounded)).toContain('line of schema\nline of schema')
-    })
-
-    it.each([
-        ['tabular rows', rows(1_000), /^ {2}\d+,row-\d+,x+$/],
-        ['list items', rows(1_000).map((row) => ({ ...row, tags: ['a', 'b'] })), /^ {2}- id: \d+$/],
-    ])('makes each TOON array header it cuts count the %s it keeps', (_, results, item) => {
-        const bounded = boundText(formatResponse({ results }), BUDGET)
-
-        const declared = Number(/results\[(\d+)\]/.exec(bounded)![1])
-        expect(bounded.split('\n').filter((line) => item.test(line))).toHaveLength(declared)
     })
 })
 

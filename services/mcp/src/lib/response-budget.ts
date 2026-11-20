@@ -89,38 +89,12 @@ function prefixWithinBytes(text: string, maxBytes: number): string {
     return last >= 0xd800 && last <= 0xdbff ? text.slice(0, end - 1) : text.slice(0, end)
 }
 
-const TOON_BLOCK_ARRAY_HEADER = /^( *)(- )?([^\s[]*)\[(\d+)\](\{[^}]*\})?:$/
-
-function indentOf(line: string): number {
-    return line.length - line.trimStart().length
+/** Lines are never rewritten: the clip cannot tell a tool's own TOON from text that only looks like it. */
+function linesKept(kept: number, total: number): string {
+    return `kept ${kept} of ${total} lines, so any [N] count still describes the full result`
 }
 
-/** A TOON block array declares its length, so each array the clip cut must declare the items it kept. */
-function recountToonArrays(lines: string[]): string[] {
-    return lines.map((line, index) => {
-        const header = TOON_BLOCK_ARRAY_HEADER.exec(line)
-        const next = lines[index + 1]
-        if (!header || next === undefined || indentOf(next) <= indentOf(line)) {
-            return line
-        }
-        const itemIndent = indentOf(next)
-        let items = 0
-        for (let childIndex = index + 1; childIndex < lines.length; childIndex++) {
-            const child = lines[childIndex]!
-            const indent = indentOf(child)
-            if (indent < itemIndent) {
-                break
-            }
-            if (indent === itemIndent && (header[5] !== undefined || child.trimStart().startsWith('- '))) {
-                items++
-            }
-        }
-        return items < Number(header[4]) ? line.replace(`[${header[4]}]`, `[${items}]`) : line
-    })
-}
-
-/** `wholeResult` marks a tool's serialized result, where a TOON header is real; text in a field may only look like one. */
-export function clipLines(text: string, maxBytes: number, wholeResult = false): { text: string; cut: string } {
+export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
     let prefix = ''
     let body = text
     let suffix = ''
@@ -159,14 +133,13 @@ export function clipLines(text: string, maxBytes: number, wholeResult = false): 
         kept.push(row)
         spent += cost
     }
-    let cut = `kept ${kept.length} of ${rows.length} lines`
+    let cut = linesKept(kept.length, rows.length)
     if (kept.length === 0 && rows.length > 0) {
         const marker = ' …[line cut]'
         kept.push(prefixWithinBytes(rows[0]!, Math.max(0, room - byteLength(marker))) + marker)
         cut = `kept the start of line 1 of ${rows.length}`
     }
-    const clipped = wholeResult && kept.length < rows.length ? recountToonArrays(kept) : kept
-    return { text: prefix + [...clipped, ...pointers].join('\n') + suffix, cut }
+    return { text: prefix + [...kept, ...pointers].join('\n') + suffix, cut }
 }
 
 const DROPPED = Symbol('dropped')
@@ -450,8 +423,9 @@ export function boundText(
     if (wrapped !== undefined) {
         return wrapped
     }
-    const notice = overflowNotice(fullBytes, maxTokens, [])
-    const clipped = clipLines(text, maxBytes - byteLength(notice) - 2 - 64, true)
+    const lineCount = text.split('\n').length
+    const notice = overflowNotice(fullBytes, maxTokens, [linesKept(lineCount, lineCount)])
+    const clipped = clipLines(text, maxBytes - byteLength(notice) - 2)
     return `${overflowNotice(fullBytes, maxTokens, [clipped.cut])}\n\n${clipped.text}`
 }
 
