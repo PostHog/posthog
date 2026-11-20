@@ -35,4 +35,40 @@ describe('workflowLogic load errors', () => {
 
         expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
     })
+
+    it('loads a step template that the template list leaves out', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    id: 'push-workflow',
+                    name: 'Push',
+                    actions: [
+                        {
+                            id: 'push',
+                            type: 'function_push',
+                            config: { template_id: 'template-native-push', inputs: {} },
+                        },
+                    ],
+                },
+                '/api/projects/:team_id/hog_function_templates/': {
+                    results: [{ id: 'template-webhook', name: 'Webhook' }],
+                    count: 2,
+                },
+                '/api/projects/:team_id/hog_function_templates/template-native-push/': {
+                    id: 'template-native-push',
+                    name: 'Push notification',
+                },
+            },
+        })
+        initKeaTests()
+        const logic = workflowLogic({ id: 'push-workflow' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadMissingHogFunctionTemplatesSuccess'])
+
+        expect(Object.keys(logic.values.hogFunctionTemplatesById).sort()).toEqual([
+            'template-native-push',
+            'template-webhook',
+        ])
+    })
 })

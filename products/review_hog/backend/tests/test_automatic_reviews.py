@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import caches
 from django.http import HttpResponse
@@ -30,6 +30,7 @@ from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
     ReviewReport,
+    ReviewReportArtefact,
     ReviewRepository,
     ReviewRepositoryPerson,
     ReviewUserSettings,
@@ -37,8 +38,14 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
 from products.review_hog.backend.receivers import queue_stamphog_handoff
+from products.review_hog.backend.review_cadence import ReviewCadence
+from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
+from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
+from products.review_hog.backend.temporal.client import QueuedReviewModes, QueuedReviewRequest
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
+from products.stamphog.backend.facade.contracts import ApprovalGateCheck
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 
@@ -46,11 +53,14 @@ _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _HANDOFF_QUEUE = "products.review_hog.backend.tasks.process_stamphog_handoff.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _QUEUE_ROUTING = "products.review_hog.backend.automatic_reviews.queue_routing_after_external_review"
+_GATE_CHECK = "products.review_hog.backend.automatic_reviews.check_approval_gates"
+_QUEUED_MODES = "products.review_hog.backend.temporal.client.queued_review_modes"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
 _HEAD_STATUS = "products.review_hog.backend.stamphog_handoff.HeadReviewStatusLookup.status"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
+_MODE_METRIC = "posthog_review_hog_automatic_review_mode_total"
 _INSTALLATION_ID = "1234"
 _REPO_ID = 5001
 _REQUESTER_ID = 4242
@@ -59,6 +69,10 @@ _TEAM_REQUEST_QUEUE = "products.review_hog.backend.tasks.process_review_team_req
 
 def _dispatch_count(outcome: str) -> float:
     return REGISTRY.get_sample_value(_DISPATCH_METRIC, {"outcome": outcome}) or 0.0
+
+
+def _mode_count(review_mode: str, reason: str) -> float:
+    return REGISTRY.get_sample_value(_MODE_METRIC, {"review_mode": review_mode, "reason": reason}) or 0.0
 
 
 def _payload(
@@ -396,19 +410,34 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped", True),
             ("missing_installation", "installation_mismatch", True),
             ("full_review_published", "full_review_published", True),
+            ("automatically_reviewed", "follow_up_skipped", False),
+            ("ready_event_after_a_ready_review", "follow_up_skipped", True),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),
         ]
     )
+    @patch(_GATE_CHECK)
     @patch(_QUEUE_ROUTING)
     @patch(_START)
     def test_queued_events_recheck_ownership_consent_and_membership(
-        self, change: str, expected_outcome: str, expect_reported: bool, start: MagicMock, report: MagicMock
+        self,
+        change: str,
+        expected_outcome: str,
+        expect_reported: bool,
+        start: MagicMock,
+        report: MagicMock,
+        gate_check: MagicMock,
     ) -> None:
+        self.repository.deep_review_gated_prs = True
+        self.repository.save()
         queued = self._queued_event(
             draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
             labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
+            action={
+                "automatically_reviewed": "synchronize",
+                "ready_event_after_a_ready_review": "ready_for_review",
+            }.get(change, "opened"),
         )
         if change == "draft_with_drafts_off":
             self.repository.review_drafts = True
@@ -436,6 +465,16 @@ class TestAuthoredPRReviewTask(BaseTest):
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
             )
+        elif change in ("automatically_reviewed", "ready_event_after_a_ready_review"):
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="PostHog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                automatic_reviewed_head_sha="earlier-head",
+                automatic_reviewed_draft=False,
+            )
         elif change == "unmapped":
             self.github_identity.delete()
         outcome_before = _dispatch_count(expected_outcome)
@@ -443,6 +482,7 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**queued)
 
         start.assert_not_called()
+        gate_check.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
         if expect_reported:
             report.assert_called_once_with(
@@ -450,6 +490,161 @@ class TestAuthoredPRReviewTask(BaseTest):
             )
         else:
             report.assert_not_called()
+
+    def _report(self, **fields: object) -> ReviewReport:
+        return ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            **fields,
+        )
+
+    def _turn_marker(self, report: ReviewReport, review_mode: str) -> None:
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TurnMarkerArtefact(
+                head_sha="b" * 40,
+                run_index=1,
+                review_mode=review_mode,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                publishes=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    @parameterized.expand(
+        [
+            ("needs_human", "full", "needs_human", True),
+            ("gates_pass", "flash", "gates_pass", True),
+            ("gates_unknown", "flash", "gates_unknown", True),
+            ("draft", "flash", "draft", False),
+            ("switch_off", "flash", "switch_off", False),
+            ("head_already_reviewed", "flash", "head_already_reviewed", False),
+            ("deep_attempt_replaced_by_a_standard_attempt", "flash", "deep_turn_exists", False),
+            ("deep_turn_failed_before_it_started", "flash", "deep_turn_exists", False),
+            ("deep_request_running_before_its_marker", "flash", "deep_turn_exists", False),
+            ("requested_deep_review_waiting", "flash", "deep_turn_exists", False),
+            # This dispatch replaces the waiting automatic request, so the gates decide again for the new head.
+            ("automatic_deep_request_waiting", "full", "needs_human", True),
+            ("queue_unreadable", "flash", "deep_turn_unknown", False),
+        ]
+    )
+    @patch(_START)
+    def test_a_repository_switch_makes_the_automatic_review_deep_when_stamphog_needs_a_person(
+        self, setup: str, expected_mode: str, expected_reason: str, expect_checked: bool, start: MagicMock
+    ) -> None:
+        self.repository.deep_review_gated_prs = setup != "switch_off"
+        self.repository.review_drafts = setup == "draft"
+        # A head with its automatic review reaches the depth choice only when the cadence reviews pushes.
+        self.repository.review_pushes = setup == "head_already_reviewed"
+        self.repository.save()
+        queued = QueuedReviewModes()
+        if setup == "head_already_reviewed":
+            self._report(automatic_reviewed_head_sha=_HEAD_SHA)
+        elif setup == "deep_attempt_replaced_by_a_standard_attempt":
+            report = self._report()
+            self._turn_marker(report, "full")
+            self._turn_marker(report, "flash")
+        elif setup == "deep_turn_failed_before_it_started":
+            record_run_outcome(
+                self.team.id,
+                str(self._report().id),
+                stage="review",
+                outcome="failed",
+                reason="review_failed",
+                run_index=1,
+                review_mode="full",
+            )
+        elif setup == "deep_request_running_before_its_marker":
+            queued = QueuedReviewModes(active=(QueuedReviewRequest(review_mode="full", automatic=True),))
+        elif setup == "requested_deep_review_waiting":
+            queued = QueuedReviewModes(pending=(QueuedReviewRequest(review_mode="full", automatic=False),))
+        elif setup == "automatic_deep_request_waiting":
+            queued = QueuedReviewModes(pending=(QueuedReviewRequest(review_mode="full", automatic=True),))
+        answer = {
+            "needs_human": ApprovalGateCheck(needs_human=True, failed_gates=("size",)),
+            "automatic_deep_request_waiting": ApprovalGateCheck(needs_human=True, failed_gates=("deny-list", "tier")),
+            "gates_pass": ApprovalGateCheck(needs_human=False, failed_gates=()),
+        }.get(setup)
+        before = _mode_count(expected_mode, expected_reason)
+        event = self._queued_event(draft=setup == "draft")
+
+        with (
+            patch(_GATE_CHECK, return_value=answer) as gate_check,
+            patch(
+                _QUEUED_MODES,
+                side_effect=RuntimeError("Temporal did not answer") if setup == "queue_unreadable" else None,
+                return_value=queued,
+            ),
+            patch(_QUEUE_ROUTING) as report_to_stamphog,
+        ):
+            process_authored_pr_event.run(**event)
+
+        start.assert_called_once_with(
+            **{
+                **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=setup != "draft"),
+                "review_mode": expected_mode,
+            }
+        )
+        if expect_checked:
+            gate_check.assert_called_once_with(
+                team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA
+            )
+        else:
+            gate_check.assert_not_called()
+        assert _mode_count(expected_mode, expected_reason) - before == 1.0
+        # A Deep turn starts no silent stamphog review, so stamphog routes the ready head now instead of after the turn.
+        reported = [call(team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA)]
+        assert report_to_stamphog.call_args_list == (reported if expected_mode == "full" else [])
+
+    @parameterized.expand(
+        [
+            ("push_in_a_repository_that_reviews_pushes", "synchronize", True),
+            ("ready_event_after_a_draft_review", "ready_for_review", False),
+        ]
+    )
+    @patch(_QUEUE_ROUTING)
+    @patch(_START)
+    def test_follow_up_events_start_a_turn_when_the_cadence_has_one(
+        self, _name: str, action: str, review_pushes: bool, start: MagicMock, report: MagicMock
+    ) -> None:
+        self.repository.review_pushes = review_pushes
+        self.repository.save()
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            automatic_reviewed_head_sha="earlier-head",
+            automatic_reviewed_draft=True,
+        )
+        started_before = _dispatch_count("started")
+
+        process_authored_pr_event.run(**self._queued_event(action=action))
+
+        assert start.call_args.kwargs["trigger_action"] == action
+        assert _dispatch_count("started") - started_before == 1.0
+
+    @parameterized.expand(
+        [
+            ("by_installation", _INSTALLATION_ID, ReviewCadence(review_drafts=False, review_pushes=False)),
+            ("by_name_only", None, None),
+        ]
+    )
+    def test_the_cadence_lookup_finds_the_repository_by_installation_when_the_account_name_is_a_placeholder(
+        self, _name: str, installation_id: str | None, expected: ReviewCadence | None
+    ) -> None:
+        self.integration.config = {"installation_id": _INSTALLATION_ID, "account": {"name": "placeholder"}}
+        self.integration.save(update_fields=["config"])
+
+        cadence = ReviewCadence.load(self.team.id, "PostHog/posthog", installation_id=installation_id)
+
+        assert cadence == expected
 
     @parameterized.expand(
         [

@@ -1472,6 +1472,8 @@ SERVER_AND_MOBILE_SDK_LIBS: tuple[str, ...] = (
     "posthog-aspnetcore",
     "posthog-elixir",
     "posthog-rs",
+    "posthog-rs-ffi",
+    "posthog-electron",
     "posthog-roblox",
     "posthog-ios",
     "posthog-android",

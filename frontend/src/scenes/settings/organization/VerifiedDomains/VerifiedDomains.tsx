@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconLock, IconPeople, IconShieldLock, IconShuffle, IconTrash, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,50 +28,15 @@ import { AddDomainModal } from './AddDomainModal'
 import { ConfigureIdJagModal } from './ConfigureIdJagModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
+import { QuillVerifiedDomains } from './QuillVerifiedDomains'
+import { removeDomainBlockedReason } from './removeDomainBlockedReason'
 import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
 import { RemoveDomainModal } from './VerifiedDomainImpactModals'
+import { VerifiedDomainIntegrations } from './VerifiedDomainIntegrations'
 import { getIdentityProviderConfigForDomain, verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
-
-// One distinctive icon per integration type, reused across each integration's status badges.
-const SAML_ICON = <IconShieldLock />
-const SCIM_ICON = <IconPeople />
-const XAA_ICON = <IconShuffle />
-
-function IntegrationBadge({
-    label,
-    type,
-    tooltip,
-    icon,
-    to,
-}: {
-    label: string
-    type: LemonTagType
-    tooltip: string
-    icon?: JSX.Element
-    to?: string
-}): JSX.Element {
-    const tag = (
-        <LemonTag type={type} icon={icon}>
-            {label}
-        </LemonTag>
-    )
-    // The tooltip needs a plain element it can attach hover handlers to; LemonTag can't reliably act as a
-    // Base UI tooltip trigger (it would also pick up the injected onClick and look clickable), so wrap it.
-    return (
-        <Tooltip title={tooltip}>
-            {to ? (
-                <Link to={to} className="inline-flex">
-                    {tag}
-                </Link>
-            ) : (
-                <span className="inline-flex">{tag}</span>
-            )}
-        </Tooltip>
-    )
-}
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
@@ -80,6 +46,11 @@ export function VerifiedDomains(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillVerifiedDomains />
+    }
 
     return (
         <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="verified-domains">
@@ -139,16 +110,8 @@ function VerifiedDomainsTable(): JSX.Element {
     const verifiedDomainsList = verifiedDomains.filter((d) => d.is_verified)
     const unverifiedDomainsList = verifiedDomains.filter((d) => !d.is_verified)
 
-    // Mirrors the guard on `OrganizationDomainViewSet.destroy`: with the restriction on, an admin
-    // can't remove a domain if their own email would be left outside the verified ones.
-    const removeBlockedReason = (domain: OrganizationDomainType): string | undefined => {
-        if (!currentOrganization?.enforce_verified_domains || !domain.is_verified) {
-            return undefined
-        }
-        return ownVerifiedDomain && ownVerifiedDomain.id !== domain.id
-            ? undefined
-            : 'Your own email address would no longer be allowed. Turn off the domain restriction first'
-    }
+    const removeBlockedReason = (domain: OrganizationDomainType): string | undefined =>
+        removeDomainBlockedReason(domain, currentOrganization, ownVerifiedDomain)
 
     const verifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -232,129 +195,7 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'integrations',
             title: 'Integrations',
             render: function Integrations(_, { id }) {
-                const samlConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Saml
-                )
-                const scimConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Scim
-                )
-                const oidcConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Oidc
-                )
-                const idJagConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Xaa
-                )
-                const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
-                const badges: JSX.Element[] = []
-
-                if (!isSAMLAvailable) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="muted"
-                            icon={SAML_ICON}
-                            tooltip="Upgrade your plan to enable SAML"
-                            to={billingLink}
-                        />
-                    )
-                } else if (samlConfig?.has_saml) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="success"
-                            icon={SAML_ICON}
-                            tooltip="SAML is enabled"
-                        />
-                    )
-                } else {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="muted"
-                            icon={SAML_ICON}
-                            tooltip="SAML is not enabled"
-                        />
-                    )
-                }
-
-                badges.push(
-                    <IntegrationBadge
-                        key="oidc"
-                        label="OIDC"
-                        type={isOIDCAvailable && oidcConfig?.has_oidc ? 'success' : 'muted'}
-                        icon={<IconLock />}
-                        tooltip={
-                            !isOIDCAvailable
-                                ? 'Upgrade your plan to enable OIDC'
-                                : oidcConfig?.has_oidc
-                                  ? 'OIDC is enabled'
-                                  : 'OIDC is not enabled'
-                        }
-                        to={!isOIDCAvailable ? billingLink : undefined}
-                    />
-                )
-
-                if (!isSCIMAvailable) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="muted"
-                            icon={SCIM_ICON}
-                            tooltip="Upgrade your plan to enable SCIM"
-                            to={billingLink}
-                        />
-                    )
-                } else if (scimConfig?.has_scim) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="success"
-                            icon={SCIM_ICON}
-                            tooltip="SCIM is enabled"
-                        />
-                    )
-                } else {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="muted"
-                            icon={SCIM_ICON}
-                            tooltip="SCIM is not enabled"
-                        />
-                    )
-                }
-
-                if (showXAAControls && idJagConfig?.has_id_jag) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="xaa"
-                            label="XAA"
-                            type="success"
-                            icon={XAA_ICON}
-                            tooltip="XAA is enabled"
-                        />
-                    )
-                }
-
-                if (badges.length === 0) {
-                    return <span className="text-muted">Not configured</span>
-                }
-
-                return <div className="flex items-center gap-1 flex-wrap">{badges}</div>
+                return <VerifiedDomainIntegrations id={id} />
             },
         },
         {

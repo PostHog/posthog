@@ -77,6 +77,16 @@
         "valid": true
     },
     {
+        "name": "unfiltered select from scoped subquery",
+        "query": "select path, count() from (select path from engagements where org_id = {account_external_id}) where true group by path",
+        "valid": true
+    },
+    {
+        "name": "unfiltered select from unscoped subquery",
+        "query": "select * from (select * from engagements) where true",
+        "valid": false
+    },
+    {
         "name": "scoped aggregation",
         "query": "select count() from engagements where org_id = {account_external_id}",
         "valid": true

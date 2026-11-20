@@ -3,10 +3,13 @@ import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { IntegrationSettingsModal } from './IntegrationSettingsModal'
+import { QuillIntegrationSettingsCard } from './QuillIntegrationSettingsCard'
 
 export interface IntegrationSettingsCardProps {
     integrationName: string
@@ -15,6 +18,7 @@ export interface IntegrationSettingsCardProps {
 export function IntegrationSettingsCard({ integrationName }: IntegrationSettingsCardProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Count configured settings
     const campaignMappings = marketingAnalyticsConfig?.campaign_name_mappings?.[integrationName]
@@ -27,6 +31,19 @@ export function IntegrationSettingsCard({ integrationName }: IntegrationSettings
 
     const totalSettings = mappingsCount + sourcesCount + (hasFieldPref ? 1 : 0)
     const hasSettings = totalSettings > 0
+
+    if (todayRailNav) {
+        return (
+            <QuillIntegrationSettingsCard
+                integrationName={integrationName}
+                mappingsCount={mappingsCount}
+                sourcesCount={sourcesCount}
+                fieldPreferenceMatchField={fieldPreference?.match_field}
+                isModalOpen={isModalOpen}
+                onModalOpenChange={setIsModalOpen}
+            />
+        )
+    }
 
     return (
         <>
