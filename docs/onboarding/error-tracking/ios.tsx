@@ -197,7 +197,6 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                               ]
                               
                               // Whether frames from other frameworks are in-app.
-                              // Default is false from SDK version 4.0, true before.
                               config.errorTrackingConfig.inAppByDefault = false
                               
                               PostHogSDK.shared.setup(config)
@@ -213,7 +212,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         | --- | --- |
                         | \`inAppIncludes\` | List of package/bundle identifiers to mark as in-app (takes precedence over excludes) |
                         | \`inAppExcludes\` | List of package/bundle identifiers to exclude from in-app |
-                        | \`inAppByDefault\` | Whether frames from a framework no other rule matches are in-app. Default is \`false\` from SDK version 4.0, \`true\` before |
+                        | \`inAppByDefault\` | Whether frames from a framework no other rule matches are in-app. Default is \`false\` |
                         
                         **Default behavior:**
                         - Your app's executable and any framework whose name starts with your app's executable name or bundle identifier are in-app
