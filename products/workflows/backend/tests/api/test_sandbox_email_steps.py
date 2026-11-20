@@ -657,6 +657,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("without_the_adoption_flag", [False], None, "function_email", None, False),
             ("a_custom_address_on_the_sender_domain", [False], None, "function_email", 0, True, "hi@mail0.example.com"),
             ("a_custom_address_on_another_domain", [False], None, "function_email", None, True, "hi@other.example.com"),
+            ("a_custom_address_on_a_unicode_domain", [False], None, "function_email", None, True, "hi@bücher.example"),
             (
                 "a_templated_name_on_another_domain",
                 [False],
