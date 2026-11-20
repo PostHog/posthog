@@ -34,7 +34,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     person_display_name_properties: null,
     minimal_flag_called_events: false,
     flag_evaluations_mode: FlagEvaluationsMode.Events,
-    keep_writing_flag_calls_to_events: false,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',

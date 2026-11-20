@@ -64,12 +64,11 @@ const createExposureDuplicate = (): ProcessedEvent =>
 
 const createInput = (
     events: ProcessedEvent[] = [createProcessedEvent()],
-    mode: FlagEvaluationsMode = FlagEvaluationsMode.Events,
-    keepWritingFlagCallsToEvents = false
+    mode: FlagEvaluationsMode = FlagEvaluationsMode.Events
 ): ForkFlagEvaluationsStepInput => ({
     eventsToEmit: events.map((event): EventToEmit<string> => ({ event, output: 'events' })),
     teamId: 7,
-    team: { flag_evaluations_mode: mode, keep_writing_flag_calls_to_events: keepWritingFlagCallsToEvents },
+    team: { flag_evaluations_mode: mode },
 })
 
 const emitted = (eventsToEmit: EventToEmit<string>[]) =>
@@ -409,12 +408,6 @@ describe('createForkFlagEvaluationsStep', () => {
                 buildService: () => enabledService(),
             },
             {
-                name: 'the organization keeps writing flag calls to events',
-                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
-                keepWritingFlagCallsToEvents: true,
-                buildService: () => enabledService(),
-            },
-            {
                 name: 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 buildService: () => enabledService({ flagEvaluationsOnlyDisabled: true }),
@@ -447,14 +440,10 @@ describe('createForkFlagEvaluationsStep', () => {
             },
         ])(
             'keeps the $feature_flag_called event on the events output when $name',
-            async ({ mode, keepWritingFlagCallsToEvents, buildService, flagCalledOverrides, arrange }) => {
+            async ({ mode, buildService, flagCalledOverrides, arrange }) => {
                 const deps = createStep(buildService())
                 arrange?.(deps)
-                const input = createInput(
-                    [createProcessedEvent(flagCalledOverrides), createExposureDuplicate()],
-                    mode,
-                    keepWritingFlagCallsToEvents
-                )
+                const input = createInput([createProcessedEvent(flagCalledOverrides), createExposureDuplicate()], mode)
 
                 const result = await deps.step(input)
 

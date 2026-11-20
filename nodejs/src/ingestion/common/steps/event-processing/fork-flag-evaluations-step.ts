@@ -76,7 +76,7 @@ const isPastRetention = ({ event }: EventToEmit<string>, retentionStart: number)
 export interface ForkFlagEvaluationsStepInput {
     eventsToEmit: EventToEmit<string>[]
     teamId: number
-    team: Pick<Team, 'flag_evaluations_mode' | 'keep_writing_flag_calls_to_events'>
+    team: Pick<Team, 'flag_evaluations_mode'>
 }
 
 /**

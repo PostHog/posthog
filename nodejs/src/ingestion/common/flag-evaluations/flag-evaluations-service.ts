@@ -46,11 +46,9 @@ export class FlagEvaluationsService {
         return this.isEnabled(teamId)
     }
 
-    stopsEventsWritesFor(team: Pick<Team, 'flag_evaluations_mode' | 'keep_writing_flag_calls_to_events'>): boolean {
+    stopsEventsWritesFor(team: Pick<Team, 'flag_evaluations_mode'>): boolean {
         return (
-            team.flag_evaluations_mode === FlagEvaluationsMode.FlagEvaluationsOnly &&
-            !team.keep_writing_flag_calls_to_events &&
-            !this.flagEvaluationsOnlyDisabled
+            team.flag_evaluations_mode === FlagEvaluationsMode.FlagEvaluationsOnly && !this.flagEvaluationsOnlyDisabled
         )
     }
 }

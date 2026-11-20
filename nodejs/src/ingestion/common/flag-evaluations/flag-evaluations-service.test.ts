@@ -49,22 +49,18 @@ describe('FlagEvaluationsService', () => {
 
     describe('stopsEventsWritesFor', () => {
         it.each([
-            [false, false, true],
-            [true, false, false],
-            [false, true, false],
+            [false, true],
+            [true, false],
         ])(
-            'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED=%s and keep_writing_flag_calls_to_events=%s -> %s for a FLAG_EVALUATIONS_ONLY team',
-            (onlyDisabled, keepWritingFlagCallsToEvents, expected) => {
+            'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED=%s -> %s for a FLAG_EVALUATIONS_ONLY team',
+            (onlyDisabled, expected) => {
                 const service = createFlagEvaluationsService({
                     ...envConfig('dual_write'),
                     INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: onlyDisabled,
                 })
 
                 expect(
-                    service?.stopsEventsWritesFor({
-                        flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly,
-                        keep_writing_flag_calls_to_events: keepWritingFlagCallsToEvents,
-                    })
+                    service?.stopsEventsWritesFor({ flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly })
                 ).toBe(expected)
             }
         )
