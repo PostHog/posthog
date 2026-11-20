@@ -250,20 +250,31 @@ jobs:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
+                  set -euo pipefail
                   previous=$(gh api "repos/$REPO/commits?sha=$BASE_SHA&path=products/mobile/src/features/replay/web/phonePlayer.generated.replay&per_page=1" --jq '.[0].sha // empty')
+                  if [[ -z "$previous" ]]; then
+                    echo "## Player changes in this replay bundle" >>"$GITHUB_STEP_SUMMARY"
+                    echo "This is the first bundle, so there is no earlier bundle to compare against." >>"$GITHUB_STEP_SUMMARY"
+                    exit 0
+                  fi
+                  since=$(gh api "repos/$REPO/commits/$previous" --jq '.commit.committer.date')
+                  # esbuild inlines every dependency, so a lockfile or catalog bump changes the shipped player too.
+                  # A failed lookup must fail the step: an empty list would tell the reviewer there is nothing to review.
+                  commits=$(
+                    for path in common/replay-shared common/replay-headless patches package.json pnpm-lock.yaml pnpm-workspace.yaml; do
+                      gh api --paginate "repos/$REPO/commits?sha=$HEAD_SHA&path=$path&since=$since" \
+                        --jq ".[] | select(.sha != \"$previous\") | [.commit.committer.date, .sha, (.commit.message | split(\"\n\")[0])] | @tsv"
+                    done | sort -u
+                  )
                   {
                     echo "## Player changes in this replay bundle"
-                    if [[ -z "$previous" ]]; then
-                      echo "This is the first bundle, so there is no earlier bundle to compare against."
+                    echo "Review these commits instead of the minified bundle. They changed the player source or its dependencies after ${previous:0:10}, which built the previous bundle."
+                    echo
+                    if [[ -z "$commits" ]]; then
+                      echo "No player source or dependency commits."
                     else
-                      since=$(gh api "repos/$REPO/commits/$previous" --jq '.commit.committer.date')
-                      echo "Review these player source commits instead of the minified bundle. They landed after ${previous:0:10}, which built the previous bundle."
-                      echo
-                      # The commits API filters by path, so a long range is not cut off like a compare file list.
-                      for path in common/replay-shared common/replay-headless patches; do
-                        gh api --paginate "repos/$REPO/commits?sha=$HEAD_SHA&path=$path&since=$since" \
-                          --jq ".[] | select(.sha != \"$previous\") | \"\(.commit.committer.date)\t- [\(.sha[0:10])](https://github.com/$REPO/commit/\(.sha)) \(.commit.message | split(\"\n\")[0])\""
-                      done | sort -u | cut -f2- | grep . || echo "No player source commits."
+                      # Commit titles come from contributors, so they are escaped rather than rendered as markdown.
+                      jq -R -r --arg repo "$REPO" 'split("\t") | "- [\(.[1][0:10])](https://github.com/\($repo)/commit/\(.[1])) " + (.[2] | gsub("(?<c>[\\\\`*_{}\\[\\]()#+!<>|~-])"; "\\\(.c)"))' <<<"$commits"
                     fi
                   } >>"$GITHUB_STEP_SUMMARY"
 
