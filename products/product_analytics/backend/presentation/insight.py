@@ -1319,33 +1319,8 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
-    def to_representation(self, instance: Insight):
-        representation = super().to_representation(instance)
-
-        # Check if user has access to this insight when viewed in dashboard context
-        if self.context.get("dashboard"):
-            user_access_level = representation.get("user_access_level")
-            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
-                # User doesn't have sufficient access - return minimal insight data
-                return {
-                    "id": instance.id,
-                    "short_id": instance.short_id,
-                    "user_access_level": user_access_level,
-                }
-
-        # the ORM doesn't know about deleted dashboard tiles
-        # when they have just been updated
-        # we store them and can use that list to correct the response
-        # and avoid refreshing from the DB
-        #
-        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
-        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
-        # that opted into receiving the deprecated field.
-        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
-            representation["dashboards"] = [
-                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
-            ]
-
+    def effective_query(self, instance: Insight) -> dict[str, Any] | None:
+        """The insight's query with the dashboard, tile and request overrides applied: what its result is computed with."""
         dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
@@ -1400,13 +1375,41 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["query"] = query
-        else:
-            representation["query"] = instance.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
-            )
+            return query
+        return instance.get_effective_query(
+            dashboard=dashboard,
+            dashboard_filters_override=dashboard_filters_override,
+            dashboard_variables_override=dashboard_variables_override,
+        )
+
+    def to_representation(self, instance: Insight):
+        representation = super().to_representation(instance)
+
+        # Check if user has access to this insight when viewed in dashboard context
+        if self.context.get("dashboard"):
+            user_access_level = representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                # User doesn't have sufficient access - return minimal insight data
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
+
+        # the ORM doesn't know about deleted dashboard tiles
+        # when they have just been updated
+        # we store them and can use that list to correct the response
+        # and avoid refreshing from the DB
+        #
+        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
+        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
+        # that opted into receiving the deprecated field.
+        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
+            representation["dashboards"] = [
+                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
+            ]
+
+        representation["query"] = self.effective_query(instance)
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 

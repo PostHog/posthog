@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -297,6 +298,14 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
