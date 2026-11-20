@@ -257,7 +257,6 @@ function exists(path: string): Promise<boolean> {
     )
 }
 
-// Where the old copy of an executable waits until every new one is in place.
 function keptPath(path: string, id: string): string {
     return process.platform === 'win32'
         ? join(dirname(path), `${basename(path).replace(/\.exe$/i, '')}.old.exe`)

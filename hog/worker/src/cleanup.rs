@@ -151,9 +151,8 @@ pub fn canonical_roots(roots: &[String]) -> Result<Vec<PathBuf>, String> {
         .collect()
 }
 
-// Node's `path.relative` gives a path that starts with `..` for a file outside the folder, and
-// hog's ignore patterns test for that prefix. So a file inside whose name starts with two dots
-// counts as outside here too.
+// Node's `path.relative` starts with `..` for a file outside the folder, and hog's ignore patterns
+// test for that prefix, so a file inside whose name starts with two dots counts as outside too.
 fn is_inside(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root)
         .is_ok_and(|within| !within.to_string_lossy().starts_with(".."))

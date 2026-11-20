@@ -1,7 +1,6 @@
-// Builds hog-worker, the Rust program in worker/, for every target and puts each build next to the
-// hog binary release/compile.ts wrote. One Linux machine builds them all: Zig's linker carries the
-// macOS and Linux C libraries, and cargo-xwin downloads the Windows ones. Run it through
-// release/build-worker.sh, whose image holds those tools.
+// One Linux machine builds hog-worker for every target: Zig's linker carries the macOS and Linux C
+// libraries, and cargo-xwin downloads the Windows ones. Run it through release/build-worker.sh,
+// whose image holds those tools.
 
 import { copyFile, mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'

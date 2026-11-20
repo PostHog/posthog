@@ -82,7 +82,6 @@ function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Arra
     return undefined
 }
 
-// Undefined when the archive has no file of that name.
 export function findFile(
     archive: Uint8Array,
     archiveName: string,

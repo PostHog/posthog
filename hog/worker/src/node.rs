@@ -1,5 +1,4 @@
-// File reads whose failures carry the wording of Bun, which words the file errors of hog's own
-// code, because hog shows these messages to people and scripts match on them.
+// Read failures carry Bun's messages, because hog shows them to people and scripts match on them.
 
 use std::{fs, io, path::Path};
 

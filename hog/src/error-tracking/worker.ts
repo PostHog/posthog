@@ -35,7 +35,6 @@ export function workerPath(execPath: string = process.execPath, platform: NodeJS
     return join(dirname(resolved), name)
 }
 
-// How to get hog and hog-worker from one release again, for the way this hog was installed.
 // `hog upgrade` fetches a missing worker, but it can't tell a worker from another release.
 export function reinstallHint(path: string, problem: 'missing' | 'mismatch'): string {
     const install = classifyPath(path)
@@ -284,8 +283,7 @@ export class Worker {
         const failure = { code: 'worker_failed', context: 'hog-worker sent' }
         const message = parseJson(line.value, Answer, failure)
         if (!message.ok) {
-            // A request hog built wrong is a bug in hog. Every other failure is a file the worker
-            // could not read or write, and its message goes to the person as it is.
+            // Every failure other than a bug in hog is a file the worker could not read or write.
             if (message.error.code === 'bad_request') {
                 throw new HogError('worker_failed', `hog-worker refused a request: ${message.error.message}`)
             }

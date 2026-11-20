@@ -453,8 +453,7 @@ fn node_join(folder: &Path, relative: &str) -> PathBuf {
     out.iter().collect()
 }
 
-// The map a bundle's reference names, or the `.map` file next to the bundle. Err means the
-// decoded reference is not valid UTF-8.
+// Err means the decoded reference is not valid UTF-8.
 pub fn find_sourcemap(
     source_path: &Path,
     reference: Option<&str>,

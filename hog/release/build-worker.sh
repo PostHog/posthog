@@ -1,9 +1,6 @@
 #!/bin/sh
-# Builds hog-worker for every target in Docker, on any machine that runs Linux containers.
-#
-#   release/build-worker.sh --version 1.2.3
-#   release/build-worker.sh --target linux-arm64 --target darwin-arm64
-#
+# Builds hog-worker for every target in Docker, on any machine that runs Linux containers:
+#   release/build-worker.sh --version 1.2.3 --target linux-arm64 --target darwin-arm64
 # The arguments go to release/build-worker.ts, which lists them. The builds land in
 # dist/release/bin/<target>/, next to the hog binaries release/compile.ts writes.
 

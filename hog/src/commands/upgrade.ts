@@ -105,13 +105,12 @@ function sha256(bytes: Uint8Array): string {
     return createHash('sha256').update(bytes).digest('hex')
 }
 
-// hog-worker sits in hog's folder. The path follows the platform hog runs on, not the one of this code.
+// The path follows the platform hog runs on, not the one of this code.
 function workerPathFor(runtime: Runtime, hogPath: string): string {
     const path = runtime.platform === 'win32' ? win32 : posix
     return path.join(path.dirname(hogPath), workerName(runtime.platform))
 }
 
-// With `onlyWithWorker`, an archive without hog-worker changes nothing and the answer is false.
 async function replaceSelf(
     runtime: Runtime,
     method: InstallMethod,
