@@ -123,7 +123,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
     mergeTimeoutMs: 35_000,
-    flushTransientRetryBudgetMs: 15_000,
+    flushTransientRetryBudgetMs: 10_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -162,8 +162,14 @@ const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
 
+const FLUSH_RETRY_CODES = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Canceled, Code.Aborted])
+
 function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
-    return error instanceof ConnectError && (error as { isRetriable?: boolean }).isRetriable === true
+    return (
+        error instanceof ConnectError &&
+        (error as { isRetriable?: boolean }).isRetriable === true &&
+        FLUSH_RETRY_CODES.has(error.code)
+    )
 }
 
 /** A redirect failure that already incremented its own flush outcome. */
@@ -180,6 +186,7 @@ interface WritePass {
 
 /** Spans the rounds of one flush, so a retry round cannot restart the budget. */
 interface TransientRetryBudget {
+    disabled: boolean
     expiresAt?: number
     lastError?: unknown
 }
@@ -297,6 +304,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
+    private transientBudgetSpentAt?: number
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
     private fenceWaitBudgetMs: number
@@ -1288,7 +1296,8 @@ export class PersonhogPersonsStore implements PersonsStore {
      * fence to clear. Anything else fails the flush. Passes serialize.
      */
     async flush(): Promise<FlushResult[]> {
-        const run = this.flushChain.then(() => this.flushPass())
+        const queuedAt = Date.now()
+        const run = this.flushChain.then(() => this.flushPass(queuedAt))
         this.flushChain = run.then(
             () => undefined,
             () => undefined
@@ -1296,13 +1305,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         return run
     }
 
-    private async flushPass(): Promise<FlushResult[]> {
+    private async flushPass(queuedAt: number): Promise<FlushResult[]> {
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
         let fenceSeen = false
         let deferredRounds = 0
-        const retryBudget: TransientRetryBudget = {}
+        const retryBudget: TransientRetryBudget = {
+            disabled: this.transientBudgetSpentAt !== undefined && queuedAt < this.transientBudgetSpentAt,
+        }
         for (;;) {
             const pass: WritePass = { deferrals: 0, fenced: 0, transientFailures: 0 }
             await this.writeEligibleLanes(pass, retryBudget)
@@ -1313,6 +1324,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             if (pass.transientFailures > 0 && this.transientBudgetExpired(retryBudget)) {
                 personhogStoreFlushCounter.inc({ outcome: 'transient_exhausted' })
+                this.transientBudgetSpentAt = Date.now()
                 throw retryBudget.lastError
             }
             fenceSeen ||= pass.fenced > 0
@@ -1350,8 +1362,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private retriesTransportError(error: unknown): boolean {
-        return this.options.flushTransientRetryBudgetMs > 0 && isTransientTransportError(error)
+    private retriesTransportError(error: unknown, budget: TransientRetryBudget | undefined): boolean {
+        return (
+            budget !== undefined &&
+            !budget.disabled &&
+            this.options.flushTransientRetryBudgetMs > 0 &&
+            isTransientTransportError(error)
+        )
     }
 
     private transientBudgetExpired(budget: TransientRetryBudget): boolean {
@@ -1380,7 +1397,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 pass.transientFailures += 1
                 return
             }
-            if (!this.retriesTransportError(error)) {
+            if (!this.retriesTransportError(error, budget)) {
                 throw error
             }
             // From the write's start, because the time the failing write took also holds the request open.
@@ -1544,9 +1561,8 @@ export class PersonhogPersonsStore implements PersonsStore {
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
                         })
-                    } else if (retryBudget !== undefined && this.retriesTransportError(error)) {
+                    } else if (this.retriesTransportError(error, retryBudget)) {
                         personhogStoreFlushCounter.inc({ outcome: 'transient' })
-                        personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
                         logger.warn('transport failed a folded update; the flush retries the lane next round', {
                             teamId: entry.teamId,
                             personId: entry.personId,
@@ -1602,20 +1618,28 @@ export class PersonhogPersonsStore implements PersonsStore {
                 throw new TransientBudgetSpentError('the flush transient retry budget ran out mid-lane')
             }
             const ops = entry.segments[0]
-            const { person: answer } = await this.repository.updatePersonProperties(
-                {
-                    teamId: entry.teamId,
-                    personId,
-                    eventName: ops.eventName,
-                    setProperties: ops.set,
-                    setOnceProperties: ops.setOnce,
-                    unsetProperties: ops.unset,
-                    isIdentified: ops.isIdentified,
-                    lastSeenAtMs: ops.lastSeenAtMs,
-                    forceUpdate: ops.shouldForceUpdate,
-                },
-                CALLER_TAG
-            )
+            const startedAt = Date.now()
+            const { person: answer } = await this.repository
+                .updatePersonProperties(
+                    {
+                        teamId: entry.teamId,
+                        personId,
+                        eventName: ops.eventName,
+                        setProperties: ops.set,
+                        setOnceProperties: ops.setOnce,
+                        unsetProperties: ops.unset,
+                        isIdentified: ops.isIdentified,
+                        lastSeenAtMs: ops.lastSeenAtMs,
+                        forceUpdate: ops.shouldForceUpdate,
+                    },
+                    CALLER_TAG
+                )
+                .catch((error: unknown) => {
+                    if (retryBudget !== undefined && this.retriesTransportError(error, retryBudget)) {
+                        retryBudget.expiresAt ??= startedAt + this.options.flushTransientRetryBudgetMs
+                    }
+                    throw error
+                })
             entry.segments.shift()
             progress.remaining -= 1
             // A null answer without a throw means the write applied and
