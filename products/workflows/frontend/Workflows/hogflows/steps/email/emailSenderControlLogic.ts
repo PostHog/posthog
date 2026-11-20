@@ -1,16 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    beforeUnmount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -59,7 +47,6 @@ export interface emailSenderControlLogicValues {
     sandboxStatus: WorkflowEmailSandboxStatusApi | null // sandboxSenderLogic
     workflow: HogFlow // workflowLogic
     action: EmailStepAction | null
-    awaitsVerifiedSender: boolean
     hasVerifiedSender: boolean | null
     pendingSwitch: PendingSwitch | null
     showSandboxOption: boolean
@@ -102,7 +89,6 @@ export interface emailSenderControlLogicMeta {
         action: (workflow: HogFlow, actionId: string) => EmailStepAction | null
         hasVerifiedSender: (integrations: IntegrationType[] | null) => boolean | null
         testSenderOnly: (canAdoptSandbox: boolean, hasVerifiedSender: boolean | null) => boolean
-        awaitsVerifiedSender: (action: EmailStepAction | null, testSenderOnly: boolean) => boolean
         showSandboxOption: (
             action: EmailStepAction | null,
             canAdoptSandbox: boolean,
@@ -190,11 +176,6 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             (canAdoptSandbox: boolean, hasVerifiedSender: boolean | null): boolean =>
                 canAdoptSandbox && hasVerifiedSender === false,
         ],
-        awaitsVerifiedSender: [
-            (s) => [s.action, s.testSenderOnly],
-            (action: EmailStepAction | null, testSenderOnly: boolean): boolean =>
-                testSenderOnly && action?.type === 'email_sandbox',
-        ],
         showSandboxOption: [
             (s, p) => [s.action, s.canAdoptSandbox, s.hasVerifiedSender, s.workflow, p.workflowLogicProps],
             (
@@ -218,13 +199,6 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 cache.offerReported = true
                 // pinned: analytics event name and properties, renaming breaks dashboards
                 posthog.capture('workflows sandbox sender offered', { step_type: values.action?.type ?? null })
-            }
-        },
-        awaitsVerifiedSender: (awaits: boolean, previous: boolean | undefined) => {
-            if (awaits && !previous) {
-                integrationsLogic.actions.startPolling()
-            } else if (!awaits && previous) {
-                integrationsLogic.actions.stopPolling()
             }
         },
     })),
@@ -275,11 +249,6 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                     actions.provisionSandboxSender('sender_control')
                 }
             },
-        }
-    }),
-    beforeUnmount(({ values }) => {
-        if (values.awaitsVerifiedSender) {
-            integrationsLogic.actions.stopPolling()
         }
     }),
 ])

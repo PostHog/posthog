@@ -1,5 +1,4 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
-import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -24,11 +23,6 @@ const STATUS = {
 const OWN_SENDER = { id: 7, kind: 'email', config: { verified: true } } as unknown as IntegrationType
 const SECOND_SENDER = { id: 8, kind: 'email', config: { verified: true } } as unknown as IntegrationType
 const VERIFYING_SENDER = { id: 9, kind: 'email', config: { verified: false } } as unknown as IntegrationType
-const STOPPED_SENDER = {
-    id: 10,
-    kind: 'email',
-    config: { verified: true, ses_sending_status: 'failed' },
-} as unknown as IntegrationType
 
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
     return {
@@ -93,8 +87,6 @@ describe('emailSenderControlLogic', () => {
         integrationsLogic.mount()
         sandboxSenderLogic.mount()
         await expectLogic(integrationsLogic).toFinishAllListeners()
-        sandboxSenderLogic.actions.loadSandboxStatusSuccess(status as any)
-        integrationsLogic.actions.loadIntegrationsSuccess(senders)
         logic = emailSenderControlLogic({ workflowLogicProps: wfLogic.props, actionId: step.id })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -165,25 +157,5 @@ describe('emailSenderControlLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox sender offered')).toEqual(
             expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
         )
-    })
-
-    it.each<[string, IntegrationType[], boolean]>([
-        ['stops offering the sandbox sender on an own step once a sender is verified', [OWN_SENDER], false],
-        ['keeps offering the sandbox sender when the only verified sender stopped sending', [STOPPED_SENDER], true],
-    ])('%s', async (_, senders, expected) => {
-        await setUp(ownStep({ from: { integrationId: 7 } }), STATUS, {}, senders)
-
-        expect(logic.values.showSandboxOption).toEqual(expected)
-    })
-
-    it('ends the read-only test sender row once a sender is verified in another tab and the editor returns', async () => {
-        await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
-        expect(logic.values.testSenderOnly).toEqual(true)
-        useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null } } })
-
-        window.dispatchEvent(new Event('focus'))
-
-        await waitFor(() => expect(logic.values.testSenderOnly).toEqual(false))
-        expect(storedStep()).toMatchObject({ type: 'email_sandbox' })
     })
 })

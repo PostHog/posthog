@@ -318,6 +318,18 @@ describe('SandboxSenderChoiceProvider', () => {
         expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
     })
 
+    it.each<[string, IntegrationType[], boolean]>([
+        ['no sender is verified yet', [VERIFYING_SENDER], true],
+        ['the only verified sender stopped sending', [STOPPED_SENDER], true],
+        ['a verified sender can send', [OWN_SENDER], false],
+    ])('offers the PostHog test sender on an own step when %s', async (_, senders, offered) => {
+        useSenderMocks(senders)
+        showSenderRow()
+        await renderStep(ownStep({ from: { integrationId: 7 } }))
+
+        expect(!!within(openFromPicker()).queryByText('PostHog test sender')).toEqual(offered)
+    })
+
     it('offers no sandbox sender when the project has not adopted it', async () => {
         useMocks({
             get: {
