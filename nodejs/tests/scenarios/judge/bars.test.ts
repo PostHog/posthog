@@ -92,6 +92,27 @@ const evidence = (changes: Partial<BarEvidence>): BarEvidence => ({
     ...changes,
 })
 
+const haltedRampStep = (answer: JournalEntry['answer']): Partial<BarEvidence> => ({
+    drive: { startedAt: T, endedAt: T + MINUTE + 5000 },
+    steps: [
+        { ...STEPS[0], offeredUnits: 60 },
+        { ...STEPS[1], toMs: MINUTE + 5000, offeredUnits: 1 },
+    ],
+    journal: [
+        ...offeredAtRates(1),
+        {
+            unitId: 'run-1-0',
+            kind: 'transactional',
+            teamId: 7,
+            offeredAt: T + MINUTE,
+            answer,
+            expect: { deliveries: ['email'] },
+        },
+    ],
+    samples: scrapedEvery5s(85, (atS) => prompt(Math.min(atS, 60))),
+    writerCpu: cpu({ 0: 40 }),
+})
+
 const HELD: BarResult[] = [
     { name: 'writer_cpu_under', unit: '%', limit: 75, passed: true },
     { name: 'pickup_p99_under', unit: 's', limit: 5, passed: true },
@@ -120,6 +141,23 @@ const unjudged = (bar: 0 | 1, why: string): BarResult => ({
 describe('judgeBars', () => {
     it.each<[string, Partial<BarEvidence>, BarResult[]]>([
         ['every step stayed under both bars', {}, HELD],
+        [
+            'a ramp step halted before the intake accepted a unit picked up nothing, which holds',
+            haltedRampStep({ accepted: false, status: 503 }),
+            [unjudged(0, 'no whole writer CPU minute in the 10x step'), HELD[1]],
+        ],
+        [
+            'a ramp step that accepted a unit and picked up nothing is late by its whole window',
+            haltedRampStep({ accepted: true }),
+            [
+                unjudged(0, 'no whole writer CPU minute in the 10x step'),
+                expect.objectContaining({
+                    name: 'pickup_p99_under',
+                    passed: false,
+                    breakingPoint: expect.objectContaining({ scale: 10, value: 25 }),
+                }),
+            ],
+        ],
         [
             'the writer CPU crossed its bar at the 10x step, counting refused units as offered',
             { writerCpu: cpu({ 0: 40, 1: 85 }) },
@@ -168,6 +206,11 @@ describe('judgeBars', () => {
             'the writer CPU could not be read off a run host',
             { writerCpu: { unread: 'no writer CPU reading off a run host' } },
             [unjudged(0, 'no writer CPU reading off a run host in the 1x step'), HELD[1]],
+        ],
+        [
+            'the stack declares no writer to read CPU from',
+            { writerCpu: { unsourced: 'the local stack has no Aurora writer to read CPU from' } },
+            [{ ...HELD[0], passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }, HELD[1]],
         ],
         [
             'one queue picked up late at the 10x step while the other stayed prompt',
