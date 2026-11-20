@@ -56,7 +56,6 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     private kafkaConsumer: KafkaConsumerInterface
     private drainConsumer?: KafkaConsumerInterface
     private groupId: string
-    private lastBatch: Promise<unknown> = Promise.resolve()
     private cyclotron: CyclotronV2Manager
     private deadLetters: CdpDeadLetterService
     private stateOpener: EncryptedFields
@@ -102,22 +101,17 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        // One at a time, because a main and a drain batch share the row buffers, and a hand-off takes every queued row.
-        const batch = this.lastBatch.then(() =>
-            insertIntakeBatch(
-                messages,
-                {
-                    cyclotron: this.cyclotron,
-                    deadLetters: this.deadLetters,
-                    invocationResults: this.invocationResultsService.invocationResultsRowsService,
-                    emailStatus: this.invocationResultsService.emailStatusService,
-                    stateOpener: this.stateOpener,
-                },
-                { kind: this.kind, claimRetry: CLAIM_RETRY }
-            )
+        await insertIntakeBatch(
+            messages,
+            {
+                cyclotron: this.cyclotron,
+                deadLetters: this.deadLetters,
+                invocationResults: this.invocationResultsService.invocationResultsRowsService,
+                emailStatus: this.invocationResultsService.emailStatusService,
+                stateOpener: this.stateOpener,
+            },
+            { kind: this.kind, claimRetry: CLAIM_RETRY }
         )
-        this.lastBatch = batch.catch(() => undefined)
-        await batch
     }
 
     // Both intake consumers park on one topic, so each drains only the records its own group parked.
