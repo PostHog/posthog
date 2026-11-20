@@ -35,6 +35,7 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardLinkStrip } from './ReportCardLinkStrip'
 import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
 import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardPersonalReason } from './ReportCardPersonalReason'
@@ -166,8 +167,12 @@ function ReportCardRaw({
     // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
     // and puts the Monitoring evidence where the impact column would be.
     const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const linkStripsEnabled = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const linkSummary = linkStripsEnabled && !preview ? (report.link_summary ?? null) : null
     const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
     const showsPrBadge = hasPr && !isMonitoring
+    // The Monitoring band and the link strip attach to the row, so either one puts the row in a frame.
+    const framed = isMonitoring || !!linkSummary
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
@@ -355,9 +360,9 @@ function ReportCardRaw({
     const row = (
         <div
             className={clsx(
-                // Inside the Monitoring frame the row is attached: the frame carries the border.
-                inboxCardRowClassName(attached || isMonitoring, { dashed: !hasPr }),
-                !isMonitoring && rowStateClassName
+                // Inside the frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || framed, { dashed: !hasPr }),
+                !framed && rowStateClassName
             )}
         >
             {/* The tag chips are buttons, so they sit under the body link rather than inside it. */}
@@ -432,7 +437,7 @@ function ReportCardRaw({
         </div>
     )
 
-    if (!isMonitoring) {
+    if (!framed) {
         return row
     }
     return (
@@ -445,8 +450,11 @@ function ReportCardRaw({
                 rowStateClassName
             )}
         >
-            <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            {isMonitoring ? (
+                <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            ) : null}
             {row}
+            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} backUrl={backUrl} /> : null}
         </div>
     )
 }
