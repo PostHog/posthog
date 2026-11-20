@@ -25,6 +25,7 @@ from posthog.schema import (
     MetricsQueryProvenance,
     MetricsQueryResponse,
     MetricsQuerySeries,
+    ResolvedDateRangeResponse,
 )
 
 from posthog.hogql import ast
@@ -463,8 +464,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         response.provenance = self._provenance_response()
         return response
 
-    @staticmethod
-    def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
+    def _response(self, series: list[MetricSeries]) -> MetricsQueryResponse:
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(
@@ -476,7 +476,10 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                     histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
-            ]
+            ],
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self._date_from, date_to=self._date_range.date_to()
+            ),
         )
 
     def _provenance_response(self) -> MetricsQueryProvenance | None:

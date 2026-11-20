@@ -10263,6 +10263,81 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
+/**
+ * * `frames` - Frames
+ * * `result` - Result
+ */
+export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
+
+export const CachedTileFormatEnumApi = {
+    Frames: 'frames',
+    Result: 'result',
+} as const
+
+export interface FrameMetaApi {
+    /**
+     * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+     * @nullable
+     */
+    interval: string | null
+    /**
+     * Start of the range the frame covers.
+     * @nullable
+     */
+    date_from: string | null
+    /**
+     * End of the range the frame covers.
+     * @nullable
+     */
+    date_to: string | null
+    /** Whether the frame is the compared period. Its dates are that period's dates. */
+    previous: boolean
+}
+
+/**
+ * * `time` - Time
+ * * `number` - Number
+ */
+export type FrameFieldTypeEnumApi = (typeof FrameFieldTypeEnumApi)[keyof typeof FrameFieldTypeEnumApi]
+
+export const FrameFieldTypeEnumApi = {
+    Time: 'time',
+    Number: 'number',
+} as const
+
+export interface FrameFieldApi {
+    /** Field name: 'time' for the time field, 'value' for a number field. */
+    name: string
+    /** What the values are.
+     *
+     * * `time` - Time
+     * * `number` - Number */
+    type: FrameFieldTypeEnumApi
+    /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+    values: (number | null)[]
+    /**
+     * UCUM unit of the values, e.g. 'By' or 'ms'.
+     * @nullable
+     */
+    unit: string | null
+}
+
+/**
+ * Label values that identify the series within the tile.
+ */
+export type FrameApiLabels = { [key: string]: string }
+
+export interface FrameApi {
+    /** Series name, as the chart legend shows it. */
+    name: string
+    /** Label values that identify the series within the tile. */
+    labels: FrameApiLabels
+    /** Interval and date range of the frame. */
+    meta: FrameMetaApi
+    /** A time field, then one number field. */
+    fields: FrameFieldApi[]
+}
+
 export interface CachedTileResultApi {
     /** Dashboard tile ID. */
     id: number
@@ -10275,6 +10350,13 @@ export interface CachedTileResultApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `frames` - Frames
+     * * `result` - Result */
+    format?: CachedTileFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
 }
 
 export interface CachedTilesResponseApi {
@@ -11747,6 +11829,10 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     filters_override?: string
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string
@@ -11755,6 +11841,14 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     variables_override?: string
 }
+
+export type DashboardsCachedTilesRetrieveFormat =
+    (typeof DashboardsCachedTilesRetrieveFormat)[keyof typeof DashboardsCachedTilesRetrieveFormat]
+
+export const DashboardsCachedTilesRetrieveFormat = {
+    Frames: 'frames',
+    Json: 'json',
+} as const
 
 export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat

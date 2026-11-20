@@ -6,9 +6,10 @@ No Django imports: the facade maps dashboard and tile rows to these, and callers
 product hold only these.
 """
 
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -293,3 +294,39 @@ class DashboardExtras:
     share_token: str | None
     is_shared: bool
     quick_filter_ids: list[str] | None
+
+
+FrameFieldType = Literal["time", "number"]
+
+
+@frozen
+class FrameField:
+    """One column of a frame: the time of each point, or its values."""
+
+    name: str
+    type: FrameFieldType
+    # A time field holds epoch milliseconds. A number field holds null for a gap.
+    values: Sequence[float | None]
+    unit: str | None = None
+
+
+@frozen
+class FrameMeta:
+    """What a frame covers: its bucket size and date range."""
+
+    # PostHog's interval name: second_15 to week for metrics, minute to month for trends.
+    interval: str | None
+    date_from: datetime | None
+    date_to: datetime | None
+    # The same series over the compared period, with that period's dates.
+    previous: bool = False
+
+
+@frozen
+class Frame:
+    """One chart-ready series, the contract between a tile's query and its chart (Dash's `DataFrame`)."""
+
+    name: str
+    labels: dict[str, str]
+    fields: list[FrameField]
+    meta: FrameMeta

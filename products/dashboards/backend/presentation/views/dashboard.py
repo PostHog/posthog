@@ -181,6 +181,12 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from products.dashboards.backend.presentation.frames import (
+    CachedTileFormat,
+    FrameSerializer,
+    FramesRenderer,
+    cached_tile_format,
+)
 from products.dashboards.backend.presentation.query_sharing import (
     DashboardQuerySharingParamsSerializer,
     DashboardSharingDebugSerializer,
@@ -1409,6 +1415,17 @@ class CachedTileResultSerializer(serializers.Serializer):
     )
     insight = CachedTileInsightResultSerializer(
         required=False, help_text="The cached result. Present only when status is 'hit'."
+    )
+    format = serializers.ChoiceField(
+        choices=CachedTileFormat.choices,
+        required=False,
+        help_text=(
+            "Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces "
+            "`insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged."
+        ),
+    )
+    frames = FrameSerializer(
+        many=True, required=False, help_text="Chart-ready frames, one per series. Present when format is 'frames'."
     )
 
 
@@ -4463,6 +4480,15 @@ class DashboardsViewSet(
             ),
             VARIABLES_OVERRIDE_PARAM,
             FILTERS_OVERRIDE_PARAM,
+            OpenApiParameter(
+                "format",
+                OpenApiTypes.STR,
+                enum=["json", "frames"],
+                description=(
+                    "'frames' returns chart-ready frames instead of `insight.result` for trends line, area and "
+                    "bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'."
+                ),
+            ),
         ],
         responses={200: CachedTilesResponseSerializer},
     )
@@ -4471,7 +4497,7 @@ class DashboardsViewSet(
         detail=True,
         url_path="cached_tiles",
         required_scopes=["dashboard:read", "insight:read"],
-        renderer_classes=[SafeJSONRenderer],
+        renderer_classes=[SafeJSONRenderer, FramesRenderer],
     )
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
@@ -4514,6 +4540,9 @@ class DashboardsViewSet(
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
+        wants_frames = request.query_params.get("format") == FramesRenderer.format
+        # Frames are built from the parsed result, not the raw cached bytes.
+        context["require_parsed_results"] = wants_frames
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
 
@@ -4522,16 +4551,33 @@ class DashboardsViewSet(
             context["dashboard_tile"] = tile
             return insight
 
-        return read_cached_tiles(
+        tile_formats: dict[int, dict[str, Any]] = {}
+
+        def serialize_tile(tile_id: int) -> dict[str, Any]:
+            insight = tile_insight(tile_id)
+            insight_data = insight_serializer.to_representation(insight)
+            if wants_frames and insight_data.get("is_cached"):
+                # Built here, while the serializer still holds this tile's result from the batched cache read.
+                tile_formats[tile_id] = cached_tile_format(
+                    insight_data,
+                    insight_serializer.effective_query(insight),
+                    insight_serializer.insight_result(insight),
+                )
+            return insight_data
+
+        results = read_cached_tiles(
             team=self.team,
             distinct_id=str(cast(User, request.user).distinct_id),
             tile_ids=tile_ids,
             found_tile_ids=tiles_by_id.keys(),
             forbidden_tile_ids=restricted_levels.keys(),
             plan_tile=lambda tile_id: insight_serializer.plan_tile_query(tile_insight(tile_id)),
-            serialize_tile=lambda tile_id: insight_serializer.to_representation(tile_insight(tile_id)),
+            serialize_tile=serialize_tile,
             context=context,
         )
+        for result in results:
+            result |= tile_formats.get(result["id"], {})
+        return results
 
     @extend_schema(
         parameters=[
