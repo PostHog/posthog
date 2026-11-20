@@ -174,21 +174,35 @@ class TestRequest:
         assert isinstance(result.raised, AdjustRetryableError)
         assert len(result.requests) > 1
 
-    @parameterized.expand([(400,), (401,), (403,), (404,), (422,)])
-    def test_client_errors_raise_http_error_with_url(self, status: int) -> None:
+    @parameterized.expand([(400, 1), (401, 1), (403, 4), (404, 1), (422, 1)])
+    def test_client_errors_raise_http_error_with_url(self, status: int, expected_requests: int) -> None:
         with mock.patch.object(adjust, "_today", return_value=TODAY):
             result = _driver().run(
                 "daily_report",
                 # A JSON body that is not an object: the error message must still build.
-                [ScriptedResponse(status=status, body=b"null")],
+                always(ScriptedResponse(status=status, body=b"null")),
                 incremental_field="day",
                 db_incremental_field_last_value="2024-06-30",
             )
 
         assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == expected_requests
         # get_non_retryable_errors matches on the status text plus the host, so both must be present.
         assert str(status) in str(result.raised)
         assert "https://automate.adjust.com" in str(result.raised)
+
+    def test_a_403_that_clears_on_retry_does_not_fail_the_sync(self) -> None:
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [ScriptedResponse(status=403), _scripted_page([{"day": "2024-06-30"}])],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert result.raised is None
+        assert len(result.items) == 1
+        assert len(result.requests) == 2
 
     @parameterized.expand(
         [
