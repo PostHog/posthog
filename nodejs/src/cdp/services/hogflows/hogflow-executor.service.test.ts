@@ -3713,8 +3713,8 @@ describe('Hogflow Executor', () => {
             return stub
         }
 
-        const classifyRun = async (): Promise<CyclotronJobInvocationHogFlow> => {
-            await insertHogFunctionTemplate(hub.postgres, classifyTemplate)
+        const classifyRun = async (template = classifyTemplate): Promise<CyclotronJobInvocationHogFlow> => {
+            await insertHogFunctionTemplate(hub.postgres, template)
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3727,7 +3727,7 @@ describe('Hogflow Executor', () => {
                         classify: {
                             type: 'function',
                             config: {
-                                template_id: classifyTemplate.id,
+                                template_id: template.id,
                                 inputs: {
                                     question: { value: 'Is this ticket spam?' },
                                     context: { value: { subject: 'Buy SEO' } },
@@ -3791,6 +3791,20 @@ describe('Hogflow Executor', () => {
             expect(resumed.finished).toBe(true)
             expect(resumed.invocation.state.variables?.classification).toEqual({ category: 'spam', confidence: 0.9 })
             expect(django).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps an event the step captured before it moves to the classify queue', async () => {
+            const capturesFirst = {
+                ...classifyTemplate,
+                id: 'template-test-capture-then-classify',
+                code: `postHogCapture({'event': 'ticket triaged', 'distinct_id': 'distinct-id', 'properties': {}})
+${classifyTemplate.code}`,
+            }
+
+            const onHogflow = await executor.execute(await classifyRun(capturesFirst))
+
+            expect(onHogflow.invocation.queue).toBe('classify')
+            expect(onHogflow.capturedPostHogEvents.map((captured) => captured.event)).toEqual(['ticket triaged'])
         })
 
         it.each([

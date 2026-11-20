@@ -28,7 +28,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
-    cdpCyclotronWorkerClassify: true,
+    // Only dev provides the limiter's Valkey by default, and the worker refuses to start without it.
+    cdpCyclotronWorkerClassify: isDevEnv(),
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),

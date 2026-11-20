@@ -140,6 +140,7 @@ export class HogExecutorAsyncService {
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
+                const earlierOutputs: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = result
 
                 // Queue-aware routing: each worker can execute some actions inline
                 // and routes others to a specialized queue. The email worker sends
@@ -215,6 +216,11 @@ export class HogExecutorAsyncService {
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
+                }
+                // Each async step starts a fresh result, so the Hog code before it would lose what it captured.
+                if (earlierOutputs && earlierOutputs !== result) {
+                    result.capturedPostHogEvents.unshift(...earlierOutputs.capturedPostHogEvents)
+                    result.warehouseWebhookPayloads.unshift(...earlierOutputs.warehouseWebhookPayloads)
                 }
             } else {
                 // Finish execution, carrying forward previous execResult

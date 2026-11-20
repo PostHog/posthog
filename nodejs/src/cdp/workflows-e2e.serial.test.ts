@@ -95,6 +95,7 @@ import { RateLimiterService } from './services/rate-limiter/rate-limiter.service
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
@@ -4648,29 +4649,6 @@ describe('Workflows E2E (email queue)', () => {
     })
 })
 
-/**
- * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
- *
- * Goes through real express + supertest, real CdpApi, real cyclotron-node
- * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
- * cyclotron job pointing at the right queue with the right state.
- *
- * The deep state-machine paths (page execution, terminal write, truncation,
- * Django down → resolver parks) are covered by the integration tests in
- * `consumers/cdp-cyclotron-worker-batch-resolve.consumer.test.ts`. This
- * test is the boundary backstop — it caught a real bug (wrong DB URL on
- * the resolver manager) during development.
- *
- * Hub lifecycle follows cdp-api.test.ts: one hub for the suite (beforeAll),
- * torn down once (afterAll). Per-test isolation comes from resetting the
- * postgres team data + truncating cyclotron_jobs in beforeEach.
- */
-
-/**
- * E2E for the cyclotron batch resolver. POST through cdp-api, real consumer
- * loop, mocked Django endpoints, assert on the resulting cyclotron + Django
- * state. Mirrors how the system runs in prod — no manual dequeue plumbing.
- */
 // The classify queue is the only path a classification takes to the model, and its token bucket sets the pace.
 describe('Workflows E2E (classify queue)', () => {
     jest.setTimeout(30000)
@@ -4749,20 +4727,11 @@ describe('Workflows E2E (classify queue)', () => {
         await kafkaProducer.disconnect()
         await closeHub(hub)
         mockInternalFetch.mockReset()
+        jest.restoreAllMocks()
     })
 
-    it('calls Django no faster than the bucket refills plus its burst, and finishes every run', async () => {
-        const callTimes: number[] = []
-        mockInternalFetch.mockImplementation(() => {
-            callTimes.push(Date.now())
-            return Promise.resolve({
-                status: 200,
-                headers: {},
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(JSON.stringify({ category: 'spam', confidence: 0.9 })),
-            } as any)
-        })
-        const hogFlow = new FixtureHogFlowBuilder()
+    const classifyFlow = (): HogFlow =>
+        new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
             .withExitCondition('exit_only_at_end')
@@ -4792,7 +4761,19 @@ describe('Workflows E2E (classify queue)', () => {
                 ],
             })
             .build()
-        await insertHogFlow(hub.postgres, hogFlow)
+
+    it('calls Django no faster than the bucket refills plus its burst, and finishes every run', async () => {
+        const callTimes: number[] = []
+        mockInternalFetch.mockImplementation(() => {
+            callTimes.push(Date.now())
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({ category: 'spam', confidence: 0.9 })),
+            } as any)
+        })
+        await insertHogFlow(hub.postgres, classifyFlow())
 
         const runs = 8
         const events = Array.from({ length: runs }, () =>
@@ -4818,8 +4799,50 @@ describe('Workflows E2E (classify queue)', () => {
             hub.CDP_CLASSIFY_RATE_LIMIT_CAPACITY + hub.CDP_CLASSIFY_RATE_LIMIT_REFILL_PER_SECOND
         )
     })
+
+    it('sends a run back to the hogflow queue when its classification fails on the classify worker', async () => {
+        jest.spyOn(ScopedServiceJwt.prototype, 'enabled', 'get').mockReturnValue(false)
+        await insertHogFlow(hub.postgres, classifyFlow())
+
+        const { backgroundTask } = await eventsConsumer.processBatch([
+            createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: { uuid: new UUIDT().toString(), event: '$pageview', properties: {} } as any,
+            }),
+        ])
+        await backgroundTask
+
+        await waitForExpect(async () => {
+            const { rows } = await cyclotronPool.query('SELECT queue_name, status FROM cyclotron_jobs')
+            expect(rows).toEqual([{ queue_name: 'hogflow', status: 'completed' }])
+        }, 20000)
+        expect(mockInternalFetch).not.toHaveBeenCalled()
+    })
 })
 
+/**
+ * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
+ *
+ * Goes through real express + supertest, real CdpApi, real cyclotron-node
+ * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
+ * cyclotron job pointing at the right queue with the right state.
+ *
+ * The deep state-machine paths (page execution, terminal write, truncation,
+ * Django down → resolver parks) are covered by the integration tests in
+ * `consumers/cdp-cyclotron-worker-batch-resolve.consumer.test.ts`. This
+ * test is the boundary backstop — it caught a real bug (wrong DB URL on
+ * the resolver manager) during development.
+ *
+ * Hub lifecycle follows cdp-api.test.ts: one hub for the suite (beforeAll),
+ * torn down once (afterAll). Per-test isolation comes from resetting the
+ * postgres team data + truncating cyclotron_jobs in beforeEach.
+ */
+
+/**
+ * E2E for the cyclotron batch resolver. POST through cdp-api, real consumer
+ * loop, mocked Django endpoints, assert on the resulting cyclotron + Django
+ * state. Mirrors how the system runs in prod — no manual dequeue plumbing.
+ */
 describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     jest.setTimeout(60000)
 
