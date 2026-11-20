@@ -135,8 +135,19 @@ class BatchExportField(typing.TypedDict):
     alias: str
 
 
+class StoredRestrictedProperty(typing.TypedDict):
+    """A property the user who saved a schema could not read, stored as JSON in the schema."""
+
+    name: str
+    property_type: int
+    group_type_index: int | None
+
+
 class BatchExportSchema(typing.TypedDict):
+    # Old schemas saved by a user with restricted properties lack `hogql_query`, and no old schema
+    # has `restricted_properties`. A new schema always stores both.
     hogql_query: typing.NotRequired[str]
+    restricted_properties: typing.NotRequired[list[StoredRestrictedProperty]]
     fields: list[BatchExportField]
     # HogQL binds these at any type; narrowing breaks Temporal input decoding.
     values: dict[str, typing.Any]
