@@ -10,7 +10,13 @@ import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { expect, userEvent } from 'storybook/test'
 
-import { Story, DISCARD_VIEW, DISCARD_INSIGHT, sqlEditorStoryMeta } from './__mocks__/SQLEditorStoryFixtures'
+import {
+    Story,
+    DISCARD_VIEW,
+    DISCARD_INSIGHT,
+    SAMPLE_SQL,
+    sqlEditorStoryMeta,
+} from './__mocks__/SQLEditorStoryFixtures'
 
 const meta: Meta = { ...sqlEditorStoryMeta, component: App, title: 'Scenes-App/Data Warehouse/SQL Editor' }
 export default meta
@@ -64,7 +70,12 @@ export const SaveAsFlowQuill: Story = {
             },
         },
     },
-    play: async ({ canvasElement }) => openSaveMenu(canvasElement),
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toBe(SAMPLE_SQL), {
+            timeout: 30000,
+        })
+        await openSaveMenu(canvasElement)
+    },
 }
 
 const discardMocks = {
