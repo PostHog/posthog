@@ -33,7 +33,6 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 
 from products.stamphog.backend.facade.contracts import ApprovalGateCheck
-from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.engine_pregate import (
     PregateOutcome,
@@ -47,6 +46,7 @@ from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import reviewable_repo_config
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
@@ -138,7 +138,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
     try:
         pr_future = reads.submit(client.get_pr, repo, pr_number)
         files_future = reads.submit(client.get_pr_files, repo, pr_number)
-        check_runs_future = reads.submit(get_check_runs_with_pins, client, repo, head_sha)
+        check_runs_future = reads.submit(client.get_check_runs, repo, head_sha)
         policy_futures = {
             path: reads.submit(client.get_default_branch_file, repo, path)
             for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
@@ -170,6 +170,16 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         policy_files.update(
             {path: text for path, future in manifest_futures.items() if (text := reads.result(future)) is not None}
         )
+        # Like the review path, so a deny lift from a workflow publisher or a pinned App counts here too.
+        proven_future = reads.submit(
+            proven_check_runs,
+            client,
+            repo,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            check_runs=reads.result(check_runs_future),
+            policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+        )
         author_team_slugs = reads.result(author_teams_future)
         if author_team_slugs is None:
             # A deny category can exempt the teams that own it, and a failed lookup reads as "on no team", which
@@ -187,7 +197,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
             pr={**pr, "draft": False, "mergeable_state": "clean"},
             files=files,
             reviews=[],
-            check_runs=reads.result(check_runs_future),
+            check_runs=reads.result(proven_future),
             author_team_slugs=author_team_slugs,
             base_sha=base_sha,
             merge_base_sha=reads.result(merge_base_future),
