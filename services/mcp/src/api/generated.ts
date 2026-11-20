@@ -6717,7 +6717,6 @@ export namespace Schemas {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
@@ -6735,6 +6734,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
      * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token
      */
     export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
 
@@ -6744,7 +6744,6 @@ export namespace Schemas {
       PersonalApiKey: 'personal_api_key',
       Oauth: 'oauth',
       ProjectSecretKey: 'project_secret_key',
-      TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
       OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
@@ -6762,6 +6761,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       CrossRegionSignature: 'cross_region_signature',
       Unattributed: 'unattributed',
+      TeamSecretToken: 'team_secret_token',
     } as const;
 
     export interface ActivityLog {
@@ -6794,7 +6794,6 @@ export namespace Schemas {
        * * `personal_api_key` - personal_api_key
        * * `oauth` - oauth
        * * `project_secret_key` - project_secret_key
-       * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
        * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
@@ -6811,7 +6810,8 @@ export namespace Schemas {
        * * `export_renderer` - export_renderer
        * * `webhook` - webhook
        * * `cross_region_signature` - cross_region_signature
-       * * `unattributed` - unattributed */
+       * * `unattributed` - unattributed
+       * * `team_secret_token` - team_secret_token */
       readonly credential_type: ActivityLogCredentialTypeEnum | null;
       /**
          * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
@@ -16587,7 +16587,7 @@ export namespace Schemas {
        * * `week` - Week
        * * `month` - Month */
       interval: AnomalyIntervalEnum;
-      /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. */
+      /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. */
       date_from: string;
       /** The scored buckets of the series in the chart window, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. */
       points: AnomalySeriesPoint[];
@@ -58468,6 +58468,11 @@ export namespace Schemas {
      */
     export type HealthIssueCountsByKind = {[key: string]: number};
 
+    /**
+     * The most severe severity among the issues of each check kind in this group, keyed by kind.
+     */
+    export type HealthIssueCountsWorstSeverityByKind = {[key: string]: string};
+
     export interface HealthIssueCounts {
       /** Total number of issues in this group. */
       total: number;
@@ -58475,6 +58480,8 @@ export namespace Schemas {
       by_severity: HealthIssueCountsBySeverity;
       /** Count of issues in this group keyed by check kind (e.g. 'sdk_outdated'). */
       by_kind: HealthIssueCountsByKind;
+      /** The most severe severity among the issues of each check kind in this group, keyed by kind. */
+      worst_severity_by_kind: HealthIssueCountsWorstSeverityByKind;
     }
 
     /**
@@ -76755,6 +76762,155 @@ export namespace Schemas {
       value?: unknown;
     }
 
+    export interface NotebookAppTab {
+      /**
+         * Stable tab identifier.
+         * @maxLength 80
+         */
+      id: string;
+      /**
+         * Tab label.
+         * @maxLength 80
+         */
+      title: string;
+    }
+
+    /**
+     * * `cell` - Notebook cell
+     * * `text` - Text
+     * * `input` - Input
+     * * `divider` - Divider
+     */
+    export type NotebookAppBlockKindEnum = typeof NotebookAppBlockKindEnum[keyof typeof NotebookAppBlockKindEnum];
+
+
+    export const NotebookAppBlockKindEnum = {
+      Cell: 'cell',
+      Text: 'text',
+      Input: 'input',
+      Divider: 'divider',
+    } as const;
+
+    /**
+     * * `auto` - Automatic
+     * * `select` - Dropdown
+     * * `slider` - Slider
+     */
+    export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
+
+
+    export const NotebookAppInputKindEnum = {
+      Auto: 'auto',
+      Select: 'select',
+      Slider: 'slider',
+    } as const;
+
+    /**
+     * * `output` - Output
+     * * `source` - Source
+     * * `both` - Source and output
+     */
+    export type NotebookAppCellDisplayEnum = typeof NotebookAppCellDisplayEnum[keyof typeof NotebookAppCellDisplayEnum];
+
+
+    export const NotebookAppCellDisplayEnum = {
+      Output: 'output',
+      Source: 'source',
+      Both: 'both',
+    } as const;
+
+    export interface NotebookAppBlock {
+      /**
+         * Stable component identifier within the app.
+         * @maxLength 80
+         */
+      id: string;
+      /** Type of app component.
+       *
+       * * `cell` - Notebook cell
+       * * `text` - Text
+       * * `input` - Input
+       * * `divider` - Divider */
+      kind: NotebookAppBlockKindEnum;
+      /**
+         * Tab containing this component.
+         * @maxLength 80
+         */
+      tab_id: string;
+      /**
+         * Optional component title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Width in a twelve-column grid.
+         * @minimum 1
+         * @maximum 12
+         */
+      width?: number;
+      /**
+         * Source notebook cell ID.
+         * @maxLength 160
+         */
+      node_id?: string;
+      /**
+         * Markdown for a text component.
+         * @maxLength 20000
+         */
+      text?: string;
+      /**
+         * Notebook variable controlled by an input.
+         * @maxLength 80
+         */
+      variable?: string;
+      /** Control used for an input.
+       *
+       * * `auto` - Automatic
+       * * `select` - Dropdown
+       * * `slider` - Slider */
+      input_kind?: NotebookAppInputKindEnum;
+      /**
+         * Allowed values for a dropdown.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      options?: string[];
+      /** Slider minimum. */
+      min?: number;
+      /** Slider maximum. */
+      max?: number;
+      /**
+         * Slider increment.
+         * @minimum 0.000001
+         */
+      step?: number;
+      /** Whether to display cell source, output, or both.
+       *
+       * * `output` - Output
+       * * `source` - Source
+       * * `both` - Source and output */
+      display?: NotebookAppCellDisplayEnum;
+    }
+
+    export interface NotebookAppLayout {
+      /**
+         * App title, falling back to the notebook title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Description displayed below the app title.
+         * @maxLength 2000
+         */
+      description?: string;
+      /** Use all available width instead of a centered page. */
+      full_width?: boolean;
+      /** Ordered app tabs. */
+      tabs: NotebookAppTab[];
+      /** Ordered components, arranged in rows within each tab. */
+      blocks: NotebookAppBlock[];
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -76797,6 +76953,15 @@ export namespace Schemas {
       readonly parent_resource: NotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -94846,6 +95011,15 @@ export namespace Schemas {
       readonly parent_resource?: PatchedNotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -96541,10 +96715,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token?: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup?: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable
@@ -102994,10 +103164,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable
@@ -148865,7 +149031,7 @@ export namespace Schemas {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
     /**
-     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
+     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
      */
     include_points?: boolean;
     /**
@@ -148899,7 +149065,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -149712,6 +149878,10 @@ export namespace Schemas {
      * @minLength 1
      */
     key?: string;
+    /**
+     * Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.
+     */
+    key_prefix?: string;
     /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */

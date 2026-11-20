@@ -789,6 +789,7 @@ class HogQLQueryExecutor:
             else None
         )
 
+        query_stats.notify_query_started()
         result = adapter.execute(
             DirectQueryRequest(
                 source=source,

@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -433,6 +433,7 @@ from products.signals.backend.throttles import (
     SourceFilterPreviewBurstThrottle,
     SourceFilterPreviewSustainedThrottle,
     UserReportCreateBurstThrottle,
+    report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.signals.backend.trial.policy import TrialPolicy
@@ -3462,6 +3463,11 @@ class SignalReportViewSet(
         if self.action == "create":
             return [UserReportCreateBurstThrottle()]
         return super().get_throttles()
+
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        if (error := report_task_run_throttled(request, wait)) is not None:
+            raise error
+        super().throttled(request, wait)
 
     def _user_report_create_enabled(self, user: User) -> bool:
         # Fails closed: a flag-service error must not open report filing to a member who is not opted in.

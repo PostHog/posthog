@@ -585,6 +585,7 @@ def sync_execute(
             # Taken after the concurrency slot and the pool checkout, so the fallback does not count
             # the queue wait.
             execute_start_time = perf_counter()
+            query_stats.notify_query_started()
             try:
                 result = client.execute(
                     prepared_sql,
