@@ -370,7 +370,10 @@ The server rejects direct `render-ui` calls without UI support, even if the clie
 A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
 The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
 Cursor does not pass a result's `_meta` to the app, so for Cursor the result carries that data in `structuredContent["com.posthog.mcp/app_data"]` instead.
-This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
+Cursor defaults to tools mode unless the `mcp-cursor-exec-mode` flag is on. An explicit mode override takes precedence.
+
+When a direct tool call has a formatted table, the server drops the duplicate `structuredContent` by default and preserves app data in `_meta` for tools with a UI resource.
+Cursor, Claude Artifacts, and non-Anthropic render-ui hosts keep the structured result. Direct app data calls from render-ui hosts in CLI mode also keep it.
 
 ## Claude web and desktop exec schema budget
 
