@@ -83,12 +83,12 @@ describe('checkSandboxRecipient', () => {
         expect(await frequencyCap()).toEqual({ capped: false })
     }
 
-    const storePreferences = (preferences: Record<string, string>) =>
+    const storePreferences = (preferences: Record<string, string>, identifier: string = address) =>
         postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
              VALUES ($1, $2, $3, $4, NOW(), NOW(), false)`,
-            [new UUIDT().toString(), teamId, address, JSON.stringify(preferences)],
+            [new UUIDT().toString(), teamId, identifier, JSON.stringify(preferences)],
             'test:store-recipient-preferences'
         )
 
@@ -136,6 +136,12 @@ describe('checkSandboxRecipient', () => {
         ],
         ['an opt-out from the category', () => storePreferences({ newsletter: 'OPTED_OUT' }), {}, 'opted_out'],
         ['an opt-out from all marketing', () => storePreferences({ $all: 'OPTED_OUT' }), {}, 'opted_out'],
+        [
+            'an opt-out stored under another case of the address',
+            () => storePreferences({ $all: 'OPTED_OUT' }, address.toUpperCase()),
+            {},
+            'opted_out',
+        ],
         [
             'an opt-out recorded earlier in the run',
             () => (optOuts = [{ identifier: address, categoryId: '$all' } as MessageOptOutRecord]),
