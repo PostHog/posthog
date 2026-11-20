@@ -45,6 +45,32 @@ export interface bulkScanLogicActions {
 
 export type bulkScanLogicType = MakeLogicType<bulkScanLogicValues, bulkScanLogicActions>
 
+function showScanStartedToast(scanner: ReplayScannerApi | undefined, scannerId: string, started: number): void {
+    const offerSchedule =
+        isOffByChoice(scanner) &&
+        !getReplayVisionEditDisabledReason(scanner?.user_access_level as AccessControlLevel | null | undefined)
+    if (offerSchedule) {
+        captureScheduleOffer('shown', 'recordings_list', scannerId)
+    }
+    const startedMessage = `Started scanning ${started} recording${started === 1 ? '' : 's'} with “${scanner?.name ?? 'scanner'}”`
+    // The schedule switch and its monthly estimate are on the scanner page, so the offer sends people there.
+    lemonToast.success(
+        offerSchedule ? `${startedMessage}. Want it to scan new recordings automatically?` : startedMessage,
+        {
+            button: {
+                label: offerSchedule ? 'Set up schedule' : 'Go to scanner page',
+                action: () => {
+                    if (offerSchedule) {
+                        captureScheduleOffer('opened_scanner', 'recordings_list', scannerId)
+                    }
+                    router.actions.push(urls.replayVision(scannerId))
+                },
+                dataAttr: offerSchedule ? 'vision-bulk-scan-schedule-offer' : 'vision-bulk-scan-go-to-scanner',
+            },
+        }
+    )
+}
+
 export const bulkScanLogic = kea<bulkScanLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'bulkScanLogic']),
 
@@ -108,37 +134,10 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
             }
             const skipped = sessionIds.length - started - failed
             const scanner = values.scanners.find((s) => s.id === scannerId)
-            const scannerName = scanner?.name ?? 'scanner'
 
             if (started > 0) {
                 refreshVisionQuota()
-                const offerSchedule =
-                    isOffByChoice(scanner) &&
-                    !getReplayVisionEditDisabledReason(
-                        scanner?.user_access_level as AccessControlLevel | null | undefined
-                    )
-                if (offerSchedule) {
-                    captureScheduleOffer('shown', 'recordings_list', scannerId)
-                }
-                const startedMessage = `Started scanning ${started} recording${started === 1 ? '' : 's'} with “${scannerName}”`
-                // The schedule switch and its monthly estimate are on the scanner page, so the offer sends people there.
-                lemonToast.success(
-                    offerSchedule ? `${startedMessage}. Want it to scan new recordings automatically?` : startedMessage,
-                    {
-                        button: {
-                            label: offerSchedule ? 'Set up schedule' : 'Go to scanner page',
-                            action: () => {
-                                if (offerSchedule) {
-                                    captureScheduleOffer('opened_scanner', 'recordings_list', scannerId)
-                                }
-                                router.actions.push(urls.replayVision(scannerId))
-                            },
-                            dataAttr: offerSchedule
-                                ? 'vision-bulk-scan-schedule-offer'
-                                : 'vision-bulk-scan-go-to-scanner',
-                        },
-                    }
-                )
+                showScanStartedToast(scanner, scannerId, started)
             }
             if (quotaError) {
                 const detail = quotaError.detail ?? 'Monthly Replay Vision quota reached.'
