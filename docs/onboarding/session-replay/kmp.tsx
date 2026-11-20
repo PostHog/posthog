@@ -72,6 +72,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 language: 'kotlin',
                                 file: 'Kotlin',
                                 code: dedent`
+                                    import com.posthog.kmp.IosCaptureMethod
                                     import com.posthog.kmp.PostHog
                                     import com.posthog.kmp.PostHogConfig
                                     import com.posthog.kmp.PostHogContext
@@ -105,6 +106,11 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
 
                                             // Experimental: verify screenshot mask alignment before keeping a capture (Android only). Default is false.
                                             verifyScreenshotMaskAlignment = false,
+
+                                            // How iOS captures screenshots (iOS only). Default is GPU (experimental), which takes
+                                            // less main-thread time but doesn't capture web view pages or Metal content.
+                                            // STANDARD draws the window on the main thread.
+                                            iosCaptureMethod = IosCaptureMethod.GPU,
                                         ),
                                     )
                                 `,
