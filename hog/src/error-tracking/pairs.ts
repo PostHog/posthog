@@ -19,7 +19,7 @@ import {
     type ReleaseReport,
     type Selection,
 } from './run'
-import type { InjectOutcome, PairState, Worker } from './worker'
+import { commandWorker, type InjectOutcome, type PairState } from './worker'
 
 export const isBundle = (artifact: Artifact): boolean =>
     artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
@@ -30,11 +30,12 @@ export interface OwnedPair {
 }
 
 export async function readPairs(
-    worker: Worker,
+    ctx: Context,
     selection: Selection,
     options: ErrorTrackingOptions,
     skipped: Skip[]
 ): Promise<OwnedPair[]> {
+    const worker = commandWorker(ctx)
     const bundles = selection.artifacts.filter(isBundle)
     const answers = await worker.readPairs(
         bundles.map((artifact) => artifact.path),
@@ -90,7 +91,6 @@ const needsNewChunkId = (pair: PairState, releaseId: string | null): boolean =>
 
 export async function injectPairs(
     ctx: Context,
-    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions,
     session: Session = new Session(ctx),
@@ -99,7 +99,8 @@ export async function injectPairs(
 ): Promise<InjectedPairs> {
     const skipped: Skip[] = []
     const warnings: string[] = []
-    const pairs = await readPairs(worker, selection, options, skipped)
+    const worker = commandWorker(ctx)
+    const pairs = await readPairs(ctx, selection, options, skipped)
     if (pairs.length === 0) {
         throw new HogError(
             'no_bundles',

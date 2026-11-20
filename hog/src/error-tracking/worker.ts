@@ -1,10 +1,14 @@
-import { realpathSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { z } from 'zod'
 
+import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
+import { canonical } from '@/core/paths'
+import { FROM_SOURCE, type Runtime } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
+
+import type { ReleaseMode } from './kinds/js'
 
 // hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
 // the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
@@ -18,21 +22,15 @@ const WINDOWS_SUFFIX = '.exe'
 // Where `pnpm --filter hog build:worker` puts the worker, for a hog that runs from source.
 const SOURCE_BUILD = join(import.meta.dir, '..', '..', 'worker', 'target', 'release')
 
-const isBun = (execPath: string): boolean => basename(execPath).replace(/\.exe$/i, '') === 'bun'
-
 // The worker sits next to the hog binary, and hog never looks anywhere else: a `hog-worker` found
 // through PATH could be any program. A symlinked hog, as Homebrew installs it, resolves first.
-export function workerPath(execPath: string = process.execPath, platform: NodeJS.Platform = process.platform): string {
-    const name = platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
-    if (isBun(execPath)) {
+export function workerPath(runtime: Pick<Runtime, 'isDevelopment' | 'execPath' | 'platform'>): string {
+    const name = runtime.platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
+    if (runtime.isDevelopment) {
         return join(SOURCE_BUILD, name)
     }
-
-    let resolved = execPath
-    try {
-        resolved = realpathSync(execPath)
-    } catch {}
-    return join(dirname(resolved), name)
+    const path = runtime.platform === 'win32' ? win32 : posix
+    return path.join(path.dirname(canonical(runtime.execPath)), name)
 }
 
 const Hello = z.object({ type: z.literal('hello'), protocol: z.number(), version: z.string() })
@@ -67,10 +65,11 @@ const Outcomes = z.object({
 })
 const Done = z.object({})
 
+type PairAnswer = z.output<typeof Pairs>['pairs'][number]
+export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
-export type PairAnswer = z.output<typeof Pairs>['pairs'][number]
 
-export interface DetectCandidate {
+interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
@@ -80,14 +79,21 @@ async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<st
     const decoder = new TextDecoder()
     let buffered = ''
     for await (const chunk of stream) {
-        buffered += decoder.decode(chunk, { stream: true })
-
-        let newline = buffered.indexOf('\n')
-        while (newline >= 0) {
-            yield buffered.slice(0, newline)
-            buffered = buffered.slice(newline + 1)
-            newline = buffered.indexOf('\n')
+        const text = decoder.decode(chunk, { stream: true })
+        let newline = text.indexOf('\n')
+        if (newline < 0) {
+            buffered += text
+            continue
         }
+
+        let start = 0
+        while (newline >= 0) {
+            yield buffered + text.slice(start, newline)
+            buffered = ''
+            start = newline + 1
+            newline = text.indexOf('\n', start)
+        }
+        buffered = text.slice(start)
     }
     if (buffered) {
         yield buffered
@@ -102,7 +108,13 @@ interface Running {
 export class Worker {
     private running: Promise<Running> | undefined
 
-    constructor(private readonly path: string = workerPath()) {}
+    constructor(
+        private readonly path: string = workerPath({
+            isDevelopment: FROM_SOURCE,
+            execPath: process.execPath,
+            platform: process.platform,
+        })
+    ) {}
 
     // Started by the first request, so a command that fails on its arguments never starts one.
     private start(): Promise<Running> {
@@ -114,7 +126,7 @@ export class Worker {
                 throw new HogError(
                     'worker_missing',
                     `hog couldn't start hog-worker at ${this.path}: ${(error as Error).message}`,
-                    isBun(process.execPath)
+                    FROM_SOURCE
                         ? 'Run `pnpm --filter hog build:worker` to build it.'
                         : 'hog-worker ships next to hog. Install hog again to get both.'
                 )
@@ -138,7 +150,12 @@ export class Worker {
         return this.running
     }
 
-    private async call<T>(request: Record<string, unknown>, result: Schema<T>): Promise<T> {
+    // `empty` answers a request whose `ids` or `paths` name nothing, so it never starts the worker.
+    private async call<T>(request: Record<string, unknown>, result: Schema<T>, empty?: T): Promise<T> {
+        const list = request.ids ?? request.paths
+        if (empty !== undefined && Array.isArray(list) && list.length === 0) {
+            return empty
+        }
         const { child, lines } = await this.start()
         child.stdin.write(`${JSON.stringify(request)}\n`)
         child.stdin.flush()
@@ -179,34 +196,26 @@ export class Worker {
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
-        if (paths.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs)).pairs
+        const request = { op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }
+        return (await this.call(request, Pairs, { pairs: [] })).pairs
     }
 
     async drop(ids: number[]): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'drop', ids }, Done)
-        }
+        await this.call({ op: 'drop', ids }, Done, {})
     }
 
     async inject(
         ids: number[],
-        mode: 'event' | 'symbol-set',
+        mode: ReleaseMode,
         releaseId: string | null,
         newChunkIds: string[] = []
     ): Promise<InjectOutcome[]> {
-        if (ids.length === 0) {
-            return []
-        }
-        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes)).outcomes
+        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes, { outcomes: [] }))
+            .outcomes
     }
 
     async save(ids: number[]): Promise<void> {
-        if (ids.length > 0) {
-            await this.call({ op: 'save', ids }, Done)
-        }
+        await this.call({ op: 'save', ids }, Done, {})
     }
 
     async close(): Promise<void> {
@@ -218,11 +227,15 @@ export class Worker {
     }
 }
 
-export async function withWorker<T>(work: (worker: Worker) => Promise<T>): Promise<T> {
-    const worker = new Worker()
-    try {
-        return await work(worker)
-    } finally {
-        await worker.close()
+const workers = new WeakMap<Context, Worker>()
+
+export function commandWorker(ctx: Context): Worker {
+    let worker = workers.get(ctx)
+    if (!worker) {
+        const created = new Worker()
+        ctx.onClose(() => created.close())
+        workers.set(ctx, created)
+        worker = created
     }
+    return worker
 }

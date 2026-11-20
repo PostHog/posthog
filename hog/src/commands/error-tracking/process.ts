@@ -2,7 +2,6 @@ import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
 import { plural } from '@/core/text'
 import { processArtifacts, select } from '@/error-tracking/run'
-import { withWorker } from '@/error-tracking/worker'
 
 import {
     DRY_RUN_OPTION,
@@ -28,7 +27,7 @@ export default defineCommand({
 
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
-        const selection = await withWorker((worker) => select(ctx, worker, args.paths ?? [], settings))
+        const selection = await select(ctx, args.paths ?? [], settings)
         if (selection.artifacts.length === 0) {
             throw new HogError(
                 'nothing_to_upload',

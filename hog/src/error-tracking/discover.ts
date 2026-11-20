@@ -2,13 +2,14 @@ import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
+import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 
 import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
 import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
 import { isValidProguardMapping } from './kinds/proguard'
 import { nativeFormat } from './native/package'
-import type { Worker } from './worker'
+import { commandWorker } from './worker'
 
 export interface Root {
     path: string
@@ -179,14 +180,14 @@ const BUNDLE_EXTENSIONS = [...JS_EXTENSIONS, ...HERMES_BUNDLE_EXTENSIONS]
 const MAP_EXTENSION = '.map'
 
 export async function discover(
-    worker: Worker,
+    ctx: Context,
     roots: readonly Root[],
     cwd: string,
     options: DiscoverOptions = {}
 ): Promise<Artifact[]> {
     const listed = roots.map((root) => rootFiles(root, cwd))
     // One request for every file, so the worker reads them in parallel.
-    const answers = await worker.detect(
+    const answers = await commandWorker(ctx).detect(
         listed.flatMap(({ isFile, files }) =>
             files.map((path) => ({
                 path,

@@ -17,7 +17,6 @@ import {
     releaseRequested,
     resolveJsRelease,
     savePairs,
-    type InjectAction,
 } from './js-flow'
 import { decodeUtf8 } from './json'
 import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
@@ -45,7 +44,7 @@ import { sourceStep } from './native/sources'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
-import type { Worker } from './worker'
+import type { InjectAction } from './worker'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -92,12 +91,7 @@ export interface Selection {
     cwd: string
 }
 
-export async function select(
-    ctx: Context,
-    worker: Worker,
-    paths: string[],
-    options: ErrorTrackingOptions
-): Promise<Selection> {
+export async function select(ctx: Context, paths: string[], options: ErrorTrackingOptions): Promise<Selection> {
     let roots: Root[]
     let cwd: string
     if (paths.length > 0) {
@@ -117,7 +111,7 @@ export async function select(
         roots = sources.map((source) => ({ ...source, kind: options.kind ?? source.kind }))
         cwd = loaded.root
     }
-    const artifacts = await discover(worker, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
+    const artifacts = await discover(ctx, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
     return { artifacts, roots, cwd }
 }
 

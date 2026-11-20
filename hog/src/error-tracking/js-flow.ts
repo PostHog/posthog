@@ -18,8 +18,7 @@ import { GitError, gitInfo, type GitInfo } from './git'
 import { isEmptyMapContent, isUuid, pairUpload, uuidv5, type ReleaseMode, type Skip, type SourcePair } from './kinds/js'
 import { packVersion, type ReleaseFields } from './release'
 import { uuidv7, type SymbolSetUpload } from './upload'
-
-export type InjectAction = 'injected' | 'release_updated' | 'unchanged'
+import type { InjectAction } from './worker'
 
 export interface InjectOutcome {
     pair: SourcePair
