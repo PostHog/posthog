@@ -13,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
+import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
@@ -326,6 +327,7 @@ describe('SandboxSenderChoiceProvider', () => {
         useSenderMocks(senders)
         showSenderRow()
         await renderStep(ownStep({ from: { integrationId: 7 } }))
+        await waitFor(() => expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS))
 
         expect(!!within(openFromPicker()).queryByText('PostHog test sender')).toEqual(offered)
     })
