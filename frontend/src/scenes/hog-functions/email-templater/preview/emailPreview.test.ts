@@ -132,9 +132,14 @@ describe('renderEmailPreview', () => {
             id: 'person-6',
             properties: { bio: 'hi \uE000plan\uE001 there' },
         })
+        const fromKey = renderEmailPreviewMarked('{% for pair in person.properties %}{{ pair[0] }}{% endfor %}', {
+            id: 'person-6',
+            properties: { '\uE000plan\uE001': 'x' },
+        })
 
         expect(countUnresolved(rendered)).toBe(0)
         expect(rendered).toBe('hi plan there')
+        expect(countUnresolved(fromKey)).toBe(0)
     })
 
     it('falls back to the template when strip_html gets oversized input', () => {

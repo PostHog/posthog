@@ -25,7 +25,9 @@ function withoutFences(value: unknown): any {
         return value.map(withoutFences)
     }
     if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withoutFences(entry)]))
+        return Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [withoutFences(key), withoutFences(entry)])
+        )
     }
     return value
 }
