@@ -10,11 +10,13 @@ import {
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CdpIntakeRunOutput,
 } from '../outputs/outputs'
+import { KafkaMskCdpIntakeProducerEnvConfig } from '../outputs/producers'
 import { encodeJob } from '../services/cyclotron-v2/job-codec'
 import { CyclotronJobInvocation } from '../types'
 import { RunKind, encodeIntakeMessage } from './message'
 
 export type IntakeMode = 'off' | 'shadow' | 'async'
+export type IntakeCluster = 'msk' | 'warpstream'
 export type IntakeOutput = CdpIntakeRunOutput
 export type IntakeProduceOutcome = 'acked' | 'unacked' | 'too_large' | 'invalid'
 
@@ -26,8 +28,11 @@ const OUTPUT_OF: Record<RunKind, IntakeOutput> = {
     'workflow-webhook': CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
 }
 
-// Alerts and dashboards filter the metrics below on this label.
-const cluster = 'msk'
+// Alerts and dashboards filter the metrics below on this label. Without MSK brokers the MSK producer opens WarpStream's
+// config, so the label names the cluster the runs reach.
+export const intakeClusterOf = (
+    config: Pick<KafkaMskCdpIntakeProducerEnvConfig, 'KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST'>
+): IntakeCluster => (config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST ? 'msk' : 'warpstream')
 
 const launchesCounter = new Counter({
     name: 'cdp_intake_launches_total',
@@ -83,7 +88,8 @@ export class IntakeProducer {
         private outputs: IngestionOutputs<IntakeOutput>,
         private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
         // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
-        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation
+        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation,
+        private cluster: IntakeCluster = 'msk'
     ) {}
 
     async produce(
@@ -91,6 +97,7 @@ export class IntakeProducer {
         mode: IntakeMode,
         settlement?: PublishSettlement
     ): Promise<IntakeProduceOutcome> {
+        const cluster = this.cluster
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,

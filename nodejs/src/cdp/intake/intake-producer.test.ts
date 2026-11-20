@@ -14,6 +14,7 @@ import {
     IntakeProducer,
     IntakeRun,
     PublishSettlement,
+    intakeClusterOf,
     intakeModeOf,
     publishesSettled,
 } from './intake-producer'
@@ -82,27 +83,35 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['shadow', 'transactional-email'],
-        ['async', 'workflow-webhook'],
-    ] as const)('counts an acked %s %s run under the msk cluster label', async (mode, kind) => {
-        const acked = async (): Promise<number> => {
-            const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
-            return metric.values
-                .filter(
-                    (v) =>
-                        v.labels.kind === kind &&
-                        v.labels.mode === mode &&
-                        v.labels.outcome === 'acked' &&
-                        v.labels.cluster === 'msk'
-                )
-                .reduce((sum, v) => sum + v.value, 0)
+        ['shadow', 'transactional-email', 'msk-broker:9094', 'msk'],
+        ['async', 'workflow-webhook', '', 'warpstream'],
+    ] as const)(
+        'counts an acked %s %s run with brokers %p under the %s cluster label',
+        async (mode, kind, brokers, cluster) => {
+            const acked = async (): Promise<number> => {
+                const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
+                return metric.values
+                    .filter(
+                        (v) =>
+                            v.labels.kind === kind &&
+                            v.labels.mode === mode &&
+                            v.labels.outcome === 'acked' &&
+                            v.labels.cluster === cluster
+                    )
+                    .reduce((sum, v) => sum + v.value, 0)
+            }
+            const before = await acked()
+
+            await new IntakeProducer(
+                outputs(),
+                undefined,
+                undefined,
+                intakeClusterOf({ KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers })
+            ).produce({ kind, invocation: invocation() }, mode)
+
+            expect((await acked()) - before).toBe(1)
         }
-        const before = await acked()
-
-        await new IntakeProducer(outputs()).produce({ kind, invocation: invocation() }, mode)
-
-        expect((await acked()) - before).toBe(1)
-    })
+    )
 
     it('produces nothing for a run too large for the topic', async () => {
         const run = invocation({ variables: { body: 'x'.repeat(2 * 1024 * 1024) } })
