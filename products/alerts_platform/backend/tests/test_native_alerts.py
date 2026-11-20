@@ -174,7 +174,12 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert snoozed == [(until, (PlatformAlertState.NOT_FIRING,)), (None, (PlatformAlertState.NOT_FIRING,))]
 
-    def test_a_snooze_is_refused_for_an_alert_whose_source_keeps_a_row(self) -> None:
+    @parameterized.expand([("source_mirrors_its_row", True), ("source_keeps_nothing_on_its_row", False)])
+    def test_a_snooze_of_a_copy_is_refused_only_when_its_source_row_keeps_the_settings(
+        self, _name: str, mirrored: bool
+    ) -> None:
+        if mirrored:
+            self.spec = replace(self.spec, mirror=lambda **_: lambda edit: None)
         with team_scope(self.team.id):
             copy = platform_testing.create_configuration(
                 team_id=self.team.id,
@@ -185,16 +190,18 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                 owner=PlatformAlertOwner.PLATFORM,
                 legacy_configuration_id=uuid4(),
             )
-            with pytest.raises(InvalidPlatformAlertEdit):
+            until = django_timezone.now() + timedelta(hours=1)
+            refused = pytest.raises(InvalidPlatformAlertEdit) if mirrored else nullcontext()
+            with patch(_SOURCE_CONFIGS, return_value=self.spec), refused:
                 platform_writes.update_configuration(
                     team_id=self.team.id,
                     source_kinds=[SourceKind.LOGS.value],
                     configuration_id=copy.id,
                     change=lambda current: current,
-                    snooze_until=django_timezone.now() + timedelta(hours=1),
+                    snooze_until=until,
                     snooze_changed=True,
                 )
-            assert PlatformAlertConfiguration.objects.get(id=copy.id).snooze_until is None
+            assert PlatformAlertConfiguration.objects.get(id=copy.id).snooze_until == (None if mirrored else until)
 
     def test_admission_refuses_a_create_past_the_cap_and_sees_an_edit_that_turns_the_alert_on(self) -> None:
         admitted: list[tuple[bool, bool, int | None]] = []

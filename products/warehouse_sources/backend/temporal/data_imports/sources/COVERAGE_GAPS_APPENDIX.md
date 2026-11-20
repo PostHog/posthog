@@ -588,10 +588,10 @@ Diffed against: <https://github.com/amzn/selling-partner-api-models/tree/main/mo
 - [x] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high) → `payouts` (incremental on `creationDate`)
 - [x] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium) → `inbound_plans` (full refresh; the listing has plan summaries, not item counts)
 - [x] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium) → `fulfillment_orders` (incremental on `statusUpdateTime`)
-- [ ] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium)
-- [ ] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium)
-- [ ] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low)
-- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low)
+- [x] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium) → `order_metrics` (one row per marketplace and UTC day, incremental on `startTime`, the last 2 years Amazon allows)
+- [x] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium) → `invoices` (90-day issue-date windows over the last 2 years per marketplace, incremental on `lastUpdatedDate` with `invoicesModifiedAfter`)
+- [x] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low) → `replenishment_offers` (full refresh per marketplace, up to the 9,100 offers that offset paging reaches)
+- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low) Skipped: needs the restricted Direct-to-Consumer Shipping role, and every order carries the end customer's ship-to and bill-to address.
 - [ ] `Vendor shipments (GET /vendor/shipping/v1/shipments)` — vendor shipment details for open purchase orders (low)
 - [ ] `AWD inventory and inbound shipments (GET /awd/2024-05-09/inventory; GET /awd/2024-05-09/inboundShipments)` — Amazon Warehousing and Distribution stock and inbound flow, upstream of FBA inventory (low)
 
@@ -8230,10 +8230,10 @@ Diffed against: <https://developer.justcall.io/llms.txt>
 - [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
 - [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
 - [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
-- [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
-- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
-- [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
-- [ ] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
+- [x] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
+- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium) Skipped: per-call detail endpoint with no list form; one request per call over the full call history exceeds JustCall's 1,800-5,400 requests/hour plan limits.
+- [x] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
+- [x] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
 - [ ] `/v2.1/whatsapp/messages (List all messages)` — WhatsApp is a full message channel alongside texts and is entirely absent (medium)
 - [ ] `/v2.1 account / agent / number analytics endpoints` — vendor-computed call metrics per account, agent and number - useful as a reconciliation baseline (medium)
 - [ ] `/v2.1/meetings/ai (List meetings AI data)` — meeting-level AI summaries for teams using JustCall meetings (low)
@@ -8764,7 +8764,7 @@ Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is
 
 Re-audited 2026-11-19 against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low)
+- [x] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low) — synced as `skills`, full refresh only: moving the production label between older versions does not change `latestVersionLastUpdatedAt`, so `fromUpdatedAt` would miss it
 
 Note (2026-11-19): Parsed the full OpenAPI file and diffed it against the synced tables. Everything else listable is already synced, skipped in the earlier audit, or under /unstable/ (dashboards, topics) and config-shaped. Skills lists with page, limit and fromUpdatedAt/toUpdatedAt filters, so incremental sync is possible.
 
@@ -9729,10 +9729,10 @@ Diffed against: <https://www.metabase.com/docs/latest/api.json>
 - [x] `field (GET /api/database/{id}/fields, /api/field/{id})` — column-level metadata lookup for the databases we already sync (high)
 - [x] `permissions groups and membership (GET /api/permissions/group, /api/permissions/membership)` — membership table joining synced users to permission groups (high)
 - [x] `query execution log (GET /api/ee/logs/query_execution/{yyyy-mm})` — per-execution runtime/error history — the core usage-analytics fact table (high)
-- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium)
-- [ ] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
-- [ ] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
-- [ ] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
+- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium) Skipped: returns only the calling user's own recent items (max 20 per model) and the top 5 popular items, not instance-wide view history.
+- [x] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
+- [x] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
+- [x] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
 - [ ] `metric, measure and segment (GET /api/metric, /api/measure, /api/segment)` — semantic-layer definitions referenced by cards (medium)
 - [ ] `alerts, pulses and notifications (GET /api/alert, /api/pulse, /api/notification)` — subscription definitions and recipients (medium)
 - [ ] `timeline and timeline events (GET /api/timeline, /api/timeline/{id})` — annotation events attached to collections (low)
