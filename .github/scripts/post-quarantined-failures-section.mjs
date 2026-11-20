@@ -45,23 +45,24 @@ function parseAttributes(text) {
 }
 
 /**
- * Returns the ids of the tests whose final result in a pytest JUnit report is a failure or
- * an error. A test that appears more than once, from a rerun, counts by its last entry.
+ * Returns the ids of the tests that have a failure or an error in a pytest JUnit report.
+ * Tests in different classes can share a file and a name, so a passing entry never hides a failing one.
  */
-export function failedTestIds(xml, { pathPrefix = '' } = {}) {
+export function failedTestIds(xml) {
     // pytest JUnit has no DTD or entities. Refuse a report that does, as the backend gate does.
     if (!/<(failure|error)\b/.test(xml) || /<!DOCTYPE|<!ENTITY/.test(xml)) {
         return []
     }
-    const outcomes = new Map()
+    const ids = new Set()
     for (const match of xml.matchAll(/<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g)) {
+        if (!/<(failure|error)\b/.test(match[3] ?? '')) {
+            continue
+        }
         const attributes = parseAttributes(match[1])
         const file = attributes.file || attributes.classname || ''
-        const repoFile = pathPrefix && file ? `${pathPrefix}${file}` : file
-        const id = [repoFile, attributes.name ?? ''].filter(Boolean).join('::')
-        outcomes.set(id, /<(failure|error)\b/.test(match[3] ?? ''))
+        ids.add([file, attributes.name ?? ''].filter(Boolean).join('::'))
     }
-    return [...outcomes].filter(([, failed]) => failed).map(([id]) => id)
+    return [...ids]
 }
 
 /**
@@ -79,12 +80,12 @@ export function collectFailures(dir) {
             const product = /^junit-product-(.+)\.xml$/.exec(path.basename(file))?.[1]
             const shard = product ? `products/${product}` : artifact.name.replace(/^junit-results-backend-/, '')
             const xml = fs.readFileSync(path.join(dir, artifact.name, file), 'utf8')
-            for (const test of failedTestIds(xml, { pathPrefix: product ? `${shard}/` : '' })) {
+            for (const test of failedTestIds(xml)) {
                 rows.push({ shard, test })
             }
         }
     }
-    return rows.sort((a, b) => (a.shard === b.shard ? (a.test < b.test ? -1 : 1) : a.shard < b.shard ? -1 : 1))
+    return rows.sort((a, b) => a.shard.localeCompare(b.shard) || a.test.localeCompare(b.test))
 }
 
 function count(number, noun) {
@@ -98,7 +99,10 @@ export function buildQuarantinedFailuresSection(failures) {
         lines.push(`| ${markdownCell(failure.shard)} | \`${markdownCell(failure.test)}\` |`)
     }
     if (failures.length > MAX_ROWS) {
-        lines.push('', `${failures.length - MAX_ROWS} more quarantined failures are in the shard JUnit artifacts.`)
+        lines.push(
+            '',
+            `${count(failures.length - MAX_ROWS, 'more quarantined failure')} not shown. See the shard JUnit artifacts.`
+        )
     }
     return {
         status: 'warn',

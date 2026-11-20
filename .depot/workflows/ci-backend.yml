@@ -4894,6 +4894,7 @@ jobs:
         name: Report quarantined failures
         needs: [django, turbo-tests]
         runs-on: depot-ubuntu-24.04
+        continue-on-error: true
         timeout-minutes: 10
         permissions:
             contents: read
@@ -4922,6 +4923,7 @@ jobs:
                       echo "Section script not present on this ref; skipping (branch may predate the check)."
                   fi
             - name: Download shard JUnit results
+              id: download-junit
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4957,7 +4959,7 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.ci-report-app-token.outputs.token }}
             - name: Post to CI report comment
-              if: steps.ci-report-app-token.outputs.token != ''
+              if: steps.ci-report-app-token.outputs.token != '' && steps.download-junit.outcome == 'success'
               continue-on-error: true
               env:
                   GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
