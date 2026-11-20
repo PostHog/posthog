@@ -7459,7 +7459,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-schemas-list": {
@@ -7594,7 +7594,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-sources-connections-list": {
@@ -16214,7 +16214,7 @@
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "task-context-wiki-channel-resolve": {
