@@ -19,6 +19,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TeamMembershipLevel } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'
@@ -27,6 +28,7 @@ import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { parseAliasToReadable } from './PathCleanFilterItem'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 import { PathRegexModal } from './PathRegexModal'
+import { QuillPathCleanFiltersTable } from './QuillPathCleanFiltersTable'
 
 export interface PathCleanFiltersTableProps {
     filters?: PathCleaningFilter[]
@@ -141,6 +143,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     // Sync local state with props, but not during drag to avoid flicker
     useEffect(() => {
@@ -191,6 +194,20 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 updateFilters(arrayMove(localFilters, oldIndex, newIndex))
             }
         }
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillPathCleanFiltersTable
+                filters={localFilters}
+                sensors={sensors}
+                restrictedReason={restrictedReason}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onEditFilter={onEditFilter}
+                onRemoveFilter={onRemoveFilter}
+            />
+        )
     }
 
     return (

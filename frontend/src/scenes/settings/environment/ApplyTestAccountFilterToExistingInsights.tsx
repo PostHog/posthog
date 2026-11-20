@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button, Heading, Text } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,9 +20,11 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const noFiltersReason = currentTeam?.test_account_filters?.length ? null : 'Add at least one filter above first'
     const inFlightReason = bulkSetResponseLoading ? 'Applying your last change' : null
+    const buttonDisabledReason = restrictedReason ?? noFiltersReason ?? inFlightReason
 
     const confirm = (enabled: boolean): void => {
         LemonDialog.open({
@@ -66,6 +70,35 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
         })
     }
 
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <Heading size="sm" render={<h3 className="m-0" />}>
+                    Existing insights
+                </Heading>
+                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                    Turn the internal and test user filter on or off for every insight in this project. This doesn't
+                    change the default for new insights.
+                </Text>
+                <div className="flex flex-wrap gap-2">
+                    {[true, false].map((enabled) => (
+                        <Button
+                            key={String(enabled)}
+                            variant="outline"
+                            data-attr={`apply-test-account-filter-to-existing-insights-${enabled ? 'on' : 'off'}`}
+                            loading={bulkSetResponseLoading && pendingEnabled === enabled}
+                            disabled={currentTeamLoading}
+                            disabledReason={buttonDisabledReason}
+                            onClick={() => confirm(enabled)}
+                        >
+                            {enabled ? 'Turn on for existing insights' : 'Turn off for existing insights'}
+                        </Button>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div>
             {/* Sized below the settings section's own h2, so this reads as part of it rather than a sibling. */}
@@ -83,7 +116,7 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
                         data-attr={`apply-test-account-filter-to-existing-insights-${enabled ? 'on' : 'off'}`}
                         loading={bulkSetResponseLoading && pendingEnabled === enabled}
                         disabled={currentTeamLoading}
-                        disabledReason={restrictedReason ?? noFiltersReason ?? inFlightReason}
+                        disabledReason={buttonDisabledReason}
                         onClick={() => confirm(enabled)}
                     >
                         {enabled ? 'Turn on for existing insights' : 'Turn off for existing insights'}

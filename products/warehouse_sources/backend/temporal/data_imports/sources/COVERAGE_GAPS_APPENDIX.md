@@ -189,10 +189,10 @@ Note: Read the official Report Service operations, event catalog, and filter cat
 
 Re-audited 2026-11-19 against: <https://dev.adjust.com/en/api/campaign-api>
 
-- [ ] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
-- [ ] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
-- [ ] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
-- [ ] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
+- [x] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
+- [x] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
+- [x] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
+- [x] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
 
 Note (2026-11-19): Read the Report Service filters_data page and the Campaign API page on the Adjust developer hub (HTML, the .md form 404s). The Campaign API uses a Bearer token on a different host than the report service, and uses cursor pagination. Links need the app list first, then sublinks need each link. Excluded the ad spend push API, S2S event ingestion, App Automation writes, blocklist and device API.
 
@@ -588,10 +588,10 @@ Diffed against: <https://github.com/amzn/selling-partner-api-models/tree/main/mo
 - [x] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high) → `payouts` (incremental on `creationDate`)
 - [x] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium) → `inbound_plans` (full refresh; the listing has plan summaries, not item counts)
 - [x] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium) → `fulfillment_orders` (incremental on `statusUpdateTime`)
-- [ ] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium)
-- [ ] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium)
-- [ ] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low)
-- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low)
+- [x] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium) → `order_metrics` (one row per marketplace and UTC day, incremental on `startTime`, the last 2 years Amazon allows)
+- [x] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium) → `invoices` (90-day issue-date windows over the last 2 years per marketplace, incremental on `lastUpdatedDate` with `invoicesModifiedAfter`)
+- [x] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low) → `replenishment_offers` (full refresh per marketplace, up to the 9,100 offers that offset paging reaches)
+- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low) Skipped: needs the restricted Direct-to-Consumer Shipping role, and every order carries the end customer's ship-to and bill-to address.
 - [ ] `Vendor shipments (GET /vendor/shipping/v1/shipments)` — vendor shipment details for open purchase orders (low)
 - [ ] `AWD inventory and inbound shipments (GET /awd/2024-05-09/inventory; GET /awd/2024-05-09/inboundShipments)` — Amazon Warehousing and Distribution stock and inbound flow, upstream of FBA inventory (low)
 
@@ -613,7 +613,7 @@ Note: Parsed the official AWS SDK service model and compared read operations wit
 
 ## AmazonAds — gaps
 
-Today (23): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_targets`
+Today (34): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_purchased_product_reports`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_advertised_product_reports`, `sp_budget_rule_campaigns`, `sp_budget_rules`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_purchased_product_reports`, `sp_search_term_reports`, `sp_targeting_reports`, `sp_targets`, `st_ad_groups`, `st_ads`, `st_campaigns`, `st_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -636,10 +636,10 @@ Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real sp
 
 Re-audited 2026-11-19 against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/toc/per_entity_toc/reference_prod.json>
 
-- [ ] `Search term and advertised product reports (POST /reporting/reports with reportTypeId spSearchTerm, spAdvertisedProduct, spTargeting, spPurchasedProduct, sbPurchasedProduct)` — search term, per-ASIN and per-target performance; today only spCampaigns reports are synced (high)
-- [ ] `Ads API labels (POST /adsApi/v1/query/labels); Label associations (POST /adsApi/v1/query/labelObjectAssociations)` — label names and which campaigns, ad groups and ads carry them, for grouping spend (medium)
-- [ ] `SP budget rules (GET /sp/budgetRules; GET /sp/budgetRules/{budgetRuleId}/campaigns)` — budget rules and the campaigns they apply to; explains budget changes on synced campaigns (medium)
-- [ ] `Sponsored TV campaigns, ad groups, ads and targets (POST /st/campaigns/list; POST /st/adGroups/list; POST /st/ads/list; POST /st/targets/list)` — fourth ad product, so spend coverage is complete for advertisers running Sponsored TV (medium)
+- [x] `Search term and advertised product reports (POST /reporting/reports with reportTypeId spSearchTerm, spAdvertisedProduct, spTargeting, spPurchasedProduct, sbPurchasedProduct)` — search term, per-ASIN and per-target performance; today only spCampaigns reports are synced (high). Added as `sp_search_term_reports`, `sp_advertised_product_reports`, `sp_targeting_reports`, `sp_purchased_product_reports` and `sb_purchased_product_reports`, daily and incremental on `date` like `sp_campaign_reports`. Report rows have no id, so the key is the profile, the date and `_row_id`, a hash of the report's grouping columns. Columns are the ones the v3 columns reference lists for each report type.
+- ~~`Ads API labels (POST /adsApi/v1/query/labels); Label associations (POST /adsApi/v1/query/labelObjectAssociations)`~~ — skipped: the label specs allow only the `AMAZON_DSP` ad product and need an `Amazon-Ads-AccountId` header for a DSP advertiser account, which this source does not connect to (medium)
+- [x] `SP budget rules (GET /sp/budgetRules; GET /sp/budgetRules/{budgetRuleId}/campaigns)` — budget rules and the campaigns they apply to; explains budget changes on synced campaigns (medium). Added as `sp_budget_rules` and `sp_budget_rule_campaigns` (fan-out over the rules of each profile, full refresh).
+- [x] `Sponsored TV campaigns, ad groups, ads and targets (POST /st/campaigns/list; POST /st/adGroups/list; POST /st/ads/list; POST /st/targets/list)` — fourth ad product, so spend coverage is complete for advertisers running Sponsored TV (medium). Added as `st_campaigns`, `st_ad_groups`, `st_ads` and `st_targets` (SponsoredTV_prod_3p.json, v1 media types, full refresh). The unified Ads API has no Sponsored TV ad product.
 - [ ] `Ad associations (POST /adsApi/v1/query/adAssociations)` — links ads to creatives and ad groups in the unified API (low)
 - [ ] `Brand stores and pages (POST /brand/stores/v1/stores/list; POST /brand/stores/v1/storePages/list)` — Brand Store inventory that Sponsored Brands campaigns link to (low)
 - [ ] `Audiences (POST /audiences/list)` — audience segments available for targeting (low)
@@ -825,9 +825,9 @@ Today (11): `banners`, `checklists`, `embeds`, `flows`, `flows_v2`, `launchpads`
 
 Diffed against: <https://api.appcues.com/v2/docs>
 
-- [ ] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
-- [ ] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
-- [ ] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
+- [x] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
+- [x] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
+- [x] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
 
 Note: The API has no OpenAPI spec (the openapi.json path returns 404), so I parsed the rendered single-page docs at /v2/docs and read each section. Every experience type is already synced. Both gaps above are async: the POST returns job_id and job_url, and the file is fetched from the job when done, so the table needs a job poll step. Excluded: user and group profiles (no list form), publish and unpublish actions, SDK keys, bulk imports, GDPR deletion and the jobs list (ephemeral).
 
@@ -8230,10 +8230,10 @@ Diffed against: <https://developer.justcall.io/llms.txt>
 - [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
 - [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
 - [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
-- [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
-- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
-- [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
-- [ ] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
+- [x] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
+- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium) Skipped: per-call detail endpoint with no list form; one request per call over the full call history exceeds JustCall's 1,800-5,400 requests/hour plan limits.
+- [x] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
+- [x] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
 - [ ] `/v2.1/whatsapp/messages (List all messages)` — WhatsApp is a full message channel alongside texts and is entirely absent (medium)
 - [ ] `/v2.1 account / agent / number analytics endpoints` — vendor-computed call metrics per account, agent and number - useful as a reconciliation baseline (medium)
 - [ ] `/v2.1/meetings/ai (List meetings AI data)` — meeting-level AI summaries for teams using JustCall meetings (low)
@@ -8764,7 +8764,7 @@ Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is
 
 Re-audited 2026-11-19 against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low)
+- [x] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low) — synced as `skills`, full refresh only: moving the production label between older versions does not change `latestVersionLastUpdatedAt`, so `fromUpdatedAt` would miss it
 
 Note (2026-11-19): Parsed the full OpenAPI file and diffed it against the synced tables. Everything else listable is already synced, skipped in the earlier audit, or under /unstable/ (dashboards, topics) and config-shaped. Skills lists with page, limit and fromUpdatedAt/toUpdatedAt filters, so incremental sync is possible.
 
@@ -9729,10 +9729,10 @@ Diffed against: <https://www.metabase.com/docs/latest/api.json>
 - [x] `field (GET /api/database/{id}/fields, /api/field/{id})` — column-level metadata lookup for the databases we already sync (high)
 - [x] `permissions groups and membership (GET /api/permissions/group, /api/permissions/membership)` — membership table joining synced users to permission groups (high)
 - [x] `query execution log (GET /api/ee/logs/query_execution/{yyyy-mm})` — per-execution runtime/error history — the core usage-analytics fact table (high)
-- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium)
-- [ ] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
-- [ ] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
-- [ ] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
+- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium) Skipped: returns only the calling user's own recent items (max 20 per model) and the top 5 popular items, not instance-wide view history.
+- [x] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
+- [x] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
+- [x] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
 - [ ] `metric, measure and segment (GET /api/metric, /api/measure, /api/segment)` — semantic-layer definitions referenced by cards (medium)
 - [ ] `alerts, pulses and notifications (GET /api/alert, /api/pulse, /api/notification)` — subscription definitions and recipients (medium)
 - [ ] `timeline and timeline events (GET /api/timeline, /api/timeline/{id})` — annotation events attached to collections (low)
@@ -15281,9 +15281,9 @@ Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 - [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
 - [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
 - [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
-- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
-- [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
-- [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
+- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium) Skipped: the endpoint requires a sku filter and its rows carry no review ID or SKU, so no unique primary key exists.
+- [x] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
+- [x] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
 
 Note: Parsed GET operations on the official product reviews, private products, locations, categories, business units, and service reviews pages. Conversations require requests for IDs from product reviews; review likes require requests for each service review. Service review tags and company replies already appear in synced rows, so they are excluded. The catalog endpoint replaces the deprecated flat products list; invitation templates and writes are excluded.
 

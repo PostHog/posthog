@@ -2,11 +2,21 @@
 
 from typing import Any
 
+from django.db import models
+
 from pydantic import BaseModel, Field
 
 from posthog.schema import RecordingsQuery
 
 from products.replay_vision.backend.models.replay_scanner import apply_experiment_targeting
+
+
+class VariantsSource(models.TextChoices):
+    """Where a scope's `variants` list came from, which decides whether the launch receiver may
+    extend it. A class-backed enum so the generated OpenAPI component is named for it."""
+
+    ALL_AT_CREATION = "all_at_creation", "Every variant the experiment had when the scanner was made"
+    USER = "user", "A subset someone picked"
 
 
 class ExperimentScopeSettings(BaseModel, frozen=True):

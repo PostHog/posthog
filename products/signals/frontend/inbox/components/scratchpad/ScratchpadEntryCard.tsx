@@ -9,9 +9,10 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
 import { scratchpadEntryBody, scratchpadEntryTitle } from '../../utils/scoutMemoryPresentation'
-import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { isPipelineWriter, scoutNameForSkill } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
 
 /**
@@ -46,7 +47,9 @@ export function ScratchpadEntryCard({
 
     const kind = scratchpadKindOf(entry.key)
     const body = kind ? entry.key.slice(kind.length + 1) : entry.key
-    const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
+    const writer = entry.created_by_skill
+    const scoutName = writer ? (isPipelineWriter(writer) ? writer : scoutNameForSkill(scoutNamesBySkill, writer)) : null
     // Collapsed, a titled card previews the body under its own heading, so the heading isn't said
     // twice. Expanded, the entry reads as written.
     const preview = titled && !expanded ? scratchpadEntryBody(content) : content

@@ -14,9 +14,10 @@ import {
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import type { ScratchpadFacet, ScratchpadTimeFilter } from '../../logics/scratchpadLogic'
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
-import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { isPipelineWriter, scoutNameForSkill } from '../../utils/scoutRunsWindow'
 import { BOOKKEEPING_KINDS } from '../../utils/scratchpadKeys'
 import { ScratchpadLedger } from './ScratchpadLedger'
 
@@ -64,6 +65,7 @@ export function ScratchpadPanel(): JSX.Element {
         timeFilter,
         hideBookkeeping,
     } = useValues(scratchpadLogic)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const {
         setSearchText,
         setScoutFilter,
@@ -111,7 +113,9 @@ export function ScratchpadPanel(): JSX.Element {
                         facets={scoutFacets}
                         value={scoutFilter}
                         onChange={setScoutFilter}
-                        labelOf={stripScoutPrefix}
+                        labelOf={(skillName) =>
+                            isPipelineWriter(skillName) ? skillName : scoutNameForSkill(scoutNamesBySkill, skillName)
+                        }
                     />
                     <FacetSelect
                         placeholder="Kind: any"

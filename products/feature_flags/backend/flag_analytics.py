@@ -73,6 +73,7 @@ SDK_LIBRARIES = [
     "posthog-unity",
     "posthog-godot",
     "posthog-unreal",
+    "posthog-electron",
     "posthog-server",
     "other",
 ]

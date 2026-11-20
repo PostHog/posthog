@@ -34,7 +34,7 @@ rules:
       owners: team-devex
       sensitive: true
     - match: '/shared-image-releases.yaml'
-      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm]
+      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm, team-web-analytics]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:

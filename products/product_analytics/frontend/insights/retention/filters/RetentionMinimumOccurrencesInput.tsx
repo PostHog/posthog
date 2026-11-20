@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { Input, Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionLogic } from '../retentionLogic'
