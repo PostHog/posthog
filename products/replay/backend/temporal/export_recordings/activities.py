@@ -20,7 +20,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -67,6 +66,7 @@ RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
 # S3 needs at least 5 MiB for every multipart part except the last.
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
+MAX_SELECTED_SESSIONS = 100_000
 METADATA_BATCH_SIZE = 100
 VIEWPORT_ROW_LIMIT = 50000
 
@@ -83,6 +83,7 @@ SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce
 # A session that crosses midnight has rows on two days. Reading the day before finds its true start,
 # and reading the day after finds its later rows.
 # One page of a shard's sessions after a session ID, so a shard never holds all its block references at once.
+# The inner query picks the page from per-session aggregates only, so block arrays are read for that page alone.
 SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
@@ -96,18 +97,32 @@ FROM session_replay_events
 PREWHERE team_id = %(team_id)s
     AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
     AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
-WHERE cityHash64(session_id) %% %(shards_per_day)s = %(shard)s
-    AND session_id > %(after)s
-    {{session_filter}}
+WHERE session_id IN (
+    SELECT session_id
+    FROM (
+        SELECT
+            session_id,
+            min(min_first_timestamp) AS start_time,
+            {SESSION_EXPIRY_TIME_SQL} AS expiry_time
+        FROM session_replay_events
+        PREWHERE team_id = %(team_id)s
+            AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
+            AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
+        WHERE cityHash64(session_id) %% %(shards_per_day)s = %(shard)s
+            AND session_id > %(after)s
+            {{session_filter}}
+        GROUP BY session_id
+        HAVING max(is_deleted) = 0
+            AND start_time >= %(day_start)s
+            AND start_time < %(day_start)s + INTERVAL 1 DAY
+            AND expiry_time >= %(quoted_at)s
+        ORDER BY session_id
+        LIMIT %(limit)s
+    )
+)
 GROUP BY session_id
-HAVING max(is_deleted) = 0
-    AND start_time >= %(day_start)s
-    AND start_time < %(day_start)s + INTERVAL 1 DAY
-    AND expiry_time >= %(quoted_at)s
 ORDER BY session_id
-LIMIT %(limit)s
 """
-SELECTED_SESSIONS_TABLE = "selected_sessions"
 
 # A row per viewport state and minute keeps the result small and still follows resizes.
 VIEWPORTS_QUERY = """
@@ -216,18 +231,9 @@ def frame_block(block: bytes) -> bytes:
 
 
 def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
-    session_filter = ""
-    external_tables: list[ClickHouseExternalTable] | None = None
-    if input.session_ids_key:
-        # A session list goes as an external table, so its size never meets the query size limit.
-        session_filter = f"AND session_id IN {SELECTED_SESSIONS_TABLE}"
-        external_tables = [
-            ClickHouseExternalTable(
-                name=SELECTED_SESSIONS_TABLE,
-                structure=[("session_id", "String")],
-                data=[{"session_id": session_id} for session_id in load_session_ids(input.session_ids_key)],
-            )
-        ]
+    # The quote caps a session list at MAX_SELECTED_SESSIONS, which keeps it inside ClickHouse's query size limit.
+    selected = sorted(load_session_ids(input.session_ids_key)) if input.session_ids_key else None
+    session_filter = "AND session_id IN %(session_ids)s" if selected is not None else ""
     rows = sync_execute(
         SHARD_SESSIONS_QUERY.replace("{session_filter}", session_filter),
         {
@@ -238,9 +244,9 @@ def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[Sessio
             "quoted_at": datetime.fromisoformat(input.quoted_at),
             "after": after,
             "limit": SESSIONS_PER_CHECKPOINT,
+            "session_ids": selected,
         },
         workload=Workload.OFFLINE,
-        external_tables=external_tables,
     )
     return [
         SessionRow(
@@ -601,50 +607,54 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
     # Heartbeat from the start: the first listing can take minutes on a large day.
     async with Heartbeater(details=(checkpoint,)) as heartbeater:
         page = load_page(checkpoint.last_session_id)
-        async with (
-            recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
-            customer_bucket(input.team_id, input.destination, input.run_id) as bucket,
-        ):
-            semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
+        try:
+            async with (
+                recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
+                customer_bucket(input.team_id, input.destination, input.run_id) as bucket,
+            ):
+                semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
 
-            async def export_one(
-                session: SessionRow, viewports: list[dict[str, Any]], person: dict | None
-            ) -> ManifestLine:
-                async with semaphore:
-                    return await export_session(recordings, bucket, input, session, viewports, person)
+                async def export_one(
+                    session: SessionRow, viewports: list[dict[str, Any]], person: dict | None
+                ) -> ManifestLine:
+                    async with semaphore:
+                        return await export_session(recordings, bucket, input, session, viewports, person)
 
-            prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
-            while True:
-                chunk, (viewports, persons) = await page
-                if not chunk:
-                    break
-                # The next page lists and loads its metadata while this page exports.
-                page = load_page(chunk[-1].session_id)
-                # A failed session cancels the rest of the page, and each cancelled session aborts its upload.
-                # Temporal then retries the shard from the last checkpoint.
-                try:
-                    async with asyncio.TaskGroup() as group:
-                        tasks = [
-                            group.create_task(
-                                export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id))
-                            )
-                            for s in chunk
-                        ]
-                except ExceptionGroup as e:
-                    page.cancel()
-                    raise e.exceptions[0] from e
-                lines = [task.result() for task in tasks]
-                part = checkpoint.manifest_parts
-                await bucket.put(
-                    f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
-                    "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
-                )
-                checkpoint = ShardCheckpoint(
-                    last_session_id=chunk[-1].session_id,
-                    manifest_parts=part + 1,
-                    totals=checkpoint.totals.add(count(lines)),
-                )
-                heartbeater.details = (checkpoint,)
+                prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
+                while True:
+                    chunk, (viewports, persons) = await page
+                    if not chunk:
+                        break
+                    # The next page lists and loads its metadata while this page exports.
+                    page = load_page(chunk[-1].session_id)
+                    # A failed session cancels the rest of the page, and each cancelled session aborts its upload.
+                    # Temporal then retries the shard from the last checkpoint.
+                    try:
+                        async with asyncio.TaskGroup() as group:
+                            tasks = [
+                                group.create_task(
+                                    export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id))
+                                )
+                                for s in chunk
+                            ]
+                    except ExceptionGroup as e:
+                        raise e.exceptions[0] from e
+                    lines = [task.result() for task in tasks]
+                    part = checkpoint.manifest_parts
+                    await bucket.put(
+                        f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
+                        "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
+                    )
+                    checkpoint = ShardCheckpoint(
+                        last_session_id=chunk[-1].session_id,
+                        manifest_parts=part + 1,
+                        totals=checkpoint.totals.add(count(lines)),
+                    )
+                    heartbeater.details = (checkpoint,)
+        finally:
+            # A failure anywhere, including a manifest write, must not leave the next page's queries running.
+            page.cancel()
+            await asyncio.gather(page, return_exceptions=True)
 
     log.info("export_recordings.shard_finished", totals=checkpoint.totals)
     return checkpoint.totals

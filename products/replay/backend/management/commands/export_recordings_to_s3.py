@@ -34,7 +34,7 @@ from posthog.integrations import IntegrationKind, IntegrationManager, Integratio
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
-from products.replay.backend.temporal.export_recordings.activities import destination_error
+from products.replay.backend.temporal.export_recordings.activities import MAX_SELECTED_SESSIONS, destination_error
 from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, load_quote
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportRecordingsInput
 from products.replay.backend.temporal.export_recordings.workflow import shard_name
@@ -93,6 +93,10 @@ class Command(BaseCommand):
         session_ids = None
         if options["session_ids_file"]:
             session_ids = sorted({line.strip() for line in options["session_ids_file"].read_text().splitlines()} - {""})
+            if len(session_ids) > MAX_SELECTED_SESSIONS:
+                raise CommandError(
+                    f"The file lists {len(session_ids):,} sessions. Export at most {MAX_SELECTED_SESSIONS:,}, or a date range."
+                )
         quote = create_quote(
             team_id=team_id,
             date_from=date_from.isoformat(),
@@ -190,6 +194,8 @@ def _shard_list(value: str) -> tuple[str, ...]:
             shards.append(shard_name(date.fromisoformat(day).isoformat(), number))
         except ValueError as e:
             raise argparse.ArgumentTypeError(f"{name} is not YYYY-MM-DD:N") from e
+    if not shards:
+        raise argparse.ArgumentTypeError("--shards names no shard")
     return tuple(shards)
 
 
