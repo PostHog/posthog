@@ -59,6 +59,14 @@ function workflowsModule(): string {
     )
 }
 
+const MISMAPPED = workflowsModule().replace(
+    "'workflows-patch-graph': workflowsPatchGraph,",
+    "'workflows-patch-graph': workflowsGet,"
+)
+const NO_TOOLS = workflowsModule().replace(
+    /export const GENERATED_TOOLS = \{[\s\S]*\}\n$/,
+    'export const GENERATED_TOOLS = {}\n'
+)
 const TOOL_UTILS = "import { withPostHogUrl } from '@/tools/tool-utils'\n"
 const THROUGH_HELPER = workflowsModule()
     .replace('orvalSchemas.WorkflowsPatchGraph()', 'helper()')
@@ -178,6 +186,33 @@ describe('catalog gaps', () => {
                 [HAND_WRITTEN_TOOL]: `${lifecycleTool('HogFlowsPartialUpdateParams')}export const later = () => import("@/generated/workflows/api")\n`,
             },
             {},
+        ],
+        [
+            'a generated schema an uncarried tool reads, in a module with double-quoted names',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsPatchGraph: 'a new graph' }),
+                [UNCARRIED_MODULE]: workflowsModule().replaceAll("'", '"'),
+            },
+            { [UNCARRIED_MODULE]: workflowsModule().replaceAll("'", '"') },
+        ],
+        [
+            'a generated schema in a module whose tool map lists no tools',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsPatchGraph: 'a new graph' }),
+                [UNCARRIED_MODULE]: NO_TOOLS,
+            },
+            { [UNCARRIED_MODULE]: NO_TOOLS },
+        ],
+        [
+            'a generated schema in a module whose tool map names the wrong const',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsPatchGraph: 'a new graph' }),
+                [UNCARRIED_MODULE]: MISMAPPED,
+            },
+            { [UNCARRIED_MODULE]: MISMAPPED },
         ],
         [
             'a generated schema an uncarried tool reads through a helper function',
