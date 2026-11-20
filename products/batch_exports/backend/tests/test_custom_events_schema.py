@@ -11,6 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from products.batch_exports.backend.custom_events_schema import (
+    build_events_query_schema,
     parse_events_hogql_query,
     recompile_stored_schema,
     serialize_events_query_schema,
@@ -169,7 +170,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
 
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_legacy_fields_read_materialized_columns(self, _name: str, restricted: bool):
+    def test_saving_a_materialized_property_reads_it_from_properties(self, _name: str, restricted: bool):
         restrictions = (
             {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
         )
@@ -180,11 +181,12 @@ class TestSerializeEventsQuerySchema(BaseTest):
             ),
             materialized("events", "$browser"),
         ):
-            query = prepare_query("SELECT properties.$browser AS browser FROM events", self.team.pk)
+            schema = build_events_query_schema(
+                self.team.pk, self.user, "SELECT properties.$browser AS browser FROM events"
+            )
 
-            schema = serialize_events_query_schema(self.team.pk, self.user, query)
-
-        assert "mat_$browser" in schema["fields"][0]["expression"]
+        assert "mat_" not in schema["fields"][0]["expression"]
+        assert schema["values"] == {"hogql_val_0": "$browser"}
 
     @parameterized.expand(
         [
@@ -247,6 +249,28 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert schema["fields"][0] == {"expression": "NULL", "alias": "secret"}
         assert fields[0] == {"expression": "NULL", "alias": "secret"}
         assert "accurateCastOrNull(events.properties.amount, 'Float64')" in fields[1]["expression"], fields
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_recompile_masks_default_rules_for_a_schema_saved_without_restrictions(self):
+        schema = serialize_events_query_schema(
+            self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
+        )
+        default_rules = {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)}
+        with (
+            patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value=default_rules,
+            ),
+            patch(
+                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+                return_value=default_rules,
+            ),
+        ):
+            fields, values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+
+        assert schema["restricted_properties"] == []
+        assert "JSONDropKeysPool(" in fields[0]["expression"], fields
+        assert any("secret" in value for key, value in values.items() if key.endswith("_sensitive")), values
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")

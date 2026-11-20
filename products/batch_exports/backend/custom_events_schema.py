@@ -182,15 +182,22 @@ def recompile_stored_schema(
     could not read them. We pass those restrictions back in, along with the team's current default rules, so the
     recompiled fields hide the same properties.
 
+    A schema saved without restrictions leaves them unset, so the printer loads the team's default rules and masks
+    them. Passing the defaults in would also make `SerializedExportProperties` reject a selected properties object,
+    which the user never had to avoid at save time.
+
     Returns the fields and the query values a run sends with them.
     """
     from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
         get_restricted_properties_with_group_type_index_for_team,
     )
 
-    restricted_properties = _from_stored_restricted_properties(
-        schema.get("restricted_properties", [])
-    ) | get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+    stored_restrictions = _from_stored_restricted_properties(schema.get("restricted_properties", []))
+    restricted_properties = (
+        stored_restrictions | get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+        if stored_restrictions
+        else None
+    )
     context = HogQLContext(
         team_id=team_id,
         enable_select_queries=True,
@@ -241,7 +248,10 @@ def parse_events_hogql_query(
             restricted_properties=restricted_properties,
             use_new_events_schema=batch_exports_read_new_events_table(),
             modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                # A materialized column would replace `properties` in the prepared query, and the field check below
+                # only accepts the columns an export reads. The native events table has no materialized columns.
+                materializationMode=MaterializationMode.DISABLED,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             ),
         )
         use_native_schema = context.uses_new_events_schema()
@@ -347,11 +357,10 @@ def serialize_events_query_schema(
         restricted_properties=restricted_properties,
         use_new_events_schema=batch_exports_read_new_events_table(),
         modifiers=HogQLQueryModifiers(
+            materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         ),
     )
-    if context.uses_new_events_schema():
-        context.modifiers.materializationMode = MaterializationMode.DISABLED
     try:
         schema = serialize_batch_export_query(hogql_query, context)
     except ExposedHogQLError:
