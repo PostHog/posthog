@@ -15175,9 +15175,9 @@ snapshots:
     scenes-app-notebooks--numbered-list--light:
         hash: v1.k794b7964.bb88ac5cbb0b0d3220ae92f135d8e58f4f552515d73719b2c6faa4fec69da56d.8GPB7qQSDYCAv_bpOnmob_42Ce3zROwjwxzE7Fc95VU
     scenes-app-notebooks--recordings-playlist--dark:
-        hash: v1.k794b7964.abc6e47e20693f76bc4651673b368d88e6c768f28b462405736709fe11c1871a.KMXBA9zwd790FY0dQYKn2oD3CwkXJxh_fTuHIsp05Ls
+        hash: v1.k794b7964.7ed143949f0fa235a04ad1937024d07b02b71480408a9f83ea3be88db103141d.4JsWOii9jiA3FxxP1DKV6q4yXckVIcxZpob9q_d9JW8
     scenes-app-notebooks--recordings-playlist--light:
-        hash: v1.k794b7964.19cd6f070bbefcddef33067a130e4d63c4e71313cc6d4db3768d8b39e292d802.NgXLMQIpJxyUPgmAbRbfCR0wSfMAGfj991rTtw6m-WM
+        hash: v1.k794b7964.1263690c2e8ec1bdc7fd33f67f155bf8d343262614a3992fafb8fd6f19d67d17.TKJkNSlel2xi7wrATGEO8y2k-BeCLfe-_jgpFktQPho
     scenes-app-notebooks--text-formats--dark:
         hash: v1.k794b7964.ac67969967320cb20d56295227b6fe159d140927024313052a1a01561e1e7619.bdyhOYK9ol4I6Tya2oq9MEO48b89hgGfjWyN1nzxkUY
     scenes-app-notebooks--text-formats--light:
@@ -15343,9 +15343,9 @@ snapshots:
     scenes-app-notebooks-widget-views--group-views--light:
         hash: v1.k794b7964.27cb51a16132779b22272697e3051f55715c36a60e1750dcfa0ec2db57386c04.z3aQ60gzHdkbWNzYpQ18Mrxn8y-NbMVFVvDXhuEQ4Jk
     scenes-app-notebooks-widget-views--insight-views--dark:
-        hash: v1.k794b7964.8fad808ff301999a5e6cf0389cc334ed25aebb1325d664b35d95fa56f881467b.PWpKKFqojov46kokcJ7jYEB6ZaWjLOhITn7lYR82NWA
+        hash: v1.k794b7964.1011424774e034f9255ddaac7d107fb21bbc1e2440c53ecbebdc1268fa269e32.1nE8Sn3-UiXZadn7OhmTSirI1W5Djn69verRxHKvD4s
     scenes-app-notebooks-widget-views--insight-views--light:
-        hash: v1.k794b7964.d62bdf09c5d15b0a986280fd890ad5f63ab274c205c00f9abae8e0daaf14168f.N6JYg4L_lAGqMCAnXUKNQB-TqP6Frg9Wf08MxiuuGzw
+        hash: v1.k794b7964.a3bbde1001b1f9245860823f9e106d8d7553608e2136b025c8c7f26342e87439.Z9SMFWtvkOf4Th2j0J58dk-2CvtQrXCCOqrf-LkEb-w
     scenes-app-notebooks-widget-views--llm-trace-views--dark:
         hash: v1.k794b7964.2e1a853d54452dfef39b66a01be15942978017ffa39d252ccfb7225e3faa4b5e.FUZNRtIVE1Gh6hD6anvvNqK_pRtxOI6Qa0j82SmNPJk
     scenes-app-notebooks-widget-views--llm-trace-views--light:
@@ -15355,9 +15355,9 @@ snapshots:
     scenes-app-notebooks-widget-views--person-views--light:
         hash: v1.k794b7964.64e2d6d418edac7f15fd01089ded082a084aedd71ac2f48fc4e7f66ea4dcd168.77ycL_rVrSbTcAOzP4JfuvYlBkHCM8ESFwNL5oLiYxg
     scenes-app-notebooks-widget-views--recording-playlist-views--dark:
-        hash: v1.k794b7964.85ac21b9bb37bccdb2125201139cc9ee95a2a6c53cdc332680cc3a1d7d6121b8.513KZwaMzDmO8vt97ZIUXTGVZ4akxpYyvEmjtEvCZUw
+        hash: v1.k794b7964.8a83d512cd7c41fd836c0acc86ca6d78e87e2e6dca204f2dc9324ca6694731cc.bOEoGt_MNIlfEUlgoDg62--wnAh7FhoYj221UO6JBvo
     scenes-app-notebooks-widget-views--recording-playlist-views--light:
-        hash: v1.k794b7964.289410bd328261ce6bbb23d3578e3c2bc4347b461fd22fe3b3818fbf49d12542.8_hSmkq6ewHogOV9csjNA55EcYGPLsvnq8Wasko8iDM
+        hash: v1.k794b7964.b05b802ad2166842655db939cc2afdb2134cc963fd2fdfcd6b167c993d3e46cc.5yqHdscFG3-2zt_4qFqWIZACwymoLNGVmM-JWy0AUIA
     scenes-app-notebooks-widget-views--recording-views--dark:
         hash: v1.k794b7964.d9d02ef874b9b118443a81c09f04ae6a6ed196230fa32de0fbaecc1a53d41c73.rX-8h3C6JTHk5G9Pw3TVMVR43VSqXvyUNCN-F1a847w
     scenes-app-notebooks-widget-views--recording-views--light:
