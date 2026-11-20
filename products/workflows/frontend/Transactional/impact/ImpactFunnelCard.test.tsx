@@ -99,13 +99,23 @@ describe('ImpactFunnelCard', () => {
         expect(await screen.findByText('Not measured')).toBeInTheDocument()
     })
 
-    it('keeps the untracked note under an empty period', async () => {
-        answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]
-        renderCard()
+    it.each([
+        { untracked: 0, note: null },
+        { untracked: 3, note: /^3 sends in this period went out with tracking off/ },
+    ])(
+        'says no sends were recorded for an empty period with $untracked untracked sends',
+        async ({ untracked, note }) => {
+            answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked }]
+            renderCard()
 
-        expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
-        expect(screen.getByText(/^3 sends in this period went out with tracking off/)).toBeInTheDocument()
-    })
+            expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
+            if (note) {
+                expect(screen.getByText(note)).toBeInTheDocument()
+            } else {
+                expect(screen.queryByText(/tracking off/)).not.toBeInTheDocument()
+            }
+        }
+    )
 
     it('draws opens and clicks that arrived before their sends', async () => {
         answer = [

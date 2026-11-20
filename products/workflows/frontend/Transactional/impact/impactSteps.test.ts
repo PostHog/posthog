@@ -1,7 +1,6 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import {
-    emptyPeriodMessage,
     followedSendsNote,
     impactFunnelState,
     impactLift,
@@ -92,10 +91,6 @@ describe('impactSteps', () => {
             share: 0.2,
             shareOf: 'clicked',
         })
-    })
-
-    it('says nobody was sent when no send went out, tracked or not', () => {
-        expect(emptyPeriodMessage(nothingRecorded)).toBe('Nobody was sent this email in this period.')
     })
 
     it('draws each bar against the tallest step, so opens and clicks show before their sends', () => {

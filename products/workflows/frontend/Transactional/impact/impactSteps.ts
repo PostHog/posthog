@@ -93,12 +93,6 @@ export function stepBarPercents(steps: ImpactStep[]): (number | null)[] {
     })
 }
 
-export function emptyPeriodMessage(impact: TransactionalEmailImpactApi): string {
-    return impact.untracked > 0
-        ? 'No sends of this email were recorded in this period.'
-        : 'Nobody was sent this email in this period.'
-}
-
 export function impactSteps(
     impact: TransactionalEmailImpactApi,
     event: string | null,
