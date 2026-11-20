@@ -119,7 +119,8 @@ function recountToonArrays(lines: string[]): string[] {
     })
 }
 
-export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
+/** `wholeResult` marks a tool's serialized result, where a TOON header is real; text in a field may only look like one. */
+export function clipLines(text: string, maxBytes: number, wholeResult = false): { text: string; cut: string } {
     let prefix = ''
     let body = text
     let suffix = ''
@@ -163,7 +164,7 @@ export function clipLines(text: string, maxBytes: number): { text: string; cut: 
         kept.push(prefixWithinBytes(rows[0]!, Math.max(0, room - byteLength(marker))) + marker)
         cut = `kept the start of line 1 of ${rows.length}`
     }
-    const clipped = kept.length < rows.length ? recountToonArrays(kept) : kept
+    const clipped = wholeResult && kept.length < rows.length ? recountToonArrays(kept) : kept
     return { text: prefix + [...clipped, ...pointers].join('\n') + suffix, cut }
 }
 
@@ -226,7 +227,7 @@ function commonPrefixCodePoints(a: string, b: string): number {
 }
 
 /**
- * A text field paged by `<field>_next_offset` (as `skill-get` pages its body) would skip what the
+ * A text field paged by `<field>_next_offset` in characters (as `skill-get` pages its body) would skip what the
  * projection cut, so point it at the first character the response no longer carries.
  */
 function realignPagedText(
@@ -242,11 +243,11 @@ function realignPagedText(
     }
     const next = value[nextKey]
     const total = value[`${key}_total_length`]
-    const end = typeof next === 'number' ? next : typeof total === 'number' ? total : undefined
-    if (end === undefined) {
+    // Only a pager that reports `<field>_total_length` counts characters; other pagers count bytes.
+    if (typeof total !== 'number') {
         return
     }
-    const start = end - codePointLength(full)
+    const start = (typeof next === 'number' ? next : total) - codePointLength(full)
     kept.set(nextKey, start + (typeof shortened === 'string' ? commonPrefixCodePoints(full, shortened) : 0))
 }
 
@@ -446,7 +447,7 @@ export function boundText(
         return wrapped
     }
     const notice = overflowNotice(fullBytes, maxTokens, [])
-    const clipped = clipLines(text, maxBytes - byteLength(notice) - 2 - 64)
+    const clipped = clipLines(text, maxBytes - byteLength(notice) - 2 - 64, true)
     return `${overflowNotice(fullBytes, maxTokens, [clipped.cut])}\n\n${clipped.text}`
 }
 
