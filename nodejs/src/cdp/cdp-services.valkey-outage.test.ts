@@ -3,7 +3,7 @@ import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import path from 'path'
 
 import { defaultConfig } from '~/common/config/config'
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
@@ -43,14 +43,13 @@ const callUntilTheOutageEnds = async () => {
         outcomes.add(await writer.useClient({ name: 'probe' }, (client) => client.ping()).then(() => 'answered', () => 'failed'))
         await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    process.stdout.write('\\noutcomes=' + [...outcomes].join(',') + '\\n')
-    process.exit(0)
+    process.exit([...outcomes].join(',') === 'failed' ? 0 : 1)
 }
 
 void callUntilTheOutageEnds()
 `
 
-type ChildProcessOutcome = { code: number | null; signal: NodeJS.Signals | null; stdout: string }
+type ChildProcessOutcome = { code: number | null; signal: NodeJS.Signals | null }
 
 const runInChildProcess = (script: string): Promise<ChildProcessOutcome> =>
     new Promise((resolve) => {
@@ -63,11 +62,10 @@ const runInChildProcess = (script: string): Promise<ChildProcessOutcome> =>
                 timeout: 30_000,
                 maxBuffer: 16 * 1024 * 1024,
             },
-            (error, stdout) =>
+            (error) =>
                 resolve({
                     code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
                     signal: error?.signal ?? null,
-                    stdout,
                 })
         )
     })
@@ -89,9 +87,7 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         ).writer
 
     it('keeps the process up while every shadow call fails', async () => {
-        const child = await runInChildProcess(shadowCallsAgainstAnUnreachableValkey)
-
-        expect(child).toEqual({ code: 0, signal: null, stdout: expect.stringMatching(/^outcomes=failed$/m) })
+        expect(await runInChildProcess(shadowCallsAgainstAnUnreachableValkey)).toEqual({ code: 0, signal: null })
     }, 60_000)
 
     it('gives a caller that fails open no result instead of an error', async () => {
@@ -147,8 +143,11 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             connections.forEach((connection) => (connection.forwarding = false))
         }
 
+        const reopenProxy = (): Promise<void> =>
+            new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
+
         const restoreValkey = async (): Promise<void> => {
-            await new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
+            await reopenProxy()
             const giveUpAt = Date.now() + 10_000
             let pong: unknown = null
             while (pong !== 'PONG') {
@@ -196,13 +195,20 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             const key = `test-valkey-outage-resend/${new UUIDT().toString()}`
             stopAnsweringOpenConnections()
 
+            let clientWithTheWrite: RedisClient | undefined
             await expect(
-                writer.useClient({ name: 'stalled-write' }, (client) => client.set(key, 'in flight at the drop'))
+                writer.useClient({ name: 'stalled-write' }, (client) => {
+                    clientWithTheWrite = client
+                    return client.set(key, 'in flight at the drop')
+                })
             ).rejects.toThrow()
             await dropConnections()
-            await restoreValkey()
+            const reconnected = new Promise((resolve) => clientWithTheWrite!.once('ready', resolve))
+            await reopenProxy()
+            await reconnected
+            await clientWithTheWrite!.ping()
 
-            expect(await readBack(key)).toBeNull()
+            expect(await clientWithTheWrite!.get(key)).toBeNull()
         }, 30_000)
 
         it('answers through a new connection after a command stalls', async () => {
