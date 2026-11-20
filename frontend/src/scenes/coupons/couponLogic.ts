@@ -7,6 +7,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { cheatCodeCampaignSlug } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
+import { CheatCodeClaimOutcome, claimCheatCode } from 'lib/components/CheatCodes/claimCheatCode'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -32,6 +34,8 @@ export interface couponLogicValues {
     isAdminOrOwner: boolean | null // organizationLogic
     user: UserType | null // userLogic
     activeCoupons: ClaimedCouponInfo[]
+    cheatCodeClaim: CheatCodeClaimOutcome | null
+    cheatCodeClaimLoading: boolean
     claimed: boolean
     claimedDetails: any
     coupon: CouponFormValues
@@ -67,6 +71,21 @@ export interface couponLogicActions {
         currentOrganization: OrganizationType | null
         payload?: any
     } // organizationLogic
+    claimCheatCodeCampaign: (campaignSlug: string) => any
+    claimCheatCodeCampaignFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    claimCheatCodeCampaignSuccess: (
+        cheatCodeClaim: CheatCodeClaimOutcome | null,
+        payload?: string
+    ) => {
+        cheatCodeClaim: CheatCodeClaimOutcome | null
+        payload?: string
+    }
     loadCouponsOverview: () => any
     loadCouponsOverviewFailure: (
         error: string,
@@ -156,6 +175,13 @@ export const couponLogic = kea<couponLogicType>([
         setClaimedDetails: (details: any) => ({ details }),
     }),
     loaders(({ values }) => ({
+        cheatCodeClaim: [
+            null as CheatCodeClaimOutcome | null,
+            {
+                claimCheatCodeCampaign: async (campaignSlug: string) =>
+                    await claimCheatCode(campaignSlug, { source: 'coupon_url', announceFailure: true }),
+            },
+        ],
         couponsOverview: [
             null as CouponsOverview | null,
             {
@@ -195,6 +221,10 @@ export const couponLogic = kea<couponLogicType>([
                 organization_name: values.currentOrganization?.name || '',
             } as CouponFormValues,
             errors: ({ code }) => {
+                // Cheat codes have no paid plan requirement, so the billing service decides eligibility.
+                if (cheatCodeCampaignSlug(code)) {
+                    return {}
+                }
                 if (!values.billingLoading && !values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to be on a paid plan before claiming this coupon',
@@ -205,6 +235,18 @@ export const couponLogic = kea<couponLogicType>([
                 }
             },
             submit: async (formValues: CouponFormValues) => {
+                const cheatCodeSlug = cheatCodeCampaignSlug(formValues.code)
+                if (cheatCodeSlug) {
+                    const outcome = await claimCheatCode(cheatCodeSlug, {
+                        source: props.campaign ? 'coupon_code_field' : 'billing_code_field',
+                        announceFailure: true,
+                    })
+                    if (outcome === 'claimed' || outcome === 'already_claimed') {
+                        actions.setCouponValue('code', '')
+                        actions.loadCouponsOverview()
+                    }
+                    return
+                }
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsClaimCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const res = await api.create('api/billing/coupons/claim', {
@@ -213,6 +255,11 @@ export const couponLogic = kea<couponLogicType>([
                     actions.setClaimed(true)
                     actions.setClaimedDetails(res)
                     actions.loadCouponsOverview()
+                    if (!props.campaign) {
+                        // The billing page form has no claimed screen, so confirm here and clear the field.
+                        lemonToast.success('Coupon redeemed')
+                        actions.setCouponValue('code', '')
+                    }
                     posthog.capture('billing coupon claimed', {
                         campaign: props.campaign,
                         code: formValues.code,
@@ -230,6 +277,11 @@ export const couponLogic = kea<couponLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
+        claimCheatCodeCampaignSuccess: ({ cheatCodeClaim }) => {
+            if (cheatCodeClaim === 'claimed') {
+                actions.loadCouponsOverview()
+            }
+        },
         loadBillingSuccess: () => {
             // kea-forms errors() is a selector that only recalculates when form state changes.
             // Since we depend on external billing state, we force recalculation by re-setting a form value.

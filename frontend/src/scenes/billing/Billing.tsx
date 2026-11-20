@@ -33,6 +33,7 @@ import { BillingProductV2Type } from '~/types'
 import { BillingHero } from './BillingHero'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
+import { BillingRedeemCode } from './BillingRedeemCode'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
@@ -62,6 +63,7 @@ export function Billing(): JSX.Element {
         billingManagedByPartnerNotice,
         billingManagedByVercelNotice,
         isBillingManagedByVercel,
+        isBillingManagedByPartner,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -251,6 +253,8 @@ export function Billing(): JSX.Element {
                     </LemonBanner>
                 </div>
             )}
+
+            {!isBillingManagedByPartner && <BillingRedeemCode />}
 
             <LemonDivider className="mt-6 mb-8" />
 
