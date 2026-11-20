@@ -73,17 +73,17 @@ describe('emailSenderControlLogic', () => {
         workflowInfo: Partial<HogFlow> = {},
         senders: IntegrationType[] = [VERIFYING_SENDER]
     ): Promise<void> {
-        initKeaTests()
-        wfLogic = workflowLogic({ id: 'new' })
-        wfLogic.mount()
-        await expectLogic(wfLogic).toFinishAllListeners()
-        wfLogic.actions.setWorkflowInfo({ ...workflowInfo, actions: [...wfLogic.values.workflow.actions, step] })
         useMocks({
             get: {
                 '/api/projects/:team_id/integrations/': { results: senders, next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': status,
             },
         })
+        initKeaTests()
+        wfLogic = workflowLogic({ id: 'new' })
+        wfLogic.mount()
+        await expectLogic(wfLogic).toFinishAllListeners()
+        wfLogic.actions.setWorkflowInfo({ ...workflowInfo, actions: [...wfLogic.values.workflow.actions, step] })
         integrationsLogic.mount()
         sandboxSenderLogic.mount()
         await expectLogic(integrationsLogic).toFinishAllListeners()
