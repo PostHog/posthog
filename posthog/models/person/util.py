@@ -125,6 +125,33 @@ def _keep_team_persons(persons: Iterable[person_pb2.Person], team_id: int, opera
     return batch_valid
 
 
+_BatchItemT = TypeVar("_BatchItemT")
+_BatchResultT = TypeVar("_BatchResultT")
+
+
+def _run_personhog_batches(
+    items: list[_BatchItemT],
+    *,
+    concurrency: int,
+    thread_name_prefix: str,
+    fn: Callable[[list[_BatchItemT]], _BatchResultT],
+) -> list[_BatchResultT]:
+    batches = [items[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(items), PERSONHOG_BATCH_SIZE)]
+    max_workers = min(len(batches), concurrency)
+
+    if TEST or max_workers <= 1:
+        return [fn(batch) for batch in batches]
+
+    # Fan the batch RPCs out over the shared (HTTP/2-multiplexed) channel. ThreadPoolExecutor
+    # doesn't inherit contextvars, so copy the current context per task to keep the personhog
+    # caller tag and log/query context on each RPC. Results are collected in batch order, and
+    # any batch failure propagates: callers (e.g. the freeze-exposure guard) rely on the result
+    # covering every requested batch, never a silently partial set.
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=thread_name_prefix) as executor:
+        futures = [executor.submit(contextvars.copy_context().run, fn, batch) for batch in batches]
+        return [future.result() for future in futures]
+
+
 def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
@@ -141,34 +168,12 @@ def _batched_get_persons_by_uuids(
     replica's 5-connection bulk Postgres pool.
     """
     client = _get_client()
-    batches = [uuids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE)]
-    max_workers = min(len(batches), concurrency)
-
-    if TEST or max_workers <= 1:
-        batch_results = [
-            _get_persons_for_uuid_batch(client, team_id, batch, operation, read_options) for batch in batches
-        ]
-    else:
-        # Fan the batch RPCs out over the shared (HTTP/2-multiplexed) channel. ThreadPoolExecutor
-        # doesn't inherit contextvars, so copy the current context per task to keep the personhog
-        # caller tag and log/query context on each RPC. Results are collected in batch order, and
-        # any batch failure propagates: callers (e.g. the freeze-exposure guard) rely on the result
-        # covering every requested batch, never a silently partial set.
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="personhog-uuid-batch") as executor:
-            futures = [
-                executor.submit(
-                    contextvars.copy_context().run,
-                    _get_persons_for_uuid_batch,
-                    client,
-                    team_id,
-                    batch,
-                    operation,
-                    read_options,
-                )
-                for batch in batches
-            ]
-            batch_results = [future.result() for future in futures]
-
+    batch_results = _run_personhog_batches(
+        uuids,
+        concurrency=concurrency,
+        thread_name_prefix="personhog-uuid-batch",
+        fn=lambda batch: _get_persons_for_uuid_batch(client, team_id, batch, operation, read_options),
+    )
     return [person for batch_valid in batch_results for person in batch_valid]
 
 
@@ -708,30 +713,14 @@ def get_person_uuids_by_ids(team_id: int, person_ids: list[int], concurrency: in
 
     def personhog_fn() -> dict[int, str]:
         client = _get_client()
-        batches = [person_ids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE)]
-        max_workers = min(len(batches), concurrency)
-
-        if TEST or max_workers <= 1:
-            batch_results = [
-                _get_persons_for_id_batch(client, team_id, batch, "get_person_uuids_by_ids", _UUID_ONLY_READ_OPTIONS)
-                for batch in batches
-            ]
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="personhog-id-batch") as executor:
-                futures = [
-                    executor.submit(
-                        contextvars.copy_context().run,
-                        _get_persons_for_id_batch,
-                        client,
-                        team_id,
-                        batch,
-                        "get_person_uuids_by_ids",
-                        _UUID_ONLY_READ_OPTIONS,
-                    )
-                    for batch in batches
-                ]
-                batch_results = [future.result() for future in futures]
-
+        batch_results = _run_personhog_batches(
+            person_ids,
+            concurrency=concurrency,
+            thread_name_prefix="personhog-id-batch",
+            fn=lambda batch: _get_persons_for_id_batch(
+                client, team_id, batch, "get_person_uuids_by_ids", _UUID_ONLY_READ_OPTIONS
+            ),
+        )
         return {person.id: str(UUID(person.uuid)) for batch_valid in batch_results for person in batch_valid}
 
     return personhog_call("get_person_uuids_by_ids", personhog_fn)

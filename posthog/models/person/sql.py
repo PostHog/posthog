@@ -559,9 +559,26 @@ REPLACE_KEEPS_ROW = (
 )
 
 
-def replace_keeps_row_params(marker: datetime, floor: datetime | None = None) -> dict[str, Any]:
+def replace_keeps_row_params(marker: datetime, *, floor: datetime) -> dict[str, Any]:
     """Query parameters shared by every ``REPLACE_KEEPS_ROW`` reader and its corresponding prune."""
-    return {"marker": marker, "floor": floor or marker, "replace_offset": REPLACE_ROW_OFFSET}
+    return {"marker": marker, "floor": floor, "replace_offset": REPLACE_ROW_OFFSET}
+
+
+def static_cohort_membership_filter(
+    last_replace_marker: datetime | None,
+    last_replace_floor: datetime | None,
+) -> tuple[str, dict[str, Any]]:
+    """Bare SQL predicate and params matching ClickHouse rows that currently count as static cohort membership.
+
+    After a finished replace, keeps rows that satisfy ``REPLACE_KEEPS_ROW``; before any replace has finished,
+    excludes unkept ``_offset = 1`` rows left by failed attempts.
+    """
+    if last_replace_marker is not None:
+        return (
+            REPLACE_KEEPS_ROW,
+            replace_keeps_row_params(last_replace_marker, floor=last_replace_floor or last_replace_marker),
+        )
+    return "_offset != %(replace_offset)s", {"replace_offset": REPLACE_ROW_OFFSET}
 
 
 # Everything a replace doesn't keep: rows from before the request, and the rows its own earlier attempts wrote.

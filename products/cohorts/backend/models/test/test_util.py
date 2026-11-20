@@ -64,7 +64,7 @@ from products.cohorts.backend.models.util import (
     _recalculate_cohortpeople_for_team_hogql,
     _retry_on_clickhouse_code,
     _sanitize_query_for_cohort,
-    _uuids_present_at_marker,
+    _uuids_with_kept_rows,
     count_cohort_members,
     delete_cohort_members_by_person_ids,
     delete_failed_replace_attempt_rows,
@@ -1249,8 +1249,8 @@ class TestCohortUtils(BaseTest):
                     wraps=delete_cohort_members_by_person_ids,
                 ) as delete_calls,
             ):
-                removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
-            prune_stale_static_cohort_rows(cohort.pk, team_id=self.team.pk, marker=marker)
+                removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker, floor=marker)
+            prune_stale_static_cohort_rows(cohort.pk, team_id=self.team.pk, marker=marker, floor=marker)
 
         # Both stale members are checked in one batch and removed in one delete call, never one per member,
         # though they were listed on separate pages. And a delete chunk must stay within what that call accepts.
@@ -1283,7 +1283,7 @@ class TestCohortUtils(BaseTest):
         events: list[str] = []
         presence = iter([set(), {str(late.uuid)}])
 
-        def check_presence(*args: Any) -> set[str]:
+        def check_presence(*args: Any, **_kwargs: Any) -> set[str]:
             events.append("check")
             return next(presence)
 
@@ -1294,10 +1294,10 @@ class TestCohortUtils(BaseTest):
         with (
             patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_SECONDS", 1),
             patch("products.cohorts.backend.models.util.time.sleep", side_effect=lambda _: events.append("wait")),
-            patch("products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=check_presence),
+            patch("products.cohorts.backend.models.util._uuids_with_kept_rows", side_effect=check_presence),
             patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids", side_effect=delete),
         ):
-            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
+            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker, floor=marker)
 
         # The re-check has to come after the delete and the wait, or it can't see a row that arrived late.
         self.assertEqual(events, ["check", "delete", "wait", "check"])
@@ -1315,7 +1315,7 @@ class TestCohortUtils(BaseTest):
             events.append("delete")
             return delete_cohort_members_by_person_ids(*args)
 
-        def check_presence(*args: Any) -> set[str]:
+        def check_presence(*args: Any, **_kwargs: Any) -> set[str]:
             events.append("check")
             return set()
 
@@ -1326,24 +1326,52 @@ class TestCohortUtils(BaseTest):
             patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_BATCH", 1),
             patch("products.cohorts.backend.models.util.REPLACE_PRUNE_SETTLE_SECONDS", 1),
             patch("products.cohorts.backend.models.util.time.sleep", side_effect=lambda _: events.append("wait")),
-            patch("products.cohorts.backend.models.util._uuids_present_at_marker", side_effect=check_presence),
+            patch("products.cohorts.backend.models.util._uuids_with_kept_rows", side_effect=check_presence),
             patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids", side_effect=delete),
         ):
-            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
+            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker, floor=marker)
 
         self.assertEqual(events, ["check", "delete", "wait", "check", "delete", "wait", "check"])
         self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (2, []))
+
+    def test_replace_prune_handles_multiple_check_batches(self):
+        stale1, stale2, kept = (
+            create_person(team=self.team, distinct_ids=[name], uuid=uuid4()) for name in ("s1", "s2", "k1")
+        )
+        cohort = Cohort.objects.create(team=self.team, name="multi-batch prune", is_static=True)
+        insert_cohort_members(self.team.pk, cohort.pk, [stale1.id, stale2.id, kept.id], None)
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), kept.uuid, cohort.pk, self.team.pk, marker, REPLACE_ROW_OFFSET)],
+        )
+
+        # Patch both PRUNE_PAGE_SIZE and REPLACE_PRUNE_CHECK_BATCH to 1 so _member_id_batches yields inside the loop
+        # (not only the trailing batch) and runs separate presence checks across batches.
+        with (
+            patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+            patch("products.cohorts.backend.models.util.REPLACE_PRUNE_CHECK_BATCH", 1),
+            patch(
+                "products.cohorts.backend.models.util._uuids_with_kept_rows", wraps=_uuids_with_kept_rows
+            ) as mock_kept,
+        ):
+            removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker, floor=marker)
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [kept.id])
+        self.assertGreaterEqual(mock_kept.call_count, 3)
 
     def test_replace_presence_check_reads_with_sequential_consistency(self):
         # One ClickHouse node behaves the same without the setting, but a lagging replica wouldn't: the prune would
         # then delete members the query still matches.
         marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         with patch("products.cohorts.backend.models.util.sync_execute", return_value=[]) as mock_sync_execute:
-            _uuids_present_at_marker(1, self.team.pk, [str(uuid4())], marker)
+            _uuids_with_kept_rows(1, self.team.pk, [str(uuid4())], marker, floor=marker)
 
         self.assertEqual(mock_sync_execute.call_args.kwargs["settings"], REPLACE_READ_SETTINGS)
 
-    def test_uuids_present_at_marker_waits_for_a_replica_not_in_quorum(self):
+    def test_uuids_with_kept_rows_waits_for_a_replica_not_in_quorum(self):
         marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         person_id = uuid4()
         lagging = InternalCHQueryError("replica is not in quorum", code=289)
@@ -1354,7 +1382,7 @@ class TestCohortUtils(BaseTest):
             ) as mock_exec,
             patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
         ):
-            present = _uuids_present_at_marker(1, self.team.pk, [str(person_id)], marker)
+            present = _uuids_with_kept_rows(1, self.team.pk, [str(person_id)], marker, floor=marker)
 
         self.assertEqual(present, {str(person_id)})
         self.assertEqual(mock_exec.call_count, 2)
@@ -1508,7 +1536,7 @@ class TestCohortUtils(BaseTest):
             patch("products.cohorts.backend.models.util.delete_cohort_members_by_person_ids") as mock_delete,
             self.assertRaises(PopulationSuperseded),
         ):
-            prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=later_marker)
+            prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=later_marker, floor=later_marker)
         mock_delete.assert_not_called()
         self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [stale.id])
 

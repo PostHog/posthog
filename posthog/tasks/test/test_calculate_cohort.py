@@ -2127,6 +2127,10 @@ class TestCohortCalculationTasks(APIBaseTest):
             ),
             (False, None, None, 1, "empty_replace", CohortPopulationMode.REPLACE),
         )
+        self.assertEqual(
+            sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
+            sorted([(str(existing.uuid), 0), (str(manual.uuid), 0)]),
+        )
 
     def test_query_replace_keeps_manual_add_stamped_one_second_before_claim(self) -> None:
         run = uuid4().hex[:8]

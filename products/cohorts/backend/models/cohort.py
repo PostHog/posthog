@@ -1319,7 +1319,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         table: str,
     ) -> set[str]:
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
-        from posthog.models.person.sql import REPLACE_KEEPS_ROW, REPLACE_ROW_OFFSET, replace_keeps_row_params
+        from posthog.models.person.sql import static_cohort_membership_filter
 
         if not person_uuids:
             return set()
@@ -1327,23 +1327,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
         # deletes them. They do not count as membership: an add that saw one would skip its insert, and lose the
         # person once the delete applied.
-        kept_filter = (
-            f" AND {REPLACE_KEEPS_ROW}"
-            if self.last_replace_marker is not None
-            else " AND _offset != %(replace_offset)s"
+        membership_sql, membership_params = static_cohort_membership_filter(
+            self.last_replace_marker, self.last_replace_floor
         )
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s{kept_filter} GROUP BY person_id",
+            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s AND {membership_sql} GROUP BY person_id",
             {
                 "team_id": team_id,
                 "cohort_id": self.pk,
                 "person_uuids": person_uuids,
-                **(
-                    replace_keeps_row_params(self.last_replace_marker, self.last_replace_floor)
-                    if self.last_replace_marker is not None
-                    else {"replace_offset": REPLACE_ROW_OFFSET}
-                ),
+                **membership_params,
             },
         )
         return {str(row[0]) for row in rows}
