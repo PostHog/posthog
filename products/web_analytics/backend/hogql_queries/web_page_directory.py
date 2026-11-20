@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
@@ -82,6 +83,12 @@ RATE_FIELDS: dict[WebPageDirectoryMetric, str] = {
     WebPageDirectoryMetric.TIME_ON_PAGE: "timeOnPageP90",
     WebPageDirectoryMetric.BOUNCE_RATE: "bounceRate",
 }
+
+
+class _DimensionalReadError(Exception):
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 @dataclass(frozen=True)
@@ -239,11 +246,23 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         modifiers.convertToProjectTimezone = False
         return f"web_page_directory_dimensional_{name}", modifiers
 
+    @contextmanager
+    def _dimensional_failures(self, metric: Optional[WebPageDirectoryMetric]) -> Iterator[None]:
+        try:
+            yield
+        except _DimensionalReadError:
+            raise
+        except Exception as error:
+            if self._dimensional_builder_for(metric) is None:
+                raise
+            raise _DimensionalReadError(error) from error
+
     def _metric_select(
         self, metric: WebPageDirectoryMetric, grouped: bool, page_keys: Optional[list[str]]
     ) -> Optional[ast.SelectQuery]:
         if builder := self._dimensional_builder_for(metric):
-            return builder.metric_select(metric, grouped, page_keys)
+            with self._dimensional_failures(metric):
+                return builder.metric_select(metric, grouped, page_keys)
         return self._live_metric_select(metric, grouped, page_keys)
 
     def _live_metric_select(
@@ -419,16 +438,17 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         context: HogQLContext,
     ) -> list[Any]:
         query_type, modifiers = self._execution(name, metric)
-        response = execute_hogql_query(
-            query_type=query_type,
-            query=query,
-            team=self.team,
-            user=self.user,
-            context=context,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=self.limit_context,
-        )
+        with self._dimensional_failures(metric):
+            response = execute_hogql_query(
+                query_type=query_type,
+                query=query,
+                team=self.team,
+                user=self.user,
+                context=context,
+                timings=timings,
+                modifiers=modifiers,
+                limit_context=self.limit_context,
+            )
         return list(response.results or [])
 
     def _run_concurrently(
@@ -490,9 +510,9 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         if self.dimensional_builder is not None:
             try:
                 return self._calculate_metrics()
-            except Exception as error:
-                if classify_dimensional_read_failure(error) is not DimensionalReadFailure.FALL_BACK:
-                    raise
+            except _DimensionalReadError as failure:
+                if classify_dimensional_read_failure(failure.error) is not DimensionalReadFailure.FALL_BACK:
+                    raise failure.error from None
                 logger.exception("web_page_directory_dimensional_read_failed", team_id=self.team.pk)
                 self.dimensional_builder = None
         return self._calculate_metrics()
@@ -506,15 +526,16 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             page_keys = self._page_keys()
         else:
             query_type, modifiers = self._execution("query", sort_metric)
-            self.paginator.execute_hogql_query(
-                query_type=query_type,
-                query=self._driver_query(),
-                team=self.team,
-                user=self.user,
-                context=self.build_hogql_context(),
-                timings=self.timings,
-                modifiers=modifiers,
-            )
+            with self._dimensional_failures(sort_metric):
+                self.paginator.execute_hogql_query(
+                    query_type=query_type,
+                    query=self._driver_query(),
+                    team=self.team,
+                    user=self.user,
+                    context=self.build_hogql_context(),
+                    timings=self.timings,
+                    modifiers=modifiers,
+                )
             rows = self.paginator.results or []
             page_keys = [row[0] for row in rows]
             by_metric[sort_metric] = {row[0]: _metric_values(row[1:]) for row in rows}

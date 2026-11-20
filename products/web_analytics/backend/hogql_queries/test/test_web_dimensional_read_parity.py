@@ -701,6 +701,10 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
             ("search", {"search": "PRIC"}),
             ("host_filter", {"properties": [HOST_FILTER]}),
             ("hostless_filter", {"properties": [HOSTLESS_FILTER]}),
+            (
+                "browser_not_set_filter",
+                {"properties": [EventPropertyFilter(key="$browser", operator=PropertyOperator.IS_NOT_SET)]},
+            ),
             ("compare_previous_period", {"compareFilter": CompareFilter(compare=True)}),
             ("page_keys", {"pageKeys": ["app.example.com/pricing", "/hostless"]}),
         ]
@@ -767,6 +771,16 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
                     ],
                 },
             ),
+            (
+                "bounce_rate_with_host_filter",
+                {
+                    "metrics": [WebPageDirectoryMetric.BOUNCE_RATE],
+                    "sortBy": WebPageDirectorySortBy.BOUNCE_RATE,
+                    "includeSiteTotals": False,
+                    "pageKeys": ["app.example.com/pricing"],
+                    "properties": [HOST_FILTER],
+                },
+            ),
         ]
     )
     def test_directory_ineligible_query_stays_live(self, _name, kwargs):
@@ -786,13 +800,42 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
             side_effect=error,
         )
 
-    def test_directory_dimensional_error_falls_back_to_live(self):
+    def _failing_query_execution(self, query_type_prefix: str, error: Exception):
+        failed: list[str] = []
+
+        def execute(*args, **kwargs):
+            if not failed and kwargs["query_type"].startswith(query_type_prefix):
+                failed.append(kwargs["query_type"])
+                raise error
+            return execute_hogql_query(*args, **kwargs)
+
+        return patch(
+            "products.web_analytics.backend.hogql_queries.web_page_directory.execute_hogql_query",
+            side_effect=execute,
+        )
+
+    @parameterized.expand([("building",), ("executing",)])
+    def test_directory_dimensional_error_falls_back_to_live(self, stage):
         live = self._run(None)
-        with self._failing_dimensional_read(RuntimeError("dimensional read failed")):
+        error = RuntimeError("dimensional read failed")
+        failure = (
+            self._failing_dimensional_read(error)
+            if stage == "building"
+            else self._failing_query_execution("web_page_directory_dimensional_", error)
+        )
+        with failure:
             response = self._run(OPT_IN)
 
         assert response.preComputedAt is None
         assert self._comparable(response) == self._comparable(live)
+
+    def test_directory_live_query_error_is_not_retried(self):
+        error = RuntimeError("live query failed")
+        with (
+            self._failing_query_execution("web_page_directory_time_on_page", error),
+            self.assertRaisesMessage(RuntimeError, "live query failed"),
+        ):
+            self._run(OPT_IN)
 
     def test_directory_dimensional_timeout_does_not_rerun_live(self):
         with self._failing_dimensional_read(ClickHouseQueryTimeOut()), self.assertRaises(ClickHouseQueryTimeOut):

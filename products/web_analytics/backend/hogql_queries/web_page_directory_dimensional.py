@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Optional
 
-from posthog.schema import WebPageDirectoryMetric
+from posthog.schema import EventPropertyFilter, WebPageDirectoryMetric
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -30,13 +30,17 @@ CHANNEL_CONDITIONS = {
     WebPageDirectoryMetric.GOOGLE_SEARCH: "channel_type = 'Organic Search' AND referring_domain ILIKE '%google%'",
     WebPageDirectoryMetric.AI_REFERRALS: "channel_type = 'AI'",
 }
+PER_PAGEVIEW_FILTER_KEYS = frozenset({"$pathname", "$host"})
 
 
 def dimensional_tables_for(
     runner: "WebPageDirectoryQueryRunner", metrics: set[WebPageDirectoryMetric]
 ) -> frozenset[str]:
     tables = {METRIC_TABLES[metric] for metric in metrics if metric in METRIC_TABLES}
-    if runner.pathname_property_filter is not None:
+    if any(
+        isinstance(prop, EventPropertyFilter) and prop.key in PER_PAGEVIEW_FILTER_KEYS
+        for prop in runner.query.properties
+    ):
         tables.discard(WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
     if (
         tables
