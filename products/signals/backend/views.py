@@ -2994,6 +2994,8 @@ class SignalReportViewSet(
         return queryset.filter(latest_already_addressed=already_addressed)
 
     def _apply_signal_report_needs_attention_filter(self, queryset):
+        if self.action != "list":
+            return queryset
         wants_needs_attention = self._bool_query_param("needs_attention")
         if wants_needs_attention is None:
             return queryset
@@ -3001,11 +3003,18 @@ class SignalReportViewSet(
             return queryset.none() if wants_needs_attention else queryset
         # Interim state is derived from check observations, not stored on the report, so the off-track
         # reports are summarized here, before pagination, to keep every page and the count consistent.
+        # Only each check's latest reading is read, so the cost follows the reports in Monitoring, not
+        # their reading history.
         summaries = monitoring_summaries(
-            list(queryset.filter(status=SignalReport.Status.MONITORING)),
+            list(
+                queryset.filter(status=SignalReport.Status.MONITORING)
+                .select_related(None)
+                .only("id", "team_id", "status", "monitoring_started_at", "monitoring_ended_at", "metrics")
+            ),
             team_id=self.team_id,
             now=timezone.now(),
             may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+            latest_readings_only=True,
         )
         off_track_ids = [
             report_id

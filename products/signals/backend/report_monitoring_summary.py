@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from django.db.models import TextChoices
+from django.db.models import DateTimeField, JSONField, QuerySet, TextChoices
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 
 from pydantic import ValidationError
 
@@ -199,17 +201,42 @@ def _metric_config(check: SignalReportCheck) -> MetricThresholdConfig | None:
     return config if isinstance(config, MetricThresholdConfig) else None
 
 
+def _latest_decided_observation_contents(rows: QuerySet[SignalReportArtefact]) -> Iterator[str]:
+    """Each check's latest observation with a match result.
+
+    An errored reading has no match result and never decides a verdict, and a newer Monitoring
+    period's readings are always later, so this is all a summary's state needs.
+    """
+    observation = Cast("content", output_field=JSONField())
+    latest = (
+        rows.annotate(
+            observed_check_id=KeyTextTransform("check_id", observation),
+            observed_matches=KeyTextTransform("matches", observation),
+            observed_at=Cast(KeyTextTransform("measured_at", observation), output_field=DateTimeField()),
+        )
+        .filter(observed_matches__isnull=False)
+        .order_by("observed_check_id", "-observed_at")
+        .distinct("observed_check_id")
+        # The distinct key has to be selected, or Django drops the annotation it orders by.
+        .values_list("observed_check_id", "content")
+    )
+    return (content for _, content in latest)
+
+
 def _observations_by_check(
-    reports: Mapping[UUID, SignalReport], *, team_id: int, since: datetime
+    reports: Mapping[UUID, SignalReport], *, team_id: int, since: datetime, latest_only: bool = False
 ) -> defaultdict[str, list[CheckObservation]]:
     rows = SignalReportArtefact.objects.filter(
         team_id=team_id,
         report_id__in=reports.keys(),
         type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
         created_at__gte=since,
-    ).values_list("content", flat=True)
+    )
+    contents: Iterable[str] = (
+        _latest_decided_observation_contents(rows) if latest_only else rows.values_list("content", flat=True)
+    )
     observations: defaultdict[str, list[CheckObservation]] = defaultdict(list)
-    for content in rows:
+    for content in contents:
         try:
             observation = CheckObservation.model_validate_json(content)
         except ValidationError:
@@ -225,11 +252,15 @@ def monitoring_summaries(
     now: datetime,
     may_read_values: Callable[[Mapping[str, object]], bool],
     ended_since: datetime | None = None,
+    latest_readings_only: bool = False,
 ) -> dict[str, ReportMonitoringSummary]:
     """Summarize each Monitoring report on a list page for its row, in three queries for the whole page.
 
     With `ended_since`, reports whose Monitoring ended at or after it are summarized too, so a row can
     show how each check finished.
+
+    With `latest_readings_only`, each check carries only its latest reading with a match result. The
+    state is the same, but a summary's readings are not the full history, so it is not for display.
     """
     monitored = {
         report.id: report
@@ -266,6 +297,7 @@ def monitoring_summaries(
         monitored,
         team_id=team_id,
         since=min(report.monitoring_started_at for report in monitored.values() if report.monitoring_started_at),
+        latest_only=latest_readings_only,
     )
     summaries: dict[str, ReportMonitoringSummary] = {}
     for report_id, checks in checks_by_report.items():

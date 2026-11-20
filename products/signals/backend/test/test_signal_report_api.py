@@ -1733,21 +1733,28 @@ class TestSignalReportListAPI(APIBaseTest):
             monitoring_started_at=started_at,
             check_versions={str(check.id): check_definition_version(check)},
         )
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
-            content=CheckObservation(
-                explanation="",
-                check_id=str(check.id),
-                title=check.title,
-                monitoring_started_at=started_at,
-                measured_at=started_at + timedelta(hours=12),
-                comparison=CheckComparison(operator="lte", value=5),
-                observed_value=8,
-                matches=False,
-            ).model_dump_json(),
-        )
+        # An earlier on-track reading and a later errored one: the off-track reading between them decides.
+        for hours, observed_value, matches, error in [
+            (12, 8, False, None),
+            (6, 3, True, None),
+            (18, None, None, "The query timed out."),
+        ]:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+                content=CheckObservation(
+                    explanation="",
+                    check_id=str(check.id),
+                    title=check.title,
+                    monitoring_started_at=started_at,
+                    measured_at=started_at + timedelta(hours=hours),
+                    comparison=CheckComparison(operator="lte", value=5) if error is None else None,
+                    observed_value=observed_value,
+                    matches=matches,
+                    error=error,
+                ).model_dump_json(),
+            )
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
             response = self.client.get(self._list_url())
@@ -1765,7 +1772,9 @@ class TestSignalReportListAPI(APIBaseTest):
         assert summary["state"] == state
         assert summary["ends_at"] == (started_at + timedelta(days=7)).isoformat().replace("+00:00", "Z")
         assert summary["lead_check"]["check_id"] == str(check.id)
-        assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == [False if readable else None]
+        assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == (
+            [True, False, None] if readable else [None, None, None]
+        )
 
     def test_monitoring_recent_lists_reports_that_left_monitoring_with_how_it_ended(self) -> None:
         now = timezone.now()
