@@ -123,7 +123,7 @@ explains itself:
 | `changed`   | Every value already matches what was last sent; a re-run is expected to be quiet |
 | `existing`  | No row's identifier matched a person or group — usually the wrong key column     |
 | `produced`  | Nothing reached capture; check `skipped_missing_person`                          |
-| `removed`   | No previously matched person left the table on a complete read                    |
+| `removed`   | No previously matched person left the table on a complete read                   |
 
 A run that reads rows but shows `existing: 0` is the wrong-key-column case almost every time.
 

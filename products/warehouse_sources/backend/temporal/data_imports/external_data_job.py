@@ -1399,7 +1399,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
-                    complete_table_read=(
+                    complete_table_read=bool(
                         (not incremental_or_append or scheduled_full_refresh or inputs.reset_pipeline)
                         and not is_resumable_source
                     ),

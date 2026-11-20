@@ -284,7 +284,6 @@ class PersonPropertySyncActivityInputs:
     schema_name: str
     last_synced_at: str | None
     saved_query_id: uuid.UUID | None = None
-    # Old workflow histories decode to False, so a replay can never turn a partial read into removals.
     complete_table_read: bool = False
 
     @property

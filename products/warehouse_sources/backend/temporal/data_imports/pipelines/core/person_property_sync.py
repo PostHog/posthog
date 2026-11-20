@@ -27,7 +27,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from datetime import date, datetime, time
 from decimal import Decimal
 from itertools import islice
@@ -167,7 +167,7 @@ class _SnapshotMerge:
     complete: bool
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SyncResult:
     sources: int = 0
     rows_read: int = 0
@@ -252,6 +252,7 @@ def _accumulate_bundles(
     present_without_bundle: dict[str, set[str]],
     rows: list[dict],
     sources: list[PersonPropertySyncSource],
+    detect_missing: bool,
 ) -> None:
     """Fold one batch of rows into {source_id: {distinct_id: bundle}}, last write winning per distinct_id."""
     for source in sources:
@@ -260,7 +261,7 @@ def _accumulate_bundles(
         bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
         for distinct_id, bundle in bundles:
             bucket[distinct_id] = bundle
-        if source.remove_when_missing:
+        if detect_missing and source.remove_when_missing:
             bundled_keys = {distinct_id for distinct_id, _bundle in bundles}
             present_without_bundle[source_id].update(
                 str(key)
@@ -290,6 +291,7 @@ class StagedBundleRead:
 
     bundles_by_source: dict[str, dict[str, dict]]
     present_without_bundle_by_source: dict[str, set[str]]
+    sources_with_complete_key_column: frozenset[str]
     rows_read: int
 
 
@@ -299,6 +301,8 @@ def _accumulate_staged_file(
     sources: list[PersonPropertySyncSource],
     accumulated: dict[str, dict[str, dict]],
     present_without_bundle: dict[str, set[str]],
+    sources_with_complete_key_column: set[str],
+    detect_missing: bool,
     timer: PhaseTimer,
 ) -> int:
     """Stream one staged parquet file batch by batch into ``accumulated``. Returns the rows read."""
@@ -307,13 +311,17 @@ def _accumulate_staged_file(
     started = perf_counter()
     with s3_client.open(path, "rb", cache_type="none") as file:
         parquet = pq.ParquetFile(file, pre_buffer=False)
+        available_columns = set(parquet.schema_arrow.names)
+        sources_with_complete_key_column.intersection_update(
+            str(source.source_id) for source in sources if source.key_column in available_columns
+        )
         # Staged chunks can differ in columns after schema drift, and requesting an absent column raises.
-        columns = sorted(_wanted_columns(sources) & set(parquet.schema_arrow.names))
+        columns = sorted(_wanted_columns(sources) & available_columns)
         for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=columns):
             build_started = perf_counter()
             rows = batch.to_pylist()
             rows_read += len(rows)
-            _accumulate_bundles(accumulated, present_without_bundle, rows, sources)
+            _accumulate_bundles(accumulated, present_without_bundle, rows, sources, detect_missing)
             build_seconds += perf_counter() - build_started
     # One observation per file, not per batch: the read and the bundle build interleave batch by batch.
     timer.add("bundle_build", build_seconds)
@@ -347,12 +355,21 @@ async def _list_staged_files(team_id: int, binding: WarehouseBinding, job_id: st
 
 
 async def _read_staged_bundles(
-    file_keys: list[str], sources: list[PersonPropertySyncSource], timer: PhaseTimer
+    file_keys: list[str],
+    sources: list[PersonPropertySyncSource],
+    timer: PhaseTimer,
+    detect_missing: bool,
+    empty_read_sources_with_key_column: frozenset[str],
 ) -> StagedBundleRead:
     """Stream the staged files into {source_id: {distinct_id: bundle}}, one file and one batch at a
     time, so peak memory tracks distinct persons rather than staged row count."""
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
     present_without_bundle: dict[str, set[str]] = {str(source.source_id): set() for source in sources}
+    sources_with_complete_key_column = (
+        {str(source.source_id) for source in sources}
+        if file_keys
+        else set(empty_read_sources_with_key_column) & accumulated.keys()
+    )
     s3_sync_client = get_s3_client()
     rows_read = 0
     for key in file_keys:
@@ -364,13 +381,26 @@ async def _read_staged_bundles(
             sources,
             accumulated,
             present_without_bundle,
+            sources_with_complete_key_column,
+            detect_missing,
             timer,
         )
     return StagedBundleRead(
         bundles_by_source=accumulated,
         present_without_bundle_by_source=present_without_bundle,
+        sources_with_complete_key_column=frozenset(sources_with_complete_key_column),
         rows_read=rows_read,
     )
+
+
+async def _sources_with_key_column_for_empty_read(
+    team_id: int, binding: WarehouseBinding, sources: list[PersonPropertySyncSource]
+) -> frozenset[str]:
+    uri = await database_sync_to_async(_delta_uri_for_binding, thread_sensitive=False)(team_id, binding)
+    if uri is None:
+        return frozenset()
+    delta = await asyncio.to_thread(_open_delta_batches, uri, delta_storage_options(), sources)
+    return frozenset(str(source.source_id) for source in sources) - delta.sources_missing_key_column
 
 
 def _merge_snapshot_file(file: Any, hashes: dict[str, str]) -> None:
@@ -461,7 +491,7 @@ async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_
         return {}
 
 
-async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str | None]) -> None:
+async def _put_snapshot_file(s3_client, path: str, hashes: Mapping[str, str | None]) -> None:
     import pyarrow as pa  # noqa: PLC0415
 
     table = pa.table(
@@ -476,7 +506,7 @@ async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str | None]
 
 
 async def _write_snapshot_chunk(
-    team_id: int, binding: WarehouseBinding, source_id: str, file_name: str, hashes: dict[str, str | None]
+    team_id: int, binding: WarehouseBinding, source_id: str, file_name: str, hashes: Mapping[str, str | None]
 ) -> None:
     """Add ``hashes`` to the source's snapshot folder as one new file, without reading or merging the
     folder. The reader unions this file with the rest, and ``_write_snapshot_hashes`` folds it in when
@@ -1048,6 +1078,11 @@ async def run_person_property_sync(
     timer = PhaseTimer("incremental")
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
     file_keys = await _list_staged_files(team_id, binding, job_id)
+    empty_read_sources_with_key_column = (
+        await _sources_with_key_column_for_empty_read(team_id, binding, sources)
+        if complete_table_read and not file_keys
+        else frozenset()
+    )
     result.sources = len(sources)
     run = _run_context(team_id, team, binding, job_id, timer, sources, on_progress)
     if not complete_table_read and any(source.remove_when_missing for source in sources):
@@ -1059,7 +1094,13 @@ async def run_person_property_sync(
         for pass_index, start in enumerate(range(0, len(sources), SOURCES_PER_STAGED_PASS)):
             pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
             before = _FunnelCounts.of(result.per_source)
-            read = await _read_staged_bundles(file_keys, pass_sources, timer)
+            read = await _read_staged_bundles(
+                file_keys,
+                pass_sources,
+                timer,
+                detect_missing=complete_table_read,
+                empty_read_sources_with_key_column=empty_read_sources_with_key_column,
+            )
             result.rows_read = read.rows_read
             logger.info(
                 "person-property sync: read staged rows",
@@ -1079,7 +1120,11 @@ async def run_person_property_sync(
                         source,
                         bundles,
                         read.rows_read,
-                        detect_missing=complete_table_read and source.remove_when_missing,
+                        detect_missing=(
+                            complete_table_read
+                            and source.remove_when_missing
+                            and str(source.source_id) in read.sources_with_complete_key_column
+                        ),
                         present_without_bundle=present_without_bundle,
                     ),
                 )
@@ -1133,7 +1178,11 @@ def _open_delta_batches(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return _DeltaBatches(open_batches=lambda _columns: iter(()), columns=[], sources_missing_key_column=frozenset())
+        return _DeltaBatches(
+            open_batches=lambda _columns: iter(()),
+            columns=[],
+            sources_missing_key_column=frozenset(str(source.source_id) for source in sources),
+        )
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)

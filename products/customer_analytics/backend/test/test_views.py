@@ -2773,6 +2773,21 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
+    def test_account_source_rejects_remove_missing_row_behavior(self):
+        response = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+                "missing_row_behavior": "remove",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
     def _person_definition_and_schema(self):
         definition = create_custom_property_definition(
             team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value

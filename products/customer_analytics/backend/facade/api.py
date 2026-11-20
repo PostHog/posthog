@@ -113,6 +113,7 @@ from products.customer_analytics.backend.facade.enums import (
     AccountRelationshipSource,
     AccountViewVisibility,
     TaskDigestCadence,
+    WarehousePersonPropertyMissingRowBehavior,
 )
 from products.customer_analytics.backend.logic import (
     account_automations as _account_automations_logic,
@@ -2225,6 +2226,13 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
+def _validate_missing_row_behavior(*, target_type: str, behavior: str) -> None:
+    if behavior not in WarehousePersonPropertyMissingRowBehavior.values:
+        raise CustomPropertySourceValidationError("Unknown missing-row behavior.")
+    if target_type != TargetType.PERSON.value and behavior != WarehousePersonPropertyMissingRowBehavior.KEEP.value:
+        raise CustomPropertySourceValidationError("Removing missing rows is only supported for person properties.")
+
+
 def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
     try:
         current_app.send_task(
@@ -2616,12 +2624,13 @@ def create_custom_property_source(
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
     column_descriptions: dict | None = None,
-    missing_row_behavior: str = "keep",
+    missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
+    _validate_missing_row_behavior(target_type=definition.target_type, behavior=missing_row_behavior)
 
     # The definition's target decides which binding is valid: an account source reads one saved-query
     # column; a person/group source maps columns from either an imported schema's table or a
@@ -2646,10 +2655,6 @@ def create_custom_property_source(
         create_kwargs["column_descriptions"] = _validate_column_descriptions(
             column_descriptions, set(validated_map.keys())
         )
-        if missing_row_behavior not in {"keep", "remove"}:
-            raise CustomPropertySourceValidationError("Unknown missing-row behavior.")
-        if definition.target_type != TargetType.PERSON.value and missing_row_behavior != "keep":
-            raise CustomPropertySourceValidationError("Removing missing rows is only supported for person properties.")
         create_kwargs["missing_row_behavior"] = missing_row_behavior
         if saved_query_id is not None:
             # An unmaterialized view has no table to read, so the source could never sync — reject it
@@ -2717,7 +2722,8 @@ def update_custom_property_source(
             profile_values = profile_mapping_fields - {"missing_row_behavior"}
             if (
                 any(fields[field] is not None for field in profile_values)
-                or fields.get("missing_row_behavior", "keep") != "keep"
+                or fields.get("missing_row_behavior", WarehousePersonPropertyMissingRowBehavior.KEEP.value)
+                != WarehousePersonPropertyMissingRowBehavior.KEEP.value
             ):
                 raise CustomPropertySourceValidationError(
                     "An account property source uses saved_query + source_column, not external_data_schema."
@@ -2728,15 +2734,10 @@ def update_custom_property_source(
                 fields.pop(field)
             profile_mapping_fields.clear()
         else:
-            if fields.get("missing_row_behavior", source.missing_row_behavior) not in {"keep", "remove"}:
-                raise CustomPropertySourceValidationError("Unknown missing-row behavior.")
-            if (
-                source.definition.target_type != TargetType.PERSON.value
-                and fields.get("missing_row_behavior", source.missing_row_behavior) != "keep"
-            ):
-                raise CustomPropertySourceValidationError(
-                    "Removing missing rows is only supported for person properties."
-                )
+            _validate_missing_row_behavior(
+                target_type=source.definition.target_type,
+                behavior=fields.get("missing_row_behavior", source.missing_row_behavior),
+            )
             validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
             if "column_property_map" in fields:
                 fields["column_property_map"] = validated_map

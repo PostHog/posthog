@@ -86,6 +86,26 @@ class TestBuildBundles:
         ]
         json.dumps(bundles[0][1])  # the produced bundle round-trips without a default handler
 
+    def test_partial_read_does_not_retain_keys_without_bundles(self):
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            remove_when_missing=True,
+        )
+        present_without_bundle: dict[str, set[str]] = {"source-1": set()}
+
+        pps._accumulate_bundles(
+            {"source-1": {}},
+            present_without_bundle,
+            [{"distinct_id": "present", "plan": None}],
+            [source],
+            detect_missing=False,
+        )
+
+        assert present_without_bundle == {"source-1": set()}
+
 
 class TestBundleHash:
     def test_is_order_independent(self):
@@ -223,10 +243,12 @@ class TestRunOrchestration:
 
     @parameterized.expand(
         [
-            ("opted_in_complete_read", True, True, "pro", 1),
-            ("opted_in_present_null", True, True, None, 1),
-            ("opted_in_partial_read", True, False, "pro", 0),
-            ("default_complete_read", False, True, "pro", 0),
+            ("opted_in_complete_read", True, True, [{"distinct_id": "present", "plan": "pro"}], False, ["left"]),
+            ("opted_in_present_null", True, True, [{"distinct_id": "present", "plan": None}], False, ["left"]),
+            ("opted_in_partial_read", True, False, [{"distinct_id": "present", "plan": "pro"}], False, []),
+            ("default_complete_read", False, True, [{"distinct_id": "present", "plan": "pro"}], False, []),
+            ("opted_in_missing_key_column", True, True, [{"plan": "pro"}], False, []),
+            ("opted_in_empty_complete_read", True, True, [], True, ["left", "present"]),
         ]
     )
     @pytest.mark.asyncio
@@ -235,8 +257,9 @@ class TestRunOrchestration:
         _name: str,
         remove_when_missing: bool,
         complete_table_read: bool,
-        present_value: str | None,
-        expected_removed: int,
+        staged_rows: list[dict],
+        empty_read_has_key_column: bool,
+        expected_removed_ids: list[str],
     ) -> None:
         source = PersonPropertySyncSource(
             source_id="source-1",
@@ -250,7 +273,8 @@ class TestRunOrchestration:
             "left": pps.bundle_hash({"plan_tier": "free"}),
         }
         fake = _FakeS3()
-        _stage(fake, "chunk_1_000000", [{"distinct_id": "present", "plan": present_value}])
+        if staged_rows:
+            _stage(fake, "chunk_1_000000", staged_rows)
         with (
             _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
@@ -260,7 +284,16 @@ class TestRunOrchestration:
                 f"{_MODULE}._filter_existing_ids",
                 side_effect=lambda _team_id, _source, ids: set(ids) & {"present", "left"},
             ),
-            patch(f"{_MODULE}._produce_intents", return_value={"left"}) as produce,
+            patch(
+                f"{_MODULE}._sources_with_key_column_for_empty_read",
+                new=AsyncMock(return_value=frozenset({"source-1"}) if empty_read_has_key_column else frozenset()),
+            ),
+            patch(
+                f"{_MODULE}._produce_intents",
+                side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
+                    distinct_id for distinct_id, _bundle in bundles
+                },
+            ) as produce,
             patch(f"{_MODULE}._write_snapshot_chunk", new=AsyncMock()) as write_chunk,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
             patch(f"{_MODULE}._reconcile_property_definitions"),
@@ -274,12 +307,16 @@ class TestRunOrchestration:
                 complete_table_read=complete_table_read,
             )
 
-        assert result.removed == expected_removed
-        if expected_removed:
+        assert result.removed == len(expected_removed_ids)
+        if expected_removed_ids:
             assert produce.call_count == 1
             assert write_chunk.await_count == 1
-            assert produce.call_args.args[3] == [("left", {"plan_tier": None})]
-            assert write_chunk.await_args.args[4] == {"left": None}
+            assert produce.call_args is not None
+            assert dict(produce.call_args.args[3]) == {
+                distinct_id: {"plan_tier": None} for distinct_id in expected_removed_ids
+            }
+            assert write_chunk.await_args is not None
+            assert write_chunk.await_args.args[4] == dict.fromkeys(expected_removed_ids)
         else:
             produce.assert_not_called()
 
