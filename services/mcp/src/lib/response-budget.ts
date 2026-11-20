@@ -3,8 +3,6 @@
  * JSON and TOON are re-serialized from a projection, so the output stays parseable.
  */
 
-import { decode } from '@toon-format/toon'
-
 import { formatResponse } from '@/lib/response'
 
 /** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
@@ -91,6 +89,35 @@ function prefixWithinBytes(text: string, maxBytes: number): string {
     return last >= 0xd800 && last <= 0xdbff ? text.slice(0, end - 1) : text.slice(0, end)
 }
 
+const TOON_BLOCK_ARRAY_HEADER = /^( *)(- )?([^\s[]*)\[(\d+)\](\{[^}]*\})?:$/
+
+function indentOf(line: string): number {
+    return line.length - line.trimStart().length
+}
+
+/** A TOON block array declares its length, so each array the clip cut must declare the items it kept. */
+function recountToonArrays(lines: string[]): string[] {
+    return lines.map((line, index) => {
+        const header = TOON_BLOCK_ARRAY_HEADER.exec(line)
+        const next = lines[index + 1]
+        if (!header || next === undefined || indentOf(next) <= indentOf(line)) {
+            return line
+        }
+        const itemIndent = indentOf(next)
+        let items = 0
+        for (const child of lines.slice(index + 1)) {
+            const indent = indentOf(child)
+            if (indent < itemIndent) {
+                break
+            }
+            if (indent === itemIndent && (header[5] !== undefined || child.trimStart().startsWith('- '))) {
+                items++
+            }
+        }
+        return items < Number(header[4]) ? line.replace(`[${header[4]}]`, `[${items}]`) : line
+    })
+}
+
 export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
     let prefix = ''
     let body = text
@@ -135,7 +162,8 @@ export function clipLines(text: string, maxBytes: number): { text: string; cut: 
         kept.push(prefixWithinBytes(rows[0]!, Math.max(0, room - byteLength(marker))) + marker)
         cut = `kept the start of line 1 of ${rows.length}`
     }
-    return { text: prefix + [...kept, ...pointers].join('\n') + suffix, cut }
+    const clipped = kept.length < rows.length ? recountToonArrays(kept) : kept
+    return { text: prefix + [...clipped, ...pointers].join('\n') + suffix, cut }
 }
 
 const DROPPED = Symbol('dropped')
@@ -301,16 +329,6 @@ function fitString(
     return undefined
 }
 
-/** Clipping TOON by lines would leave each array header declaring rows it no longer has. */
-function parseToonText(text: string): unknown {
-    try {
-        const value = decode(text)
-        return typeof value === 'object' && value !== null ? value : undefined
-    } catch {
-        return undefined
-    }
-}
-
 function parseJsonText(text: string): unknown {
     const first = text.trimStart()[0]
     if (first !== '{' && first !== '[') {
@@ -347,13 +365,6 @@ export function boundText(
     const json = parseJsonText(text)
     if (json !== undefined) {
         const fitted = fitValue(json, (value) => JSON.stringify(value), maxBytes, maxTokens)
-        if (fitted) {
-            return fitted.text
-        }
-    }
-    const toon = parseToonText(text)
-    if (toon !== undefined) {
-        const fitted = fitValue(toon, formatResponse, maxBytes, maxTokens)
         if (fitted) {
             return fitted.text
         }
