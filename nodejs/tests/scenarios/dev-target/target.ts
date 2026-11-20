@@ -48,7 +48,6 @@ export function devTarget(config: DevConfig): RunTarget {
                 fetchRetries: 0,
                 groups: [],
                 connect: () => Promise.resolve(),
-                // Proves the key, the workflow, and that offers land in its project, before any offer.
                 seed: async () => {
                     await unfinishedJobs()
                     await checkOffersToken(config)

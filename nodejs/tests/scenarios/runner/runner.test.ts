@@ -325,9 +325,12 @@ describe('runner', () => {
                 target: 'dev',
             })
 
-        // Answers each read the dev target makes with the shape dev answered it with, and counts the offers to capture.
         const runOnDev = async (
-            { metrics = 200, projectToken = 'phc_test' }: { metrics?: number; projectToken?: string },
+            {
+                metrics = 200,
+                project = 200,
+                projectToken = 'phc_test',
+            }: { metrics?: number; project?: number; projectToken?: string },
             interrupt = new AbortController()
         ): Promise<{ result: RunResult; offered: number }> => {
             let offered = 0
@@ -341,11 +344,14 @@ describe('runner', () => {
                         interrupt.abort()
                         return reply(200, { status: 'Ok' })
                     }
+                    if (req.headers.authorization !== 'Bearer phx_test') {
+                        return reply(401, { type: 'authentication_error' })
+                    }
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
                         return reply(metrics, { labels: [], series: [] })
                     }
                     if (req.url === '/api/projects/1/') {
-                        return reply(200, { id: 1, api_token: projectToken })
+                        return reply(project, { id: 1, api_token: projectToken })
                     }
                     return reply(200, { results: [] })
                 })
@@ -374,6 +380,11 @@ describe('runner', () => {
 
         it.each([
             ['a workflow dev does not know', { metrics: 404 }, 'dev answered the workflow metrics read with 404'],
+            [
+                'a key that cannot read the offers project',
+                { project: 403 },
+                'dev answered the offers project read with 403',
+            ],
             [
                 'an offers token of another project',
                 { projectToken: 'phc_other' },

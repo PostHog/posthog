@@ -8,13 +8,14 @@ export type DevConfig = {
 }
 
 const NAMES = [
-    'DEV_TARGET_HOST',
     'DEV_TARGET_OFFERS_TEAM_ID',
     'DEV_TARGET_OFFERS_TOKEN',
     'DEV_TARGET_WORKFLOW_ID',
     'DEV_TARGET_RECEIPTS_TEAM_ID',
     'DEV_TARGET_KEY_FILE',
 ] as const
+// The only deployment a dev card sends to, so no setting can point its offers at production.
+const DEV_HOST = 'https://app.dev.posthog.dev'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
@@ -23,13 +24,6 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
         throw new Error(`The dev target needs ${missing.join(', ')}, and it has no defaults for them.`)
     }
     const read = (name: (typeof NAMES)[number]): string => env[name]!
-    const origin = (name: (typeof NAMES)[number]): string => {
-        const url = new URL(read(name))
-        if (url.protocol !== 'https:') {
-            throw new Error(`${name} must be an https URL`)
-        }
-        return url.origin
-    }
     const team = (name: (typeof NAMES)[number]): number => {
         const id = Number(read(name))
         if (!Number.isSafeInteger(id) || id <= 0) {
@@ -51,7 +45,7 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
         throw new Error('DEV_TARGET_WORKFLOW_ID must be a workflow id')
     }
     return {
-        host: origin('DEV_TARGET_HOST'),
+        host: DEV_HOST,
         offers: { teamId: team('DEV_TARGET_OFFERS_TEAM_ID'), token, workflowId },
         receiptsTeamId: team('DEV_TARGET_RECEIPTS_TEAM_ID'),
         key,

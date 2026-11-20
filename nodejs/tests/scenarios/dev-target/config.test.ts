@@ -8,7 +8,6 @@ describe('devConfigOf', () => {
     const keyFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'dev-target-')), 'key')
     writeFileSync(keyFile, 'phx_test\n')
     const env = {
-        DEV_TARGET_HOST: 'https://dev.example.com',
         DEV_TARGET_OFFERS_TEAM_ID: '1',
         DEV_TARGET_OFFERS_TOKEN: 'phc_test',
         DEV_TARGET_WORKFLOW_ID: '0190f6a2-0000-7000-8000-000000000001',
@@ -20,7 +19,7 @@ describe('devConfigOf', () => {
 
     it('reads the target from the environment and the key from its file', () => {
         expect(devConfigOf(env)).toEqual({
-            host: 'https://dev.example.com',
+            host: 'https://app.dev.posthog.dev',
             offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
             receiptsTeamId: 2,
             key: 'phx_test',
@@ -30,13 +29,8 @@ describe('devConfigOf', () => {
     it.each<[string, Record<string, string | undefined>, string]>([
         [
             'missing settings',
-            { DEV_TARGET_HOST: undefined, DEV_TARGET_KEY_FILE: '' },
-            'needs DEV_TARGET_HOST, DEV_TARGET_KEY_FILE',
-        ],
-        [
-            'a host over plain http',
-            { DEV_TARGET_HOST: 'http://dev.example.com' },
-            'DEV_TARGET_HOST must be an https URL',
+            { DEV_TARGET_OFFERS_TEAM_ID: undefined, DEV_TARGET_KEY_FILE: '' },
+            'needs DEV_TARGET_OFFERS_TEAM_ID, DEV_TARGET_KEY_FILE',
         ],
         ['a project id that is not one', { DEV_TARGET_RECEIPTS_TEAM_ID: '2a' }, 'must be a project id'],
         ['a blank project token', { DEV_TARGET_OFFERS_TOKEN: '  ' }, 'DEV_TARGET_OFFERS_TOKEN holds no key'],
