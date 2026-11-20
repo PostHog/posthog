@@ -519,7 +519,7 @@ describe('EmailTrackingService', () => {
                     { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
                     signer
                 )
-                const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
+                const link = new URL(html.match(/^<body><a href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
 
                 const res = await supertest(app).get(`${link.pathname}${link.search}`)
 
