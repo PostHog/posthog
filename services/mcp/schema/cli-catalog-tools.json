@@ -28038,6 +28038,11 @@
                     "csv": false
                 },
                 {
+                    "param": "plan",
+                    "key": "plan",
+                    "csv": false
+                },
+                {
                     "param": "priority",
                     "key": "priority",
                     "csv": false
@@ -28263,6 +28268,160 @@
         "input": {
             "aliases": {
                 "id": ["survivor_report_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "inbox-reports-plan-step-dependencies-update": {
+        "name": "inbox-reports-plan-step-dependencies-update",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "PUT",
+            "path": "/api/projects/{project_id}/signals/reports/{id}/plan_steps/{step_id}/depends_on/",
+            "pathParams": ["id", "step_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "depends_on",
+                    "key": "depends_on"
+                },
+                {
+                    "param": "reason",
+                    "key": "reason"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/inbox",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["plan_report_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "inbox-reports-plan-steps-add": {
+        "name": "inbox-reports-plan-steps-add",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/reports/{id}/plan_steps/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "report_id",
+                    "key": "report_id"
+                },
+                {
+                    "param": "depends_on",
+                    "key": "depends_on"
+                },
+                {
+                    "param": "reason",
+                    "key": "reason"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/inbox",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["plan_report_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "inbox-reports-plan-steps-remove": {
+        "name": "inbox-reports-plan-steps-remove",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "DELETE",
+            "path": "/api/projects/{project_id}/signals/reports/{id}/plan_steps/{step_id}/",
+            "pathParams": ["id", "step_id"],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "reason",
+                    "key": "reason",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/inbox",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["plan_report_id"]
             },
             "casts": {},
             "validators": []

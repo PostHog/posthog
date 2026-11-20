@@ -119401,6 +119401,34 @@ export namespace Schemas {
       Errored: 'errored',
     } as const;
 
+    export interface SignalReportPlanStepAddRequest {
+      /** Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged. */
+      report_id: string;
+      /**
+         * Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on?: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportPlanStepDependenciesRequest {
+      /**
+         * Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
     export interface SignalReportPriorityUpdate {
       /** New report priority, from P0 (critical) to P4 (minimal).
        *
@@ -149461,6 +149489,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.
+     */
+    plan?: string;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
@@ -149550,6 +149582,14 @@ export namespace Schemas {
       Me: 'me',
       Mine: 'mine',
     } as const;
+
+    export type SignalsReportsPlanStepsDestroyParams = {
+    /**
+     * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+     * @maxLength 500
+     */
+    reason?: string;
+    };
 
     export type SignalsReportPrChecksParams = {
     /**
