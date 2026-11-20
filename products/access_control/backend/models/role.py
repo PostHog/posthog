@@ -77,6 +77,7 @@ class RoleQuerySet(models.QuerySet["Role"]):
             return updated
 
 
+# nosemgrep: no-new-uuidt-models -- existing model; adding audit logging must preserve its primary-key default.
 class Role(ModelActivityMixin, UUIDTModel):
     objects = RoleQuerySet.as_manager()
 
@@ -174,6 +175,7 @@ class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
         )
 
 
+# nosemgrep: no-new-uuidt-models -- existing model; adding audit logging must preserve its primary-key default.
 class RoleMembership(ModelActivityMixin, UUIDTModel):
     objects = RoleMembershipQuerySet.as_manager()
 
