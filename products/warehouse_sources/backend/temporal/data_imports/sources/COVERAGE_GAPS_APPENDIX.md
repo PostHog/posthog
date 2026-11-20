@@ -8115,10 +8115,10 @@ Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-ref
 - [x] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
 - [x] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
 - [x] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
-- [ ] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
-- [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium)
-- [ ] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
-- [ ] `Xray Get Licenses` — license lookup table resolving license IDs surfaced on artifacts and violations (medium)
+- [x] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
+- [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium). Skipped: lookup by artifact path, checksum or build, not a list endpoint; it needs a fan-out over every artifact or build, and `xray_violations` already holds the issues.
+- [x] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
+- [x] `Xray Get Licenses` — license lookup table resolving license IDs surfaced on artifacts and violations (medium)
 - [ ] `List Docker Repositories / List Docker Tags` — tag-level inventory for container registries, which AQL items alone do not resolve cleanly (low)
 - [ ] `Archive Entries Search (/api/search/archive)` — class/file entries inside archives for deep dependency auditing (low)
 
