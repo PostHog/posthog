@@ -247,23 +247,25 @@ jobs:
               env:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  # The bundle check builds the merge commit, which includes base commits the PR head lacks,
+                  # so the list must cover the same commit or those player changes ship unlisted.
+                  MERGE_SHA: ${{ github.sha }}
               run: |
                   set -euo pipefail
                   bundle=products/mobile/src/features/replay/web/phonePlayer.generated.replay
                   inputs=(common/replay-shared common/replay-headless patches package.json pnpm-lock.yaml pnpm-workspace.yaml)
                   # The range is computed from ancestry, not commit dates, because a committer date is whatever the author set.
-                  git fetch --quiet --no-tags --filter=blob:none --depth=500 origin "$BASE_SHA" "$HEAD_SHA"
+                  git fetch --quiet --no-tags --filter=blob:none --depth=500 origin "$BASE_SHA" "$MERGE_SHA"
                   for attempt in $(seq 1 40); do
                     previous=$(git log -1 --topo-order --format=%H "$BASE_SHA" -- "$bundle")
                     shallow=$(cat "$(git rev-parse --git-path shallow)" 2>/dev/null || true)
                     # A shallow root looks like it added every file, and a range that reaches one is cut short.
                     if [[ -z "$shallow" ]] || { [[ -n "$previous" ]] && ! grep -qxF "$previous" <<<"$shallow" \
-                         && ! git rev-list "$previous..$HEAD_SHA" | grep -qxF -f <(echo "$shallow"); }; then
+                         && ! git rev-list "$previous..$MERGE_SHA" | grep -qxF -f <(echo "$shallow"); }; then
                       break
                     fi
                     [[ "$attempt" == 40 ]] && { echo "History is too deep to find the previous bundle." >&2; exit 1; }
-                    git fetch --quiet --no-tags --filter=blob:none --deepen=500 origin "$BASE_SHA" "$HEAD_SHA"
+                    git fetch --quiet --no-tags --filter=blob:none --deepen=500 origin "$BASE_SHA" "$MERGE_SHA"
                   done
                   {
                     echo "## Player changes in this replay bundle"
@@ -272,7 +274,7 @@ jobs:
                     else
                       echo "Review these commits instead of the minified bundle. They changed the player source or its dependencies after ${previous:0:10}, which built the previous bundle."
                       echo
-                      commits=$(git log --topo-order --format='%H%x09%s' "$previous..$HEAD_SHA" -- "${inputs[@]}")
+                      commits=$(git log --topo-order --format='%H%x09%s' "$previous..$MERGE_SHA" -- "${inputs[@]}")
                       if [[ -z "$commits" ]]; then
                         echo "No player source or dependency commits."
                       else
