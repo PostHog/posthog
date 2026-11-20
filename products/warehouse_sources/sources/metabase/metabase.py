@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -13,6 +13,8 @@ from products.warehouse_sources.sources.metabase.settings import METABASE_ENDPOI
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
+    OffsetPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -324,10 +326,12 @@ def _started_at_sort_key(row: dict[str, Any]) -> datetime:
 
 def _list_pages(
     client_config: ClientConfig, config: MetabaseEndpointConfig, path: str, team_id: int, job_id: str
-) -> Iterable[Any]:
+) -> Resource:
     endpoint_config: Endpoint = {"path": path, "params": dict(config.params)}
     if config.data_selector:
         endpoint_config["data_selector"] = config.data_selector
+    if config.page_size:
+        endpoint_config["paginator"] = OffsetPaginator(limit=config.page_size, total_path="total")
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
@@ -372,6 +376,28 @@ def _get_query_execution_rows(
             yield rows
         else:
             resumable_source_manager.safe_point()
+
+
+def _first_seen_by_id() -> Callable[[dict[str, Any]], bool]:
+    # Offset pages over a newest-first list shift when rows are added mid-sync, so a row at a page
+    # boundary can come back on the next page.
+    seen: set[Any] = set()
+
+    def _keep(row: dict[str, Any]) -> bool:
+        row_id = row.get("id")
+        if row_id in seen:
+            return False
+        seen.add(row_id)
+        return True
+
+    return _keep
+
+
+def _id_as_string(row: dict[str, Any]) -> dict[str, Any]:
+    # The root collection's id is the string "root" and every other collection id is an integer, so
+    # the parent id copied into child rows would otherwise change type between batches.
+    row["id"] = str(row["id"])
+    return row
 
 
 def _flatten_grouped_rows(pages: Iterable[Any]) -> Iterator[list[dict[str, Any]]]:
@@ -435,6 +461,8 @@ def get_rows(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": parent.data_selector} if parent.data_selector else None,
+            child_endpoint_extra={"data_selector": config.data_selector} if config.data_selector else None,
+            parent_data_map=_id_as_string if config.fanout.parent_name == "collections" else None,
             page_size_param=None,
         )
     elif config.month_windowed:
@@ -443,6 +471,8 @@ def get_rows(
         )
     elif config.grouped_by_key:
         yield from _flatten_grouped_rows(_list_pages(client_config, config, config.path, team_id, job_id))
+    elif config.page_size:
+        yield from _list_pages(client_config, config, config.path, team_id, job_id).add_filter(_first_seen_by_id())
     else:
         yield from _list_pages(client_config, config, config.path, team_id, job_id)
 
