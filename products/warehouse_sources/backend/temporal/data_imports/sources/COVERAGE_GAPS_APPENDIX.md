@@ -124,10 +124,10 @@ Note: Parsed the official index and embedded OpenAPI operations on reference pag
 
 Re-audited 2026-11-19 against: <https://apidocs.acculynx.com/llms.txt>
 
-- [ ] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high)
-- [ ] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
-- [ ] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
-- [ ] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
+- [x] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high). Statuses not built: the endpoint takes one milestone name per request, documents a single object as its response, and has data only on accounts with custom workflows.
+- [x] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
+- [x] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
+- [x] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
 - [ ] `Contact types (GET /api/v2/contacts/contact-types)` — lookup that decodes the type of each synced contact (medium)
 - [ ] `Lead history (GET /api/v2/leads/{leadId}/history)` — status and change history of each lead (medium)
 - [ ] `Account types (GET /api/v2/company-settings/location-settings/account-types)` — lookup of active company account types (low)
