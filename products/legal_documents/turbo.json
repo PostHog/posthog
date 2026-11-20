@@ -14,7 +14,8 @@
                 "backend/admin.py",
                 "backend/apps.py",
                 "backend/signals.py",
-                "backend/console.py"
+                "backend/console.py",
+                "backend/logic/__init__.py"
             ],
             "outputs": [],
             "cache": true

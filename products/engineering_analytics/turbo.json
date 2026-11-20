@@ -12,7 +12,14 @@
                 "backend/scopes.py",
                 "backend/apps.py",
                 "backend/warehouse_view_provider.py",
-                "backend/warehouse_view_sync.py"
+                "backend/warehouse_view_sync.py",
+                "backend/logic/job_logs/activity.py",
+                "backend/logic/job_logs/coordinator.py",
+                "backend/logic/job_logs/schedule.py",
+                "backend/logic/job_logs/temporal.py",
+                "backend/logic/signals/coordinator.py",
+                "backend/logic/signals/schedule.py",
+                "backend/logic/signals/temporal.py"
             ],
             "outputs": [],
             "cache": true
