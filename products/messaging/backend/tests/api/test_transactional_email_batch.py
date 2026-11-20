@@ -73,7 +73,6 @@ RECIPIENT_REFUSALS = [
     ("invalid_request", 400, "invalid_request", 400),
     ("Expected string, received number", 400, "invalid_recipient", 400),
     ("message_too_large", 413, "content_too_large", 400),
-    ("recipient_unreachable", 422, "invalid_recipient", 400),
     ("intake_unavailable", 503, "delivery_unavailable", 503),
 ]
 
@@ -447,6 +446,34 @@ class TestTransactionalEmailBatch(APIBaseTest):
         assert [(event["outcome"], event["error_code"]) for event in analytics.properties_of(SEND_EVENT)] == [
             ("rejected", public_code)
         ]
+
+    def test_a_suppressed_or_unreachable_recipient_answers_what_a_single_send_to_it_answers(
+        self, mock_post, _flag, _capture
+    ):
+        single_answers = {}
+        for code in ("recipient_suppressed", "recipient_unreachable"):
+            mock_post.return_value = _response(422, {"error": code, "invocation_id": self._id("key-0")})
+            single = self._single()
+            single_answers[code] = {
+                "code": single.json()["code"],
+                "status": single.status_code,
+                "detail": single.json()["detail"],
+            }
+        mock_post.return_value = _batch_answer(
+            _accepted(self._id("key-0")),
+            {"status": 422, "body": {"error": "recipient_suppressed", "invocation_id": self._id("key-1")}},
+            {"status": 422, "body": {"error": "recipient_unreachable", "invocation_id": self._id("key-2")}},
+        )
+
+        response = self._batch("template", self._recipients(3))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        queued, suppressed, unreachable = response.json()["results"]
+        assert queued == {"message_id": self._id("key-0"), "status": "queued", "replayed": False}
+        assert [suppressed["message_id"], unreachable["message_id"]] == [self._id("key-1"), self._id("key-2")]
+        for result, code in ((suppressed, "recipient_suppressed"), (unreachable, "recipient_unreachable")):
+            assert {name: result["error"][name] for name in ("code", "status", "detail")} == single_answers[code]
+            assert result["error"]["retryable"] is False
 
     @parameterized.expand(RECIPIENT_REFUSALS)
     def test_each_recipient_refusal_maps_to_its_public_code_and_keeps_its_message_id(
