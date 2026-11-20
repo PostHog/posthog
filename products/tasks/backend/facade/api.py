@@ -11221,7 +11221,7 @@ def _slack_repo_research_dto(
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
         try:
-            log_url = run_log_download_url(research_run.log, expiration_seconds=3600)
+            log_url = _task_run_log_url(research_run, has_analytics_context=False)
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
@@ -11304,7 +11304,7 @@ def resolve_slack_thread_context(
         task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
-            presigned_log_url = run_log_download_url(run.log, expiration_seconds=3600)
+            presigned_log_url = _task_run_log_url(run, has_analytics_context=False)
         except Exception:
             logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
             presigned_log_url = None

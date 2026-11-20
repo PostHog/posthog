@@ -187,6 +187,17 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert run_payload["log_url"] == "https://s3.example/presigned"
         assert run_payload["admin_url"].endswith(f"/admin/tasks/taskrun/{run.id}/change/")
 
+    def test_chunked_run_log_url_points_at_its_log_entries(self):
+        _, run, _ = self._create_fixture()
+        TaskRun.objects.filter(id=run.id).update(log_format=TaskRun.LogFormat.CHUNKED)
+
+        with patch("posthog.storage.object_storage.get_presigned_url") as presign:
+            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["runs"][0]["log_url"].endswith(f"/runs/{run.id}/log_entries/?scope=run")
+        presign.assert_not_called()
+
     def test_log_presign_failure_returns_200_with_null_log_url(self):
         # Presign failures must degrade to a null log_url, not 500.
         self._create_fixture()

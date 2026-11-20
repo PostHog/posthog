@@ -282,5 +282,5 @@ def append_run_log_chunk(
                 return chunk_index + 1
             if _chunk_append_id(chunk_key) == metadata[_APPEND_ID_METADATA_KEY]:
                 return chunk_index + 1
-            chunk_index = len(_list_chunks(log))
+            chunk_index += 1 + len(_fetch_chunks_from(log, object_storage.head_object_strict, chunk_index + 1))
     raise TaskRunLogChunkSlotsTaken(f"{log.key} lost {CHUNK_WRITE_ATTEMPTS_MAX} races for a free chunk")
