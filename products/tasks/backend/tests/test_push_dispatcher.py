@@ -83,16 +83,22 @@ class TestPushDispatcher(TestCase):
 
     @parameterized.expand([("run_completed",), ("pr_merged",)])
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_deactivated_organization_gets_no_push(self, trigger, mock_delay, _flag):
+    def test_deactivated_organization_gets_no_push(self, trigger, _flag):
         if trigger == "pr_merged":
             self.task.origin_product = Task.OriginProduct.SLACK
             self.task.state = {"mobile_push_user_ids": [self.user.id]}
             self.task.save(update_fields=["origin_product", "state"])
         self.organization.is_active = False
         self.organization.save()
+        queued: list[tuple] = []
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            patch(
+                "products.tasks.backend.push_dispatcher.send_user_push.delay",
+                side_effect=lambda *args: queued.append(args),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             if trigger == "pr_merged":
                 notify_task_pull_request_outcome(
                     task_id=str(self.task.id),
@@ -104,7 +110,7 @@ class TestPushDispatcher(TestCase):
             else:
                 notify_task_run_completed(self.task_run)
 
-        mock_delay.assert_not_called()
+        self.assertEqual(queued, [])
 
     @parameterized.expand([(True,), (False,)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

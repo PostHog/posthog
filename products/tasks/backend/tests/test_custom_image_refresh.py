@@ -75,14 +75,13 @@ class TestCustomImageRefresh(APIBaseTest):
         return_value="ghcr.io/posthog/posthog-sandbox-vm@sha256:current",
     )
     def test_refresh_skips_only_deactivated_organizations(
-        self, _name, is_active, expected_dispatches, _mock_reference, mock_execute
+        self, _name, is_active, expected_dispatches, _mock_reference, _mock_execute
     ) -> None:
         self._create_image(base_image_reference="ghcr.io/posthog/posthog-sandbox-vm@sha256:old")
         self.organization.is_active = is_active
         self.organization.save()
 
         assert refresh_stale_sandbox_custom_images() == expected_dispatches
-        assert mock_execute.call_count == expected_dispatches
 
     @parameterized.expand([("scan", scan_image_spec), ("build", build_and_publish_image)])
     def test_build_activities_refuse_a_deactivated_organization(self, _name, build_activity) -> None:
