@@ -16,6 +16,7 @@ Usage:
     python manage.py export_recordings_to_s3 --status <workflow id>
 """
 
+import sys
 import uuid
 import asyncio
 from datetime import UTC, date, datetime
@@ -123,8 +124,12 @@ class Command(BaseCommand):
         self.stdout.write(format_quote(quote))
         encryption = f", KMS key {options['kms_key_id']}" if options["kms_key_id"] else ""
         self.stdout.write(f"Destination: s3://{bucket}/{options['prefix']} ({region}{encryption}), run {run_id}")
-        if not options["yes"] and input("Start the export? [y/N] ").strip().lower() != "y":
-            raise CommandError("Not started")
+        if not options["yes"]:
+            # A non-interactive exec has no terminal to answer the prompt.
+            if not sys.stdin.isatty():
+                raise CommandError("Not started. Check the quote and destination above, then rerun with --yes.")
+            if input("Start the export? [y/N] ").strip().lower() != "y":
+                raise CommandError("Not started")
         workflow_id = f"export-recordings-{quote.team_id}-{run_id}"
         asyncio.run(_start_workflow(workflow_input, workflow_id))
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))

@@ -27,6 +27,16 @@ Stop and ask the person you work for before you:
 - **Pass `--allow-cross-region`.** Cross-region transfer adds cost the customer must have agreed to.
 - **Raise `--max-parallel-shards` above the default** on a large export. More shards load recording-api harder.
 
+## Where to run
+
+Run every command in a toolbox pod in the team's region (`prod-us` or `prod-eu`).
+[The toolbox CLI](../../../tools/infra-scripts/clitools/README.md) claims one.
+A toolbox pod has what the command needs: ClickHouse for the quote, object storage for quotes and session lists, and Temporal to start the workflow.
+The shards run on the session replay workers, not in the pod.
+
+Run each command with `kubectl exec <pod> -- python manage.py export_recordings_to_s3 ...`.
+For a session list, first copy the file into the pod with `kubectl cp`.
+
 ## Steps
 
 ### 1. Pin down the selection
@@ -36,8 +46,6 @@ A session belongs to the day it started on.
 Recordings past their retention are gone and cannot be exported.
 
 ### 2. Quote
-
-Run in the production environment for the team's region:
 
 ```sh
 python manage.py export_recordings_to_s3 --quote --team-id <id> --region <bucket region> \
@@ -65,8 +73,9 @@ python manage.py export_recordings_to_s3 --quote-id <quote id> --integration-id 
     --region <bucket region> --prefix <prefix> [--kms-key-id <key id or ARN>]
 ```
 
-The command prints the quote and the destination again and asks for confirmation.
-Show that to the person and let them confirm. Do not pass `--yes` unless they tell you to.
+Without `--yes`, the command prints the quote and the destination and stops, because an exec has no terminal to answer its prompt.
+Show that output to the person.
+Rerun with `--yes` only after they confirm that exact quote and destination.
 Keep the printed workflow ID.
 
 ### 5. Monitor
