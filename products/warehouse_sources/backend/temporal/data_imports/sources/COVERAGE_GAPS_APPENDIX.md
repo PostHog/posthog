@@ -13453,7 +13453,7 @@ Note: Coverage of the flat top-level collections is complete — every un-pagina
 
 ## Shortio — **thin**
 
-Today (5): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`
+Today (8): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`, `domain_by_interval`, `domain_top`, `link_top`
 
 Diffed against: <https://api.short.io/openapi.json>
 
@@ -13461,10 +13461,10 @@ Diffed against: <https://api.short.io/openapi.json>
 - [x] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — paginated raw clicks for every domain (high)
 - [x] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — click counts by link ID through GET (high)
 - [x] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — daily click counts by link (high)
-- [ ] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
-- [ ] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
-- [ ] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
-- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium)
+- [x] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
+- [x] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
+- [x] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
+- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium) Skipped: the spec and the official SDK publish no response schema, so the row shape and key are unknown.
 - [ ] `tags/{domainId} (GET)` — lookup for link tags used to group campaign links (medium)
 - [ ] `statistics/domain/{domainId}/paths (GET, statistics.short.io)` — most popular link paths in a time window (low)
 - [ ] `links/bundle/{id}/links (GET)` — link-in-bio bundle membership (low)
