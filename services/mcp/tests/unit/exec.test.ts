@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { toolResponsesShortenedTotal } from '@/hono/metrics'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
@@ -464,6 +465,27 @@ describe('exec tool', () => {
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
 
             expect(result).not.toContain('offset=100')
+        })
+
+        it('counts a result it shortens, since the executor then sees one that fits', async () => {
+            const shortened = async (): Promise<number> =>
+                (await toolResponsesShortenedTotal.get()).values.find(
+                    ({ labels }) => labels.tool === 'mock-tool' && labels.budget === 'client'
+                )?.value ?? 0
+            const exec = createExec(
+                [
+                    makeMockTool({
+                        handler: async () => ({ results: Array.from({ length: 500 }, (_, id) => ({ id })) }),
+                    }),
+                ],
+                undefined,
+                { toolResultTokenLimit: 300 }
+            )
+            const before = await shortened()
+
+            await exec.handler(mockContext, { command: 'call mock-tool' })
+
+            expect((await shortened()) - before).toBe(1)
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {

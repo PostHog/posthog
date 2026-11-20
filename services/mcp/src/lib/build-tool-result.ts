@@ -93,6 +93,7 @@ interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
     nextPageHint?: string | undefined
+    hasUiResource: boolean
     resultEmpty: boolean
     bodySource?: ResponseBodySource | undefined
 }
@@ -183,6 +184,10 @@ export function capResponseToBudget(
         capped.content = [{ type: 'text', text: bounded + keptFooterText }]
     }
     if (!structuredFits) {
+        // The model reads the bounded copy; a UI app draws from `_meta`, which hosts keep away from the model.
+        if (built?.hasUiResource && response._meta?.[APP_DATA_META_KEY] === undefined) {
+            capped._meta = { ...response._meta, [APP_DATA_META_KEY]: structuredContent }
+        }
         const fitted = fitValue(structuredContent, (value) => JSON.stringify(value), maxBytes, maxTokens)
         if (fitted) {
             capped.structuredContent = fitted.value as Record<string, unknown>
@@ -335,6 +340,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         structuredContentOnly,
         footers,
         nextPageHint: nextPageHint ?? undefined,
+        hasUiResource,
         resultEmpty: isEmptyToolResult(handlerResult, toolName),
         bodySource,
     })
