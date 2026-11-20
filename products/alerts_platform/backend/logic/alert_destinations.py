@@ -174,11 +174,15 @@ def delete_alert_destinations(
     The rows are locked before the delete, so of two concurrent deletes only the first returns a row.
     """
     with transaction.atomic():
+        # The configuration before its rows and their HogFunctions, the order an alert delete locks them
+        # in. Locking the rows first could deadlock against a concurrent delete of the whole alert.
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().filter(id=configuration_id).first()
+        )
         named = AlertDestination.objects.for_team(team_id).filter(
             configuration_id=configuration_id, id__in=destination_ids
         )
         locked = list(named.select_for_update())
-        configuration = PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).first()
         if locked and configuration is not None:
             retire_linked_hog_functions(team_id=team_id, configuration=configuration, rows=locked)
         named.filter(id__in=[row.id for row in locked]).delete()
