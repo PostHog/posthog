@@ -131,7 +131,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def range_target_age(self, last_refresh: datetime, lazy: bool = False) -> Optional[datetime]:
         """When the entry goes stale under the range rule. Kept out of `cache_target_age`, which is stored with the
         entry and read by callers that share its cache key without opting in."""
-        if self.range_freshness_interval is None:
+        if self.range_freshness_interval is None or self._api_sql_freshness_applies:
             return self.cache_target_age(last_refresh, lazy=lazy)
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
         return last_refresh + staleness_threshold_map[mode][self.range_freshness_interval]
@@ -162,10 +162,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
         )
 
+    @property
+    def _api_sql_freshness_applies(self) -> bool:
+        return self._sql_classification is not None and self._api_sql_freshness_enabled
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         freshness = self._sql_classification
-        api_sql_freshness = freshness is not None and self._api_sql_freshness_enabled
-        if self.range_freshness_interval is not None and last_refresh is not None and not api_sql_freshness:
+        if (
+            self.range_freshness_interval is not None
+            and last_refresh is not None
+            and not self._api_sql_freshness_applies
+        ):
             target_age = self.range_target_age(last_refresh, lazy=lazy)
             return target_age is None or datetime.now(UTC) > target_age
         default_stale = super()._is_stale(last_refresh, lazy=lazy)

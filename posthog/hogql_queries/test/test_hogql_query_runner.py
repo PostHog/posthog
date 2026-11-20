@@ -796,6 +796,21 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10), lazy=lazy)
         assert stale is expected_stale
 
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_entry_window_age_overrides_the_range_rule(self) -> None:
+        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
+        window = SqlFreshness(
+            window=SqlWindowClass.UP_TO_NOW_LONG,
+            fresh_until=now + timedelta(hours=1),
+            reason=FreshnessReason.WINDOW_AGE,
+        )
+        query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from="-180d")))
+        last_refresh = now - timedelta(minutes=10)
+        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"), range_based_freshness():
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            runner._read_cache_entry_freshness(freshness_record(window))
+            assert runner.range_target_age(last_refresh) == runner.cache_target_age(last_refresh)
+
     def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
         with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):
             runner = HogQLQueryRunner(team=self.team, query=query)
