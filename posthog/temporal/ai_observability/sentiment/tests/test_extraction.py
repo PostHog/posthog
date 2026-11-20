@@ -36,7 +36,7 @@ class TestExtractUserMessagesIndividually:
                 [(1, "a"), (3, "c")],
             ),
             (
-                "otel_parts_text_kept_and_media_dropped",
+                "otel_parts_keep_only_text_parts",
                 [
                     {"role": "system", "parts": [{"type": "text", "content": "sys"}]},
                     {
@@ -49,8 +49,10 @@ class TestExtractUserMessagesIndividually:
                                 "mime_type": "image/png",
                                 "content": "ZmFrZS1pbWFnZS1ieXRlcw==",
                             },
+                            {"type": "compaction", "content": "summary of earlier turns"},
                         ],
                     },
+                    {"role": "user", "parts": [{"type": "compaction"}]},
                 ],
                 [(1, "this is broken")],
             ),

@@ -9,7 +9,7 @@ from posthog.temporal.ai_observability.sentiment.constants import (
 )
 
 from products.ai_observability.backend.facade.evaluation_runtime import extract_content_text
-from products.ai_observability.backend.text_repr.formatters.otel_parts import MEDIA_PART_KEY, flatten_parts_message
+from products.ai_observability.backend.text_repr.formatters.otel_parts import flatten_parts_message
 
 HEAD_TAIL_SEPARATOR = "\n...\n"
 
@@ -28,12 +28,12 @@ def _is_tool_result_message(content: object) -> bool:
 
 
 def _user_message_text(msg: dict) -> str:
-    texts = (
-        extract_content_text(flattened.get("content", ""))
-        for flattened in flatten_parts_message(msg)
-        if flattened.get("role") == "user" and MEDIA_PART_KEY not in flattened
-    )
-    return " ".join(text for text in texts if text)
+    parts = msg.get("parts")
+    if isinstance(parts, list):
+        text_parts = [part for part in parts if isinstance(part, dict) and part.get("type") == "text"]
+        msg = {**msg, "parts": text_parts}
+    flattened = flatten_parts_message(msg)[0]
+    return extract_content_text(flattened.get("content", ""))
 
 
 def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]]:
