@@ -1,0 +1,155 @@
+name: hog release check comment
+
+# Comments on a pull request that changes code compiled into hog without a hog changeset, saying when the
+# change ships and how to choose otherwise. It updates the same comment on later pushes and deletes it once
+# the pull request adds a changeset or stops needing a release.
+#
+# The hog release check workflow runs the pull request's code with no secrets, so fork pull requests run it
+# too. This workflow runs from the default branch with the App token that comments, so it checks out and
+# runs nothing from the pull request: it reads that run's artifact as untrusted data, and comments only on
+# the pull request whose head is the commit that run checked.
+on:
+    workflow_run:
+        workflows: [hog release check]
+        types: [completed]
+
+# `github.head_ref || github.ref` is the default branch on every `workflow_run`, so the group is keyed by the
+# checked head instead.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    comment:
+        name: Update the hog release comment
+        if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            # The artifact of the run that checked the pull request.
+            actions: read
+        steps:
+            - name: Read the check result
+              id: result
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  RUN_ID: ${{ github.event.workflow_run.id }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+              run: |
+                  set -euo pipefail
+                  if ! gh run download "$RUN_ID" --repo "$REPOSITORY" --name hog-release-check --dir "$RUNNER_TEMP/result"; then
+                      echo "The check left no result, so the comment stays as it was"
+                      echo "status=unknown" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  result="$RUNNER_TEMP/result/result.json"
+                  if ! jq -e --arg head "$HEAD_SHA" '
+                      (.pr | type == "number" and . > 0 and . == floor)
+                      and .head_sha == $head
+                      and (.status | IN("needed", "clear", "unknown"))
+                      and (.bump | IN("patch", "minor"))
+                      and (.reasons | type == "array" and all(.[]; type == "string"))
+                  ' "$result" >/dev/null; then
+                      echo "::error::The check result doesn't have the expected shape, so nothing is posted"
+                      exit 1
+                  fi
+                  {
+                      echo "pr=$(jq -r '.pr' "$result")"
+                      echo "status=$(jq -r '.status' "$result")"
+                      echo "bump=$(jq -r '.bump' "$result")"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Get app token for the comment
+              id: app-token
+              if: steps.result.outputs.status != 'unknown'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+
+            # The pull request number came from the artifact, so it counts only when that pull request's head is
+            # the commit the check ran on. A newer push has its own run, which comments instead.
+            - name: Update the comment
+              if: steps.result.outputs.status != 'unknown'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  PR_NUMBER: ${{ steps.result.outputs.pr }}
+                  STATUS: ${{ steps.result.outputs.status }}
+                  BUMP: ${{ steps.result.outputs.bump }}
+              run: |
+                  set -euo pipefail
+                  marker='<!-- hog-release-check -->'
+
+                  pr=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
+                  if [ "$(jq -r '.head.sha' <<<"$pr")" != "$HEAD_SHA" ] || [ "$(jq -r '.state' <<<"$pr")" != open ]; then
+                      echo "#$PR_NUMBER is closed or has moved past $HEAD_SHA, so its newer check comments instead"
+                      exit 0
+                  fi
+
+                  existing=$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+                      --jq ".[] | select(.user.login == \"$BOT_LOGIN\" and (.body | contains(\"$marker\"))) | .id" | sed -n 1p)
+
+                  if [ "$STATUS" = clear ]; then
+                      if [ -n "$existing" ]; then
+                          gh api -X DELETE "repos/$REPOSITORY/issues/comments/$existing"
+                          echo "Deleted the comment, since #$PR_NUMBER needs no other changeset"
+                      fi
+                      exit 0
+                  fi
+
+                  # Reasons come from the pull request's code, so each is one line, HTML-escaped inside <pre>,
+                  # and the list is capped.
+                  reasons=$(jq -r '
+                      .reasons as $all
+                      | ($all[:20][] | gsub("[\\r\\n]"; " ") | .[:300] | @html),
+                        (if ($all | length) > 20 then "…and \(($all | length) - 20) more" else empty end)
+                  ' "$RUNNER_TEMP/result/result.json")
+                  minor=""
+                  if [ "$BUMP" = minor ]; then
+                      minor=$'\n\nThis pull request changes the catalog format version, so its changeset needs `minor`.'
+                  fi
+
+                  body_file="$RUNNER_TEMP/comment.md"
+                  cat >"$body_file" <<EOF
+                  $marker
+                  **hog release**
+
+                  This pull request changes code built into hog that the tool catalog can't deliver, so it reaches hog users only in a hog release:
+
+                  <pre>
+                  $reasons
+                  </pre>
+
+                  If you do nothing, it ships in the next hog release, at the latest the weekly one on Tuesday at 14:00 UTC, and that release's changelog lists this pull request.
+
+                  To choose how it ships, add a changeset to \`hog/.sampo/changesets/\`:
+
+                  - \`weekly-<name>.md\` ships in the weekly release, with your own changelog line.
+                  - \`<name>.md\`, without the \`weekly-\` prefix, starts a release when this pull request merges, which needs one approval. Use it for a new tool or behavior users need now, a fix for a bug users hit, or a security fix.
+
+                  Use \`minor\` for a new command, a new capability users can see, or a catalog format change, and \`patch\` for anything else.$minor
+
+                  \`\`\`md
+                  ---
+                  npm/hog: patch
+                  ---
+
+                  One sentence that tells users what changed.
+                  \`\`\`
+                  EOF
+
+                  if [ -z "$existing" ]; then
+                      gh api "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -F body=@"$body_file" >/dev/null
+                      echo "Commented on #$PR_NUMBER"
+                  elif [ "$(gh api "repos/$REPOSITORY/issues/comments/$existing" --jq '.body')" != "$(cat "$body_file")" ]; then
+                      gh api -X PATCH "repos/$REPOSITORY/issues/comments/$existing" -F body=@"$body_file" >/dev/null
+                      echo "Updated the comment on #$PR_NUMBER"
+                  fi

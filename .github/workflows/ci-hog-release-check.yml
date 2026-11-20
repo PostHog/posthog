@@ -1,0 +1,135 @@
+name: hog release check
+
+# Finds whether a pull request changes code compiled into hog that the downloadable tool catalog can't
+# deliver, and saves the answer as an artifact. The hog release check comment workflow reads it and tells
+# the author when the change ships. This workflow builds pull request code, so it gets no secrets and no
+# write token, and fork pull requests run it the same way. It never fails the pull request: the weekly hog
+# release finds every such change again, whatever this run concludes.
+on:
+    pull_request:
+        # Every tree the hog and CLI library builds compile in.
+        paths:
+            - 'hog/**'
+            - 'services/mcp/**'
+            - 'products/*/mcp/**'
+            # The CLI library imports notebook-widget-catalog.json and notebookResultPreview.ts from here.
+            - 'products/notebooks/*'
+            # Copied into services/mcp/shared/ by copyInstructions() before the CLI library bundles them.
+            - 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
+            - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+            - '.github/workflows/ci-hog-release-check.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    detect:
+        name: Check whether hog needs a release
+        # The hog release pull request consumes changesets, and a merge queue branch is never commented on.
+        if: github.event.pull_request.head.ref != 'chore/release-hog' && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            # The merge commit, which carries this workflow and its tooling even when the branch predates
+            # them. Its first parent is the base, so depth 2 is enough to diff against it.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
+                  persist-credentials: false
+
+            - name: Find the changeset and the base
+              id: changeset
+              run: |
+                  set -euo pipefail
+                  base=$(git rev-parse HEAD^1)
+                  echo "base=$base" >> "$GITHUB_OUTPUT"
+                  if git diff --name-only --diff-filter=AM "$base" HEAD -- 'hog/.sampo/changesets/*.md' | grep -q .; then
+                      echo "present=true" >> "$GITHUB_OUTPUT"
+                      echo "The pull request carries a hog changeset."
+                  else
+                      echo "present=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            # The steps that run pull request code may fail without failing the pull request. The result
+            # step then reports that it couldn't tell, and the comment stays as it was.
+            - name: Install pnpm dependencies
+              id: install
+              continue-on-error: true
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.2
+
+            # Both builds write a metafile listing every source file they compile in.
+            - name: Build hog and the CLI library
+              id: build
+              if: steps.install.outcome == 'success'
+              continue-on-error: true
+              working-directory: hog
+              run: |
+                  pnpm run build:mcp
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+
+            - name: Check what the catalog can't deliver
+              id: gap
+              if: steps.build.outcome == 'success'
+              continue-on-error: true
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.changeset.outputs.base }}
+              run: |
+                  set -euo pipefail
+                  bun release/catalog-gap.ts --base "$BASE" > "$RUNNER_TEMP/catalog-gap.json"
+                  jq '{needsRelease, bump, reasons}' "$RUNNER_TEMP/catalog-gap.json"
+
+                  # File names and tool names come from the pull request. On one line each, since a blank
+                  # line would end the <pre> block, and HTML-escaped, they render as plain text.
+                  {
+                      echo "### hog release"
+                      echo "<pre>"
+                      jq -r '.reasons[] | "\(.file): \(.why)" | gsub("[\\r\\n]"; " ") | @html' "$RUNNER_TEMP/catalog-gap.json"
+                      echo "</pre>"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Write the result
+              if: ${{ !cancelled() }}
+              continue-on-error: true
+              env:
+                  GAP: ${{ steps.gap.outcome }}
+                  PRESENT: ${{ steps.changeset.outputs.present }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+                  mkdir -p "$RUNNER_TEMP/hog-release-check"
+                  if [ "$GAP" != success ]; then
+                      gap='{"needsRelease": null, "bump": "patch", "reasons": []}'
+                  else
+                      gap=$(cat "$RUNNER_TEMP/catalog-gap.json")
+                  fi
+                  jq -n --argjson gap "$gap" --arg present "$PRESENT" --arg pr "$PR_NUMBER" --arg head "$HEAD_SHA" '{
+                      pr: ($pr | tonumber),
+                      head_sha: $head,
+                      status: (if $gap.needsRelease == null then "unknown"
+                               elif $gap.needsRelease and $present != "true" then "needed"
+                               else "clear" end),
+                      bump: $gap.bump,
+                      reasons: [$gap.reasons[] | "\(.file): \(.why)"]
+                  }' > "$RUNNER_TEMP/hog-release-check/result.json"
+                  cat "$RUNNER_TEMP/hog-release-check/result.json"
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ !cancelled() }}
+              continue-on-error: true
+              with:
+                  name: hog-release-check
+                  path: ${{ runner.temp }}/hog-release-check/result.json
+                  retention-days: 3
+                  if-no-files-found: error

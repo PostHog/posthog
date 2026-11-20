@@ -452,8 +452,12 @@ The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `r
 
 A change to code compiled into hog that the downloadable tool catalog can't deliver, such as a change to the MCP code the CLI library bundles, needs no changeset of its own.
 Every release builds master, so it ships those changes anyway.
-Before each release, and on each weekly run, the workflow builds hog and the CLI library and runs `release/catalog-gap.ts` against the last release tag, which reads the build metafiles to find the compiled files the catalog can't deliver.
-When a pull request changed one of them and added no changeset, the release adds one changeset that lists every such pull request by number and title: a patch, or a minor when the catalog format version changed.
+`release/catalog-gap.ts` reads the build metafiles of hog and the CLI library to find the compiled files the catalog can't deliver.
+A change to the generated API schemas in `services/mcp/src/generated/`, or to the registry of generated tool modules, counts only when it reaches a tool the catalog doesn't carry or hand-written code, because hog builds every tool the catalog carries from its catalog entry.
+
+On a pull request with such a change and no changeset, the `hog release check` workflow comments with the files and the choices below, and deletes the comment once a changeset is added. It runs the pull request's code with no secrets, so it works on forks, and `hog release check comment` posts the comment from the default branch.
+Before each release, and on each weekly run, the release workflow runs `release/catalog-gap.ts` against the last release tag.
+When a pull request changed one of those files and added no changeset, the release adds one changeset that lists every such pull request by number and title: a patch, or a minor when the catalog format version changed.
 That changeset exists only in the release run and never lands on master.
 The weekly run releases for it alone, so those changes reach users within a week.
 The same job fails when the sparse checkout of the release build leaves out a compiled file, since that build would fail after the approval.
@@ -464,7 +468,7 @@ To add a changeset yourself, run from `hog/`:
 sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
-Use `minor` or `major` instead of `patch` when it fits. sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
+sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
 
 The file name says when the changeset releases:
 
@@ -473,7 +477,24 @@ The file name says when the changeset releases:
 | `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC |
 | Any other name     | When its pull request merges                |
 
-Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `weekly-pr-<number>.md` changesets that CI once added wait the same way. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+Choose when a change ships:
+
+- No changeset: a change to code compiled into hog ships in the next release, at the latest the weekly one, listed by its pull request title.
+- `weekly-<name>.md`: the same timing, with your own changelog line.
+- `<name>.md`: a release when the pull request merges, which costs one approval. Use it for a new tool or behavior users need now, a fix for a bug users hit, or a security fix.
+
+Use `minor` for a new command, a new capability users can see, or a catalog format change, and `patch` for anything else.
+The file holds one sentence that tells users what changed:
+
+```md
+---
+npm/hog: patch
+---
+
+Describe the change for users.
+```
+
+The `weekly-pr-<number>.md` changesets that CI once added wait for the weekly run too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 
