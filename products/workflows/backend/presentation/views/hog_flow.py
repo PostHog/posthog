@@ -3,7 +3,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -28,6 +28,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -1076,6 +1077,11 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
 
 
 SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+SANDBOX_SENDER_SETUP_FAILURES = Counter(
+    "workflows_sandbox_sender_setup_failures_total",
+    "Test sender setups that failed after a save or before a real test.",
+    labelnames=["path"],
+)
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
 
 
@@ -1118,7 +1124,9 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             return data
         on_its_domain = [index for index in new_steps if _custom_address_fits(actions[index], deliverable[sender_id])]
         return _with_own_sender(data, actions, on_its_domain, sender_id)
-    new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
+    new_steps = [
+        index for index in new_steps if can_default_to_sandbox(actions[index]) and not _written_in_hog(actions[index])
+    ]
     if not new_steps or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
@@ -1151,6 +1159,12 @@ def _has_no_sender(action: dict) -> bool:
     return isinstance(sender, dict) and not sender.get("integrationId") and not sender.get("integrationIds")
 
 
+def _written_in_hog(action: dict) -> bool:
+    inputs = action["config"].get("inputs")
+    email = inputs.get("email") if isinstance(inputs, dict) else None
+    return isinstance(email, dict) and email.get("templating") == "hog"
+
+
 def _email_value(config: dict) -> dict:
     inputs = config.get("inputs")
     email = inputs.get("email") if isinstance(inputs, dict) else None
@@ -1163,10 +1177,10 @@ def _custom_address_fits(action: dict, sender_domain: str) -> bool:
     address = sender.get("email") if isinstance(sender, dict) else None
     if not isinstance(address, str):
         return not address
+    if "{" in address or "}" in address:
+        return False
     _, at, domain = address.strip().lower().rpartition("@")
-    if not at:
-        return "{" in domain or not domain
-    return "{" in domain or "}" in domain or domain == sender_domain
+    return domain == sender_domain if at else not domain
 
 
 def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
@@ -1203,10 +1217,17 @@ def _with_saved_template_content(action: dict, team: Team, context: dict) -> Opt
     return step
 
 
-def _holds_a_test_sender_step(actions: Any) -> bool:
-    return isinstance(actions, list) and any(
-        isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE for step in actions
-    )
+def _test_sender_step_ids(actions: Any, only: Optional[str] = None) -> list[str]:
+    if not isinstance(actions, list):
+        return []
+    return [
+        step["id"]
+        for step in actions
+        if isinstance(step, dict)
+        and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        and isinstance(step.get("id"), str)
+        and (only is None or step["id"] == only)
+    ]
 
 
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
@@ -6460,10 +6481,14 @@ class HogFlowViewSet(
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
-        elif _holds_a_test_sender_step(cast(dict, serializer.validated_data).get("actions")):
-            transaction.on_commit(self._try_to_set_up_sandbox_sender)
+            return
+        step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
+        if step_ids:
+            transaction.on_commit(
+                lambda: self._try_to_set_up_sandbox_sender("save", getattr(serializer.instance, "id", None), step_ids)
+            )
 
-    def _try_to_set_up_sandbox_sender(self) -> None:
+    def _try_to_set_up_sandbox_sender(self, path: str, workflow_id: Any, step_ids: Sequence[str]) -> None:
         user = self.request.user
         try:
             if (
@@ -6473,7 +6498,14 @@ class HogFlowViewSet(
             ):
                 provision_sandbox_sender_if_available(self.team, user)
         except Exception as error:
-            logger.exception("sandbox_sender_setup_failed", team_id=self.team.id)
+            SANDBOX_SENDER_SETUP_FAILURES.labels(path=path).inc()
+            logger.exception(
+                "sandbox_sender_setup_failed",
+                team_id=self.team.id,
+                workflow_id=str(workflow_id) if workflow_id else None,
+                action_ids=step_ids,
+                path=path,
+            )
             capture_exception(error)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
@@ -7390,8 +7422,9 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
-            if _holds_a_test_sender_step(actions):
-                self._try_to_set_up_sandbox_sender()
+            step_ids = _test_sender_step_ids(actions, only=payload.get("current_action_id"))
+            if step_ids:
+                self._try_to_set_up_sandbox_sender("test", hog_flow.id if hog_flow else None, step_ids)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id if hog_flow else None,

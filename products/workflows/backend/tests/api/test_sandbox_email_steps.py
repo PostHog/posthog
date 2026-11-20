@@ -11,6 +11,7 @@ from django.test import override_settings
 
 import responses
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
@@ -668,16 +669,26 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 True,
                 "{{ person.properties.team }}@other.example.com",
             ),
-            ("a_templated_address", [False], None, "function_email", 0, True, "{{ person.properties.sender }}"),
+            ("a_templated_address", [False], None, "function_email", None, True, "{{ person.properties.sender }}"),
             (
                 "an_address_built_by_a_filter",
                 [False],
                 None,
                 "function_email",
-                0,
+                None,
                 True,
                 "{{ 'hi' | append: '@mail0.example.com' }}",
             ),
+            (
+                "a_comment_inside_an_address_on_another_domain",
+                [False],
+                None,
+                "function_email",
+                None,
+                True,
+                "hi@other.example{% comment %}x{% endcomment %}",
+            ),
+            ("a_hog_step_with_only_stopped_senders", [True], None, "function_email", None, True, None, "hog"),
         ]
     )
     def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
@@ -689,6 +700,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         expected_index: int | None,
         enabled: bool = True,
         custom_address: str | None = None,
+        templating: str = "liquid",
     ) -> None:
         senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
         if default_index is not None:
@@ -696,6 +708,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         sender = {"integrationId": None, "email": custom_address} if custom_address else {"integrationId": None}
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
+        step["config"]["inputs"]["email"]["templating"] = templating
 
         with _flag(enabled):
             response = self.client.post(
@@ -758,8 +771,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             {"integrationId": None},
         )
 
-    @parameterized.expand([("web_save", True), ("real_test", True), ("mocked_test", False)])
-    def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(self, path: str, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("web_save", True, SANDBOX_STEP_ID),
+            ("real_test", True, SANDBOX_STEP_ID),
+            ("real_test", False, "trigger_node"),
+            ("mocked_test", False, SANDBOX_STEP_ID),
+        ]
+    )
+    def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(
+        self, path: str, expected: bool, tested_step: str
+    ) -> None:
         set_up_at_forward: list[bool] = []
         forwarded: list[dict] = []
 
@@ -788,8 +810,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                     f"/api/projects/{self.team.id}/hog_flows/new/invocations",
                     {
                         "configuration": _flow(_sandbox_step()),
-                        "globals": {},
-                        "current_action_id": SANDBOX_STEP_ID,
+                        "globals": {"event": {"event": "$pageview", "distinct_id": "person-1", "properties": {}}},
+                        "current_action_id": tested_step,
                         "mock_async_functions": path == "mocked_test",
                     },
                     format="json",
@@ -799,7 +821,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert self._sandbox_sender_is_set_up() == expected
         assert set_up_at_forward == ([] if path == "web_save" else [expected])
         assert [(body["current_action_id"], body["mock_async_functions"]) for body in forwarded] == (
-            [] if path == "web_save" else [(SANDBOX_STEP_ID, path == "mocked_test")]
+            [] if path == "web_save" else [(tested_step, path == "mocked_test")]
         )
 
     @parameterized.expand([("setup_fails", False), ("already_set_up", True)])
@@ -813,14 +835,22 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             IntegrationManager.email_sandbox.credentials, "create", side_effect=RuntimeError("setup failed")
         )
 
-        with _flag(True), _runtime(True), fault as create, self.captureOnCommitCallbacks(execute=True):
+        with (
+            _flag(True),
+            _runtime(True),
+            fault,
+            capture_logs() as logs,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
             )
 
         assert response.status_code == 201, response.json()
         assert HogFlow.objects.filter(id=response.json()["id"]).exists()
-        assert create.call_count == (0 if already_set_up else 1)
+        assert [(log["action_ids"], log["path"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"] == (
+            [] if already_set_up else [([SANDBOX_STEP_ID], "save")]
+        )
         assert (
             list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
             == rows_before
