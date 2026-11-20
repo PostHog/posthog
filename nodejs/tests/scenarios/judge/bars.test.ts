@@ -143,7 +143,7 @@ describe('judgeBars', () => {
         ['every step stayed under both bars', {}, HELD],
         [
             'a ramp step halted before the intake accepted a unit picked up nothing, which holds',
-            haltedRampStep({ accepted: false }),
+            haltedRampStep({ accepted: false, status: 503 }),
             [unjudged(0, 'no whole writer CPU minute in the 10x step'), HELD[1]],
         ],
         [
