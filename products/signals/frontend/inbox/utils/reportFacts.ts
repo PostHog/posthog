@@ -87,3 +87,24 @@ export function reportOwnerLabel(kind: ReportOwnerKind, holderName: string | nul
             return `Claimed by ${holderName}'s agent`
     }
 }
+
+const FOR_YOU_STATUSES: SignalReportStatus[] = [SignalReportStatus.READY, SignalReportStatus.PENDING_INPUT]
+
+/**
+ * Whether a report belongs in the list's "For you" group. Mirrors `reports_for_person` on the server, which
+ * picks the Home "For you" reports, so the two pages agree on what is for the person.
+ */
+export function isForYouReport(
+    report: Pick<SignalReport, 'status' | 'actionability' | 'already_addressed' | 'is_suggested_reviewer' | 'assignee'>,
+    currentUserUuid: string | null
+): boolean {
+    if (
+        !FOR_YOU_STATUSES.includes(report.status) ||
+        report.actionability === 'not_actionable' ||
+        report.already_addressed === true
+    ) {
+        return false
+    }
+    const owner = reportOwnerKind(report, currentUserUuid)
+    return report.is_suggested_reviewer === true || owner === 'me' || owner === 'my-agent'
+}

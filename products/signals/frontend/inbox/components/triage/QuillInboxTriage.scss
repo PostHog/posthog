@@ -1,0 +1,82 @@
+.QuillTriage {
+    width: min(680px, 100% - 80px);
+    padding: 44px 0 64px;
+    margin: 0 auto;
+
+    @container main-content (max-width: 600px) {
+        // The scene cancels its own side padding around this view, so the width takes that back.
+        width: calc(100% - 72px);
+        padding: 16px 0 40px;
+    }
+}
+
+.QuillTriage__progress {
+    height: 2px;
+    margin: 12px 0 28px;
+    overflow: hidden;
+    background: var(--today-line);
+    border-radius: 2px;
+
+    span {
+        display: block;
+        height: 100%;
+        background: var(--today-ink);
+        border-radius: 2px;
+        transition: width 0.2s var(--today-ease);
+    }
+}
+
+.QuillTriage__card {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 26px 28px 0;
+    background: var(--today-card);
+    border-radius: 14px;
+    box-shadow:
+        0 0 0 1px var(--today-line),
+        var(--today-card-shadow);
+
+    @container main-content (max-width: 600px) {
+        padding: 18px 16px 0;
+    }
+}
+
+.QuillTriage__icons {
+    --icon-stack-size: 22px;
+    --quill-icon-stack-ring: var(--today-card);
+}
+
+.QuillTriage__keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px 16px;
+    margin: 0 -28px;
+    border-top: 1px solid var(--today-line);
+
+    @container main-content (max-width: 600px) {
+        margin: 0 -16px;
+    }
+}
+
+// The edge of the next card, so the queue reads as a stack.
+.QuillTriage__under {
+    height: 12px;
+    margin: 0 16px;
+    background: var(--today-card);
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 0 0 1px var(--today-line);
+    opacity: 0.7;
+}
+
+.QuillTriage__hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    justify-content: center;
+    margin-top: 26px;
+}

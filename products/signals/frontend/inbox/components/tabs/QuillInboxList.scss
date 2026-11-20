@@ -1,0 +1,140 @@
+.QuillInbox {
+    width: min(720px, 100% - 144px);
+    padding: 40px 0 96px;
+    margin: 0 auto;
+
+    @container main-content (max-width: 900px) {
+        width: min(100% - 72px, 700px);
+    }
+
+    @container main-content (max-width: 600px) {
+        // The scene cancels its own side padding around the list, so the width takes that back.
+        width: calc(100% - 72px);
+        padding: 16px 0 48px;
+    }
+}
+
+.QuillReportRows {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0 -12px;
+    list-style: none;
+}
+
+.QuillReportRow {
+    position: relative;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    column-gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background-color 0.12s var(--today-ease);
+
+    &:hover,
+    &:focus-within {
+        background: var(--today-soft);
+    }
+}
+
+.QuillReportRow__icons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 1px;
+}
+
+.QuillReportRow__icon {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin-bottom: -6px;
+    color: var(--today-muted);
+    background: var(--today-card);
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px var(--today-line);
+
+    svg {
+        width: 13px;
+        height: 13px;
+    }
+}
+
+.QuillReportRow__link {
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+
+    // The link covers the row, so a click anywhere but an action opens the report.
+    &::after {
+        position: absolute;
+        inset: 0;
+        content: '';
+        border-radius: 8px;
+    }
+}
+
+.QuillReportRow__title {
+    display: block;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 22px;
+    color: var(--today-ink);
+    text-wrap: pretty;
+}
+
+.QuillReportRow__end {
+    // Above the link's cover, so the actions take their own clicks.
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    align-self: center;
+    color: var(--today-muted);
+}
+
+.QuillReportRow__actions,
+.QuillReportRow__arrow {
+    display: none;
+
+    .QuillReportRow:hover &,
+    .QuillReportRow:focus-within & {
+        display: inline-flex;
+    }
+}
+
+.QuillReportRow__arrow {
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+}
+
+.QuillInboxGroup__heading {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--today-ink);
+}
+
+.QuillInboxGroup__count {
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-muted);
+}
+
+.QuillInbox--header {
+    padding-bottom: 0;
+
+    @container main-content (max-width: 600px) {
+        padding-bottom: 0;
+    }
+}
+
+.QuillInbox--body {
+    padding-top: 24px;
+}
