@@ -780,6 +780,19 @@ describe('Hono MCP analytics contexts', () => {
                 { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
                 false,
             ],
+            ['a workflow email list', 'workflows-emails-list', { workflow_id: 'wf_1' }, false],
+            [
+                'one workflow email',
+                'workflows-email-get',
+                { invocation_id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763', action_id: 'welcome' },
+                false,
+            ],
+            [
+                'a workflow email recipient activity through exec',
+                'exec',
+                { command: 'call workflows-email-activity {"action_id":"welcome"}' },
+                false,
+            ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
             ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
             [

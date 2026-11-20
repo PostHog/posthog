@@ -72,6 +72,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
+import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -84,6 +85,10 @@ import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metr
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
+
+function drawsTimeSeriesCharts(state: ResolvedState): boolean {
+    return state.toolFeatureFlags?.[MCP_TIME_SERIES_CHARTS_FLAG] === true && state.clientProfile.drawsTimeSeriesCharts()
+}
 
 interface ResolvedTool {
     name: string
@@ -113,8 +118,8 @@ interface ExecMetricState {
  * Whether a direct `tools/call` response should drop `structuredContent` and leave the
  * formatted table in the text channel to stand alone.
  *
- * CLI-mode clients read `content[].text`, so for them the structured copy only adds
- * tokens. A render-ui host in single-exec mode is the exception, because there
+ * Clients that prefer formatted text read `content[].text`, so for them the structured
+ * copy only adds tokens. A render-ui host in single-exec mode is the exception, because there
  * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
  * both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
@@ -130,12 +135,12 @@ interface ExecMetricState {
  * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
-    isCliModeEnabled: boolean
+    prefersFormattedText: boolean
     useSingleExec: boolean
     renderUiEnabled: boolean
 }): boolean {
     const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
-    return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+    return args.prefersFormattedText && !isRenderUiHostInSingleExec
 }
 
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
@@ -273,6 +278,7 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const missingSavedSelection = carriedContextHandle && state.suppliedHandleHadNoSavedSelection === true
         const carriedContextSessionKey = carriedContextHandle
             ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
             : undefined
@@ -326,9 +332,51 @@ export class ToolExecutor {
             return invitation
         }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        const delivered = this.deliverConversationHandle(result, preparedCall)
+        const warnAboutDefault =
+            !isContextSwitch && !callState.requestContext.projectId && (!carriedContextHandle || missingSavedSelection)
+        const resultWithProjectContext = warnAboutDefault
+            ? await this.appendDefaultProjectWarning(result, callState, missingSavedSelection)
+            : result
+        const delivered = this.deliverConversationHandle(resultWithProjectContext, preparedCall)
         await hooks?.afterExecute(callState, delivered)
         return delivered
+    }
+
+    private async appendDefaultProjectWarning(
+        result: unknown,
+        state: ResolvedState,
+        missingSavedSelection: boolean
+    ): Promise<unknown> {
+        if (typeof result !== 'object' || result === null || !('content' in result) || !Array.isArray(result.content)) {
+            return result
+        }
+
+        try {
+            const projectId = await state.context.stateManager.getProjectId()
+            const usesTransportSession = Boolean(state.requestContext.mcpSessionId)
+            const handle = usesTransportSession ? '`Mcp-Session-Id`' : '`conversation_id`'
+            const reason = missingSavedSelection
+                ? `No saved project selection was found for this ${handle}.`
+                : 'This request carried no usable `conversation_id` or MCP session.'
+            const switchAgain = usesTransportSession
+                ? 'Call `switch-project` in this MCP session to select a different project. To use a conversation’s saved selection, send its `conversation_id` without the session header.'
+                : 'To select a different project again, call `switch-project` with this `conversation_id`.'
+            const recovery = missingSavedSelection
+                ? switchAgain
+                : 'To use a project you switched to, pass the `conversation_id` from that conversation on subsequent calls.'
+            return {
+                ...result,
+                content: [
+                    ...result.content,
+                    {
+                        type: 'text',
+                        text: `${reason} Tools that rely on the active project use the default project (ID ${projectId}). ${recovery}`,
+                    },
+                ],
+            }
+        } catch {
+            return result
+        }
     }
 
     // The agent can only echo a handle it has been given. One exit for every dispatch path,
@@ -566,14 +614,14 @@ export class ToolExecutor {
                     params: validation.data,
                     includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
-                        isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
+                        prefersFormattedText: state.clientProfile.prefersFormattedText(),
                         useSingleExec: state.useSingleExec,
                         renderUiEnabled: state.renderUiEnabled,
                     }),
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
-                    appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
+                    appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
 
@@ -792,7 +840,7 @@ export class ToolExecutor {
                       toolMeta: resolved._meta,
                       toolName: 'exec',
                       params: validation.data,
-                      suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                      suppressStructuredContentForFormattedResults: state.clientProfile.prefersFormattedText(),
                       distinctId: undefined,
                   })
 
@@ -1008,7 +1056,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
+                appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,

@@ -105,6 +105,11 @@ They go through a separate SES tenant and configuration set and record none of `
 They never draw from the team bucket either.
 The PostHog test sender has its own controls: recipients limited to verified organization members, daily caps, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
 
+Every workflow the API returns carries a `warnings` list.
+While the workflow's live steps send through the PostHog test sender, the list holds one `test_sender_live` warning, whose message points to the sending domain setup.
+The MCP enable and publish tools add a note asking the agent to pass that message on to the user.
+The warning clears once the live steps move to a verified sender.
+
 ## Rollout order
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.

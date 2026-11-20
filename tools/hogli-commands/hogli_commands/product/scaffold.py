@@ -113,18 +113,23 @@ def _add_to_frontend_package_json(product_name: str, *, dry_run: bool) -> None:
     _register_in_file(FRONTEND_PACKAGE_JSON, "frontend/package.json", pkg_name, write, dry_run=dry_run)
 
 
+def _append_to_products_apps(content: str, app_config: str) -> str | None:
+    match = re.search(r"^PRODUCTS_APPS = \[\n.*?^\]$", content, re.MULTILINE | re.DOTALL)
+    if match is None:
+        return None
+    insert_pos = match.end() - 1
+    return content[:insert_pos] + f'    "{app_config}",\n' + content[insert_pos:]
+
+
 def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
     pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
     app_config = f"products.{product_name}.backend.apps.{pascal_name}Config"
 
     def write(content: str) -> str | None:
-        pattern = r'(    "products\.[^"]+",\n)(?!    "products\.)'
-        match = list(re.finditer(pattern, content))
-        if not match:
-            click.echo(f"\n  Could not find INSTALLED_APPS products section — add manually: {app_config}")
-            return None
-        insert_pos = match[-1].end()
-        return content[:insert_pos] + f'    "{app_config}",\n' + content[insert_pos:]
+        updated = _append_to_products_apps(content, app_config)
+        if updated is None:
+            click.echo(f"\n  Could not find the PRODUCTS_APPS list — add manually: {app_config}")
+        return updated
 
     _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
