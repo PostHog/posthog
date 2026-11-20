@@ -34,7 +34,6 @@ CACHE_TTL_SECONDS = 300
 # resold rate). For models litellm only prices under the vendor's own key, alias to that direct rate
 # as a proxy — not CF's resold rate, and may drift if CF adds markup or flat-rate billing.
 COST_ALIASES: dict[str, tuple[str, str]] = {
-    "openai/@cf/moonshotai/kimi-k2.6": ("moonshot/kimi-k2.6", "openai"),
     "openai/@cf/zai-org/glm-5.2": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
     # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
@@ -49,7 +48,6 @@ COST_ALIASES: dict[str, tuple[str, str]] = {
 # Map LiteLLM's provider and model labels to stable telemetry identifiers. This stays separate from
 # COST_ALIASES because cost lookups and telemetry have different canonical names.
 ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
-    "openai/@cf/moonshotai/kimi-k2.6": ("cloudflare", "@cf/moonshotai/kimi-k2.6"),
     "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),

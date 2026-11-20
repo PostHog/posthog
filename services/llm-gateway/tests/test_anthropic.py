@@ -650,7 +650,7 @@ class TestAnthropicMessagesEndpoint:
                 response = authenticated_client.post(
                     "/django/v1/messages",
                     json={
-                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "model": "@cf/zai-org/glm-5.2",
                         "messages": [{"role": "user", "content": "Hello"}],
                     },
                     headers={
@@ -737,7 +737,7 @@ class TestAnthropicMessagesEndpoint:
                     "POST",
                     "/django/v1/messages",
                     json={
-                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "model": "@cf/zai-org/glm-5.2",
                         "messages": [{"role": "user", "content": "Hello"}],
                         "stream": True,
                     },
@@ -1563,7 +1563,7 @@ class TestAnthropicCountTokensEndpoint:
         response = authenticated_client.post(
             "/django/v1/messages/count_tokens",
             json={
-                "model": "@cf/moonshotai/kimi-k2.6",
+                "model": "@cf/zai-org/glm-5.2",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},

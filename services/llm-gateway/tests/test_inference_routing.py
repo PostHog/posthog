@@ -25,7 +25,7 @@ GLM_MODEL = "@cf/zai-org/glm-5.2"
 GLM53_MODEL = "zai-org/glm-5.3"
 GLM53_FLASH_MODEL = "zai-org/glm-5.3-flash"
 DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
-KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
+UNPRICED_CF_MODEL = "@cf/meta/llama-3.3-70b-instruct"
 PRODUCT = "posthog_code"
 
 SURFACES = [
@@ -252,13 +252,14 @@ async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
 
 async def test_configured_baseten_does_not_capture_other_cloudflare_models() -> None:
     handle = AsyncMock(return_value={"ok": True})
-    request = {"model": KIMI_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+    request = {"model": UNPRICED_CF_MODEL, "messages": [{"role": "user", "content": "hi"}]}
 
-    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
+    with pytest.raises(HTTPException) as exc_info:
+        await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
 
-    assert _called_providers(handle) == ["cloudflare"]
-    assert handle.call_args.kwargs["model"] == KIMI_MODEL
-    evaluate.assert_not_called()
+    assert exc_info.value.status_code == 400
+    assert "not supported on the cloudflare provider" in exc_info.value.detail["error"]["message"]
+    handle.assert_not_called()
 
 
 async def test_forwarded_flag_header_cannot_force_modal() -> None:

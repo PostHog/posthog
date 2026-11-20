@@ -19,10 +19,10 @@ from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 
 
 def test_inject_cloudflare_params_prefix_matches_cost_alias_keys() -> None:
-    kwargs: dict = {"model": "@cf/moonshotai/kimi-k2.6"}
+    kwargs: dict = {"model": "@cf/zai-org/glm-5.2"}
     _inject_cloudflare_params(kwargs, "https://api.cloudflare.com/test/ai/v1", "secret")
 
-    assert kwargs["model"] == "openai/@cf/moonshotai/kimi-k2.6"
+    assert kwargs["model"] == "openai/@cf/zai-org/glm-5.2"
     assert kwargs["api_base"] == "https://api.cloudflare.com/test/ai/v1"
     assert kwargs["api_key"] == "secret"
     # Load-bearing: if this fails, _inject_cloudflare_params and COST_ALIASES no
@@ -66,13 +66,11 @@ def test_allowlist_derived_from_cost_aliases() -> None:
     # otherwise we'd have a priced model we refuse to route.
     expected = {alias.removeprefix("openai/") for alias in COST_ALIASES if alias.startswith("openai/@cf/")}
     assert CLOUDFLARE_ALLOWED_MODELS == expected
-    assert "@cf/moonshotai/kimi-k2.6" in CLOUDFLARE_ALLOWED_MODELS
     assert "@cf/zai-org/glm-5.2" in CLOUDFLARE_ALLOWED_MODELS
 
 
-@pytest.mark.parametrize("model", ["@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-5.2"])
-def test_ensure_cloudflare_model_allowed_accepts_priced_model(model: str) -> None:
-    ensure_cloudflare_model_allowed(model)
+def test_ensure_cloudflare_model_allowed_accepts_priced_model() -> None:
+    ensure_cloudflare_model_allowed("@cf/zai-org/glm-5.2")
 
 
 @pytest.mark.parametrize(
