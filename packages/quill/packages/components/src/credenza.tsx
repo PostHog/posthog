@@ -31,10 +31,7 @@ type CredenzaMode = 'dialog' | 'drawer'
 
 interface CredenzaContextValue {
     mode: CredenzaMode
-    /**
-     * The default id of the trigger. A change of mode remounts every part, so the id comes from the root,
-     * where it survives the change.
-     */
+    /** Comes from the root, because a change of mode remounts every part. */
     triggerId: string
 }
 
@@ -49,7 +46,6 @@ function useCredenzaContext(part: string): CredenzaContextValue {
 }
 
 interface CredenzaProps {
-    /** Whether the credenza is open. Leave it out to let the credenza keep its own state. */
     open?: boolean
     defaultOpen?: boolean
     onOpenChange?: (open: boolean) => void
@@ -57,17 +53,12 @@ interface CredenzaProps {
 }
 
 interface OpenChangeDetails {
-    /** The trigger that opened the popup, when a trigger opened it. */
     trigger: Element | undefined
 }
 
 /**
- * The mode to render. It follows the viewport only while the credenza is closed.
- *
- * A change of mode mounts a new popup, which loses what the user typed. A phone that rotates to landscape
- * crosses the breakpoint, so the mode stays fixed from the moment the popup opens until its close animation ends.
- * The change after that remounts the trigger that the close gave focus back to, so focus moves to the new trigger,
- * which has the same id.
+ * A change of mode remounts the popup and loses what the user typed, and a rotated phone crosses the breakpoint.
+ * So the mode stays fixed from open until the close animation ends, then focus moves to the remounted trigger.
  */
 function useStableMode(isOpen: boolean): {
     mode: CredenzaMode
@@ -105,10 +96,7 @@ function useStableMode(isOpen: boolean): {
     return { mode: popupMode ?? viewportMode, rememberTrigger, handleOpenChangeComplete }
 }
 
-/**
- * A dialog on a wide viewport and a bottom drawer on a phone, with one set of parts for both.
- * The parts render the matching Dialog or Drawer primitive, so each mode looks and behaves like that primitive.
- */
+/** A dialog on a wide viewport and a bottom drawer on a phone, with one set of parts for both. */
 function Credenza({ open, defaultOpen = false, onOpenChange, children }: CredenzaProps): React.ReactElement {
     const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
     const isOpen = open ?? uncontrolledOpen
@@ -145,21 +133,14 @@ function Credenza({ open, defaultOpen = false, onOpenChange, children }: Credenz
 }
 
 interface CredenzaButtonProps extends React.ComponentPropsWithoutRef<'button'> {
-    /** Renders the button as this element, for example `<Button variant="outline" />`. */
     render?: React.ReactElement
     /** Set to `false` when `render` is not a native `<button>`. */
     nativeButton?: boolean
 }
 
-/**
- * Only the call signature of a part. `React.ComponentType` also compares `propTypes`, and that check fails on the
- * `className` of every Base UI part, which also accepts a function.
- */
+/** Not `React.ComponentType`: its `propTypes` check fails on Base UI's function `className`. */
 type ModePart<Props, Ref> = (props: React.PropsWithoutRef<Props> & React.RefAttributes<Ref>) => React.ReactNode
 
-/**
- * A part that renders `DialogPart` in dialog mode and `DrawerPart` in drawer mode, with the same props and ref.
- */
 function credenzaPart<Props extends object, Ref extends HTMLElement>(
     name: string,
     DialogPart: ModePart<Props, Ref>,
@@ -232,17 +213,12 @@ const CredenzaDescription = credenzaPart<React.ComponentPropsWithoutRef<'p'>, HT
     DrawerDescription
 )
 
-/** The scrolling area between the header and the footer. It also gives the content its side padding. */
 const CredenzaBody = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
     'CredenzaBody',
     DialogBody,
     DrawerBody
 )
 
-/**
- * Put the cancel action first and the main action last. A dialog shows them in a row with the main action
- * on the right. A drawer stacks them full width with the main action on top, near the content.
- */
 const CredenzaFooter = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
     'CredenzaFooter',
     DialogFooter,

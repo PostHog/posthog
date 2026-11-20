@@ -1,10 +1,6 @@
 import * as React from 'react'
 
-/**
- * Whether the viewport matches `query`. The value updates when the viewport changes.
- *
- * The first client render already has the answer, so a layout chosen from it does not flash the other layout first.
- */
+/** The first client render already has the answer, so a layout chosen from it does not flash the other one. */
 function useMediaQuery(query: string): boolean {
     const subscribe = React.useCallback(
         (onChange: () => void) => {

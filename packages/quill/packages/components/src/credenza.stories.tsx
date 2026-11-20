@@ -51,7 +51,6 @@ export const Default: Story = {
 
 const SECTIONS = Array.from({ length: 12 }, (_, index) => index + 1)
 
-// Opens on load. The body scrolls, and the header and footer stay in place.
 export const ScrollableContent: Story = {
     render: () => (
         <Credenza defaultOpen>

@@ -5,7 +5,6 @@ import { Credenza, CredenzaBody, CredenzaContent, CredenzaHeader, CredenzaTitle,
 
 const originalMatchMedia = window.matchMedia
 
-/** A viewport that matches the dialog breakpoint while `wide` is true, and can resize later. */
 function mockViewport(wide: boolean): { resize: (nextWide: boolean) => void } {
     let matches = wide
     const listeners = new Set<() => void>()
