@@ -6,6 +6,7 @@ import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
+import { notebookRunLogic } from 'scenes/notebooks/Notebook/notebookRunLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { initKeaTests } from '~/test/init'
@@ -659,6 +660,69 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
             expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
             expect(logic.values.status?.artifact_url).toBe('https://example.com/new.html')
+        }
+    )
+
+    it.each([
+        ['failed', ['source'], 1],
+        ['interrupted', ['source'], 1],
+        ['failed', ['tail'], 0],
+        ['failed', ['source', 'tail'], 0],
+        ['failed', ['source', 'later'], 1],
+    ] as const)(
+        'refreshes eligible widget inputs after a %s notebook run (%j)',
+        async (statusAfterRun, frames, refreshes) => {
+            const cells = ['source', 'tail', 'later'].map((id) => ({
+                node_id: id,
+                cell_type: 'sql',
+                dataframe_name: id,
+            }))
+            const content: JSONContent = {
+                type: 'doc',
+                content: cells.map(({ node_id }) => ({
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: node_id, returnVariable: node_id, code: 'SELECT 1' },
+                })),
+            }
+            const ready = status({
+                lifecycle_status: 'ready',
+                current_version_id: 'version-1',
+                frame_names: [...frames],
+            })
+            jest.mocked(notebooksWidgetStatus)
+                .mockResolvedValueOnce({ ...ready, artifact_url: 'https://example.com/old.html' })
+                .mockResolvedValue({ ...ready, artifact_url: 'https://example.com/new.html' })
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const notebookRun = notebookRunLogic({ shortId: props.notebookShortId })
+            const running = {
+                run_id: 'run-1',
+                status: 'running',
+                trigger: 'ui',
+                variables: [],
+                cell_count: cells.length,
+                current_index: 0,
+                cells,
+                created_at: '2026-01-01T00:00:00Z',
+            }
+            notebookRun.actions.setRun(running)
+            const staleness = notebookNodeStalenessLogic({ shortId: props.notebookShortId })
+            staleness.actions.markStaleNodeIds(['source'])
+            staleness.actions.nodeRunFinished('source', 'done', content)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+
+            const terminal = {
+                ...running,
+                status: statusAfterRun,
+                cells: [{ ...cells[0], status: 'done' }, { ...cells[1], status: statusAfterRun }, cells[2]],
+            }
+            notebookRun.actions.setRun(terminal)
+            notebookRun.actions.runFinished(terminal)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.frameRevision).toBe(refreshes)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1 + refreshes)
         }
     )
 

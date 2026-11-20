@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +22,7 @@ export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): n
     const { notebook, localContent, notebookLoading, canEditNotebook, isTemplate } = useValues(source)
     const { currentTeamId } = useValues(teamLogic)
     const dismissGroup = `notebook-app:${shortId}`
+    const [pendingSourceRefresh, setPendingSourceRefresh] = useState<string | null>(null)
     useAttachedContext([
         { type: 'notebook', key: shortId, label: notebook?.title || 'Notebook', dismissGroup },
         {
@@ -79,13 +81,31 @@ export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): n
         applyOn: 'turn_end',
         matches: (event, { innerInput }) =>
             (innerInput?.notebook_id ?? innerInput?.short_id) === shortId && !event.invocation.error,
-        onApply: async () => {
-            if (source.values.localContent !== null || source.values.notebookLoading) {
-                return
+        onApply: () => {
+            if (source.values.localContent === null) {
+                setPendingSourceRefresh(shortId)
             }
+        },
+    })
+    useEffect(() => {
+        if (pendingSourceRefresh === null) {
+            return
+        }
+        if (pendingSourceRefresh !== shortId || localContent !== null) {
+            setPendingSourceRefresh(null)
+            return
+        }
+        if (notebookLoading) {
+            return
+        }
+        setPendingSourceRefresh(null)
+        async function refreshWidgets(): Promise<void> {
             try {
                 await source.asyncActions.loadNotebook()
             } catch {
+                return
+            }
+            if (!source.isMounted() || source.values.localContent !== null) {
                 return
             }
             for (const cell of appSourceCells(source.values.markdownEditorValue)) {
@@ -99,8 +119,9 @@ export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): n
                         ?.actions.refreshData()
                 }
             }
-        },
-    })
+        }
+        void refreshWidgets()
+    }, [currentTeamId, localContent, notebookLoading, pendingSourceRefresh, shortId, source])
     return null
 }
 

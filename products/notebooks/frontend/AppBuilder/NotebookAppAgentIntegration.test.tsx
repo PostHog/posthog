@@ -2,6 +2,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -81,10 +82,11 @@ describe('app builder AI updates', () => {
 
     it.each([
         { tool: 'notebooks-add-cell', input: { notebook_id: shortId }, expected: 'AI source' },
+        { tool: 'notebooks-run', input: { notebook_id: shortId }, overlap: true, expected: 'AI source' },
         { tool: 'notebooks-run', input: { notebook_id: shortId }, followUp: true, expected: 'AI source' },
         { tool: 'notebooks-widget-status', input: { short_id: shortId }, expected: 'AI source' },
         { tool: 'notebooks-run', input: { notebook_id: 'another-notebook' }, expected: 'A notebook' },
-    ])('refreshes source after a foreground turn: $tool $input', async ({ tool, input, followUp, expected }) => {
+    ])('applies source updates at turn end: %j', async ({ tool, input, followUp, overlap, expected }) => {
         const source = notebookLogic({ shortId })
         source.actions.loadNotebook()
         await waitFor(() => expect(source.values.markdownEditorValue).toBe('A notebook'))
@@ -94,6 +96,18 @@ describe('app builder AI updates', () => {
             toolStreamEventsLogic.actions.claimApplyBackTargets('source-run')
             logic.actions.changeLayout({ ...logic.values.layout, title: 'My unsaved app' })
         })
+        let finishPreviousLoad: (() => void) | undefined
+        if (overlap) {
+            const previousResponse = saved
+            jest.spyOn(api.notebooks, 'get').mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishPreviousLoad = () => resolve(previousResponse)
+                    })
+            )
+            act(() => source.actions.loadNotebook())
+            expect(source.values.notebookLoading).toBe(true)
+        }
         saved = { ...saved, content: buildMarkdownNotebookContent('AI source') }
         await act(async () => {
             const completion = {
@@ -127,9 +141,10 @@ describe('app builder AI updates', () => {
             }
             expect(source.values.markdownEditorValue).toBe('A notebook')
             toolStreamEventsLogic.actions.emitTurnCompleteEvent({ streamKey: 'source-run' })
+            finishPreviousLoad?.()
             await expectLogic(source).toFinishAllListeners()
         })
-        expect(source.values.markdownEditorValue).toBe(expected)
+        await waitFor(() => expect(source.values.markdownEditorValue).toBe(expected))
         expect(logic.values.layout.title).toBe('My unsaved app')
     })
 
