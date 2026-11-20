@@ -1,3 +1,4 @@
+import io
 import gzip
 import json
 import datetime as dt
@@ -22,6 +23,7 @@ from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
     AmazonAdsResumeConfig,
     AmazonAdsRetryableError,
     _base_url,
+    iter_json_array,
     validate_credentials,
 )
 from products.warehouse_sources.sources.amazon_ads.settings import (
@@ -98,6 +100,28 @@ def _report_script(
 
 def _report_requests(requests: list[RecordedRequest]) -> list[RecordedRequest]:
     return [request for request in requests if request.path == "/reporting/reports" and request.method == "POST"]
+
+
+class TestIterJsonArray:
+    _DOCUMENT = (
+        ' [ {"date": "2026-06-20", "cost": 12.5, "searchTerm": "a, [b] {c}"},\n'
+        '{"nested": {"list": [1, 2, {"x": null}]}, "clicks": 1234567}, 9876543,'
+        '{"quote": "say \\"hi\\"", "unicode": "caf\u00e9"} ]  '
+    )
+
+    @pytest.mark.parametrize("chunk_size", [1, 2, 7, 64, 1024 * 1024])
+    def test_streams_the_same_elements_as_a_whole_document_parse(self, chunk_size: int) -> None:
+        stream = io.BytesIO(self._DOCUMENT.encode())
+        assert list(iter_json_array(stream, chunk_size=chunk_size)) == json.loads(self._DOCUMENT)
+
+    @pytest.mark.parametrize("document, expected", [("[]", []), ("  [ ] ", []), ('{"error": "x"}', []), ("", [])])
+    def test_empty_or_non_array_documents_yield_nothing(self, document: str, expected: list[Any]) -> None:
+        assert list(iter_json_array(io.BytesIO(document.encode()), chunk_size=2)) == expected
+
+    @pytest.mark.parametrize("document", ['[{"a": 1}, {"b": 2}', '[{"a": 1}, {"b": '])
+    def test_truncated_array_raises(self, document: str) -> None:
+        with pytest.raises(ValueError):
+            list(iter_json_array(io.BytesIO(document.encode()), chunk_size=3))
 
 
 class TestBaseUrl:
@@ -319,7 +343,7 @@ class TestReportRows:
     ) -> DriveResult:
         return _driver().run("sp_campaign_reports", script, resume_state=resume_state, **inputs)
 
-    def test_report_is_created_polled_and_downloaded_in_date_order(self) -> None:
+    def test_report_is_created_polled_and_downloaded(self) -> None:
         result = self._run(
             _report_script(
                 rows=[{"campaignId": 2, "date": "2026-06-29"}, {"campaignId": 1, "date": "2026-06-20"}],
@@ -329,7 +353,7 @@ class TestReportRows:
             db_incremental_field_last_value="2026-06-20",
         )
         assert result.raised is None
-        assert [row["date"] for row in result.rows] == ["2026-06-20", "2026-06-29"]
+        assert [row["date"] for row in result.rows] == ["2026-06-29", "2026-06-20"]
         assert all(row["_profile_id"] == "7" for row in result.rows)
         created = _report_requests(result.requests)
         assert len(created) == 1
@@ -430,11 +454,11 @@ class TestBreakdownReportRows:
     ) -> None:
         report = AMAZON_ADS_ENDPOINTS[endpoint].report
         assert report is not None
-        base = {column: f"{column}-1" for column in report.key_columns}
+        base: dict[str, Any] = {column: f"{column}-1" for column in report.key_columns}
         # The second row differs only in a metric, the third in one grouping column, and the
         # fourth has a null grouping column.
         first_key = report.key_columns[0]
-        rows = [
+        rows: list[dict[str, Any]] = [
             {**base, "date": "2026-06-25", "clicks": 1},
             {**base, "date": "2026-06-26", "clicks": 2},
             {**base, first_key: "other", "date": "2026-06-26", "clicks": 3},

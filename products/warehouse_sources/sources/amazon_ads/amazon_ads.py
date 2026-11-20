@@ -3,9 +3,10 @@ import gzip
 import json
 import hashlib
 import datetime as dt
+import tempfile
 from collections.abc import Callable, Iterator
 from itertools import batched
-from typing import Any, Optional
+from typing import IO, Any, Optional, cast
 from urllib.parse import parse_qsl, quote, urlparse, urlsplit
 
 import requests
@@ -48,6 +49,7 @@ REPORT_MEDIA_TYPE = "application/vnd.createasyncreportrequest.v3+json"
 REPORT_POLL_INTERVAL_SECONDS = 30
 REPORT_POLL_BUDGET_SECONDS = 20 * 60
 REPORT_DOWNLOAD_TIMEOUT_SECONDS = 300
+REPORT_READ_CHUNK_BYTES = 1024 * 1024
 REPORT_ROWS_PER_BATCH = 2000
 # The generated file sits on presigned Amazon storage rather than the API host. Pinning the host
 # keeps a tampered `url` from pointing the download somewhere else.
@@ -214,7 +216,51 @@ def report_request_body(report: AmazonAdsReportConfig, start: dt.date, end: dt.d
     }
 
 
-def download_report_rows(url: str, client_id: str, client_secret: str, refresh_token: str) -> list[dict[str, Any]]:
+def iter_json_array(stream: IO[bytes], chunk_size: int = REPORT_READ_CHUNK_BYTES) -> Iterator[Any]:
+    """Yield the elements of a top-level JSON array, holding one chunk and one element at a time.
+
+    A report can hold millions of rows, so the file is never parsed as one document.
+    """
+    decoder = json.JSONDecoder()
+    text = io.TextIOWrapper(stream, encoding="utf-8")
+    buffer = ""
+    position = 0
+    opened = False
+    eof = False
+    while True:
+        while position < len(buffer) and buffer[position] in " \t\r\n,":
+            position += 1
+        if position < len(buffer):
+            if not opened:
+                if buffer[position] != "[":
+                    return
+                opened = True
+                position += 1
+                continue
+            if buffer[position] == "]":
+                return
+            try:
+                value, end = decoder.raw_decode(buffer, position)
+            except json.JSONDecodeError:
+                if eof:
+                    raise
+            else:
+                # A value that ends at the buffer edge can be a number cut short by the chunk.
+                if end < len(buffer) or eof:
+                    yield value
+                    position = end
+                    continue
+        elif eof:
+            if opened:
+                raise ValueError("Amazon Ads report file ended before its JSON array closed")
+            return
+        chunk = text.read(chunk_size)
+        eof = not chunk
+        buffer = buffer[position:] + chunk
+        position = 0
+
+
+def download_report_rows(url: str, client_id: str, client_secret: str, refresh_token: str) -> Iterator[dict[str, Any]]:
     host = (urlparse(url).hostname or "").lower()
     if not host.endswith(REPORT_URL_HOST_SUFFIXES):
         raise ValueError(f"Amazon Ads report download URL points outside Amazon: host={host}")
@@ -222,12 +268,18 @@ def download_report_rows(url: str, client_id: str, client_secret: str, refresh_t
     session = _get_session(
         client_secret, refresh_token, client_id, capture=False, extra_redact=presigned_secret_values(url)
     )
-    response = session.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as unzipped:
-        rows = json.load(unzipped)
-
-    return rows if isinstance(rows, list) else []
+    # The file goes to disk before parsing, so the download connection is not held open while the
+    # pipeline writes each batch.
+    with tempfile.TemporaryFile() as spool:
+        with session.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT_SECONDS, stream=True) as response:
+            response.raise_for_status()
+            for chunk in response.iter_content(chunk_size=REPORT_READ_CHUNK_BYTES):
+                spool.write(chunk)
+        spool.seek(0)
+        with gzip.GzipFile(fileobj=spool) as unzipped:
+            for row in iter_json_array(cast(IO[bytes], unzipped)):
+                if isinstance(row, dict):
+                    yield row
 
 
 class AmazonAdsClient:
@@ -342,7 +394,7 @@ class AmazonAdsClient:
         ).json()
         return created["reportId"]
 
-    def download_report(self, url: str) -> list[dict[str, Any]]:
+    def download_report(self, url: str) -> Iterator[dict[str, Any]]:
         return download_report_rows(url, self.client_id, self.client_secret, self.refresh_token)
 
     def await_report_url(
@@ -399,7 +451,7 @@ def _report_row_id(row: dict[str, Any], key_columns: tuple[str, ...]) -> str:
 
 
 def _batched_report_rows(
-    rows: list[dict[str, Any]], profile_id: str, report: AmazonAdsReportConfig
+    rows: Iterator[dict[str, Any]], profile_id: str, report: AmazonAdsReportConfig
 ) -> Iterator[list[dict[str, Any]]]:
     for chunk in batched(rows, REPORT_ROWS_PER_BATCH, strict=False):
         if report.key_columns:
@@ -462,9 +514,6 @@ def _report_rows(
                 continue
 
             rows = client.download_report(url)
-            # Amazon does not order the file. The sort gives each report an ascending `date`, but
-            # the run has no order: the dates start again for each profile in a window.
-            rows.sort(key=lambda row: str(row.get("date") or ""))
             yield from _batched_report_rows(rows, profile_id, report)
 
     if resumable_source_manager is not None:
