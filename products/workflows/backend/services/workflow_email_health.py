@@ -214,13 +214,22 @@ class PauseDecision:
 
 
 def sends_only_transactional_email(actions: object) -> bool:
-    email_configs = [
-        config if isinstance(config := action.get("config"), dict) else {}
+    steps = [
+        (str(action.get("type")), config if isinstance(config := action.get("config"), dict) else {})
         for action in (actions if isinstance(actions, list) else [])
-        if isinstance(action, dict) and action.get("type") == "function_email"
+        if isinstance(action, dict)
     ]
-    return bool(email_configs) and all(
-        config.get("message_category_type") == "transactional" for config in email_configs
+    email_configs = [config for step_type, config in steps if step_type == "function_email"]
+    runs_the_email_template_elsewhere = any(
+        step_type.startswith("function")
+        and step_type != "function_email"
+        and config.get("template_id") == "template-email"
+        for step_type, config in steps
+    )
+    return (
+        bool(email_configs)
+        and not runs_the_email_template_elsewhere
+        and all(config.get("message_category_type") == "transactional" for config in email_configs)
     )
 
 
@@ -704,7 +713,7 @@ def apply_warning(decision: PauseDecision, *, now: datetime | None = None) -> bo
                 reason=decision.warning_reason,
                 pause_rate=_format_rate(pause_rate),
                 warned_at=now.isoformat(),
-                transactional=decision.transactional,
+                **({"transactional": True} if decision.transactional else {}),
             )
         )
     return True

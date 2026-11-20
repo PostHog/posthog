@@ -333,14 +333,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("warning", True, False)]),
+            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("needs attention", True, False)]),
             (
                 "transactional_breach_beside_a_quiet_sibling",
                 ["transactional"],
                 (300, 60),
                 (8, 1),
                 [],
-                [("warning", True, False)],
+                [("needs attention", True, False)],
             ),
             (
                 "sibling_breach_beside_a_quiet_transactional_workflow",
@@ -348,7 +348,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (1, 1),
                 (300, 60),
                 ["sibling"],
-                [("paused", False, True)],
+                [("is paused", False, True)],
             ),
             (
                 "one_marketing_step_makes_it_pausable",
@@ -356,7 +356,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (300, 60),
                 None,
                 ["own"],
-                [("paused", False, True)],
+                [("is paused", False, True)],
             ),
             (
                 "an_email_step_with_a_malformed_config_makes_it_pausable",
@@ -364,7 +364,15 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (300, 60),
                 None,
                 ["own"],
-                [("paused", False, True)],
+                [("is paused", False, True)],
+            ),
+            (
+                "a_generic_step_running_the_email_template_makes_it_pausable",
+                ["transactional", "generic"],
+                (300, 60),
+                None,
+                ["own"],
+                [("is paused", False, True)],
             ),
         ]
     )
@@ -386,6 +394,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         sent_emails = mock_email_messages(MockEmailMessage)
         other_steps: dict[str, dict[str, object]] = {
             "malformed": {"type": "function_email", "config": "not an object"},
+            "generic": {
+                "type": "function",
+                "config": {"template_id": "template-email", "message_category_type": "transactional"},
+            },
         }
         self.flow.actions = [
             {"id": f"step_{index}", **other_steps[category]}
@@ -409,16 +421,26 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         for flow in (self.flow, sibling):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
+        paused_flow = sibling if paused == ["sibling"] else self.flow
         assert [
             (
-                message.template_name.removeprefix("workflow_email_sending_"),
+                next(
+                    (label for label in ("needs attention", "is paused") if label in message.subject), message.subject
+                ),
                 "we don't pause it automatically" in message.html_body
                 and "only emails the person who triggered it" in message.html_body,
                 "never open anything" in message.html_body,
             )
             for message in sent_emails
-            if message.send.call_count == 1
         ] == emails
+        assert [
+            (
+                [self.user.email in recipient["recipient"] for recipient in message.to],
+                f"/project/{self.team.id}/workflows/{paused_flow.id}/workflow" in message.html_body,
+                message.send.call_count,
+            )
+            for message in sent_emails
+        ] == [([True], True, 1)] * len(emails)
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
