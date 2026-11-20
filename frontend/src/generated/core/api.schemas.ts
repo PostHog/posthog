@@ -7098,6 +7098,50 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+export interface UserCodexLoginRequestApi {
+    /** A new UUID for this login attempt. */
+    login_id: string
+}
+
+/**
+ * * `starting` - Starting
+ * * `pending` - Pending
+ * * `connected` - Connected
+ * * `canceled` - Canceled
+ * * `expired` - Expired
+ * * `failed` - Failed
+ */
+export type CodexDeviceLoginStatusEnumApi =
+    (typeof CodexDeviceLoginStatusEnumApi)[keyof typeof CodexDeviceLoginStatusEnumApi]
+
+export const CodexDeviceLoginStatusEnumApi = {
+    Starting: 'starting',
+    Pending: 'pending',
+    Connected: 'connected',
+    Canceled: 'canceled',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export interface UserCodexLoginApi {
+    /** The ID of this login attempt. */
+    login_id: string
+    /** The state of the device login.
+     *
+     * * `starting` - Starting
+     * * `pending` - Pending
+     * * `connected` - Connected
+     * * `canceled` - Canceled
+     * * `expired` - Expired
+     * * `failed` - Failed */
+    status: CodexDeviceLoginStatusEnumApi
+    /**
+     * The code to enter at https://auth.openai.com/codex/device.
+     * @nullable
+     */
+    user_code: string | null
+}
+
 /**
  * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
  */

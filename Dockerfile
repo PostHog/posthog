@@ -169,6 +169,10 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # Build plugin transpiler and other Node.js build artifacts.
 #
+FROM node-base AS codex-login-build
+RUN npm install --prefix /codex --ignore-scripts --no-audit --no-fund @openai/codex@0.165.0 && \
+    cp /codex/node_modules/@openai/codex-linux-*/vendor/*/codex/codex /codex-bin
+
 FROM node-base AS node-scripts-build
 # Build plugin transpiler for site destinations/apps
 COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
@@ -416,6 +420,7 @@ ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
 # Copy plugin transpiler (used by Django for site destinations/apps). The transpiler dist is a
 # self-contained esbuild bundle (build.mjs uses bundle:true), so only its own dist + node_modules
 # are needed at runtime — the full root /code/node_modules COPY was redundant.
+COPY --from=codex-login-build /codex-bin /usr/local/bin/codex
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json

@@ -52,6 +52,8 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.user_integration_codex import (
     UserCodexConnectRequestSerializer,
     UserCodexIntegrationSerializer,
+    UserCodexLoginRequestSerializer,
+    UserCodexLoginSerializer,
     connect_codex_integration,
     disconnect_codex_integration,
     ensure_codex_connect_enabled,
@@ -82,6 +84,7 @@ from posthog.permissions import (
     get_request_reachable_organization_ids,
 )
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
+from posthog.tasks.codex_login import cancel_login, get_login, start_login
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
@@ -329,6 +332,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_install_requests",
         "slack_linkable",
         "codex",
+        "codex_login_status",
     ]
     scope_object_write_actions = [
         "create",
@@ -344,6 +348,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "slack_start",
         "slack_destroy",
         "codex_connect",
+        "codex_login",
+        "codex_login_cancel",
         "codex_destroy",
     ]
 
@@ -356,7 +362,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
-        if self.action == "codex_connect":
+        if self.action in {"codex_connect", "codex_login"}:
             throttles.append(CodexConnectUserThrottle())
         return throttles
 
@@ -911,6 +917,31 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.NotFound("No Slack link found for this Slack user id.")
         revoke_slack_user_token(integration)
         integration.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        request_serializer=UserCodexLoginRequestSerializer,
+        responses={200: UserCodexLoginSerializer},
+        summary="Start a server-side ChatGPT device login",
+    )
+    @action(methods=["POST"], detail=False, url_path="codex/login")
+    def codex_login(self, request: ValidatedRequest, **_kwargs) -> Response:
+        ensure_not_sandbox_request(request)
+        user = self._get_user()
+        ensure_codex_connect_enabled(user)
+        return Response(start_login(user.id, str(request.validated_data["login_id"])))
+
+    @extend_schema(responses={200: UserCodexLoginSerializer}, summary="Read a ChatGPT device login attempt")
+    @action(methods=["GET"], detail=False, url_path=r"codex/login/(?P<login_id>[0-9a-f-]{36})")
+    def codex_login_status(self, request: Request, login_id: str, **_kwargs) -> Response:
+        ensure_not_sandbox_request(request)
+        return Response(get_login(self._get_user().id, login_id))
+
+    @extend_schema(responses={204: None}, summary="Cancel a ChatGPT device login attempt")
+    @codex_login_status.mapping.delete
+    def codex_login_cancel(self, request: Request, login_id: str, **_kwargs) -> Response:
+        ensure_not_sandbox_request(request)
+        cancel_login(self._get_user().id, login_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

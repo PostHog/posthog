@@ -1855,6 +1855,14 @@ export const UsersIntegrationsCodexCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Start a server-side ChatGPT device login
+ */
+export const UsersIntegrationsCodexLoginCreateBody = /* @__PURE__ */ zod.object({
+    login_id: zod.uuid().describe('A new UUID for this login attempt.'),
+})
+
+/**
  * Seed personal GitHub manage callback state before opening installation settings on GitHub.
  */
 export const UsersIntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({

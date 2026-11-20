@@ -1,7 +1,10 @@
+import os
+import sys
 import json
 import time
 import uuid
 import base64
+import subprocess
 from datetime import timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -49,6 +52,7 @@ from posthog.models.user_integration import (
     UserIntegration,
     user_github_integration_from_installation,
 )
+from posthog.tasks.codex_login import complete_codex_login, get_login, login_key, update_login
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -2055,6 +2059,120 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
                 format="json",
             )
+
+    def _start_device_login(self) -> str:
+        login_id = str(uuid.uuid4())
+        with patch("posthog.tasks.codex_login.complete_codex_login.delay"), self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/login/", {"login_id": login_id}, format="json"
+            )
+        assert response.status_code == 200, response.json()
+        return login_id
+
+    @parameterized.expand([("success",), ("cancel",), ("disconnect",), ("replace",), ("failed",)])
+    def test_device_login_lifecycle(self, outcome):
+        login_id = self._start_device_login()
+        auth = {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_device"}}
+        fake_codex = """
+import json, os, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get('id') == 1:
+        print(json.dumps({'id': 1, 'result': {}}), flush=True)
+    if request.get('id') == 2:
+        print(json.dumps({'id': 2, 'result': {'loginId': 'provider-login', 'userCode': 'TEST-CODE', 'verificationUrl': 'https://auth.openai.com/codex/device'}}), flush=True)
+        with open(os.path.join(os.environ['CODEX_HOME'], 'auth.json'), 'w') as f:
+            json.dump(AUTH, f)
+        print(json.dumps({'method': 'account/login/completed', 'params': {'loginId': 'provider-login', 'success': SUCCESS}}), flush=True)
+""".replace("AUTH", repr(auth)).replace("SUCCESS", repr(outcome != "failed"))
+        real_popen = subprocess.Popen
+        homes = []
+        replacement_id = None
+
+        def spawn(_args, **kwargs):
+            homes.append(kwargs["cwd"])
+            assert set(kwargs["env"]) == {"PATH", "CODEX_HOME"}
+            return real_popen([sys.executable, "-u", "-c", fake_codex], **kwargs)
+
+        def update(user_id, attempt_id, state, user_code=None):
+            nonlocal replacement_id
+            changed = update_login(user_id, attempt_id, state, user_code)
+            if state == "pending":
+                response = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                assert response.json()["user_code"] == "TEST-CODE"
+                if outcome == "cancel":
+                    self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                elif outcome == "disconnect":
+                    self.client.delete("/api/users/@me/integrations/codex/")
+                elif outcome == "replace":
+                    replacement_id = self._start_device_login()
+            return changed
+
+        with (
+            patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=spawn),
+            patch("posthog.tasks.codex_login.update_login", side_effect=update),
+            patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))),
+        ):
+            complete_codex_login(self.user.id, login_id)
+
+        assert homes and all(not os.path.exists(home) for home in homes)
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is (outcome == "success")
+        result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
+        assert result["user_code"] is None
+        assert (
+            result["status"]
+            == {
+                "success": "connected",
+                "cancel": "canceled",
+                "disconnect": "expired",
+                "replace": "expired",
+                "failed": "failed",
+            }[outcome]
+        )
+        assert "rt_" not in json.dumps(result)
+        if replacement_id:
+            assert get_login(self.user.id, replacement_id)["status"] == "starting"
+        if outcome == "success":
+            assert (
+                UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"]
+                == "rt_rotated"
+            )
+
+    def test_device_login_is_private_to_the_owner(self):
+        login_id = self._start_device_login()
+        update_login(self.user.id, login_id, "pending", "TEST-CODE")
+        other = User.objects.create_and_join(self.organization, "other-device@example.com", "test-password")
+        self.client.force_login(other)
+        response = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/")
+        assert response.json()["status"] == "expired"
+        self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+        assert get_login(self.user.id, login_id)["status"] == "pending"
+        assert self.client.get(f"/api/users/{self.user.uuid}/integrations/codex/login/{login_id}/").status_code == 403
+
+    @parameterized.expand(
+        [
+            ("post", ""),
+            ("get", "00000000-0000-0000-0000-000000000001/"),
+            ("delete", "00000000-0000-0000-0000-000000000001/"),
+        ]
+    )
+    def test_sandbox_cannot_use_device_login(self, method, suffix):
+        response = getattr(self._sandbox_client(), method)(
+            f"/api/users/@me/integrations/codex/login/{suffix}", {"login_id": str(uuid.uuid4())}, format="json"
+        )
+        assert response.status_code == 403
+        assert cache.get(login_key(self.user.id)) is None
+
+    def test_expired_or_missing_worker_does_not_connect(self):
+        login_id = self._start_device_login()
+        cache.delete(login_key(self.user.id))
+        complete_codex_login(self.user.id, login_id)
+        assert get_login(self.user.id, login_id)["status"] == "expired"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        login_id = self._start_device_login()
+        with patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=FileNotFoundError):
+            complete_codex_login(self.user.id, login_id)
+        assert get_login(self.user.id, login_id)["status"] == "failed"
 
     def test_codex_status_is_not_connected_before_connect(self):
         response = self.client.get("/api/users/@me/integrations/codex/")
