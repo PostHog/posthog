@@ -1875,13 +1875,22 @@ describe('Cyclotron V2', () => {
             })
 
             it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
-                const id = uuidv7()
-                await manager.createJobsIdempotently([keyed(id, 'a')])
+                const first = uuidv7()
+                const second = uuidv7()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'b')])
 
-                expect(await manager.findIdempotencyKeys([uuidv7(), id.toUpperCase(), id.replace(/-/g, '')])).toEqual([
+                expect(
+                    await manager.findIdempotencyKeys([
+                        second.toUpperCase(),
+                        uuidv7(),
+                        first.replace(/-/g, ''),
+                        `{${second}}`,
+                    ])
+                ).toEqual([
+                    { fingerprint: 'b', reply: null },
                     null,
                     { fingerprint: 'a', reply: null },
-                    { fingerprint: 'a', reply: null },
+                    { fingerprint: 'b', reply: null },
                 ])
             })
 

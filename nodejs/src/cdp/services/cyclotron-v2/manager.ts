@@ -690,10 +690,11 @@ export class CyclotronV2Manager {
                 [ids.map((id) => id.toLowerCase())]
             )
             await client.query('COMMIT')
-            // Postgres accepts a UUID in any case and with or without hyphens, and answers with its canonical spelling.
-            const spelling = (id: string): string => id.toLowerCase().replace(/-/g, '')
-            const claims = new Map(rows.map(({ id, fingerprint, reply }) => [spelling(id), { fingerprint, reply }]))
-            return ids.map((id) => claims.get(spelling(id)) ?? null)
+            // Postgres accepts a UUID in any case, with or without hyphens or braces, and answers with its canonical
+            // spelling. Matching on the hex digits alone finds the row for every spelling it accepted.
+            const uuidDigits = (id: string): string => id.toLowerCase().replace(/[^0-9a-f]/g, '')
+            const claims = new Map(rows.map(({ id, fingerprint, reply }) => [uuidDigits(id), { fingerprint, reply }]))
+            return ids.map((id) => claims.get(uuidDigits(id)) ?? null)
         } catch (error) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw error
