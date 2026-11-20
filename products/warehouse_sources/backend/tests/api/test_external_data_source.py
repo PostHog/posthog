@@ -6932,6 +6932,7 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_webhooks": False,
                 "webhook_only": False,
                 "prefers_full_refresh": False,
+                "declares_primary_keys": False,
                 "available_columns": [
                     {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                 ],

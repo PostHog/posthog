@@ -244,6 +244,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
         | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
         | 'CDP_INTAKE_PRODUCER'
+        | 'CDP_INTAKE_MSK_PRODUCER'
+        | 'CDP_INTAKE_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &

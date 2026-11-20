@@ -55,6 +55,11 @@ MAX_TRANSFER_SECONDS = 600
 RESPONSE_CHUNK_BYTES = 256 * 1024
 RESPONSE_LIMIT_ERROR = "JFrog response exceeded a transfer limit"
 
+# Related-domain rows repeat their parent fields, so one capped response can expand far past its byte
+# size. Yield related rows in batches bounded by their expanded size, so the pipeline never converts
+# one oversized list to Arrow.
+RELATED_BATCH_MAX_BYTES = 16 * 1024 * 1024
+
 
 class JfrogArtifactoryRetryableError(Exception):
     pass
@@ -172,6 +177,10 @@ def _xray_url(base_url: str, path: str) -> str:
     return f"{normalize_base_url(base_url)}{XRAY_API_PATH}{path}"
 
 
+def _service_url(base_url: str, config: JfrogArtifactoryEndpointConfig, path: str) -> str:
+    return _xray_url(base_url, path) if config.service == "xray" else _api_url(base_url, path)
+
+
 def _headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
@@ -276,10 +285,8 @@ def _request(
     return _loads_bounded(body, url)
 
 
-def _get_json(
-    session: requests.Session, base_url: str, access_token: str, path: str, logger: FilteringBoundLogger
-) -> Any:
-    return _request(session, "GET", _api_url(base_url, path), _headers(access_token), logger)
+def _get_json(session: requests.Session, url: str, access_token: str, logger: FilteringBoundLogger) -> Any:
+    return _request(session, "GET", url, _headers(access_token), logger)
 
 
 def _post_aql(
@@ -336,8 +343,17 @@ def _walk_related(
 def flatten_related(config: JfrogArtifactoryEndpointConfig, item: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Emit one row per leaf related entry, carrying the parent and intermediate-level fields."""
     parent = _strip_domain_prefix(item, config.aql_domain)
-    row = {f"{config.parent_field_prefix}{key}": parent.get(key) for key in config.aql_fields}
+    # Parent fields are scalars in AQL. Drop anything else, as `_walk_related` does for child fields, so
+    # a nested value can't repeat on every row past the expanded-size batch budget.
+    row = {
+        f"{config.parent_field_prefix}{key}": None if isinstance(value := parent.get(key), (list, dict)) else value
+        for key in config.aql_fields
+    }
     yield from _walk_related(item, config.aql_related_path, row)
+
+
+def _expanded_row_bytes(row: dict[str, Any]) -> int:
+    return sum(len(key) + (len(value) if isinstance(value, str) else 8) for key, value in row.items())
 
 
 def _fetch_related(
@@ -368,6 +384,7 @@ def _fetch_related(
         return
 
     rows: list[dict[str, Any]] = []
+    rows_bytes = 0
     seen: set[tuple[Any, ...]] = set()
     for item in data.get("results", []):
         for row in flatten_related(config, item):
@@ -376,6 +393,10 @@ def _fetch_related(
                 continue
             seen.add(key)
             rows.append(row)
+            rows_bytes += _expanded_row_bytes(row)
+            if rows_bytes >= RELATED_BATCH_MAX_BYTES:
+                yield rows
+                rows, rows_bytes = [], 0
     if rows:
         yield rows
 
@@ -545,7 +566,7 @@ def get_rows(
     session = _get_session(access_token)
 
     if config.kind == "rest":
-        data = _get_json(session, base_url, access_token, config.path, logger)
+        data = _get_json(session, _service_url(base_url, config, config.path), access_token, logger)
         rows = (data.get(config.response_key) or []) if config.response_key else data
         if rows:
             yield rows
@@ -662,10 +683,12 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
                 stream=True,
             )
         else:
-            path = config.path if config is not None else "/repositories"
-            response = session.get(
-                _api_url(base_url, path), headers=_headers(access_token), timeout=PROBE_TIMEOUT_SECONDS, stream=True
+            url = (
+                _service_url(base_url, config, config.path)
+                if config is not None
+                else _api_url(base_url, "/repositories")
             )
+            response = session.get(url, headers=_headers(access_token), timeout=PROBE_TIMEOUT_SECONDS, stream=True)
     except ValueError:
         raise
     except Exception:
