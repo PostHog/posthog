@@ -7412,8 +7412,8 @@ Diffed against: <https://hookdeck.com/docs/api/inspect.md>
 - [x] `Queue depth metrics (GET /metrics/queue-depth)` — track historical delivery backlogs and identify overloaded destinations (high)
 - [x] `Events pending timeseries (GET /metrics/events-pending-timeseries)` — measure how pending deliveries accumulate and recover over time (medium)
 - [x] `Transformation executions (GET /transformations/{id}/executions)` — analyze transformation failures, execution times, and their impact on event delivery (medium)
-- [ ] `Request, event, and attempt metrics (GET /metrics/requests; GET /metrics/events; GET /metrics/attempts)` — compare vendor aggregates for throughput, delivery outcomes, and response times across reporting windows (medium)
-- [ ] `Bulk operation history (GET /bulk/events/retry; GET /bulk/events/cancel; GET /bulk/ignored-events/retry; GET /bulk/requests/retry; GET /bulk/requests/replay)` — audit retry, replay, and cancellation operations with their progress and affected delivery counts (medium)
+- [x] `Request, event, and attempt metrics (GET /metrics/requests; GET /metrics/events; GET /metrics/attempts)` — compare vendor aggregates for throughput, delivery outcomes, and response times across reporting windows (medium)
+- [x] `Bulk operation history (GET /bulk/events/retry; GET /bulk/events/cancel; GET /bulk/ignored-events/retry; GET /bulk/requests/retry; GET /bulk/requests/replay)` — audit retry, replay, and cancellation operations with their progress and affected delivery counts (medium)
 
 Note: Compared the official Inspect, Configure, and Bulk references with the catalog; the published OpenAPI has an older server version. Missing operational paths also appear in the current Markdown references. Ignored events and transformation executions need parent fan-out, and metrics require time windows. Configuration and raw payload downloads are excluded.
 
@@ -10263,9 +10263,9 @@ Today (7): `adgroup_stats`, `adgroups`, `ads`, `campaign_stats`, `campaigns`, `k
 
 Diffed against: <https://github.com/naver/searchad-apidoc/tree/master/java-sample/src/main/java/com/naver/searchad/api/rest>
 
-- [ ] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
-- [ ] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
-- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low)
+- [x] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
+- [x] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
+- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low) Skipped: Naver ended support for /customer-links in 2025 when it merged ad accounts.
 
 Note: The official doc site is a JavaScript app with no machine-readable spec, so I diffed against the vendor's public SDK samples on GitHub (Java rest classes, with route comments). Routes confirmed there are campaigns, adgroups, ads, keywords, channels, ad-extensions, customer-links, stats, stat-reports and master-reports. Ad extensions need an ownerId, so fan out under campaigns or ad groups. Excluded estimate endpoints, write routes, and the async master-reports jobs, which only repeat the same objects in bulk. The SDK is a sample, so other routes may exist that I could not verify.
 

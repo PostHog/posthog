@@ -38890,6 +38890,47 @@
             "validators": []
         }
     },
+    "organization-create": {
+        "name": "organization-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/organizations/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "pick",
+                "fields": ["id", "name", "slug", "teams.*.id", "teams.*.name", "teams.*.project_id"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "organization-events-retention-deletion-count": {
         "name": "organization-events-retention-deletion-count",
         "kind": "http",
@@ -44219,6 +44260,11 @@
                     "csv": false
                 },
                 {
+                    "param": "include_revisions",
+                    "key": "include_revisions",
+                    "csv": false
+                },
+                {
                     "param": "key",
                     "key": "key",
                     "csv": false
@@ -46225,6 +46271,11 @@
                 {
                     "param": "include_expired",
                     "key": "include_expired",
+                    "csv": false
+                },
+                {
+                    "param": "include_revisions",
+                    "key": "include_revisions",
                     "csv": false
                 },
                 {
@@ -57759,6 +57810,10 @@
                 {
                     "param": "confirm_token",
                     "key": "confirm_token"
+                },
+                {
+                    "param": "sandbox_sender_warned",
+                    "key": "sandbox_sender_warned"
                 }
             ],
             "injectBody": {},

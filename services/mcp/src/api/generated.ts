@@ -60297,6 +60297,11 @@ export namespace Schemas {
       confirm?: boolean;
       /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
       confirm_token?: string;
+      /**
+         * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+         * @nullable
+         */
+      sandbox_sender_warned?: boolean | null;
     }
 
     export interface HogFlowPublishResponse {
@@ -60319,6 +60324,11 @@ export namespace Schemas {
       confirm_token: string | null;
       /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
       impact: HogFlowPublishImpact | null;
+      /**
+         * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+         * @nullable
+         */
+      moves_to_sandbox_sender: boolean | null;
       /** The workflow after publishing (only set when published=true). */
       workflow?: HogFlow | null;
     }
@@ -78974,7 +78984,10 @@ export namespace Schemas {
 
     export interface Organization {
       readonly id: string;
-      /** @maxLength 64 */
+      /**
+         * Name of the organization.
+         * @maxLength 64
+         */
       name: string;
       /** @pattern ^[-a-zA-Z0-9_]+$ */
       readonly slug: string;
@@ -94823,7 +94836,10 @@ export namespace Schemas {
 
     export interface PatchedOrganization {
       readonly id?: string;
-      /** @maxLength 64 */
+      /**
+         * Name of the organization.
+         * @maxLength 64
+         */
       name?: string;
       /** @pattern ^[-a-zA-Z0-9_]+$ */
       readonly slug?: string;
@@ -116900,6 +116916,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `overwrite` - Overwrite
+     * * `forget` - Forget
+     */
+    export type SignalScratchpadRevisionChangeEnum = typeof SignalScratchpadRevisionChangeEnum[keyof typeof SignalScratchpadRevisionChangeEnum];
+
+
+    export const SignalScratchpadRevisionChangeEnum = {
+      Overwrite: 'overwrite',
+      Forget: 'forget',
+    } as const;
+
+    /**
+     * The state a scratchpad entry held before one write replaced or deleted it.
+     */
+    export interface ScratchpadRevision {
+      /** The entry's content before the change. */
+      content: string;
+      /**
+         * The entry's ISO-8601 expiry before the change, or null if it was durable.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** `overwrite` when a `remember` replaced this state, `forget` when a delete removed it.
+       *
+       * * `overwrite` - Overwrite
+       * * `forget` - Forget */
+      change: SignalScratchpadRevisionChangeEnum;
+      /** ISO-8601 time of the change. */
+      changed_at: string;
+      /**
+         * Scout run that made the change, or null when a pipeline stage or a person did.
+         * @nullable
+         */
+      changed_by_run_id: string | null;
+      /**
+         * Who made the change: the skill name of the scout run, or the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry.
+         * @nullable
+         */
+      changed_by_skill: string | null;
+      /**
+         * Relative Tasks UI deep-link to the run that made the change, or null.
+         * @nullable
+         */
+      changed_by_run_url: string | null;
+    }
+
+    /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
     export interface ScratchpadEntry {
@@ -116937,6 +117000,11 @@ export namespace Schemas {
          * @nullable
          */
       created_by_run_url?: string | null;
+      /**
+         * Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest revision is the deleted state.
+         * @nullable
+         */
+      revisions?: ScratchpadRevision[] | null;
     }
 
     /**
@@ -149370,6 +149438,10 @@ export namespace Schemas {
      * Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.
      */
     include_expired?: boolean;
+    /**
+     * With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content.
+     */
+    include_revisions?: boolean;
     /**
      * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
      * @minLength 1
