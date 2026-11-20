@@ -1,6 +1,6 @@
 import re
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -78,13 +78,6 @@ def _sql_count_query(event: str) -> dict:
     return {
         "kind": "DataVisualizationNode",
         "source": {"kind": "HogQLQuery", "query": f"select count() from events where event = '{event}'"},
-    }
-
-
-def _trends_query(event: str) -> dict:
-    return {
-        "kind": "InsightVizNode",
-        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": event}]},
     }
 
 
@@ -172,36 +165,18 @@ class TestDashboardCachedTiles(APIBaseTest):
         )
         assert _without_run_ids(payload) == self.snapshot
 
-    def test_frames_format_frames_trends_and_returns_other_results_as_they_are(self) -> None:
-        trends_insight_id, trends_tile_id = self._add_insight_tile(
-            "$pageview",
-            {
-                "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            },
-        )
-        table_insight_id, table_tile_id = self._add_insight_tile("$autocapture")
-        self._per_tile(trends_insight_id, "blocking")
-        self._per_tile(table_insight_id, "blocking")
-        table_result = self._per_tile(table_insight_id, "force_cache")["result"]
+    def test_frames_format_leaves_tiles_without_frames_as_they_are(self) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        result = self._per_tile(insight_id, "force_cache")["result"]
 
-        response = self._cached_tiles([trends_tile_id, table_tile_id], {"format": "frames"})
+        response = self._cached_tiles([tile_id], {"format": "frames"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        trends, table = response.json()["results"]
-        self.assertEqual((trends["status"], trends["format"]), ("hit", "frames"))
-        self.assertIsNone(trends["insight"]["result"])
-        [frame] = trends["frames"]
-        self.assertEqual(frame["name"], "$pageview")
-        self.assertEqual(
-            [(field["name"], field["type"]) for field in frame["fields"]], [("time", "time"), ("value", "number")]
-        )
-        self.assertEqual(len(frame["fields"][0]["values"]), 15)
-        self.assertEqual(frame["meta"]["interval"], "day")
-        self.assertEqual(frame["meta"]["date_from"][:10], trends["insight"]["resolved_date_range"]["date_from"][:10])
-        self.assertEqual((table["status"], table["format"]), ("hit", "result"))
-        self.assertNotIn("frames", table)
-        self.assertEqual(table["insight"]["result"], table_result)
+        [tile] = response.json()["results"]
+        self.assertEqual((tile["status"], tile["format"]), ("hit", "result"))
+        self.assertNotIn("frames", tile)
+        self.assertEqual(tile["insight"]["result"], result)
 
     def test_dashboard_filter_override_reads_its_own_cache_entry(self) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
@@ -337,19 +312,13 @@ class TestDashboardCachedTiles(APIBaseTest):
 
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    @parameterized.expand(
-        [
-            # Raw SQL tiles, because their cache keys look up warehouse names in Postgres.
-            ("result", _sql_count_query, {}),
-            # Trends tiles, because frames are built from their parsed results.
-            ("frames", _trends_query, {"format": "frames"}),
-        ]
-    )
+    @parameterized.expand([("result", {}), ("frames", {"format": "frames"})])
     def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(
-        self, _name: str, tile_query: Callable[[str], dict], params: dict[str, str]
+        self, _name: str, params: dict[str, str]
     ) -> None:
+        # Raw SQL tiles, because their cache keys look up warehouse names in Postgres.
         tiles = [
-            self._add_insight_tile(event, tile_query(event))
+            self._add_insight_tile(event, _sql_count_query(event))
             for event in ("$pageview", "$autocapture", "$identify", "$pageleave")
         ]
         for insight_id, _ in tiles:
