@@ -6,6 +6,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response
@@ -584,6 +585,7 @@ def test_task_outputs_fan_out_over_task_runs_with_outputs(config: KestraSourceCo
 
 
 @pytest.mark.parametrize("offset", ["Z", "+02:00", ""])
+@time_machine.travel(datetime(2026, 3, 10, 12, 0, tzinfo=UTC), tick=False)
 def test_daily_statistics_drop_the_partial_first_day(config: KestraSourceConfig, offset: str) -> None:
     today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     days = [today - timedelta(days=30), today - timedelta(days=29), today]

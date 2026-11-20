@@ -948,8 +948,6 @@ impl PopulatedStorage {
             uuid: uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000042").unwrap(),
             team_id: 1,
             properties: Some(r#"{"key":"value"}"#.to_string()),
-            properties_last_updated_at: Some(r#"{"key":"2024-01-01"}"#.to_string()),
-            properties_last_operation: Some(r#"{"key":"set"}"#.to_string()),
             created_at: chrono::DateTime::parse_from_rfc3339("2024-06-15T12:00:00Z")
                 .unwrap()
                 .with_timezone(&chrono::Utc),

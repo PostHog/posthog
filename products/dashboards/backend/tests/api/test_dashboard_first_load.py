@@ -37,7 +37,7 @@ class TestDashboardFirstLoad(ClickhouseTestMixin, APIBaseTest):
 
     def _get(self, *, dashboard_v2: bool, refresh: str = "force_cache") -> dict[str, Any]:
         with patch(
-            "products.dashboards.backend.presentation.views.dashboard.posthog_feature_flag_enabled",
+            "products.dashboards.backend.v2.flag.posthog_feature_flag_enabled",
             side_effect=lambda flag, *args, **kwargs: dashboard_v2 and flag == "dashboard-v2",
         ):
             response = self.client.get(

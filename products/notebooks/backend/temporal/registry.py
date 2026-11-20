@@ -6,6 +6,8 @@ logic, which reaches back down to the cell dispatch, which starts a workflow of 
 an eager package `__init__` turned that chain into an import cycle.
 """
 
+from collections.abc import Callable
+
 from products.notebooks.backend.temporal.frame_materialize import (
     NotebookFrameMaterializeWorkflow,
     mark_frame_materialize_failed_activity,
@@ -40,7 +42,7 @@ WORKFLOWS = [
     NotebookWidgetGenerationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     advance_notebook_run_activity,
     check_notebook_cell_activity,
     dispatch_notebook_cell_activity,

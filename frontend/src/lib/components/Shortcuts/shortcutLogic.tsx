@@ -40,6 +40,8 @@ interface ShortcutBase {
     priority?: number
     /** Easter egg enabler */
     hidden?: boolean
+    /** Sequence shortcuts only: also fire when the sequence is typed into a text field, without swallowing the keys */
+    matchInEditable?: boolean
 }
 
 interface ShortcutWithRef extends ShortcutBase {
@@ -210,12 +212,16 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.sequenceKeys = [] as string[]
         cache.sequenceShortcut = null as ShortcutType | null
         cache.sequenceLastKeyTime = 0
+        cache.editableKeys = [] as string[]
+        cache.editableLastKeyTime = 0
+        cache.editableTarget = null as EventTarget | null
 
         cache.onKeyDown = (event: KeyboardEvent) => {
             const target = event.composedPath()[0]
             if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
+                cache.editableKeys = []
                 return
             }
             const controlKeyCapture =
@@ -236,6 +242,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 // Reset any in-progress sequence
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
+                cache.editableKeys = []
 
                 // modifier vocabulary and order must stay in lockstep with formatTriggeredKeybind in
                 // lib/hooks/useKeyboardHotkeys.tsx, so the same chord reports the same `keybind` string
@@ -277,6 +284,44 @@ export const shortcutLogic = kea<shortcutLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     triggerShortcut(matchingShortcut, pressedKeys)
+                }
+                return
+            }
+
+            if (isEditableElement(event) && !event.altKey && !event.isComposing) {
+                // The keys still reach the field, so this never calls preventDefault.
+                if (event.key.length !== 1) {
+                    cache.editableKeys = []
+                    return
+                }
+                const editableNow = Date.now()
+                if (target !== cache.editableTarget || editableNow - cache.editableLastKeyTime > 1500) {
+                    cache.editableKeys = []
+                }
+                cache.editableTarget = target
+                cache.editableLastKeyTime = editableNow
+                cache.editableKeys.push(event.key.toLowerCase())
+                const typed: string[] = cache.editableKeys
+                const typedShortcut = values.registeredShortcuts.find(
+                    (shortcut) =>
+                        shortcut.matchInEditable &&
+                        !values.disabledShortcutNames.includes(shortcut.name) &&
+                        shortcut.keybind.some((keybind) => {
+                            if (!isSequenceKeybind(keybind)) {
+                                return false
+                            }
+                            const sequenceKeys = getSequenceKeys(keybind)
+                            return (
+                                typed.length >= sequenceKeys.length &&
+                                typed.slice(-sequenceKeys.length).every((k, i) => k === sequenceKeys[i])
+                            )
+                        })
+                )
+                if (typedShortcut) {
+                    cache.editableKeys = []
+                    triggerShortcut(typedShortcut, typedShortcut.keybind.find((kb) => isSequenceKeybind(kb))!)
+                } else if (typed.length > 32) {
+                    typed.shift()
                 }
                 return
             }

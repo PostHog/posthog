@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email-templater/types'
@@ -23,8 +24,9 @@ import {
     getSenderIds,
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
+import { isMissingContentError } from './broadcastContentErrors'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
-import { BroadcastTrackingSwitch } from './BroadcastTrackingSwitch'
+import { BroadcastTrackingSettings } from './BroadcastTrackingSettings'
 
 export function BroadcastContentStep(): JSX.Element {
     const {
@@ -40,6 +42,7 @@ export function BroadcastContentStep(): JSX.Element {
     } = useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { loadIntegrations } = useActions(integrationsLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
     // null: closed. 'new': set up a sender. An integration: finish verifying that one.
@@ -80,7 +83,10 @@ export function BroadcastContentStep(): JSX.Element {
 
     // A parser message can quote the template, so it is kept out of the matching by wording below.
     const templatingMessages: (string | undefined)[] = Object.values(templatingErrors)
-    const errors = stepValidationErrors.content.filter((error) => !templatingMessages.includes(error))
+    // In the redesign a field that is only still empty isn't an error yet. Continue says what's missing instead.
+    const errors = stepValidationErrors.content.filter(
+        (error) => !templatingMessages.includes(error) && !(todayRailNav && isMissingContentError(error))
+    )
     const fieldErrors: EmailFieldErrors = {
         from: errors.find((error) => error.includes('sender')),
         to: templatingErrors.to,
@@ -165,6 +171,7 @@ export function BroadcastContentStep(): JSX.Element {
                 type="native_email"
                 templating="liquid"
                 liveChanges
+                quillHeader={todayRailNav}
                 value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
@@ -177,16 +184,10 @@ export function BroadcastContentStep(): JSX.Element {
                     <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
                 </span>
             ) : null}
-            <BroadcastTrackingSwitch
-                checked={emailSettings.trackingEnabled}
-                onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
-            />
-            <LemonSwitch
-                label="Add UTM tags to links"
-                checked={emailSettings.utmTagsEnabled}
-                onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
-                bordered
-                data-attr="broadcast-utm-tags-toggle"
+            <BroadcastTrackingSettings
+                trackingEnabled={emailSettings.trackingEnabled}
+                utmTagsEnabled={emailSettings.utmTagsEnabled}
+                onChange={setEmailSettings}
             />
             {emailSettings.utmTagsEnabled && (
                 <>

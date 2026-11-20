@@ -523,6 +523,31 @@ describe('getInsightWithRetry', () => {
         })
     })
 
+    it('ends with the capacity error without going async when async fallback is off', async () => {
+        jest.spyOn(api, 'getResponse').mockResolvedValueOnce(
+            insightResponse({ ...insight, result: null, query_status: capacityStatus })
+        )
+        const asyncRequest = jest.spyOn(api, 'get')
+
+        const result = await getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'query-id',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            1,
+            1,
+            false
+        )
+
+        expect(asyncRequest).not.toHaveBeenCalled()
+        expect(result?.query_status?.error_code).toBe(capacityStatus.error_code)
+    })
+
     it.each(['failed status', 'failed cache fetch', 'cancelled cache fetch'] as const)(
         'does not count a %s as recovery after expiry',
         async (failure) => {
