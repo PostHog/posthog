@@ -35,7 +35,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attestations import ReviewedHead, covers, lifted_files, pending_attestations, pending_check_names, pinned_files
+from attestations import (
+    ReviewedHead,
+    applies_to,
+    covers,
+    lifted_files,
+    pending_attestations,
+    pending_check_names,
+    pinned_files,
+)
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -383,14 +391,16 @@ class Pipeline:
 
         Only an entry that pins its publisher counts, as for an admitted bot (see
         ``_publisher_pinned_attestations``). ``checks`` names each such entry whose `paths` match a path
-        of the diff, and stays empty unless together they match every path. ``proven`` is True only when
-        their verified proofs name every path, the old path of a rename included.
+        of the diff and whose `title` matches the PR's, and stays empty unless together they match every
+        path. An entry whose title does not match gets no result, so routing must not wait for it.
+        ``proven`` is True only when their verified proofs name every path, the old path of a rename
+        included.
         """
         paths = self.pr.deny_paths
         matching = [
             attestation
             for attestation in self._publisher_pinned_attestations
-            if any(covers(attestation, path) for path in paths)
+            if applies_to(attestation, self.pr.title) and any(covers(attestation, path) for path in paths)
         ]
         if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
             return {"checks": [], "proven": False}
