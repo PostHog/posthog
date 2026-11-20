@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -7,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -90,6 +93,31 @@ describe('aiFirstHomepageLogic', () => {
         expect(logic.values.mode).toEqual(expectedMode)
         // The prompt rides along as `ask`, which the new surface's composer seeds and submits.
         expect(router.values.searchParams.ask).toEqual(sandboxFlagOn ? 'what is my dau' : undefined)
+    })
+
+    // Without the gate, the prompt was sent before the consent wall showed, and the user lost it.
+    it('holds an AI prompt in the input until the organization approves AI data processing', async () => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        router.actions.push(urls.projectHomepage())
+
+        logic.actions.setQuery('what is my dau')
+        logic.actions.submitAiQuery()
+        await expectLogic(logic).toMatchValues({
+            mode: 'idle',
+            threadStarted: false,
+            query: 'what is my dau',
+            aiConsentRequired: true,
+        })
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: true,
+        })
+        logic.actions.submitAiQuery()
+        await expectLogic(logic).toMatchValues({ mode: 'ai', threadStarted: true, query: 'what is my dau' })
     })
 
     it('shares the rail row budget between pinned and recents, and fills suggestions to four', () => {
