@@ -18,36 +18,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('personalCodexIntegrationLogic', () => {
-    const originalAny = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
     let logic: ReturnType<typeof personalCodexIntegrationLogic.build>
     let loginId: string
     let loginStatus: string
     let pendingStart: ReturnType<typeof deferred<void>> | null
     let canceled: string[]
     let submittedFields: string[]
-
-    beforeAll(() => {
-        Object.defineProperty(AbortSignal, 'any', {
-            configurable: true,
-            value: (signals: AbortSignal[]) => {
-                const controller = new AbortController()
-                for (const signal of signals) {
-                    if (signal.aborted) {
-                        controller.abort()
-                    }
-                    signal.addEventListener('abort', () => controller.abort(), { once: true })
-                }
-                return controller.signal
-            },
-        })
-    })
-    afterAll(() => {
-        if (originalAny) {
-            Object.defineProperty(AbortSignal, 'any', originalAny)
-        } else {
-            delete (AbortSignal as Partial<typeof AbortSignal>).any
-        }
-    })
 
     beforeEach(() => {
         loginStatus = 'pending'
