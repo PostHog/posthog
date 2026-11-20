@@ -19,6 +19,7 @@ type FileSystemLogViewType =
     | 'notebook'
     | 'canvas'
     | 'session_recording_playlist'
+    | 'hog_flow'
     | `hog_function/${string}`
 
 interface TrackFileSystemLogViewOptions {
