@@ -1,4 +1,3 @@
-use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -7,21 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::Value;
 use uuid::Uuid;
-
-/// Safe adapter for writing serde_json output into a `String` buffer.
-/// `from_utf8` on serde_json output is essentially free (JSON mandates UTF-8).
-struct StringWriter<'a>(&'a mut String);
-
-impl io::Write for StringWriter<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let s = std::str::from_utf8(buf).map_err(io::Error::other)?;
-        self.0.push_str(s);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
@@ -463,7 +447,7 @@ impl Publishable for WrappedEvent {
             dlq_step,
             dlq_timestamp,
             content_encoding: None,
-            legacy_property_splice: ctx.legacy_property_splice.then_some(true),
+            legacy_property_splice: None,
         }
     }
 
@@ -503,17 +487,11 @@ impl Publishable for WrappedEvent {
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let sdk_lib = ctx.sdk_lib_and_version();
-        let spliced = if ctx.legacy_property_splice {
-            self.build_spliced_properties(sdk_lib)?
-        } else {
-            None
-        };
-        let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
             distinct_id: Some(&self.event.distinct_id),
             uuid: Some(self.uuid),
-            properties,
+            properties: &self.event.properties,
             timestamp: Some(&self.event.timestamp),
         };
         let data = serde_json::to_string(&ingestion_data)
@@ -570,98 +548,6 @@ impl WrappedEvent {
             req_lib_version: sdk_lib.map(|(_, version)| version),
         };
         (!opts.is_empty()).then_some(opts)
-    }
-
-    /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
-    #[allow(unused_assignments)]
-    fn build_property_injections(&self, sdk_lib: Option<(&str, &str)>) -> anyhow::Result<String> {
-        let mut buf = String::with_capacity(256);
-        let mut first = true;
-
-        macro_rules! inject {
-            ($buf:expr, $first:expr, $key:expr, $val:expr) => {{
-                if !$first {
-                    $buf.push(',');
-                }
-                $first = false;
-                $buf.push('"');
-                $buf.push_str($key);
-                $buf.push_str("\":");
-                serde_json::to_writer(StringWriter(&mut $buf), $val)
-                    .map_err(|e| anyhow::anyhow!("injecting {}: {e:#}", $key))?;
-            }};
-        }
-
-        if let Some(ref sid) = self.event.session_id {
-            inject!(buf, first, "$session_id", sid);
-        }
-        if let Some(ref wid) = self.event.window_id {
-            inject!(buf, first, "$window_id", wid);
-        }
-        if let Some(cm) = self.options.cookieless_mode {
-            inject!(buf, first, "$cookieless_mode", &cm);
-        }
-        if let Some(dsa) = self.options.disable_skew_correction {
-            inject!(buf, first, "$ignore_sent_at", &dsa);
-        }
-        if let Some(ref pti) = self.options.product_tour_id {
-            inject!(buf, first, "$product_tour_id", pti);
-        }
-        if let Some(ppp) = self.options.process_person_profile {
-            inject!(buf, first, "$process_person_profile", &ppp);
-        }
-
-        // Materialize $lib/$lib_version from the required PostHog-Sdk-Info
-        // header — the canonical v1 SDK identity. Appended after client keys,
-        // so the header wins under last-key-wins parsing (same duplicate-key
-        // semantics as the injections above). Unusable headers inject nothing
-        // and are counted per-request in the handler.
-        if let Some((lib, lib_version)) = sdk_lib {
-            inject!(buf, first, "$lib", lib);
-            inject!(buf, first, "$lib_version", lib_version);
-        }
-
-        Ok(buf)
-    }
-
-    /// Appends the injected pairs inside the client's raw properties object,
-    /// so capture never parses the properties. Returns None when nothing is injected.
-    fn build_spliced_properties(
-        &self,
-        sdk_lib: Option<(&str, &str)>,
-    ) -> anyhow::Result<Option<Box<RawValue>>> {
-        let injection = self.build_property_injections(sdk_lib)?;
-        if injection.is_empty() {
-            return Ok(None);
-        }
-
-        let raw = self.event.properties.get();
-        if !raw.starts_with('{') {
-            return Err(anyhow::anyhow!(
-                "properties must be a JSON object for injection, got: {:.32}",
-                raw,
-            ));
-        }
-        if raw.len() < 2 {
-            return Err(anyhow::anyhow!(
-                "properties too short ({} bytes) for JSON object",
-                raw.len()
-            ));
-        }
-        let prefix = &raw[..raw.len() - 1];
-        let has_existing = !raw[1..].trim_start().starts_with('}');
-
-        let mut buf = String::with_capacity(raw.len() + injection.len() + 2);
-        buf.push_str(prefix);
-        if has_existing {
-            buf.push(',');
-        }
-        buf.push_str(&injection);
-        buf.push('}');
-
-        RawValue::from_string(buf)
-            .map(Some)
-            .map_err(|e| anyhow::anyhow!("property surgery produced invalid JSON: {e:#}"))
     }
 }
 
@@ -1495,7 +1381,7 @@ mod tests {
         assert!(h.force_disable_person_processing.is_none());
         assert!(h.session_id.is_none());
         assert!(h.dlq_reason.is_none());
-        assert_eq!(h.legacy_property_splice, Some(true));
+        assert!(h.legacy_property_splice.is_none());
     }
 
     #[test]
@@ -1788,6 +1674,16 @@ mod tests {
             .expect("expected options on the v1 output")
     }
 
+    fn published_properties(captured: &CapturedEvent) -> String {
+        #[derive(serde::Deserialize)]
+        struct DataProperties<'a> {
+            #[serde(borrow)]
+            properties: &'a RawValue,
+        }
+        let data: DataProperties = serde_json::from_str(&captured.data).unwrap();
+        data.properties.get().to_owned()
+    }
+
     #[test]
     fn serialize_fails_without_adjusted_timestamp() {
         let mut ev = pageview_event();
@@ -1823,35 +1719,47 @@ mod tests {
         assert_eq!(props["$current_url"], "https://app.example.com/dashboard");
         assert_eq!(props["$browser"], "Chrome");
         assert_eq!(props["custom_prop"], 42);
-        assert_eq!(props["$session_id"], "sess-01jq9abc");
-        assert_eq!(props["$window_id"], "win-xyz789");
-        assert_eq!(props["$cookieless_mode"], false);
-        assert_eq!(props["$process_person_profile"], true);
+        assert_eq!(
+            published_properties(&captured),
+            wrapped.event.properties.get(),
+            "client properties are published unchanged"
+        );
+
+        let options = captured.options.expect("options ship on every v1 event");
+        assert_eq!(options["session_id"], "sess-01jq9abc");
+        assert_eq!(options["window_id"], "win-xyz789");
+        assert_eq!(options["cookieless_mode"], false);
+        assert_eq!(options["process_person_profile"], true);
     }
 
     #[test]
-    fn serialize_injects_lib_from_sdk_info_header() {
+    fn serialize_publishes_lib_from_sdk_info_header_as_options() {
         let wrapped = pageview_event();
         let ctx = serialize_ctx(); // sdk_info: "posthog-rs/1.0.0"
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
 
-        assert_eq!(data.properties["$lib"], "posthog-rs");
-        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        assert!(!data.properties.contains_key("$lib"));
+        assert!(!data.properties.contains_key("$lib_version"));
+        let options = captured.options.expect("options ship on every v1 event");
+        assert_eq!(options["req_lib"], "posthog-rs");
+        assert_eq!(options["req_lib_version"], "1.0.0");
     }
 
     #[test]
-    fn serialize_lib_injection_header_wins_over_client_properties() {
+    fn serialize_keeps_client_lib_and_publishes_header_lib_as_options() {
         let mut wrapped = pageview_event();
         wrapped.event.properties =
             raw_obj(r#"{"$lib":"client-lib","$lib_version":"9.9.9","custom_prop":42}"#);
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
 
-        // Injections append after client keys; last-key-wins parsing makes
-        // the header authoritative.
-        assert_eq!(data.properties["$lib"], "posthog-rs");
-        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        // Capture leaves the client's `$lib` alone; ingestion decides which pair wins.
+        assert_eq!(data.properties["$lib"], "client-lib");
+        assert_eq!(data.properties["$lib_version"], "9.9.9");
         assert_eq!(data.properties["custom_prop"], 42);
+        let options = captured.options.expect("options ship on every v1 event");
+        assert_eq!(options["req_lib"], "posthog-rs");
+        assert_eq!(options["req_lib_version"], "1.0.0");
     }
 
     #[rstest::rstest]
@@ -1868,33 +1776,23 @@ mod tests {
         "[".repeat(200),
         "]".repeat(200)
     ))]
-    fn serialize_without_splice_publishes_client_properties_untouched(
-        #[case] client_properties: String,
-    ) {
-        #[derive(serde::Deserialize)]
-        struct DataProperties<'a> {
-            #[serde(borrow)]
-            properties: &'a RawValue,
-        }
-
+    fn serialize_publishes_client_properties_untouched(#[case] client_properties: String) {
         let mut wrapped = pageview_event();
         wrapped.event.properties = raw_obj(&client_properties);
-        let mut ctx = serialize_ctx();
-        ctx.legacy_property_splice = false;
+        let ctx = serialize_ctx();
 
         let buf = wrapped.serialize(&ctx).expect("serialize failed");
         let captured: CapturedEvent = serde_json::from_slice(&buf).unwrap();
 
-        let data: DataProperties = serde_json::from_str(&captured.data).unwrap();
-        assert_eq!(data.properties.get(), client_properties);
-        let options = captured.options.expect("options ship with the splice off");
+        assert_eq!(published_properties(&captured), client_properties);
+        let options = captured.options.expect("options ship on every v1 event");
         assert_eq!(options["session_id"], "sess-01jq9abc");
         assert_eq!(options["process_person_profile"], true);
         assert_eq!(options["req_lib"], "posthog-rs");
     }
 
     #[test]
-    fn serialize_oversized_sdk_info_skips_lib_injection() {
+    fn serialize_oversized_sdk_info_publishes_no_lib_option() {
         use crate::v1::constants::MAX_SDK_INFO_LEN;
 
         let wrapped = pageview_event();
@@ -1904,6 +1802,11 @@ mod tests {
 
         assert!(!data.properties.contains_key("$lib"));
         assert!(!data.properties.contains_key("$lib_version"));
+        let options = captured_options(&wrapped, &ctx);
+        assert!(
+            !options.contains_key("req_lib") && !options.contains_key("req_lib_version"),
+            "expected no req_lib options for an oversized sdk_info: {options:?}"
+        );
     }
 
     #[test]
@@ -1973,7 +1876,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_all_options_injected() {
+    fn serialize_all_options_published() {
         let uuid = Uuid::new_v4();
         let wrapped = WrappedEvent {
             event: Event {
@@ -2003,16 +1906,9 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
-        let props = &data.properties;
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
 
-        assert_eq!(props["existing"], "value");
-        assert_eq!(props["$session_id"], "sess-01jq9abc");
-        assert_eq!(props["$window_id"], "win-xyz789");
-        assert_eq!(props["$cookieless_mode"], true);
-        assert_eq!(props["$ignore_sent_at"], true);
-        assert_eq!(props["$product_tour_id"], "tour-onboarding-v2");
-        assert_eq!(props["$process_person_profile"], false);
+        assert_eq!(published_properties(&captured), r#"{"existing":"value"}"#);
 
         let expected = serde_json::json!({
             "session_id": "sess-01jq9abc",
@@ -2027,7 +1923,7 @@ mod tests {
         assert_eq!(
             captured.options.map(Value::Object),
             Some(expected),
-            "options must carry the spliced values under the v1 option names"
+            "options must carry every value under the v1 option names"
         );
     }
 
@@ -2062,15 +1958,9 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
-        let props = &data.properties;
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
 
-        assert_eq!(props["$session_id"], "sess-abc");
-        assert_eq!(props["$cookieless_mode"], false);
-        assert!(!props.contains_key("$window_id"));
-        assert!(!props.contains_key("$ignore_sent_at"));
-        assert!(!props.contains_key("$product_tour_id"));
-        assert!(!props.contains_key("$process_person_profile"));
+        assert_eq!(published_properties(&captured), r#"{"x":1}"#);
 
         let expected = serde_json::json!({
             "session_id": "sess-abc",
@@ -2112,12 +2002,12 @@ mod tests {
         };
 
         let mut ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
-        let props = &data.properties;
-        assert_eq!(props["$lib"], "posthog-rs");
-        assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 2);
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(published_properties(&captured), "{}");
+        assert_eq!(
+            captured.options.map(Value::Object),
+            Some(serde_json::json!({"req_lib": "posthog-rs", "req_lib_version": "1.0.0"}))
+        );
 
         ctx.sdk_info = String::new();
         let buf = wrapped.serialize(&ctx).expect("serialize failed");
@@ -2159,13 +2049,17 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        let props = &data.properties;
-        assert_eq!(props["$session_id"], "sess-abc");
-        assert_eq!(props["$cookieless_mode"], true);
-        assert_eq!(props["$lib"], "posthog-rs");
-        assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props.len(), 4);
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(published_properties(&captured), "{}");
+        assert_eq!(
+            captured.options.map(Value::Object),
+            Some(serde_json::json!({
+                "session_id": "sess-abc",
+                "cookieless_mode": true,
+                "req_lib": "posthog-rs",
+                "req_lib_version": "1.0.0",
+            }))
+        );
     }
 
     #[test]
@@ -2201,14 +2095,15 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        let props = &data.properties;
-        // Non-identity client properties survive; $lib/$lib_version come from
-        // the Sdk-Info header (header-wins).
-        assert_eq!(props["$lib"], "posthog-rs");
-        assert_eq!(props["$lib_version"], "1.0.0");
-        assert_eq!(props["$referrer"], "https://google.com");
-        assert_eq!(props["$session_id"], "sess-abc");
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(
+            published_properties(&captured),
+            r#"{"$lib":"posthog-js","$lib_version":"1.150.0","$referrer":"https://google.com"}"#
+        );
+        let options = captured.options.expect("options ship on every v1 event");
+        assert_eq!(options["session_id"], "sess-abc");
+        assert_eq!(options["req_lib"], "posthog-rs");
+        assert_eq!(options["req_lib_version"], "1.0.0");
     }
 
     #[test]
@@ -2218,7 +2113,8 @@ mod tests {
         let ctx = serialize_ctx();
         let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         assert!(captured.is_cookieless_mode);
-        assert_eq!(data.properties["$cookieless_mode"], true);
+        assert!(!data.properties.contains_key("$cookieless_mode"));
+        assert_eq!(captured.options.unwrap()["cookieless_mode"], true);
     }
 
     #[test]
@@ -2281,23 +2177,24 @@ mod tests {
     }
 
     #[test]
-    fn serialize_process_person_profile_in_properties() {
+    fn serialize_process_person_profile_in_options() {
         let mut wrapped = pageview_event();
         wrapped.options.process_person_profile = Some(false);
         wrapped.force_disable_person_processing = false;
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        assert_eq!(data.properties["$process_person_profile"], false);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert!(!data.properties.contains_key("$process_person_profile"));
+        assert_eq!(captured.options.unwrap()["process_person_profile"], false);
     }
 
-    // Ingestion honors only a JSON `false`, so capture must inject the parsed boolean.
+    // Ingestion honors only a JSON `false`, so capture must publish the parsed boolean.
     #[rstest::rstest]
     #[case::cookieless_yes(ExpectedOption::CookielessMode, serde_json::json!("YES"), "$cookieless_mode", true)]
     #[case::skew_off(ExpectedOption::DisableSkewCorrection, serde_json::json!("off"), "$ignore_sent_at", false)]
     #[case::skew_t(ExpectedOption::DisableSkewCorrection, serde_json::json!("t"), "$ignore_sent_at", true)]
     #[case::person_profile_float_zero(ExpectedOption::ProcessPersonProfile, serde_json::json!(0.0), "$process_person_profile", false)]
     #[case::person_profile_no(ExpectedOption::ProcessPersonProfile, serde_json::json!(" no "), "$process_person_profile", false)]
-    fn serialize_injects_lenient_options_as_booleans(
+    fn serialize_publishes_lenient_options_as_booleans(
         #[case] key: ExpectedOption,
         #[case] raw: serde_json::Value,
         #[case] property: &str,
@@ -2307,7 +2204,7 @@ mod tests {
         wrapped.options = options_with(key, raw).validate().unwrap();
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
+        assert!(!data.properties.contains_key(property));
         assert_eq!(
             captured_options(&wrapped, &ctx)[key.as_str()],
             serde_json::Value::Bool(expected)
@@ -2395,48 +2292,11 @@ mod tests {
         assert_eq!(data.event, "$identify");
         assert_eq!(data.properties["$browser"], "Safari");
         assert_eq!(data.properties["$os"], "macOS");
-        assert_eq!(data.properties["$process_person_profile"], true);
+        assert!(!data.properties.contains_key("$process_person_profile"));
+        assert_eq!(captured.options.unwrap()["process_person_profile"], true);
     }
 
-    // --- A3: property injection safety ---
-
-    #[test]
-    fn serialize_array_properties_rejected() {
-        let uuid = Uuid::new_v4();
-        let wrapped = WrappedEvent {
-            event: Event {
-                event: "$pageview".to_string(),
-                uuid: uuid.to_string(),
-                distinct_id: "user-42".to_string(),
-                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
-                session_id: Some("sess-abc".to_string()),
-                window_id: None,
-                options: RawOptions::default(),
-                properties: raw_obj("[1,2,3]"),
-            },
-            uuid,
-            options: Options {
-                cookieless_mode: None,
-                disable_skew_correction: None,
-                product_tour_id: None,
-                process_person_profile: None,
-            },
-            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
-            result: EventResult::Ok,
-            details: None,
-            destination: Destination::AnalyticsMain,
-            force_disable_person_processing: false,
-            spread_partitions: false,
-            is_gateway_verified: false,
-        };
-
-        let ctx = serialize_ctx();
-        let err = wrapped.serialize(&ctx).unwrap_err();
-        assert!(
-            err.to_string().contains("must be a JSON object"),
-            "expected object guard, got: {err}"
-        );
-    }
+    // --- Client properties pass through as raw JSON ---
 
     #[test]
     fn serialize_whitespace_padded_empty_object() {
@@ -2469,11 +2329,9 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        assert_eq!(data.properties["$session_id"], "sess-abc");
-        assert_eq!(data.properties["$lib"], "posthog-rs");
-        assert_eq!(data.properties["$lib_version"], "1.0.0");
-        assert_eq!(data.properties.len(), 3);
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(published_properties(&captured), "{   }");
+        assert_eq!(captured.options.unwrap()["session_id"], "sess-abc");
     }
 
     // --- CapturedEvent round-trip parity using realistic fixtures ---
@@ -2494,16 +2352,15 @@ mod tests {
             data.properties["$current_url"],
             "https://app.example.com/dashboard"
         );
+        assert_eq!(published_properties(&captured), ev.event.properties.get());
+        let options = captured.options.expect("options ship on every v1 event");
         assert_eq!(
-            data.properties["$session_id"],
+            options["session_id"],
             "01jq9abc-def0-1234-5678-9abcdef01234"
         );
-        assert_eq!(
-            data.properties["$window_id"],
-            "01jq9xyz-0000-4321-8765-fedcba987654"
-        );
-        assert_eq!(data.properties["$cookieless_mode"], false);
-        assert_eq!(data.properties["$process_person_profile"], true);
+        assert_eq!(options["window_id"], "01jq9xyz-0000-4321-8765-fedcba987654");
+        assert_eq!(options["cookieless_mode"], false);
+        assert_eq!(options["process_person_profile"], true);
     }
 
     #[test]
@@ -2514,7 +2371,8 @@ mod tests {
         assert_eq!(captured.event, "$identify");
         assert_eq!(captured.distinct_id, "user-99");
         assert_eq!(data.properties["$set"]["email"], "user@example.com");
-        assert_eq!(data.properties["$process_person_profile"], true);
+        assert_eq!(published_properties(&captured), ev.event.properties.get());
+        assert_eq!(captured.options.unwrap()["process_person_profile"], true);
     }
 
     #[test]
@@ -2524,7 +2382,8 @@ mod tests {
         let (captured, data) = assert_round_trip(&ev, &ctx);
         assert_eq!(captured.event, "button_clicked");
         assert_eq!(data.properties["button_id"], "cta-signup");
-        assert_eq!(data.properties["$process_person_profile"], true);
+        assert_eq!(published_properties(&captured), ev.event.properties.get());
+        assert_eq!(captured.options.unwrap()["process_person_profile"], true);
     }
 
     #[test]

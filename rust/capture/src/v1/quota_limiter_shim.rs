@@ -237,7 +237,6 @@ mod tests {
             capture_v1_max_compressed_body_bytes: None,
             capture_v1_max_decompressed_body_bytes: None,
             capture_v1_scatter_gather_min_batch: 8,
-            capture_v1_legacy_property_splice: true,
             capture_ingestion_warnings_enabled: false,
             capture_ingestion_warnings_kafka_queue_mib: 16,
             capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
