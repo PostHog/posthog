@@ -19,14 +19,13 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
-_SECRET_TOKEN_FIELDS = frozenset({"secret_api_token", "secret_api_token_backup"})
 _KEY_AUTH_FIELDS = frozenset({"secure_value"})
 
 
@@ -75,122 +74,6 @@ def capture_old_pak_secure_value(instance: PersonalAPIKey, **kwargs):
 def capture_old_psak_secure_value(instance: ProjectSecretAPIKey, **kwargs):
     """Capture old secure_value before ProjectSecretAPIKey save for cache invalidation."""
     _capture_old_secure_value(ProjectSecretAPIKey, instance, **kwargs)
-
-
-# --- Team signal handlers ---
-
-
-def capture_old_secret_tokens(instance: Team, **kwargs):
-    """
-    Capture old secret_api_token and secret_api_token_backup before save.
-
-    The pre_save handler stores old values so the post_save handler can
-    invalidate the correct cache entries when tokens change or rotate.
-    """
-    if not instance.pk or instance._state.adding:
-        return
-
-    # Skip the DB read when update_fields is specified and doesn't include auth fields
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None:
-        if not _SECRET_TOKEN_FIELDS.intersection(update_fields):
-            return
-
-    try:
-        old_team = Team.objects.only("secret_api_token", "secret_api_token_backup").get(pk=instance.pk)
-        instance._old_secret_api_token = old_team.secret_api_token  # type: ignore[attr-defined]
-        instance._old_secret_api_token_backup = old_team.secret_api_token_backup  # type: ignore[attr-defined]
-    except Team.DoesNotExist:
-        pass
-
-
-@receiver(pre_save, sender=Team)
-def team_pre_save_auth_cache(sender, instance: "Team", **kwargs):
-    """Capture old secret token values before save for cache cleanup."""
-    capture_old_secret_tokens(instance, **kwargs)
-
-
-@receiver(post_save, sender=Team)
-def team_saved_auth_cache(sender, instance: "Team", created, **kwargs):
-    """Update team authentication cache on team save."""
-    transaction.on_commit(lambda: _update_team_authentication_cache(instance, created))
-
-
-@receiver(post_delete, sender=Team)
-def team_deleted_auth_cache(sender, instance: "Team", **kwargs):
-    """Handle team deletion for access cache."""
-    transaction.on_commit(lambda: _update_team_authentication_cache_on_delete(instance))
-
-
-def _update_team_authentication_cache(instance: Team, created: bool):
-    """
-    Invalidate specific token cache entries when Team auth fields change.
-
-    Called from a transaction.on_commit callback, so the DB transaction has
-    already committed and invalidation runs synchronously for immediate effect.
-
-    On secret token rotation: the old secret_api_token becomes the new backup,
-    and the old backup is discarded. We invalidate the discarded backup's hash.
-
-    On direct change: invalidate the old token's hash.
-
-    Note: update_fields filtering is handled by capture_old_secret_tokens (pre_save).
-    If no auth fields changed, _old_secret_* attrs won't be set, and the getattr()
-    calls below return None, skipping invalidation.
-    """
-    try:
-        # Guard on api_token (the public phc_ token) as a proxy for "fully initialized team".
-        # A team without a public token has not completed setup, so its secret tokens
-        # are not in use and don't need cache invalidation.
-        if created or not instance.api_token:
-            return
-
-        from posthog.tasks.team_access_cache_tasks import invalidate_token_sync
-
-        # Handle secret token rotation: old backup is discarded
-        old_backup = getattr(instance, "_old_secret_api_token_backup", None)
-        old_secret = getattr(instance, "_old_secret_api_token", None)
-
-        if old_backup and old_backup != instance.secret_api_token_backup:
-            # The old backup was discarded during rotation — invalidate its cache entry
-            old_backup_hash = hash_key_value(old_backup, mode="sha256")
-            invalidate_token_sync(old_backup_hash)
-            logger.info("Invalidated discarded backup token", team_id=instance.pk)
-
-        if old_secret and old_secret != instance.secret_api_token:
-            # During rotation the old primary becomes the new backup and stays valid,
-            # so only invalidate it when it is not the current backup.
-            if old_secret != instance.secret_api_token_backup:
-                old_secret_hash = hash_key_value(old_secret, mode="sha256")
-                invalidate_token_sync(old_secret_hash)
-                logger.info("Invalidated old secret token", team_id=instance.pk)
-
-    except Exception as e:
-        capture_exception(e)
-        logger.exception("Error updating auth cache on team save", team_id=instance.pk)
-
-
-def _update_team_authentication_cache_on_delete(instance: Team):
-    """Invalidate cached secret tokens when a team is deleted.
-
-    Called from a transaction.on_commit callback, so the DB transaction has
-    already committed and invalidation runs synchronously for immediate effect.
-    """
-    try:
-        if not instance.pk:
-            return
-
-        from posthog.tasks.team_access_cache_tasks import invalidate_token_sync
-
-        for token in (instance.secret_api_token, instance.secret_api_token_backup):
-            if token:
-                token_hash = hash_key_value(token, mode="sha256")
-                invalidate_token_sync(token_hash)
-
-        logger.info("Invalidated deleted team tokens", team_id=instance.pk)
-    except Exception as e:
-        capture_exception(e)
-        logger.exception("Error invalidating cache on team delete", team_id=instance.pk)
 
 
 # --- PersonalAPIKey signal handlers ---

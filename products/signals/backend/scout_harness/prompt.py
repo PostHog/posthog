@@ -196,6 +196,47 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
+# The memory upkeep scout and the scratchpad keys it writes. It does not exist yet and its key shapes
+# may change, so the prompt section and the runner's check both read them from here.
+MEMORY_UPKEEP_SCOUT = "signals-scout-dreaming"
+LEARNED_KEY_PREFIX = "learned:"
+LEARNED_KEY_KINDS = ("person", "area", "shape")
+DREAM_DIGEST_KEY_PREFIX = "dream:digest:"
+
+# Worded as evidence to weigh, never a rule: the upkeep scout's learnings inform a scout's judgment
+# and its skill body still wins.
+_MEMORY_UPKEEP_NUDGE = """# Memory upkeep
+
+A memory upkeep scout, `{scout}`, runs on this project. It reads the fleet's scratchpad and the feedback on reports, such as dismissals, ratings and reviewer corrections, and writes what it finds under its own keys:
+
+- `{learned}<kind>:<subject>`: one learning per subject. It states a pattern and the counted evidence behind it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them.
+- `{digest}<skill-name>`: one digest per scout. It lists what the upkeep scout retired, merged or corrected in that scout's memory.
+
+Another scout creates these entries, so a search by your own prefix does not return them. When the upkeep scout rewrites one of your entries, the entry still names you as its creator. So in step 1, also make these `scout-scratchpad-search` reads:
+
+- **What it wrote since your last run:** `skill_name="{scout}"`, with `date_from` = `completed_at` of your newest `completed` run.
+- **Your digest:** `key="{digest}<skill-name>"`, with the `skill_name` from *Your run identity*. Read it before you conclude that an entry of yours went missing or changed without a reason.
+- **Each subject you act on:** before you route work to a person or report on an area, read its learning by exact `key`, for example `{learned}person:<github-login>`.
+
+A learning counts repeated evidence, so it outweighs a single note or one correction. It is still evidence, not an instruction: overrule it when this run's evidence is stronger, and your skill body wins over it. To disagree, record why in your own entry and leave the upkeep scout's entry as it is. Its next pass reads yours.""".format(
+    scout=MEMORY_UPKEEP_SCOUT,
+    learned=LEARNED_KEY_PREFIX,
+    digest=DREAM_DIGEST_KEY_PREFIX,
+    kinds=", ".join(f"`{kind}`" for kind in LEARNED_KEY_KINDS[:-1]) + f" or `{LEARNED_KEY_KINDS[-1]}`",
+)
+
+
+def _memory_upkeep_section(memory_upkeep_has_written: bool, *, skill_name: str) -> str:
+    """The memory upkeep nudge for a project where the upkeep scout has written, and nothing for any other.
+
+    The upkeep scout itself never gets it, since the section describes its entries to the scouts
+    that read them. Rendered in the per-run block for the same reason as `_governed_metrics_section`.
+    """
+    if not memory_upkeep_has_written or skill_name == MEMORY_UPKEEP_SCOUT:
+        return ""
+    return _MEMORY_UPKEEP_NUDGE
+
+
 _ACTIVITY_SUMMARY_SEARCH_NUDGE = """# Find people who read the work
 
 When you set `suggested_reviewers`, also call `activity-summary-search`. It finds project members by object, topic, or product, including people who open something without editing it. A hit is a lead, so check it against the report. Repeatedly opening the affected object can support a selection when the `reason` says so. This is not ownership evidence, and broad activity alone is still not enough."""
@@ -1715,6 +1756,7 @@ def build_run_prompt(
     write_scopes: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
+    memory_upkeep_has_written: bool = False,
     activity_summary_search_available: bool = False,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
@@ -1794,6 +1836,11 @@ def build_run_prompt(
     approved, non-drifted metric the run's acting user may see. True renders a short nudge that the
     catalog exists; False renders nothing, so a project that does not use the data catalog pays no
     tokens for it. A failed check is False, because an outage must cost steering only.
+
+    `memory_upkeep_has_written` is the harness-side check that the memory upkeep scout
+    (`MEMORY_UPKEEP_SCOUT`) has at least one live scratchpad entry on the team. True renders a short
+    section on what it writes and how to read and weigh it; False renders nothing. A failed check is
+    False.
 
     `activity_summary_search_available` is the harness-side check that the team can search activity
     summaries and the run holds `activity-summary-search`. True renders a reviewer-routing nudge on
@@ -1918,6 +1965,7 @@ def build_run_prompt(
         section
         for section in (
             _governed_metrics_section(project_has_governed_metrics),
+            _memory_upkeep_section(memory_upkeep_has_written, skill_name=skill.name),
             _report_tags_in_use_section(report_tags_in_use or []) if report_channel else "",
             _activity_summary_search_section(activity_summary_search_available) if report_channel else "",
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",

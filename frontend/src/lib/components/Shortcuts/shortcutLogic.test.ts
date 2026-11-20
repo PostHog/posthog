@@ -79,6 +79,29 @@ describe('shortcutLogic key handling', () => {
     })
 
     it.each([
+        { target: 'a text field', editable: true },
+        { target: 'the page', editable: false },
+    ])('ignores a keydown with no key on $target, like the one browser autofill sends', ({ editable }) => {
+        const errors: unknown[] = []
+        const onError = (event: ErrorEvent): void => {
+            errors.push(event.error)
+            event.preventDefault()
+        }
+        window.addEventListener('error', onError)
+        const input = document.createElement('input')
+        document.body.appendChild(input)
+
+        const target = editable ? input : document.body
+        target.dispatchEvent(new Event('keydown', { bubbles: true }))
+        pressKey('e')
+
+        input.remove()
+        window.removeEventListener('error', onError)
+        expect(errors).toEqual([])
+        expect(onSingleKey).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
         { matchInEditable: true, expectedCalls: 1 },
         { matchInEditable: false, expectedCalls: 0 },
     ])(

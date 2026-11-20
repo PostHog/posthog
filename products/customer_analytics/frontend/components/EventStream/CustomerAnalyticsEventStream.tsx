@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { urls } from 'scenes/urls'
 
 import { eventStreamLogic } from './eventStreamLogic'
+import { QuillCustomerAnalyticsEventStream } from './QuillCustomerAnalyticsEventStream'
 
 function ConnectSlackPrompt(): JSX.Element {
     return (
@@ -34,9 +37,14 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
     } = useValues(eventStreamLogic)
     const { setDraft, resetDraft, saveEventStream, sendTestMessage, setSlackIntegration, setSlackChannel } =
         useActions(eventStreamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (isInitialLoading) {
-        return <LemonSkeleton className="h-20 w-full" />
+        return todayRailNav ? <Skeleton className="h-20 w-full" /> : <LemonSkeleton className="h-20 w-full" />
+    }
+
+    if (todayRailNav) {
+        return <QuillCustomerAnalyticsEventStream />
     }
 
     return (

@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -40,9 +41,10 @@ import {
 import { ColumnMappingModal } from './ColumnMappingModal'
 import { ListDisplay } from './ListDisplay'
 import { ItemName, PaginationControls } from './PaginationControls'
+import { QuillExternalDataSourceConfiguration } from './QuillExternalDataSourceConfiguration'
 import { StatusIcon } from './StatusIcon'
 
-type UnifiedSource = {
+export type UnifiedSource = {
     id: string
     name: string
     sourceType: string
@@ -69,6 +71,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     // Helper to get sync info for native sources
     const getSourceSyncInfo = (source: ExternalDataSource): { syncingTables: string[]; tablesToSync: string[] } => {
@@ -162,6 +165,26 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
     const hasAnyMapping = (table: ExternalTable): boolean => {
         const sourceMapping = table.source_map
         return !!(sourceMapping && Object.keys(sourceMapping).length > 0)
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillExternalDataSourceConfiguration
+                displayedSources={displayedSources}
+                totalCount={sourcesToUse.length}
+                hasMoreSources={hasMoreSources}
+                showAll={showAll}
+                onToggleShowAll={() => setShowAll(!showAll)}
+                loading={loading}
+                hasNoConfiguredSources={hasNoConfiguredSources}
+                unconfiguredNativeSources={unconfiguredNativeSources}
+                restrictedReason={restrictedReason}
+                editingTable={editingTable}
+                onEditTable={setEditingTable}
+                onRemoveTableMapping={removeTableMapping}
+                hasAnyMapping={hasAnyMapping}
+            />
+        )
     }
 
     return (

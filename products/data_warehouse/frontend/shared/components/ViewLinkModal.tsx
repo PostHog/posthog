@@ -14,17 +14,20 @@ import {
     LemonTag,
     Spinner,
 } from '@posthog/lemon-ui'
+import { Badge } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { JoinKeyMode, KeySelectOption, viewLinkLogic } from '../logics/viewLinkLogic'
+import { QuillViewLinkModal } from './QuillViewLinkModal'
 import { TableCombobox } from './TableCombobox'
 
 export type Mode = 'revenue_analytics'
@@ -36,7 +39,7 @@ const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct
 const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
     "Enter SQL expression, such as:\n- metadata.customer_id\n- metadata.organization_id\n- concat(email, ',', customer_id)"
 
-interface ModeConfig {
+export interface ModeConfig {
     description: JSX.Element
     lockSourceTable: boolean
     lockJoiningTable: boolean
@@ -79,7 +82,19 @@ const MODE_CONFIGS: Record<Mode, ModeConfig> = {
 export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
     const { toggleJoinTableModal } = useActions(viewLinkLogic)
+    const quillSurface = useQuillSurface()
     const config = mode ? MODE_CONFIGS[mode] : DEFAULT_MODE_CONFIG
+
+    if (quillSurface) {
+        return (
+            <QuillViewLinkModal
+                config={config}
+                joiningSqlPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
+                isOpen={isJoinTableModalOpen}
+                onClose={toggleJoinTableModal}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -388,6 +403,19 @@ interface KeyLabelProps {
 }
 
 export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <span className="flex items-center gap-2">
+                {column.name}
+                <Badge variant="success" className="uppercase">
+                    {column.type}
+                </Badge>
+            </span>
+        )
+    }
+
     return (
         <span>
             {column.name}{' '}
