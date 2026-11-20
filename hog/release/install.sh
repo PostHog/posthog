@@ -272,11 +272,12 @@ main() {
     mkdir -p "$install_dir"
     staged="$install_dir/.hog.$$.tmp"
     kept="$install_dir/.hog.$$.old"
-    mkdir "$staged" || err "couldn't write to $install_dir, so the install left it as it was."
-    cp "$tmp/unpacked"/* "$staged/"
-    chmod 755 "$staged"/*
+    if ! mkdir "$staged" "$kept" || ! cp "$tmp/unpacked"/* "$staged/" || ! chmod 755 "$staged"/*; then
+        rm -rf "$staged" "$kept"
+        err "couldn't write to $install_dir, so the install left it as it was."
+    fi
     if ! installed=$(HOG_CHECK_INSTALL=1 "$staged/hog" --version 2>"$tmp/run-error.txt"); then
-        rm -rf "$staged"
+        rm -rf "$staged" "$kept"
         # The musl build of hog links the C++ runtime, which a bare Alpine image lacks. musl's loader
         # names the library it can't find, and no glibc loader words it this way.
         if grep -q -e 'Error loading shared library libstdc++\.so' \
@@ -289,7 +290,6 @@ main() {
 
     # The files of a release work only together, so each old one stays aside until every new one is
     # in place, and all of them go back when one can't be replaced.
-    mkdir "$kept"
     replaced=''
     for file in "$staged"/*; do
         name=$(basename "$file")
