@@ -3,14 +3,14 @@ import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import path from 'path'
 
 import { defaultConfig } from '~/common/config/config'
-import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
 
 const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
-const RECONNECT_ATTEMPTS_THAT_FAIL_QUEUED_COMMANDS = 6
+const AN_OUTAGE_PAST_THE_ONE_SECOND_RECONNECT_BOUND_MS = 2_500
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
 
 const NODEJS_ROOT = path.resolve(__dirname, '../..')
@@ -165,29 +165,14 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             return value
         }
 
-        const dropConnectionsAndWaitForTheClientToNotice = async (): Promise<RedisClient> => {
-            let sharedClient: RedisClient | undefined
-            const clientSawTheDrop = writer.useClient({ name: 'watch-drop' }, (client) => {
-                sharedClient = client
-                return new Promise((resolve) => client.once('close', resolve))
-            })
+        const dropConnectionsAndWaitForTheClientToNotice = async (): Promise<void> => {
+            const clientSawTheDrop = writer.useClient(
+                { name: 'watch-drop' },
+                (client) => new Promise((resolve) => client.once('close', resolve))
+            )
             await dropConnections()
             await clientSawTheDrop
-            return sharedClient!
         }
-
-        const reconnectAttempts = (client: RedisClient, attempts: number): Promise<void> =>
-            new Promise((resolve) => {
-                let seen = 0
-                const countAttempt = (): void => {
-                    seen++
-                    if (seen === attempts) {
-                        client.off('reconnecting', countAttempt)
-                        resolve()
-                    }
-                }
-                client.on('reconnecting', countAttempt)
-            })
 
         it('answers a command issued while the connection is briefly down', async () => {
             await dropConnectionsAndWaitForTheClientToNotice()
@@ -200,13 +185,15 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
 
         it('does not send a write queued through a long outage after the restore', async () => {
             const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
-            const sharedClient = await dropConnectionsAndWaitForTheClientToNotice()
-            const queuedCommandsFailed = reconnectAttempts(sharedClient, RECONNECT_ATTEMPTS_THAT_FAIL_QUEUED_COMMANDS)
+            await dropConnectionsAndWaitForTheClientToNotice()
+            const outageEnds = new Promise((resolve) =>
+                setTimeout(resolve, AN_OUTAGE_PAST_THE_ONE_SECOND_RECONNECT_BOUND_MS)
+            )
 
             await expect(
                 writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'queued during the outage'))
             ).rejects.toThrow()
-            await queuedCommandsFailed
+            await outageEnds
             await restoreValkey()
 
             expect(await readBack(key)).toBeNull()
