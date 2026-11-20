@@ -789,7 +789,10 @@ class TestMarketplaceTables:
             ("A", "2026-10-14T00:00:00Z", "2026-10-15T00:00:00Z"),
             ("B", "2026-10-14T00:00:00Z", "2026-10-15T00:00:00Z"),
         ]
-        assert result.saved_states == [AmazonSellingPartnerResumeConfig(marketplace_id="B")]
+        assert result.saved_states == [
+            AmazonSellingPartnerResumeConfig(marketplace_id="B"),
+            AmazonSellingPartnerResumeConfig(completed_marketplaces=["A", "B"]),
+        ]
 
     @pytest.mark.parametrize(
         ("last_value", "expected_modified_after"),
@@ -819,11 +822,11 @@ class TestMarketplaceTables:
         assert len(windows) == 9
         api_requests = _api_requests(result)
         expected: list[tuple[str, str, str, str | None]] = [
-            (marketplace, to_iso8601(start), to_iso8601(end), None)
+            (marketplace, to_iso8601(window.start), to_iso8601(window.end), None)
             for marketplace in ("A", "B")
-            for start, end in windows
+            for window in windows
         ]
-        last_window = (to_iso8601(windows[-1][0]), to_iso8601(windows[-1][1]))
+        last_window = (to_iso8601(windows[-1].start), to_iso8601(windows[-1].end))
         expected.insert(9, ("A", *last_window, "n2"))
         expected.append(("B", *last_window, "n2"))
         assert [
@@ -868,14 +871,15 @@ class TestMarketplaceTables:
         ]
 
     @pytest.mark.parametrize(
-        ("resume_state", "expected_offsets"),
+        ("resume_state", "expected_offsets", "expected_rows"),
         [
-            (None, [0, 100, 200]),
-            (AmazonSellingPartnerResumeConfig(marketplace_id="A", next_token="200"), [200]),
+            (None, [0, 100, 200], 230),
+            (AmazonSellingPartnerResumeConfig(marketplace_id="A", next_token="200"), [200], 30),
+            (AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"]), [], 0),
         ],
     )
     def test_replenishment_offers_page_by_offset_in_the_post_body(
-        self, resume_state: AmazonSellingPartnerResumeConfig | None, expected_offsets: list[int]
+        self, resume_state: AmazonSellingPartnerResumeConfig | None, expected_offsets: list[int], expected_rows: int
     ) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == TOKEN_PATH:
@@ -887,19 +891,21 @@ class TestMarketplaceTables:
 
         assert result.raised is None
         api_requests = _api_requests(result)
-        assert {r.method for r in api_requests} == {"POST"}
+        assert all(r.method == "POST" for r in api_requests)
         assert [r.json()["pagination"] for r in api_requests] == [
             {"offset": offset, "limit": 100} for offset in expected_offsets
         ]
-        assert {json.dumps({k: v for k, v in r.json().items() if k != "pagination"}) for r in api_requests} == {
-            json.dumps(
-                {
-                    "filters": {"marketplaceId": "A", "programTypes": ["SUBSCRIBE_AND_SAVE"]},
-                    "sort": {"order": "ASC", "key": "ASIN"},
-                }
-            )
-        }
-        assert len(result.rows) == 230 - expected_offsets[0]
+        assert all(
+            {k: v for k, v in r.json().items() if k != "pagination"}
+            == {
+                "filters": {"marketplaceId": "A", "programTypes": ["SUBSCRIBE_AND_SAVE"]},
+                "sort": {"order": "ASC", "key": "ASIN"},
+            }
+            for r in api_requests
+        )
+        assert len(result.rows) == expected_rows
+        if expected_offsets:
+            assert result.saved_states[-1] == AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"])
 
     def test_replenishment_offers_stop_at_the_largest_offset_amazon_accepts(self) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
@@ -941,9 +947,34 @@ class TestMarketplaceTables:
         assert "B" in requested
         assert len(result.rows) >= 1
 
-    def test_a_configured_marketplace_the_api_rejects_fails_the_sync(self) -> None:
-        result = _driver("A").run(
-            "order_metrics", route({TOKEN_PATH: [TOKEN], ORDER_METRICS_PATH: [INVALID_MARKETPLACE]})
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "marketplace_ids", "resume_state"),
+        [
+            ("replenishment_offers", OFFERS_PATH, "A", None),
+            (
+                "invoices",
+                INVOICES_PATH,
+                None,
+                AmazonSellingPartnerResumeConfig(
+                    marketplace_id="A",
+                    window_start="2026-07-01T00:00:00Z",
+                    window_end="2026-09-29T00:00:00Z",
+                    next_token="expired",
+                ),
+            ),
+        ],
+    )
+    def test_a_rejection_that_is_not_an_uncovered_discovered_marketplace_fails_the_sync(
+        self,
+        endpoint: str,
+        path: str,
+        marketplace_ids: str | None,
+        resume_state: AmazonSellingPartnerResumeConfig | None,
+    ) -> None:
+        result = _driver(marketplace_ids).run(
+            endpoint,
+            route({TOKEN_PATH: [TOKEN], PARTICIPATIONS_PATH: [_participations("A")], path: [INVALID_MARKETPLACE]}),
+            resume_state=resume_state,
         )
 
         assert isinstance(result.raised, requests.HTTPError)

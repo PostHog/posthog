@@ -719,16 +719,22 @@ class MarketplaceStep:
     window_end: datetime | None = None
 
 
-WindowsFrom = Callable[[datetime | None], list[tuple[datetime, datetime]]]
+@frozen
+class DateWindow:
+    start: datetime
+    end: datetime
 
 
-def date_windows(start: datetime, now: datetime, days: int) -> list[tuple[datetime, datetime]]:
+WindowsFrom = Callable[[datetime | None], list[DateWindow]]
+
+
+def date_windows(start: datetime, now: datetime, days: int) -> list[DateWindow]:
     """Contiguous [start, end) windows of at most `days` days from `start` up to the request margin."""
     cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
-    windows: list[tuple[datetime, datetime]] = []
+    windows: list[DateWindow] = []
     while start < cutoff:
         end = min(start + timedelta(days=days), cutoff)
-        windows.append((start, end))
+        windows.append(DateWindow(start=start, end=end))
         start = end
     return windows
 
@@ -744,10 +750,12 @@ def marketplace_steps(
         if windows_from is None:
             return [MarketplaceStep(marketplace_id=marketplace_id)]
         return [
-            MarketplaceStep(marketplace_id=marketplace_id, window_start=start, window_end=end)
-            for start, end in windows_from(after)
+            MarketplaceStep(marketplace_id=marketplace_id, window_start=window.start, window_end=window.end)
+            for window in windows_from(after)
         ]
 
+    if resume is not None and resume.completed_marketplaces:
+        marketplace_ids = [id for id in marketplace_ids if id not in resume.completed_marketplaces]
     if resume is None or resume.marketplace_id not in marketplace_ids:
         return [step for marketplace_id in marketplace_ids for step in steps_for(marketplace_id)]
     resumed = resume.marketplace_id
@@ -774,6 +782,7 @@ def _marketplace_walk_resource(
     windows_from: WindowsFrom | None,
     page_state_key: str,
     build: Callable[[MarketplaceStep, ResumeHook, dict[str, Any] | None], Resource],
+    rows_cap: int | None = None,
 ) -> Resource:
     """Walk the table one marketplace at a time, resuming at the saved marketplace, window and page."""
 
@@ -788,7 +797,10 @@ def _marketplace_walk_resource(
     def pages() -> Iterator[Any]:
         resume = manager.load_state() if manager.can_resume() else None
         discovered = not marketplace_ids
-        steps = marketplace_steps(marketplace_ids or list_marketplace_ids(region, auth), windows_from, resume)
+        all_marketplaces = marketplace_ids or list_marketplace_ids(region, auth)
+        steps = marketplace_steps(all_marketplaces, windows_from, resume)
+        # Staged with the walk's last page, so a hand-off after it reads nothing again.
+        finished = AmazonSellingPartnerResumeConfig(completed_marketplaces=list(all_marketplaces))
         rejected: str | None = None
         for index, step in enumerate(steps):
             if step.marketplace_id == rejected:
@@ -809,29 +821,44 @@ def _marketplace_walk_resource(
             ) -> None:
                 if page_state and page_state.get(page_state_key) is not None:
                     manager.save_state(state_for(step, page_state))
-                elif following is not None:
+                else:
                     # Staged before the step's last page is handed on, so a resume skips the step.
-                    manager.save_state(state_for(following))
+                    manager.save_state(state_for(following) if following is not None else finished)
 
             got_a_page = False
+            rows_read = int(initial_state[page_state_key]) if rows_cap is not None and initial_state else 0
             try:
                 for batch in build(step, save_checkpoint, initial_state):
                     got_a_page = True
+                    rows_read += len(batch)
                     yield batch
                     # The staged state still points at or before this page, so a hand-off here loses no rows.
                     manager.safe_point()
             except requests.HTTPError as e:
                 # A discovered marketplace can be a channel this API does not cover, such as Non-Amazon.
                 # Amazon rejects it on the first request, before any row or page token exists to lose.
-                if not discovered or got_a_page or not first_of_marketplace or not _is_invalid_input(e):
+                # A resumed request can fail on an expired page token instead, which must not skip rows.
+                if (
+                    not discovered
+                    or got_a_page
+                    or initial_state is not None
+                    or not first_of_marketplace
+                    or not _is_invalid_input(e)
+                ):
                     raise
                 logger.warning(
                     "amazon_selling_partner_marketplace_skipped", table=name, marketplace_id=step.marketplace_id
                 )
                 rejected = step.marketplace_id
                 next_marketplace = next((s for s in steps[index + 1 :] if s.marketplace_id != rejected), None)
-                if next_marketplace is not None:
-                    manager.save_state(state_for(next_marketplace))
+                manager.save_state(state_for(next_marketplace) if next_marketplace is not None else finished)
+            if rows_cap is not None and rows_read >= rows_cap:
+                logger.warning(
+                    "amazon_selling_partner_rows_cap_reached",
+                    table=name,
+                    marketplace_id=step.marketplace_id,
+                    rows_cap=rows_cap,
+                )
             # Empty pages are not handed on, so a run of empty windows reaches a safe point here.
             manager.safe_point()
 
@@ -933,7 +960,7 @@ def _invoices_resource(
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         modified_after = to_iso8601(db_incremental_field_last_value)
 
-    def windows_from(after: datetime | None) -> list[tuple[datetime, datetime]]:
+    def windows_from(after: datetime | None) -> list[DateWindow]:
         # An invoice issued long ago can still change, so an incremental sync also walks every
         # issue-date window and lets invoicesModifiedAfter filter the rows.
         return date_windows(after or history_start, now, INVOICES_WINDOW_DAYS)
@@ -1030,6 +1057,7 @@ def _replenishment_offers_resource(
         windows_from=None,
         page_state_key="offset",
         build=build,
+        rows_cap=REPLENISHMENT_OFFERS_MAX_OFFSET + REPLENISHMENT_OFFERS_PAGE_SIZE,
     )
 
 
