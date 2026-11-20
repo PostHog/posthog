@@ -217,26 +217,23 @@ export function ReportStatusSection({
                         </StatusRow>
                     )}
                 </dl>
-                {editableDecisions &&
-                    hasAgentDecisions && (
-                        // A wrong repository matters most before a pull request exists, so the group starts open then.
-                        <ReportAgentDecisions
-                            values={[
-                                report.repo_slug,
-                                report.actionability && actionabilityLabel(report.actionability),
-                                report.already_addressed ? 'Already addressed' : null,
-                            ]}
-                            defaultExpanded={pullRequests.length === 0}
-                            onToggleCollapsed={onToggleAgentDecisions}
-                        >
-                            {report.repo_slug && (
-                                <ReportRepositoryDecisionRow
-                                    repository={report.repo_slug}
-                                    attribution={decisionAttributions?.repository ?? null}
-                                    onChange={onRepositoryChange}
-                                    saving={repositorySaving}
-                                />
-                            )}
+                {editableDecisions && hasAgentDecisions && (
+                    <ReportAgentDecisions
+                        values={[
+                            report.repo_slug,
+                            report.actionability && actionabilityLabel(report.actionability),
+                            report.already_addressed ? 'Already addressed' : null,
+                        ]}
+                        onToggleCollapsed={onToggleAgentDecisions}
+                    >
+                        {report.repo_slug && (
+                            <ReportRepositoryDecisionRow
+                                repository={report.repo_slug}
+                                attribution={decisionAttributions?.repository ?? null}
+                                onChange={onRepositoryChange}
+                                saving={repositorySaving}
+                            />
+                        )}
                             {report.actionability && (
                                 <ReportDecisionRow<SignalReportActionability>
                                     label="Actionability"
