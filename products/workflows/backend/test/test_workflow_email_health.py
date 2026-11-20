@@ -333,14 +333,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("warning", True)]),
+            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("warning", True, False)]),
             (
                 "transactional_breach_beside_a_quiet_sibling",
                 ["transactional"],
                 (300, 60),
                 (8, 1),
                 [],
-                [("warning", True)],
+                [("warning", True, False)],
             ),
             (
                 "sibling_breach_beside_a_quiet_transactional_workflow",
@@ -348,7 +348,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (1, 1),
                 (300, 60),
                 ["sibling"],
-                [("paused", False)],
+                [("paused", False, True)],
             ),
             (
                 "one_marketing_step_makes_it_pausable",
@@ -356,7 +356,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (300, 60),
                 None,
                 ["own"],
-                [("paused", False)],
+                [("paused", False, True)],
             ),
             (
                 "a_generic_email_template_step_makes_it_pausable",
@@ -364,7 +364,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (300, 60),
                 None,
                 ["own"],
-                [("paused", False)],
+                [("paused", False, True)],
             ),
         ]
     )
@@ -376,7 +376,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         own_seed: tuple[int, int],
         sibling_seed: tuple[int, int] | None,
         paused: list[str],
-        emails: list[tuple[str, bool]],
+        emails: list[tuple[str, bool, bool]],
         MockEmailMessage: MagicMock,
     ):
         set_instance_setting("EMAIL_HOST", "fake_host")
@@ -410,8 +410,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             (
                 message.template_name.removeprefix("workflow_email_sending_"),
                 "we don't pause it automatically" in message.html_body,
+                "never open anything" in message.html_body,
             )
             for message in sent_emails
+            if message.send.call_count == 1
         ] == emails
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
