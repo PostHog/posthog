@@ -1,3 +1,5 @@
+// Mirrors cli/src/sourcemaps/constant.rs; keep byte output identical.
+
 pub const CODE_SNIPPET_TEMPLATE: &str = r#"!function(){try{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]="__POSTHOG_CHUNK_ID__")}catch(e){}}();"#;
 
 // The SDK only reads `_posthogReleaseId` when it is a non-empty string, so the placeholder is

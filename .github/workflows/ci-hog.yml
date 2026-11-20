@@ -6,6 +6,8 @@ on:
     pull_request:
         paths:
             - 'hog/**'
+            # hog-worker pins the crates posthog-cli resolves here, and a test holds the two together.
+            - 'cli/Cargo.lock'
             # hog imports its types from the MCP package's CLI library.
             - 'services/mcp/src/cli/library-types.ts'
             # The lockfile and the workspace catalog decide which dependencies hog installs.
@@ -35,6 +37,7 @@ jobs:
                       /*
                       !/*/
                       /hog/
+                      /cli/Cargo.lock
                       /services/mcp/
                       /tools/openapi-codegen/
                       /packages/llm-normalizer/
