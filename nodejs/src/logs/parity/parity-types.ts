@@ -44,6 +44,7 @@ export type ParityScenario = {
     /** Defaults depend on the environment, so the fixture stores the complete config. */
     config: Record<string, string | number | boolean>
     teams: ParityTeam[]
+    secret_key_teams?: Record<string, number>
     quota_limited_tokens: string[]
     sampling_rules: Record<string, unknown[]>
     retention_rules: Record<string, Record<string, unknown[]>>

@@ -24,6 +24,9 @@ impl TeamManager for ReadOnlyTeamManager {
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>> {
         self.0.get_team_by_token(token).await
     }
+    async fn get_team_by_secret_key(&self, secret_key: &str) -> anyhow::Result<Option<Team>> {
+        self.0.get_team_by_secret_key(secret_key).await
+    }
     async fn set_teams_ingested_data(&self, team_ids: &[i64]) -> anyhow::Result<()> {
         suppressed("set_teams_ingested_data", team_ids.len() as u64);
         Ok(())

@@ -16,6 +16,7 @@ pub const INTERNAL_LOGS_MIN_RETENTION_DAYS: f64 = 1.0;
 #[derive(Debug, Clone)]
 pub struct LogsIngestionMessage {
     pub token: String,
+    pub auth_type: Option<&'static str>,
     pub message: Arc<KafkaMessage>,
     pub team_id: i64,
     pub bytes_uncompressed: f64,

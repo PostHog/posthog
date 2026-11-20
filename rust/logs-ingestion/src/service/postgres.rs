@@ -23,6 +23,7 @@ use crate::retention::{
     MAX_ENABLED_RETENTION_RULES,
 };
 use crate::sampling::{compile_rule_set, CompiledRuleSet, SamplingRuleRow};
+use crate::secret_key::{hash_secret_key, SECRET_KEY_SCOPE};
 
 use super::lazy_loader::{LazyLoader, LazyLoaderOptions};
 
@@ -101,6 +102,10 @@ fn token_key(token: &str) -> String {
     format!("token:{token}")
 }
 
+fn secret_key(secret_key: &str) -> String {
+    format!("secret:{}", hash_secret_key(secret_key))
+}
+
 #[derive(Debug, Clone)]
 pub struct CachedTeam {
     pub team: Team,
@@ -155,11 +160,14 @@ async fn fetch_teams(
 ) -> anyhow::Result<HashMap<String, Option<CachedTeam>>> {
     let mut ids: Vec<i32> = Vec::new();
     let mut tokens: Vec<String> = Vec::new();
+    let mut key_hashes: Vec<String> = Vec::new();
     for key in &keys {
         if let Some(raw) = key.strip_prefix("id:") {
             ids.extend(valid_team_id(raw));
         } else if let Some(token) = key.strip_prefix("token:") {
             tokens.push(token.to_string());
+        } else if let Some(hash) = key.strip_prefix("secret:") {
+            key_hashes.push(hash.to_string());
         }
     }
     let rows = sqlx::query(
@@ -175,21 +183,40 @@ async fn fetch_teams(
     let mut out: HashMap<String, Option<CachedTeam>> =
         keys.into_iter().map(|k| (k, None)).collect();
     for row in rows {
-        let id: i32 = row.try_get("id")?;
-        let api_token: String = row.try_get("api_token")?;
-        let settings = parse_json_column(row.try_get("logs_settings")?);
-        let team = CachedTeam {
-            team: Team {
-                id: id as i64,
-                api_token: api_token.clone(),
-                logs_settings: logs_settings(Some(&settings)),
-            },
-            ingested_event: row.try_get("ingested_event")?,
-        };
-        out.insert(id_key(id), Some(team.clone()));
-        out.insert(token_key(&api_token), Some(team));
+        let team = cached_team(&row)?;
+        out.insert(id_key(team.team.id), Some(team.clone()));
+        out.insert(token_key(&team.team.api_token), Some(team));
+    }
+    if !key_hashes.is_empty() {
+        let rows = sqlx::query(
+            "SELECT k.secure_value, t.id, t.api_token, t.logs_settings::text AS logs_settings, t.ingested_event \
+             FROM posthog_projectsecretapikey k JOIN posthog_team t ON t.id = k.team_id \
+             WHERE k.secure_value = ANY($1) AND $2 = ANY(k.scopes)",
+        )
+        .bind(&key_hashes)
+        .bind(SECRET_KEY_SCOPE)
+        .fetch_all(pool)
+        .await
+        .map_err(classify_pg_error)?;
+        for row in rows {
+            let hash: String = row.try_get("secure_value")?;
+            out.insert(format!("secret:{hash}"), Some(cached_team(&row)?));
+        }
     }
     Ok(out)
+}
+
+fn cached_team(row: &sqlx::postgres::PgRow) -> anyhow::Result<CachedTeam> {
+    let id: i32 = row.try_get("id")?;
+    let settings = parse_json_column(row.try_get("logs_settings")?);
+    Ok(CachedTeam {
+        team: Team {
+            id: id as i64,
+            api_token: row.try_get("api_token")?,
+            logs_settings: logs_settings(Some(&settings)),
+        },
+        ingested_event: row.try_get("ingested_event")?,
+    })
 }
 
 #[async_trait]
@@ -200,6 +227,10 @@ impl TeamManager for PgTeamManager {
 
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>> {
         Ok(self.cached(&token_key(token)).await?.map(|t| t.team))
+    }
+
+    async fn get_team_by_secret_key(&self, key: &str) -> anyhow::Result<Option<Team>> {
+        Ok(self.cached(&secret_key(key)).await?.map(|t| t.team))
     }
 
     async fn set_teams_ingested_data(&self, team_ids: &[i64]) -> anyhow::Result<()> {

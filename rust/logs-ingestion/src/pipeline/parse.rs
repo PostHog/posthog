@@ -4,6 +4,7 @@ use ingestion_framework::{drop, ok, KafkaMessage, Outcome, PipelineResult, Proce
 use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
+use crate::secret_key::{is_secret_key, AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX};
 
 use super::context::{kafka_header, quarantine_log_message, LogsPipelineContext};
 use super::deps::Team;
@@ -25,7 +26,7 @@ async fn parse(
     message: Arc<KafkaMessage>,
 ) -> anyhow::Result<PipelineResult<LogsIngestionMessage>> {
     let header = |name: &str| kafka_header(&message, name);
-    let token = match header("token").as_deref() {
+    let sent_token = match header("token").as_deref() {
         Some(t) if !t.is_empty() => t.to_string(),
         _ => {
             tracing::warn!("missing_token");
@@ -36,8 +37,23 @@ async fn parse(
 
     // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
     // every team whose token is not cached yet. Only an outage past the backoff drops.
+    let sent_secret_key = is_secret_key(&sent_token);
     let team: Option<Team> = match context
-        .retry(|| context.deps.team_manager.get_team_by_token(&token))
+        .retry(|| async {
+            if sent_secret_key {
+                context
+                    .deps
+                    .team_manager
+                    .get_team_by_secret_key(&sent_token)
+                    .await
+            } else {
+                context
+                    .deps
+                    .team_manager
+                    .get_team_by_token(&sent_token)
+                    .await
+            }
+        })
         .await
     {
         Ok(team) => team,
@@ -48,9 +64,21 @@ async fn parse(
         }
     };
     let Some(team) = team else {
-        tracing::warn!(token_with_no_team = %token, "team_not_found");
+        // A secret key is never logged, because a real key without the scope also lands here.
+        let logged_token = if sent_secret_key {
+            SECRET_KEY_PREFIX
+        } else {
+            sent_token.as_str()
+        };
+        tracing::warn!(token_with_no_team = %logged_token, "team_not_found");
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
+    };
+    // Everything after this step sees the public token, so the secret key stays out of the outputs.
+    let token = if sent_secret_key {
+        team.api_token.clone()
+    } else {
+        sent_token
     };
 
     let bytes_uncompressed = parse_size_header(header("bytes_uncompressed").as_deref());
@@ -92,6 +120,7 @@ async fn parse(
     );
     Ok(ok(LogsIngestionMessage {
         token,
+        auth_type: sent_secret_key.then_some(AUTH_TYPE_SECRET_KEY),
         message: message.clone(),
         team_id: team.id,
         bytes_uncompressed,

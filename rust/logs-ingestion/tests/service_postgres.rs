@@ -80,6 +80,7 @@ impl SeededTeam {
             "tracing_tracesretentionrule",
             "logs_logsmetricrule",
             "logs_teamlogsconfig",
+            "posthog_projectsecretapikey",
             "tracing_teamtracingconfig",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE team_id = $1"))
@@ -178,6 +179,48 @@ async fn team_manager_reads_teams_and_writes_ingested_event_once() {
             .await
             .unwrap();
     assert!(ingested);
+    team.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_secret_key_resolves_its_team_only_with_the_logs_write_scope() {
+    let Some(pool) = pool().await else { return };
+    let team = SeededTeam::create(pool.clone(), "null").await;
+    let with_scope = format!("phs_rust_logs_write_{}", team.id);
+    let without_scope = format!("phs_rust_logs_read_{}", team.id);
+    for (key, scope) in [(&with_scope, "logs:write"), (&without_scope, "logs:read")] {
+        sqlx::query(
+            "INSERT INTO posthog_projectsecretapikey (id, team_id, label, secure_value, created_at, scopes) \
+             VALUES ($1, $2, $1, $3, now(), ARRAY[$4])",
+        )
+        .bind(key)
+        .bind(team.id)
+        .bind(logs_ingestion::secret_key::hash_secret_key(key))
+        .bind(scope)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let manager = PgTeamManager::new(pool.clone(), None);
+
+    let found = manager.get_team_by_secret_key(&with_scope).await.unwrap();
+    assert_eq!(found.map(|t| t.api_token), Some(team.token.clone()));
+    assert_eq!(
+        manager
+            .get_team_by_secret_key(&without_scope)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        manager
+            .get_team_by_secret_key("phs_rust_logs_no_such_key")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(manager.get_team_by_token(&with_scope).await.unwrap(), None);
+
     team.cleanup().await;
 }
 

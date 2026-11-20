@@ -800,6 +800,27 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
         scenarios.push(finish(s))
     }
     {
+        // Its own factory, so the scenarios recorded before it keep their messages.
+        const f = new MessageFactory(new Rng(12))
+        const keyed = baseScenario(
+            'secret-key',
+            'A project secret API key as the token sets auth-type, and the output carries the public token.'
+        )
+        keyed.secret_key_teams = { phs_parity_plain: 101, phs_parity_pii: 103 }
+        keyed.quota_limited_tokens = [pii.api_token]
+        keyed.batches = [
+            [
+                await f.logs('phs_parity_plain', 2),
+                await f.logs('phs_parity_plain', 1, { headers: { 'auth-type': 'spoofed' } }),
+                await f.logs(plain, 2, { headers: { 'auth-type': 'secret_key' } }),
+                await f.logs('phs_parity_no_such_key', 2),
+                // The quota check must see the team's public token.
+                await f.logs('phs_parity_pii', 2),
+            ],
+        ]
+        scenarios.push(finish(keyed))
+    }
+    {
         const rng = new Rng(11)
         const f = new MessageFactory(rng)
         const s = baseScenario('faults', 'Produce failures route to the DLQ; app metric failures are logged.')

@@ -1,3 +1,4 @@
+use crate::secret_key::AUTH_TYPE_HEADER;
 use std::collections::HashMap;
 
 use hmac::{Hmac, Mac};
@@ -142,7 +143,14 @@ where
 {
     headers
         .into_iter()
-        .filter(|(k, _)| k.as_ref() != INTERNAL_LOGS_HEADER && k.as_ref() != INTERNAL_SOURCE_HEADER)
+        .filter(|(k, _)| {
+            ![
+                INTERNAL_LOGS_HEADER,
+                INTERNAL_SOURCE_HEADER,
+                AUTH_TYPE_HEADER,
+            ]
+            .contains(&k.as_ref())
+        })
         .collect()
 }
 
