@@ -29,8 +29,60 @@ const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
 const GENERATED_SCHEMAS_DIR = 'services/mcp/src/generated/'
 const REGISTRY_IMPORT = /^import \{ GENERATED_TOOLS as (\w+) \} from '\.\/([\w-]+)'$/
 const REGISTRY_SPREAD = /^\s+\.\.\.(\w+),$/
-const TOP_LEVEL_BLOCK = /^(?:export )?(?:const|function) (\w+)/
-const COMMENT_LINE = /^\s*(\/\*\*|\*|\/\/)/
+const ZOD_MODULES = new Set(['zod', 'zod/v4'])
+// zod's schema builders, which run none of the callbacks they take. Anything else, like `parse`, can run code.
+const ZOD_BUILDERS = new Set([
+    'any',
+    'array',
+    'bigint',
+    'boolean',
+    'catchall',
+    'coerce',
+    'date',
+    'datetime',
+    'default',
+    'describe',
+    'discriminatedUnion',
+    'email',
+    'enum',
+    'gt',
+    'gte',
+    'int',
+    'intersection',
+    'length',
+    'literal',
+    'looseObject',
+    'lt',
+    'lte',
+    'max',
+    'min',
+    'multipleOf',
+    'nativeEnum',
+    'negative',
+    'never',
+    'nonempty',
+    'nonnegative',
+    'nonpositive',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'optional',
+    'passthrough',
+    'positive',
+    'record',
+    'regex',
+    'strict',
+    'strictObject',
+    'string',
+    'tuple',
+    'undefined',
+    'union',
+    'unknown',
+    'url',
+    'uuid',
+])
 const TOOL_NAME = /^\s+name: '([a-z0-9-]+)',$/m
 const DEFINITION_FILES = new Set([
     'services/mcp/schema/tool-definitions.json',
@@ -155,26 +207,186 @@ function uncarriedTools(input: GapInput, carried: Set<string>, file: string): st
     return tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
 }
 
-// Comments are dropped because they change nothing hog runs.
-function topLevelBlocks(source: string): { prelude: string; blocks: Map<string, string> } {
+const printer = ts.createPrinter({ removeComments: true })
+
+interface Scope {
+    zod: Set<string>
+    globalRegExp: boolean
+}
+
+// The names a top-level statement binds. Undefined stands for a binding this can't name, like a destructured one.
+function declaredNames(statement: ts.Statement): (string | undefined)[] {
+    if (ts.isImportDeclaration(statement)) {
+        const clause = statement.importClause
+        const bindings = clause?.namedBindings
+        return [
+            ...(clause?.name ? [clause.name.text] : []),
+            ...(bindings && ts.isNamespaceImport(bindings) ? [bindings.name.text] : []),
+            ...(bindings && ts.isNamedImports(bindings) ? bindings.elements.map((element) => element.name.text) : []),
+        ]
+    }
+    if (ts.isVariableStatement(statement)) {
+        return statement.declarationList.declarations.map((declaration) =>
+            ts.isIdentifier(declaration.name) ? declaration.name.text : undefined
+        )
+    }
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+        return [statement.name?.text]
+    }
+    return []
+}
+
+function moduleScope(file: ts.SourceFile): Scope {
+    const zod = new Set<string>()
+    let globalRegExp = true
+    for (const statement of file.statements) {
+        if (ts.isImportDeclaration(statement)) {
+            const bindings = statement.importClause?.namedBindings
+            const fromZod =
+                ts.isStringLiteral(statement.moduleSpecifier) && ZOD_MODULES.has(statement.moduleSpecifier.text)
+            if (fromZod && bindings && ts.isNamespaceImport(bindings)) {
+                zod.add(bindings.name.text)
+            }
+            if (fromZod && bindings && ts.isNamedImports(bindings)) {
+                bindings.elements
+                    .filter((element) => (element.propertyName ?? element.name).text === 'z')
+                    .forEach((element) => zod.add(element.name.text))
+            }
+        }
+        if (declaredNames(statement).some((name) => name === 'RegExp' || name === undefined)) {
+            globalRegExp = false
+        }
+    }
+    return { zod, globalRegExp }
+}
+
+// Whether evaluating the expression when hog imports the module runs no code beyond building literals,
+// functions, regular expressions and zod schemas.
+function inertExpression(node: ts.Expression, scope: Scope): boolean {
+    if (
+        ts.isParenthesizedExpression(node) ||
+        ts.isAsExpression(node) ||
+        ts.isSatisfiesExpression(node) ||
+        ts.isNonNullExpression(node)
+    ) {
+        return inertExpression(node.expression, scope)
+    }
+    if (
+        ts.isArrowFunction(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isLiteralExpression(node) ||
+        ts.isIdentifier(node)
+    ) {
+        return true
+    }
+    if (
+        node.kind === ts.SyntaxKind.TrueKeyword ||
+        node.kind === ts.SyntaxKind.FalseKeyword ||
+        node.kind === ts.SyntaxKind.NullKeyword
+    ) {
+        return true
+    }
+    if (ts.isPrefixUnaryExpression(node)) {
+        return node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand)
+    }
+    if (ts.isArrayLiteralExpression(node)) {
+        return node.elements.every((element) => !ts.isSpreadElement(element) && inertExpression(element, scope))
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+        return node.properties.every(
+            (property) =>
+                (ts.isPropertyAssignment(property) &&
+                    !ts.isComputedPropertyName(property.name) &&
+                    inertExpression(property.initializer, scope)) ||
+                (ts.isShorthandPropertyAssignment(property) && !property.objectAssignmentInitializer)
+        )
+    }
+    if (ts.isNewExpression(node)) {
+        return (
+            scope.globalRegExp &&
+            ts.isIdentifier(node.expression) &&
+            node.expression.text === 'RegExp' &&
+            (node.arguments ?? []).every((argument) => ts.isStringLiteralLike(argument))
+        )
+    }
+    if (ts.isCallExpression(node)) {
+        return (
+            !node.questionDotToken &&
+            zodBuilder(node.expression, scope) &&
+            node.arguments.every((argument) => inertExpression(argument, scope))
+        )
+    }
+    return ts.isPropertyAccessExpression(node) && zodBuilder(node, scope)
+}
+
+function zodBuilder(node: ts.Expression, scope: Scope): boolean {
+    if (ts.isIdentifier(node)) {
+        return scope.zod.has(node.text)
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+        return !node.questionDotToken && ZOD_BUILDERS.has(node.name.text) && zodBuilder(node.expression, scope)
+    }
+    return ts.isCallExpression(node) && inertExpression(node, scope)
+}
+
+// The name a top-level statement declares when evaluating it at import runs nothing, as for the generator's
+// `export const X = () => zod.object(...)`. Undefined for any other statement.
+function inertDeclaration(statement: ts.Statement, scope: Scope): string | undefined {
+    if (ts.isFunctionDeclaration(statement)) {
+        return statement.body && statement.name?.text
+    }
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) {
+        return undefined
+    }
+    const [declaration, ...others] = statement.declarationList.declarations
+    return declaration &&
+        others.length === 0 &&
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer &&
+        inertExpression(declaration.initializer, scope)
+        ? declaration.name.text
+        : undefined
+}
+
+interface Block {
+    // As written, for reading tool names and schema references.
+    text: string
+    // As compiled, without comments, for comparing.
+    code: string
+}
+
+// Splits a module into the declarations hog can import without running anything, and the prelude: every other
+// top-level statement, such as imports and calls. The prelude runs whenever hog imports the module, so a change
+// to it counts as a change to everything.
+function topLevelBlocks(source: string): { prelude: string; blocks: Map<string, Block> } {
+    const file = ts.createSourceFile('module.ts', source, ts.ScriptTarget.Latest, true)
+    const scope = moduleScope(file)
     const prelude: string[] = []
-    const blocks = new Map<string, string[]>()
-    let current: string[] = prelude
-    for (const line of source.split('\n')) {
-        if (COMMENT_LINE.test(line)) {
-            continue
+    const blocks = new Map<string, Block>()
+    for (const statement of file.statements) {
+        const code = printer.printNode(ts.EmitHint.Unspecified, statement, file)
+        const name = inertDeclaration(statement, scope)
+        if (name && !blocks.has(name)) {
+            blocks.set(name, { text: statement.getText(file), code })
+        } else {
+            prelude.push(code)
         }
-        const name = line.match(TOP_LEVEL_BLOCK)?.[1]
-        if (name) {
-            current = []
-            blocks.set(name, current)
-        }
-        current.push(line)
     }
-    return {
-        prelude: prelude.join('\n'),
-        blocks: new Map([...blocks].map(([name, lines]) => [name, lines.join('\n')])),
-    }
+    return { prelude: prelude.join('\n'), blocks }
+}
+
+// Whether every top-level statement of the module runs nothing when hog imports it, apart from importing types
+// and zod.
+function inertModule(source: string | undefined): boolean {
+    const file = ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
+    const scope = moduleScope(file)
+    return file.statements.every(
+        (statement) =>
+            (ts.isImportDeclaration(statement) &&
+                ts.isStringLiteral(statement.moduleSpecifier) &&
+                (statement.importClause?.isTypeOnly || ZOD_MODULES.has(statement.moduleSpecifier.text))) ||
+            inertDeclaration(statement, scope) !== undefined
+    )
 }
 
 function referencesAny(text: string, names: Iterable<string>): boolean {
@@ -191,14 +403,14 @@ function alteredSchemas(input: GapInput, file: string): Set<string> | undefined 
 
     const altered = new Set(
         [...new Set([...base.blocks.keys(), ...head.blocks.keys()])].filter(
-            (name) => base.blocks.get(name) !== head.blocks.get(name)
+            (name) => base.blocks.get(name)?.code !== head.blocks.get(name)?.code
         )
     )
     let grew = true
     while (grew) {
         grew = false
-        for (const [name, text] of head.blocks) {
-            if (!altered.has(name) && referencesAny(text, altered)) {
+        for (const [name, { code }] of head.blocks) {
+            if (!altered.has(name) && referencesAny(code, altered)) {
                 altered.add(name)
                 grew = true
             }
@@ -214,7 +426,7 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     }
     const { blocks } = topLevelBlocks(source)
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
-        const text = blocks.get(name) ?? ''
+        const text = blocks.get(name)?.text ?? ''
         const schemas = new Set([...text.matchAll(/orvalSchemas\.(\w+)/g)].map((match) => match[1]!))
         for (const other of blocks.keys()) {
             if (other !== name && !seen.has(other) && referencesAny(text, [other])) {
@@ -226,7 +438,7 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     }
 
     const byTool = new Map<string, Set<string>>()
-    for (const [name, text] of blocks) {
+    for (const [name, { text }] of blocks) {
         const tool = text.match(TOOL_NAME)?.[1]
         if (tool) {
             byTool.set(tool, schemasOf(name, new Set([name, 'GENERATED_TOOLS'])))
@@ -291,17 +503,21 @@ function handWrittenImporters(input: GapInput, module: string): string[] {
 
 // The importers of a changed schema file that hog runs differently with a downloaded catalog. A generated
 // tool module counts only through tools that read an altered schema and that the catalog doesn't carry,
-// because hog builds every tool the catalog carries from the catalog entry.
+// because hog builds every tool the catalog carries from the catalog entry. A change outside the schemas runs
+// whenever hog imports the file, so every importer counts.
 function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: string): string[] {
     const importers = [...(input.compiled.importers.get(file) ?? [])]
     if (importers.length === 0) {
         return ['no importer found']
     }
     const altered = alteredSchemas(input, file)
+    if (!altered) {
+        return importers
+    }
 
     return importers.filter((importer) => {
         if (generatedModuleName(importer)) {
-            const byTool = altered && schemasByTool(input.readHead(importer))
+            const byTool = schemasByTool(input.readHead(importer))
             const affected = byTool
                 ? [...byTool]
                       .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
@@ -312,8 +528,7 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
                 (affected.length > 0 && handWrittenImporters(input, importer).length > 0)
             )
         }
-        const named =
-            altered && namedImports(input.readHead(importer), input.compiled.specifiers?.get(file)?.get(importer))
+        const named = namedImports(input.readHead(importer), input.compiled.specifiers?.get(file)?.get(importer))
         return !named || [...named].some((name) => altered.has(name))
     })
 }
@@ -356,7 +571,10 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
         const tools = generatedToolNames(path ? read(path) : undefined)
         return (
             path === undefined ||
-            (generatedModuleName(path) !== undefined && tools.length > 0 && tools.every((tool) => carried.has(tool)))
+            (generatedModuleName(path) !== undefined &&
+                inertModule(read(path)) &&
+                tools.length > 0 &&
+                tools.every((tool) => carried.has(tool)))
         )
     }
     const entry = (side: Registrations, alias: string): string =>
@@ -383,6 +601,13 @@ export function findCatalogGaps(input: GapInput): GapResult {
         }
 
         if (generatedModuleName(file)) {
+            if (
+                topLevelBlocks(input.readBase(file) ?? '').prelude !==
+                topLevelBlocks(input.readHead(file) ?? '').prelude
+            ) {
+                reasons.push({ file, why: 'top-level code that runs whenever hog loads the module' })
+                continue
+            }
             const missing = uncarriedTools(input, carried, file)
             const wrappers = handWrittenImporters(input, file)
             if (missing?.length === 0 && wrappers.length === 0) {
@@ -447,7 +672,7 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     const specifiers = new Map<string, Map<string, string[]>>()
     // A module a build plugin makes up, like `cf-stub:cloudflare:workers`, is no file in the repository.
     const repoFile = (root: string, path: string): string | undefined => {
-        if (path.includes(':')) {
+        if (path.includes(':') && !existsSync(resolve(root, path))) {
             return undefined
         }
         const file = relative(repoRoot, resolve(root, path)).split('\\').join(posix.sep)
@@ -457,7 +682,12 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     }
 
     for (const { path, root } of metafiles) {
-        const inputs = parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs ?? {}
+        const inputs = existsSync(path) ? parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs : undefined
+        if (!inputs || Object.keys(inputs).length === 0) {
+            throw new Error(
+                `${path} is not a build metafile that lists its inputs. Build hog and the CLI library first.`
+            )
+        }
         for (const [input, { imports }] of Object.entries(inputs)) {
             const file = repoFile(root, input)
             if (!file) {
@@ -601,14 +831,14 @@ if (import.meta.main) {
         { path: values['hog-metafile'], root: resolve(repoRoot, 'hog') },
         ...values['mcp-metafile'].map((path) => ({ path, root: resolve(repoRoot, 'services/mcp') })),
     ]
-    for (const { path } of metafiles) {
-        if (!existsSync(path)) {
-            console.error(`Missing ${path}. Build hog and the CLI library first.`)
-            process.exit(1)
-        }
+    let compiled: CompiledGraph
+    try {
+        compiled = compiledFiles(metafiles, repoRoot)
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error))
+        process.exit(1)
     }
 
-    const compiled = compiledFiles(metafiles, repoRoot)
     if (values['list-compiled'] || !values.base) {
         process.stdout.write(
             [...compiled.files]
