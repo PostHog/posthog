@@ -4747,8 +4747,15 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     return to_sandbox_action(action)
 
 
+class HogFlowTestConfigurationSerializer(HogFlowSerializer):
+    # Generated clients validate this override against its schema, and a response-only field there would
+    # make them reject an override that omits it.
+    class Meta(HogFlowSerializer.Meta):
+        fields = [name for name in HogFlowSerializer.Meta.fields if name != "warnings"]
+
+
 class HogFlowInvocationSerializer(serializers.Serializer):
-    configuration = HogFlowSerializer(
+    configuration = HogFlowTestConfigurationSerializer(
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(

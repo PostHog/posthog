@@ -2583,21 +2583,6 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.'
                 ),
-            warnings: zod
-                .array(
-                    zod.object({
-                        code: zod
-                            .enum(['test_sender_live'])
-                            .describe('\* `test_sender_live` - Test sender live')
-                            .describe(
-                                'test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.\n\n\* `test_sender_live` - Test sender live'
-                            ),
-                        message: zod.string().describe('What to tell the user, with the link that fixes it.'),
-                    })
-                )
-                .describe(
-                    'Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.'
-                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
