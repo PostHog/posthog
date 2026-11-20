@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-// Posts the quarantined-failures section of the shared CI report. A shard whose tests fail
-// still goes green when Trunk has quarantined every failing test, so a regression in a
-// quarantined test passes CI unseen. This section lists those failures. It is warn-only and
-// never fails a job.
+// Posts the quarantined-failures section of the shared CI report. A shard still goes green
+// when Trunk has quarantined every failing test, so a regression in a quarantined test passes
+// CI unseen. The section is warn-only and never fails a job.
 //
 // Usage: node post-quarantined-failures-section.mjs <junit-dir>
 // Env: DJANGO_RESULT and TURBO_RESULT are the `needs.<job>.result` values of the test jobs.
 //
-// When a test job failed, a failure in the JUnit may be a real one, so the section is left
-// as it is. Only when every test job passed (or was skipped) is each remaining failure known
-// to be quarantined.
+// A failure in the JUnit may be a real one when a test job failed, so the section stays as it
+// is. When every test job passed or was skipped, every remaining failure was quarantined.
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -52,7 +50,7 @@ function parseAttributes(text) {
  */
 export function failedTestIds(xml, { pathPrefix = '' } = {}) {
     // pytest JUnit has no DTD or entities. Refuse a report that does, as the backend gate does.
-    if (/<!DOCTYPE|<!ENTITY/.test(xml)) {
+    if (!/<(failure|error)\b/.test(xml) || /<!DOCTYPE|<!ENTITY/.test(xml)) {
         return []
     }
     const outcomes = new Map()
@@ -64,14 +62,6 @@ export function failedTestIds(xml, { pathPrefix = '' } = {}) {
         outcomes.set(id, /<(failure|error)\b/.test(match[3] ?? ''))
     }
     return [...outcomes].filter(([, failed]) => failed).map(([id]) => id)
-}
-
-function shardName(artifact, file) {
-    const base = path.basename(file)
-    if (base.startsWith('junit-product-')) {
-        return `products/${base.slice('junit-product-'.length, -'.xml'.length)}`
-    }
-    return artifact.replace(/^junit-results-backend-/, '')
 }
 
 /**
@@ -86,15 +76,15 @@ export function collectFailures(dir) {
             .readdirSync(path.join(dir, artifact.name), { recursive: true })
             .filter((file) => /(^|\/)junit-[^/]*\.xml$/.test(file))
         for (const file of files) {
-            const shard = shardName(artifact.name, file)
-            const pathPrefix = shard.startsWith('products/') ? `${shard}/` : ''
+            const product = /^junit-product-(.+)\.xml$/.exec(path.basename(file))?.[1]
+            const shard = product ? `products/${product}` : artifact.name.replace(/^junit-results-backend-/, '')
             const xml = fs.readFileSync(path.join(dir, artifact.name, file), 'utf8')
-            for (const test of failedTestIds(xml, { pathPrefix })) {
+            for (const test of failedTestIds(xml, { pathPrefix: product ? `${shard}/` : '' })) {
                 rows.push({ shard, test })
             }
         }
     }
-    return rows.sort((a, b) => a.shard.localeCompare(b.shard) || a.test.localeCompare(b.test))
+    return rows.sort((a, b) => (a.shard === b.shard ? (a.test < b.test ? -1 : 1) : a.shard < b.shard ? -1 : 1))
 }
 
 function count(number, noun) {

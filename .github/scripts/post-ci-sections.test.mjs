@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, it } from 'node:test'
 
 import { buildDependencyScanSection } from './post-dependency-scan-section.mjs'
@@ -167,7 +170,9 @@ describe('CI report section builders', () => {
             input: {
                 scanned: 1,
                 skipped: 2,
-                flagged: [{ ecosystem: 'go', package: 'example.com/m@v1.0.0', label: 'not_scanned', score: 0, rules: [] }],
+                flagged: [
+                    { ecosystem: 'go', package: 'example.com/m@v1.0.0', label: 'not_scanned', score: 0, rules: [] },
+                ],
             },
             status: 'warn',
             summary: '3 packages not scanned',
@@ -284,10 +289,7 @@ describe('quarantined failures section', () => {
         assert.deepEqual(failedTestIds(`<!DOCTYPE x [<!ENTITY a "b">]>${report}`), [])
     })
 
-    it('reads shard and product reports from artifact directories', async () => {
-        const fs = await import('node:fs')
-        const os = await import('node:os')
-        const path = await import('node:path')
+    it('reads shard and product reports from artifact directories', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'junit-'))
         fs.mkdirSync(path.join(dir, 'junit-results-backend-core-4'))
         fs.writeFileSync(path.join(dir, 'junit-results-backend-core-4', 'junit-core.xml'), report)
