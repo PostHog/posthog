@@ -123,7 +123,11 @@ export interface feedLogicActions {
 export interface feedLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         reports: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => SignalReport[]
-        scoutNames: (scoutConfigs: SignalScoutConfigApi[] | null, scoutFilter: string[], scoutLabels: any) => string[]
+        scoutNames: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            scoutFilter: string[],
+            scoutLabels: Record<string, string>
+        ) => string[]
         scoutLabels: (scoutConfigs: SignalScoutConfigApi[] | null) => Record<string, string>
         hasActiveFilters: (
             searchQuery: string,

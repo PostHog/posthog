@@ -60,9 +60,10 @@ export function prettifyScoutSkillName(skillName: string): string {
   if (words.length === 0) {
     return skillName;
   }
-  const cased = words.map(
-    (word) => WORD_CASING[word.toLowerCase()] ?? word.toLowerCase(),
-  );
+  const cased = words.map((word) => {
+    const lower = word.toLowerCase();
+    return Object.hasOwn(WORD_CASING, lower) ? WORD_CASING[lower] : lower;
+  });
   return cased[0].charAt(0).toUpperCase() + cased.join(" ").slice(1);
 }
 
@@ -87,7 +88,8 @@ export function withScoutNoun(name: string): string {
 export function scoutNamesBySkill(
   configs: readonly ScoutNameSource[] | null | undefined,
 ): Record<string, string> {
-  const names: Record<string, string> = {};
+  // Some callers index this map directly, so a scout named `constructor` must not find Object.prototype.
+  const names: Record<string, string> = Object.create(null);
   for (const config of configs ?? []) {
     names[config.skill_name] = scoutDisplayName(config);
   }
@@ -100,5 +102,7 @@ export function scoutNameForSkill(
   names: Readonly<Record<string, string>> | null | undefined,
   skillName: string,
 ): string {
-  return names?.[skillName] ?? prettifyScoutSkillName(skillName);
+  return names && Object.hasOwn(names, skillName)
+    ? names[skillName]
+    : prettifyScoutSkillName(skillName);
 }

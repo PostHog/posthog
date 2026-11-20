@@ -19,6 +19,7 @@ describe("prettifyScoutSkillName", () => {
     ["custom_thing", "Custom thing"],
     ["weekly-seo-and-ux-review", "Weekly SEO and UX review"],
     ["posthog-github-sync", "PostHog GitHub sync"],
+    ["signals-scout-constructor", "Constructor"],
   ])("names %s as %s", (skillName, expected) => {
     expect(prettifyScoutSkillName(skillName)).toBe(expected);
   });
@@ -70,6 +71,18 @@ describe("scoutNameForSkill", () => {
     expect(scoutNameForSkill(undefined, "signals-scout-csp-violations")).toBe(
       "CSP violations",
     );
+  });
+
+  it.each([
+    ["a scoutNamesBySkill map", names],
+    ["a plain object map", { "signals-scout-apm": "Backend latency" }],
+  ])("does not resolve skill names to inherited keys of %s", (_label, map) => {
+    expect(scoutNameForSkill(map, "constructor")).toBe("Constructor");
+    expect(scoutNameForSkill(map, "toString")).toBe("Tostring");
+  });
+
+  it("builds a map that callers can index without hitting inherited keys", () => {
+    expect(names.constructor).toBeUndefined();
   });
 });
 

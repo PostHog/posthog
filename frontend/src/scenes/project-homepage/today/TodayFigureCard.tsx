@@ -9,7 +9,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { signalDestination } from './todayEvidence'
@@ -171,7 +171,7 @@ function QuoteCard({
     figure: string
     reportId: string
 }): JSX.Element {
-    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
+    const { scoutNamesBySkill } = useValues(scoutNamesLogic)
     const source = quoteSource(content, scoutNamesBySkill)
     const working = content.kind === 'signal' ? content.working : undefined
     const segments = quoteSegments(content, figure).map((segment) =>

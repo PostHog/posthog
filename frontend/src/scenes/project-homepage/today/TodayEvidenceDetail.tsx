@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayCodeExcerpt } from './TodayCodeExcerpt'
@@ -84,7 +84,7 @@ export function TodayEvidenceDetail({
     const { codeQuotes } = useValues(todayReportLogic({ reportId }))
     const quote = preview.code.length ? quoteState(codeQuotes[signal.signal_id]) : null
     const open = detailOpen(preview, previewLinkOpen, quote)
-    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
+    const { scoutNamesBySkill } = useValues(scoutNamesLogic)
     const facts = [signalSourceLabel(signal, scoutNamesBySkill), ...preview.facts]
     const time = dayjs(signal.timestamp)
 

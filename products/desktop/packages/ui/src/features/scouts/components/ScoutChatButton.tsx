@@ -2,6 +2,7 @@ import { SparkleIcon } from "@phosphor-icons/react";
 import { buildScoutCheckinPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
 import type { ScoutSurface } from "@posthog/shared";
+import { prettifyScoutSkillName } from "@posthog/shared/scout-names";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useMemo } from "react";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
@@ -21,9 +22,10 @@ export function ScoutChatButton({
   surface: ScoutSurface;
   label?: string;
 }) {
+  // Any config writer can set `displayName` to free text, so the agent prompt uses the validated slug.
   const prompt = useMemo(
-    () => buildScoutCheckinPrompt(skillName, displayName),
-    [skillName, displayName],
+    () => buildScoutCheckinPrompt(skillName, prettifyScoutSkillName(skillName)),
+    [skillName],
   );
   const { runTask, isRunning } = useScoutChatTask({
     prompt,

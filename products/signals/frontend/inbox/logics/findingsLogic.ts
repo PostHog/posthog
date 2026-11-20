@@ -212,7 +212,7 @@ export interface findingsLogicMeta {
             scoutFilter: string,
             severityFilter: string,
             sortKey: FindingsSortKey,
-            scoutNamesBySkill: any
+            scoutNamesBySkill: Record<string, string>
         ) => FleetScoutReportRow[]
         reportBySourceId: (emissionReports: SignalScoutEmissionReportLink[]) => Map<string, LinkedSignalReport>
         rows: (
@@ -230,7 +230,7 @@ export interface findingsLogicMeta {
                 skillName: string
                 skillNames: string[]
             }[],
-            scoutNamesBySkill: any
+            scoutNamesBySkill: Record<string, string>
         ) => {
             count: number
             label: string
@@ -242,7 +242,7 @@ export interface findingsLogicMeta {
             scoutFilter: string,
             severityFilter: string,
             sortKey: FindingsSortKey,
-            scoutNamesBySkill: any
+            scoutNamesBySkill: Record<string, string>
         ) => ScoutEmissionRow[]
         totalCount: (rows: ScoutEmissionRow[]) => number
         authoredReportCount: (

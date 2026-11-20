@@ -37,7 +37,7 @@ import {
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
@@ -170,7 +170,7 @@ export interface todayLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
-    scoutNamesBySkill: Record<string, string> // scoutFleetLogic
+    scoutNamesBySkill: Record<string, string> // scoutNamesLogic
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     doneHighlightKeys: string[] // todayHighlightsLogic
@@ -456,7 +456,7 @@ export interface todayLogicMeta {
         reportPreviews: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
-            scoutNamesBySkill: any
+            scoutNamesBySkill: Record<string, string>
         ) => Record<string, TodayReportPreview>
     }
 }
@@ -491,7 +491,7 @@ export const todayLogic = kea<todayLogicType>([
             ['activeCampaign', 'activeCampaignResolved'],
             preflightLogic,
             ['isCloudOrDev'],
-            scoutFleetLogic,
+            scoutNamesLogic,
             ['scoutNamesBySkill'],
         ],
         actions: [

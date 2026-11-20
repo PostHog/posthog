@@ -10,7 +10,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodaySignalDestination, previewOpen, shownPreview, signalDestination } from './todayEvidence'
@@ -109,7 +109,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
     const preview = shownPreview(signal, open)
     const action = preview ? EXPAND : destination
     const hint = rowHint(action, preview, expanded)
-    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
+    const { scoutNamesBySkill } = useValues(scoutNamesLogic)
     const sourceLabel = signalSourceLabel(signal, scoutNamesBySkill)
     const detailId = `today-signal-${signal.signal_id}`
 
