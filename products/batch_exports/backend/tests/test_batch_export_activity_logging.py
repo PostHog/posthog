@@ -166,14 +166,12 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         finally:
             activity_storage.clear_user()
 
-        schema_changes = [
-            change
-            for activity_log in ActivityLog.objects.filter(
-                scope="BatchExport", activity="updated", item_id=batch_export["id"]
-            )
-            for change in activity_log.detail["changes"]
-            if change["field"] == "schema"
-        ]
+        schema_changes: list[dict] = []
+        for activity_log in ActivityLog.objects.filter(
+            scope="BatchExport", activity="updated", item_id=batch_export["id"]
+        ):
+            assert activity_log.detail is not None
+            schema_changes.extend(change for change in activity_log.detail["changes"] if change["field"] == "schema")
         assert len(schema_changes) == 2
         assert all(change["after"]["hogql_query"] == schemas[0]["hogql_query"] for change in schema_changes)
         assert "secret" not in json.dumps(schema_changes)
