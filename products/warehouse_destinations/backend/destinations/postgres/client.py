@@ -389,47 +389,37 @@ class PostgreSQLClient:
             async with self.connection.cursor() as cursor:
                 yield cursor
 
-    async def acreate_table(
-        self,
+    @staticmethod
+    async def create_table(
+        cursor: psycopg.AsyncCursor,
         schema: str,
         table_name: str,
         columns: collections.abc.Sequence[PostgresColumn],
-        exists_ok: bool = True,
         primary_key: collections.abc.Sequence[str] | None = None,
-        comment: str | None = None,
-        lock_key: str | None = None,
+        exists_ok: bool = True,
     ) -> None:
-        """Create a table, and set its comment in the same transaction.
-
-        With `lock_key`, the transaction first takes that advisory lock, so that concurrent
-        creates of the same table wait for each other instead of failing on the catalog.
-        """
-        base_query = (
-            "CREATE TABLE IF NOT EXISTS {table} ({fields}{pkey})"
-            if exists_ok
-            else "CREATE TABLE {table} ({fields}{pkey})"
-        )
+        """Create a table in the transaction of `cursor`. With `exists_ok`, skip a table that exists."""
         pkey = (
             sql.SQL(", PRIMARY KEY ({fields})").format(fields=sql.SQL(",").join(map(sql.Identifier, primary_key)))
             if primary_key
             else sql.SQL("")
         )
+        base_query = (
+            "CREATE TABLE IF NOT EXISTS {table} ({fields}{pkey})"
+            if exists_ok
+            else "CREATE TABLE {table} ({fields}{pkey})"
+        )
         query = sql.SQL(base_query).format(
             table=sql.Identifier(schema, table_name),
-            # Column types come from the fixed mappings in `types.py`, never from caller text.
+            # Column types come from the fixed mappings in `types.py`, or from `format_type` in the
+            # destination's catalog, which quotes any name in it. Never from caller text.
             fields=sql.SQL(",").join(
                 sql.SQL("{field} {type}").format(field=sql.Identifier(column.name), type=sql.SQL(column.type))
                 for column in columns
             ),
             pkey=pkey,
         )
-
-        async with self.write_cursor() as cursor:
-            if lock_key is not None:
-                await self.advisory_lock(cursor, lock_key)
-            await cursor.execute(query)
-            if comment is not None:
-                await self.set_comment(cursor, schema, table_name, comment)
+        await cursor.execute(query)
 
     @staticmethod
     async def advisory_lock(cursor: psycopg.AsyncCursor, key: str) -> None:
@@ -468,18 +458,23 @@ class PostgreSQLClient:
         Reads the catalog, which needs no privilege on the table itself.
         """
         async with self.read_cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT a.attname, format_type(a.atttypid, a.atttypmod)
-                FROM pg_catalog.pg_class c
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
-                WHERE c.relname = %(table)s AND n.nspname = %(schema)s AND c.relkind IN ('r', 'p')
-                ORDER BY a.attnum
-                """,
-                {"table": table_name, "schema": schema},
-            )
-            rows = await cursor.fetchall()
+            return await self.table_columns(cursor, schema, table_name)
+
+    @staticmethod
+    async def table_columns(cursor: psycopg.AsyncCursor, schema: str, table_name: str) -> dict[str, str] | None:
+        """`aget_table_columns` in the transaction of `cursor`."""
+        await cursor.execute(
+            """
+            SELECT a.attname, format_type(a.atttypid, a.atttypmod)
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE c.relname = %(table)s AND n.nspname = %(schema)s AND c.relkind IN ('r', 'p')
+            ORDER BY a.attnum
+            """,
+            {"table": table_name, "schema": schema},
+        )
+        rows = await cursor.fetchall()
 
         if not rows:
             return None
@@ -492,18 +487,23 @@ class PostgreSQLClient:
 
     async def aget_table_comment(self, schema: str, table_name: str) -> str | None:
         async with self.read_cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = %(table)s AND n.nspname = %(schema)s
-                """,
-                {"table": table_name, "schema": schema},
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+            return await self.table_comment(cursor, schema, table_name)
+
+    @staticmethod
+    async def table_comment(cursor: psycopg.AsyncCursor, schema: str, table_name: str) -> str | None:
+        """`aget_table_comment` in the transaction of `cursor`."""
+        await cursor.execute(
+            """
+            SELECT d.description
+            FROM pg_catalog.pg_description d
+            JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relname = %(table)s AND n.nspname = %(schema)s
+            """,
+            {"table": table_name, "schema": schema},
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
 
     async def ahas_unique_index_on(self, schema: str, table_name: str, columns: collections.abc.Sequence[str]) -> bool:
         """Whether `ON CONFLICT` on exactly these columns, in any order, can use a unique index.
@@ -581,9 +581,9 @@ class PostgreSQLClient:
             action=action,
         )
 
-    async def _amerge_once(
+    async def _apublish_once(
         self,
-        merge_query: sql.Composed,
+        query: sql.Composed,
         stage_table: sql.Identifier,
         stage_name: str,
         after: collections.abc.Sequence[sql.Composed],
@@ -600,10 +600,10 @@ class PostgreSQLClient:
             if row is None or row[0] is None:
                 return False
 
-            # Writes into the stage wait until the merge and the cleanup commit, so no row can
-            # arrive after the merge read the stage and before the cleanup removed it.
+            # Writes into the stage wait until the publish and the cleanup commit, so no row can
+            # arrive after the publish read the stage and before the cleanup removed it.
             await cursor.execute(sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(stage_table))
-            await cursor.execute(merge_query)
+            await cursor.execute(query)
             for statement in after:
                 await cursor.execute(statement)
             return True
@@ -626,32 +626,98 @@ class PostgreSQLClient:
         """Upsert the stage table into the final table with `INSERT INTO ... ON CONFLICT`.
 
         With `update_key`, a matched row changes only when one of those columns increases. With
-        `dedupe_order_by`, only the first row of each merge key in that order is merged. With
-        `stage_after`, the stage table is dropped or emptied in the merge transaction, so the
-        merge and the cleanup happen together or not at all. With `lock_key`, merges with the
-        same key run one after another. Returns False, and merges nothing, when the stage table
-        does not exist.
+        `dedupe_order_by`, only the first row of each merge key in that order is merged. Only
+        `columns` are read from the stage and written to the final table. `stage_after`,
+        `lock_key` and the return value work as in `_apublish_stage`.
 
         Postgres 15 has `MERGE`, but `INSERT ... ON CONFLICT` works on older versions too.
         """
-        final_table = sql.Identifier(schema, final_table_name)
-        stage_table = sql.Identifier(schema, stage_table_name)
         merge_query = self._build_merge_query(
-            final_table=final_table,
-            stage_table=stage_table,
+            final_table=sql.Identifier(schema, final_table_name),
+            stage_table=sql.Identifier(schema, stage_table_name),
             merge_key=merge_key,
             update_key=update_key,
             columns=columns,
             dedupe_order_by=dedupe_order_by,
         )
+        try:
+            return await self._apublish_stage(
+                merge_query,
+                schema=schema,
+                final_table_name=final_table_name,
+                stage_table_name=stage_table_name,
+                stage_after=stage_after,
+                lock_key=lock_key,
+                timeout=timeout,
+                lock_timeout=lock_timeout,
+                max_attempts=max_attempts,
+            )
+        except psycopg.errors.InvalidColumnReference:
+            raise MissingPrimaryKeyError(f"{schema}.{final_table_name}", tuple(merge_key))
+
+    async def aappend_stage(
+        self,
+        schema: str,
+        final_table_name: str,
+        stage_table_name: str,
+        columns: collections.abc.Sequence[str],
+        stage_after: typing.Literal["drop", "truncate"] | None = None,
+        lock_key: str | None = None,
+        timeout: float | None = None,
+        lock_timeout: float = MERGE_LOCK_TIMEOUT_SECONDS,
+        max_attempts: int = MERGE_MAX_ATTEMPTS,
+    ) -> bool:
+        """Insert every row of the stage table into the final table.
+
+        Only `columns` are read from the stage and written to the final table. `stage_after`,
+        `lock_key` and the return value work as in `_apublish_stage`.
+        """
+        fields = sql.SQL(",").join(map(sql.Identifier, columns))
+        insert_query = sql.SQL("INSERT INTO {final} ({fields}) SELECT {fields} FROM {stage}").format(
+            final=sql.Identifier(schema, final_table_name),
+            fields=fields,
+            stage=sql.Identifier(schema, stage_table_name),
+        )
+        return await self._apublish_stage(
+            insert_query,
+            schema=schema,
+            final_table_name=final_table_name,
+            stage_table_name=stage_table_name,
+            stage_after=stage_after,
+            lock_key=lock_key,
+            timeout=timeout,
+            lock_timeout=lock_timeout,
+            max_attempts=max_attempts,
+        )
+
+    async def _apublish_stage(
+        self,
+        query: sql.Composed,
+        *,
+        schema: str,
+        final_table_name: str,
+        stage_table_name: str,
+        stage_after: typing.Literal["drop", "truncate"] | None,
+        lock_key: str | None,
+        timeout: float | None,
+        lock_timeout: float,
+        max_attempts: int,
+    ) -> bool:
+        """Run `query`, which moves the stage rows into the final table, and retry it on lock waits.
+
+        With `stage_after`, the stage table is dropped or emptied in the same transaction, so the
+        rows move and the cleanup happens together or not at all. With `lock_key`, publishes with
+        the same key run one after another. Returns False, and runs nothing, when the stage table
+        does not exist.
+        """
+        stage_table = sql.Identifier(schema, stage_table_name)
         after = {
             "drop": [sql.SQL("DROP TABLE {}").format(stage_table)],
             "truncate": [sql.SQL("TRUNCATE TABLE {}").format(stage_table)],
             None: [],
         }[stage_after]
-        stage_name = sql.Identifier(schema, stage_table_name).as_string()
-        merge_with_retries = make_retryable_with_exponential_backoff(
-            self._amerge_once,
+        publish_with_retries = make_retryable_with_exponential_backoff(
+            self._apublish_once,
             max_attempts=max_attempts,
             retryable_exceptions=(psycopg.errors.LockNotAvailable, psycopg.errors.QueryCanceled, SerializationFailure),
             is_exception_retryable=_is_merge_error_retryable,
@@ -659,18 +725,16 @@ class PostgreSQLClient:
 
         try:
             async with asyncio.timeout(timeout):
-                return await merge_with_retries(merge_query, stage_table, stage_name, after, lock_key, lock_timeout)
-        except psycopg.errors.InvalidColumnReference:
-            raise MissingPrimaryKeyError(f"{schema}.{final_table_name}", tuple(merge_key))
+                return await publish_with_retries(
+                    query, stage_table, stage_table.as_string(), after, lock_key, lock_timeout
+                )
         except TimeoutError as e:
-            raise TimeoutError(
-                f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
-            ) from e
+            raise TimeoutError(f"Timed-out commit into '{schema}.{final_table_name}' after {timeout} seconds") from e
         except SerializationFailure as err:
             raise PostgreSQLTransactionError(max_attempts, str(err)) from err
         except psycopg.errors.LockNotAvailable as err:
             raise PostgreSQLMergeTimeoutError(
-                f"Final merge into '{schema}.{final_table_name}' waited more than {lock_timeout} seconds for a lock "
+                f"The commit into '{schema}.{final_table_name}' waited more than {lock_timeout} seconds for a lock "
                 f"held by another session, after {max_attempts} attempts. "
                 "A long-running or idle transaction on the destination database can hold these locks. "
                 "To find the blocking session, query 'pg_stat_activity' together with 'pg_blocking_pids()'."
@@ -679,9 +743,9 @@ class PostgreSQLClient:
             if not _is_statement_timeout(err):
                 raise
             raise PostgreSQLMergeTimeoutError(
-                f"The 'statement_timeout' of the destination database canceled the final merge into "
+                f"The 'statement_timeout' of the destination database canceled the commit into "
                 f"'{schema}.{final_table_name}' after {max_attempts} attempts. "
-                "The merge can be slow, or it can wait for a lock held by another session. "
+                "The commit can be slow, or it can wait for a lock held by another session. "
                 "Increase 'statement_timeout' for this user, or query 'pg_stat_activity' together with "
                 "'pg_blocking_pids()' to find a blocking session."
             ) from err

@@ -94,7 +94,7 @@ def test_facade_core_and_postgres_capabilities_spec_and_config_load_no_vendor_sd
     assert probe == {
         "vendor_modules": [],
         "write_modes": sorted(WriteMode),
-        "batch_key_modes": [WriteMode.MERGE, WriteMode.REPLACE],
+        "batch_key_modes": sorted(WriteMode),
         "namespace_depth": 1,
         "spec_type": "Postgres",
         "config_class": "PostgresDestinationConfig",

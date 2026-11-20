@@ -1,109 +1,50 @@
-"""The marker a destination stores on the tables it creates.
+"""The owner tag a destination stores on the final tables it creates.
 
-A destination that has table comments stores the marker there. The marker is a JSON object
-with a fixed version key, for example:
+A destination that has table comments stores the tag there, as a JSON object with a version key:
 
-    {"posthog_destination": 1, "owner_tag": "a", "committed_staging_key": "run-2"}
+    {"posthog_destination": 1, "owner_tag": "a"}
 
-- `owner_tag`: the owner tag of the target that created the table.
-- `committed_staging_key`: on a final table, the staging key of the REPLACE that last
-  committed into it. A replay of that commit finds it and does nothing.
-- `require_owned` and `merge`: on a staging table, the settings of `prepare` that a later
-  commit needs, so the commit works without the target.
-
-A comment that is not such an object is foreign. `parse` returns None for it and never raises.
+The version key lets the object gain keys later. A comment that is not a JSON object with the
+version key is not tagged. A comment that has the version key but that this code cannot read
+(another version, or an owner tag that is not a string) is malformed. Neither carries a tag, and
+`parse` never raises for them.
 """
 
 import json
-import typing
-
-from posthog.dataclasses import frozen
-
-from products.warehouse_destinations.backend.facade.contracts import MergeSpec
 
 _VERSION_KEY = "posthog_destination"
 _VERSION = 1
 
 
-@frozen
-class TableMarker:
-    owner_tag: str | None = None
-    committed_staging_key: str | None = None
-    require_owned: bool = False
-    merge: MergeSpec | None = None
-
-    def encode(self) -> str:
-        payload: dict[str, typing.Any] = {_VERSION_KEY: _VERSION}
-        if self.owner_tag is not None:
-            payload["owner_tag"] = self.owner_tag
-        if self.committed_staging_key is not None:
-            payload["committed_staging_key"] = self.committed_staging_key
-        if self.require_owned:
-            payload["require_owned"] = True
-        if self.merge is not None:
-            payload["merge"] = {
-                "primary_keys": list(self.merge.primary_keys),
-                "version_keys": list(self.merge.version_keys),
-                "dedupe_source": self.merge.dedupe_source,
-            }
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+def encode(owner_tag: str) -> str:
+    """Return the comment that tags a table with `owner_tag`."""
+    return json.dumps({_VERSION_KEY: _VERSION, "owner_tag": owner_tag}, sort_keys=True, separators=(",", ":"))
 
 
-def parse(comment: str | None) -> TableMarker | None:
-    """Return the marker in `comment`, or None for a missing or foreign comment."""
+def parse(comment: str | None) -> str | None:
+    """Return the owner tag in `comment`, or None for a missing, untagged or malformed comment."""
     if not comment:
         return None
     try:
         payload = json.loads(comment)
     except ValueError:
         return None
-    if not isinstance(payload, dict) or payload.get(_VERSION_KEY) != _VERSION:
+    if not isinstance(payload, dict) or _VERSION_KEY not in payload:
         return None
 
-    try:
-        return TableMarker(
-            owner_tag=_optional_str(payload.get("owner_tag")),
-            committed_staging_key=_optional_str(payload.get("committed_staging_key")),
-            require_owned=payload.get("require_owned") is True,
-            merge=_parse_merge(payload.get("merge")),
-        )
-    except (TypeError, ValueError):
+    owner_tag = payload.get("owner_tag")
+    if payload[_VERSION_KEY] != _VERSION or not isinstance(owner_tag, str):
         return None
+    return owner_tag
 
 
-def is_owned_by(comment: str | None, owner_tag: str) -> bool:
+def is_tagged_with(comment: str | None, owner_tag: str) -> bool:
     """Whether the table with `comment` carries exactly `owner_tag`.
 
-    A foreign comment counts only when it equals the tag itself, so a table tagged with the
-    plain tag text before markers existed is still recognized.
+    A comment that is not tagged counts only when it equals the tag itself, so a table tagged
+    with the plain tag text before the JSON format existed is still recognized.
     """
-    marker = parse(comment)
-    if marker is None:
+    tag = parse(comment)
+    if tag is None:
         return comment == owner_tag
-    return marker.owner_tag == owner_tag
-
-
-def _optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise TypeError("Expected a string")
-    return value
-
-
-def _parse_merge(value: object) -> MergeSpec | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise TypeError("Expected an object")
-    return MergeSpec(
-        primary_keys=tuple(_str_list(value.get("primary_keys"))),
-        version_keys=tuple(_str_list(value.get("version_keys", []))),
-        dedupe_source=value.get("dedupe_source") is True,
-    )
-
-
-def _str_list(value: object) -> list[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise TypeError("Expected a list of strings")
-    return value
+    return tag == owner_tag

@@ -122,7 +122,7 @@ class PostgreSQLTransactionError(DestinationError):
 
 
 class PostgreSQLMergeTimeoutError(DestinationError):
-    """The merge waited on locks or hit the statement timeout after a number of attempts."""
+    """A MERGE or APPEND commit waited on locks or hit the statement timeout after a number of attempts."""
 
     default_kind = ErrorKind.TIMEOUT
 

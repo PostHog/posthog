@@ -39,7 +39,7 @@ async def _batches(*batches: pa.RecordBatch) -> AsyncIterator[pa.RecordBatch]:
         yield batch
 
 
-def _target(write_mode: WriteMode, staging_key: str | None = "run1") -> TableTarget:
+def _target(write_mode: WriteMode, staging_key: str = "run1") -> TableTarget:
     ref = TargetRef(namespace=("public",), table_name="t", write_mode=write_mode, staging_key=staging_key)
     merge = MergeSpec(primary_keys=("id",)) if write_mode == WriteMode.MERGE else None
     return TableTarget(ref=ref, schema=SCHEMA, merge=merge)
@@ -54,7 +54,7 @@ async def test_the_fake_reached_through_the_facade_records_every_call() -> None:
         async with destination.connect() as session:
             prepared = await session.prepare(target)
             await session.write(prepared, _batches(_rows((1, "a"))), batch_key="0")
-            await session.commit(target.ref, final=False)
+            await session.commit(target, final=False)
             await session.abort(target.ref)
 
     assert fake.calls == [
@@ -85,27 +85,26 @@ async def test_the_fake_applies_each_write_mode(write_mode: WriteMode, expected:
             target = _target(write_mode, staging_key)
             prepared = await session.prepare(target)
             for index, batch in enumerate(batches):
-                key = None if write_mode == WriteMode.APPEND else str(index)
-                await session.write(prepared, _batches(batch), batch_key=key)
-            await session.commit(target.ref)
+                await session.write(prepared, _batches(batch), batch_key=str(index))
+            await session.commit(target)
 
     assert [(row["id"], row["name"]) for row in fake.tables[TABLE]] == expected
 
 
-async def test_the_fake_replaces_rows_of_a_retried_batch_key_and_skips_a_replayed_replace() -> None:
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+async def test_the_fake_shows_staged_rows_only_after_commit_and_once(write_mode: WriteMode) -> None:
     fake = FakeDestination()
-    target = _target(WriteMode.REPLACE)
+    target = _target(write_mode)
 
     async with fake.connect() as session:
         prepared = await session.prepare(target)
         await session.write(prepared, _batches(_rows((1, "a"))), batch_key="0")
         await session.write(prepared, _batches(_rows((1, "retry"))), batch_key="0")
-        await session.commit(target.ref)
-        replayed = await session.prepare(target)
-        outcome = await session.write(replayed, _batches(_rows((9, "late"))), batch_key="0")
+        assert fake.tables[TABLE] == []
 
-    assert replayed.already_committed
-    assert outcome.rows_written == 0
+        await session.commit(target)
+        await session.commit(target)
+
     assert fake.tables[TABLE] == [{"id": 1, "name": "retry"}]
 
 
@@ -135,7 +134,9 @@ async def test_the_fake_enforces_its_capabilities(call: str) -> None:
             elif call == "unsupported_mode":
                 await session.prepare(_target(WriteMode.REPLACE))
             else:
-                ref = TargetRef(namespace=("db", "public"), table_name="t", write_mode=WriteMode.APPEND)
+                ref = TargetRef(
+                    namespace=("db", "public"), table_name="t", write_mode=WriteMode.APPEND, staging_key="run1"
+                )
                 await session.prepare(TableTarget(ref=ref, schema=SCHEMA))
 
     assert exc_info.value.kind == ErrorKind.CONFIGURATION
@@ -153,7 +154,7 @@ async def test_the_fake_raises_an_injected_error_once(method: str) -> None:
         async with fake.connect() as session:
             prepared = await session.prepare(target)
             await session.write(prepared, _batches(_rows((1, "a"))))
-            await session.commit(target.ref)
+            await session.commit(target)
 
     with pytest.raises(DestinationError) as exc_info:
         await run()

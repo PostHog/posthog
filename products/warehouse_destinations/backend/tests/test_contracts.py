@@ -19,13 +19,7 @@ from products.warehouse_destinations.backend.facade.contracts import (
     TargetRef,
     UnsupportedDestinationError,
 )
-from products.warehouse_destinations.backend.facade.enums import (
-    DestinationType,
-    ErrorKind,
-    ExistingTablePolicy,
-    LogicalType,
-    WriteMode,
-)
+from products.warehouse_destinations.backend.facade.enums import DestinationType, ErrorKind, LogicalType, WriteMode
 from products.warehouse_destinations.backend.facade.testing import fake_config
 
 FIELDS: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("version", pa.int64()), pa.field("name", pa.string())]
@@ -33,7 +27,9 @@ SCHEMA = pa.schema(FIELDS)
 
 
 def _ref(write_mode: WriteMode = WriteMode.APPEND, **kwargs: Any) -> TargetRef:
-    return TargetRef(**{"namespace": ("public",), "table_name": "events", "write_mode": write_mode, **kwargs})
+    return TargetRef(
+        **{"namespace": ("public",), "table_name": "events", "write_mode": write_mode, "staging_key": "run-1", **kwargs}
+    )
 
 
 @pytest.mark.parametrize(
@@ -73,9 +69,8 @@ def test_merge_spec_rejects_invalid_keys(kwargs: dict[str, Any], match: str) -> 
     "kwargs",
     [
         {"write_mode": WriteMode.APPEND},
-        {"write_mode": WriteMode.APPEND, "staging_key": "ignored-for-append"},
-        {"write_mode": WriteMode.REPLACE, "staging_key": "run-1"},
-        {"write_mode": WriteMode.MERGE, "staging_key": "run-1", "owner_tag": "tag:with:colons"},
+        {"write_mode": WriteMode.REPLACE},
+        {"write_mode": WriteMode.MERGE, "owner_tag": "tag:with:colons"},
         {"write_mode": "append", "namespace": ()},
         {"write_mode": WriteMode.APPEND, "namespace": ("catalog", "schema")},
     ],
@@ -92,9 +87,9 @@ def test_target_ref_accepts_valid_combinations(kwargs: dict[str, Any]) -> None:
         ({"table_name": ""}, "requires a table name"),
         ({"table_name": "   "}, "requires a table name"),
         ({"namespace": ("public", " ")}, "cannot be blank"),
-        ({"write_mode": WriteMode.REPLACE}, "replace write requires a staging key"),
+        ({"write_mode": WriteMode.APPEND, "staging_key": ""}, "append write requires a staging key"),
         ({"write_mode": WriteMode.REPLACE, "staging_key": ""}, "replace write requires a staging key"),
-        ({"write_mode": WriteMode.MERGE}, "merge write requires a staging key"),
+        ({"write_mode": WriteMode.MERGE, "staging_key": ""}, "merge write requires a staging key"),
         ({"owner_tag": ""}, "owner tag cannot be empty"),
     ],
 )
@@ -112,12 +107,11 @@ def test_target_ref_rejects_unknown_write_mode() -> None:
     "ref_kwargs, target_kwargs",
     [
         ({}, {}),
-        ({"write_mode": WriteMode.MERGE, "staging_key": "run-1"}, {"merge": MergeSpec(primary_keys=("id",))}),
+        ({"write_mode": WriteMode.MERGE}, {"merge": MergeSpec(primary_keys=("id",))}),
         (
-            {"write_mode": WriteMode.MERGE, "staging_key": "run-1"},
+            {"write_mode": WriteMode.MERGE},
             {"merge": MergeSpec(primary_keys=("id", "name"), version_keys=("version",))},
         ),
-        ({"owner_tag": "tag"}, {"existing_table": ExistingTablePolicy.REQUIRE_OWNED}),
         ({}, {"column_types": {"name": LogicalType.JSON, "id": "int32"}}),
     ],
 )
@@ -130,24 +124,23 @@ def test_table_target_accepts_valid_combinations(ref_kwargs: dict[str, Any], tar
 @pytest.mark.parametrize(
     "ref_kwargs, target_kwargs, match",
     [
-        ({"write_mode": WriteMode.MERGE, "staging_key": "run-1"}, {}, "MERGE write requires a MergeSpec"),
+        ({"write_mode": WriteMode.MERGE}, {}, "MERGE write requires a MergeSpec"),
         ({}, {"merge": MergeSpec(primary_keys=("id",))}, "append write cannot have a MergeSpec"),
         (
-            {"write_mode": WriteMode.REPLACE, "staging_key": "run-1"},
+            {"write_mode": WriteMode.REPLACE},
             {"merge": MergeSpec(primary_keys=("id",))},
             "replace write cannot have a MergeSpec",
         ),
         (
-            {"write_mode": WriteMode.MERGE, "staging_key": "run-1"},
+            {"write_mode": WriteMode.MERGE},
             {"merge": MergeSpec(primary_keys=("missing",))},
             r"Merge keys are not in the schema: \['missing'\]",
         ),
         (
-            {"write_mode": WriteMode.MERGE, "staging_key": "run-1"},
+            {"write_mode": WriteMode.MERGE},
             {"merge": MergeSpec(primary_keys=("id",), version_keys=("updated_at",))},
             r"Merge keys are not in the schema: \['updated_at'\]",
         ),
-        ({}, {"existing_table": ExistingTablePolicy.REQUIRE_OWNED}, "REQUIRE_OWNED needs an owner tag"),
         ({}, {"column_types": {"absent": LogicalType.TEXT}}, r"not in the schema: \['absent'\]"),
         ({}, {"column_types": {"name": "varchar(5)"}}, "is not a valid LogicalType"),
     ],

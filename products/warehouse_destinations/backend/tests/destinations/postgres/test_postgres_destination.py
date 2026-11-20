@@ -15,14 +15,16 @@ from psycopg import sql
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Integration
 from posthog.models.integration import TLS
+from posthog.test.waiting import wait_until
 
+from products.warehouse_destinations.backend.core import table_marker
 from products.warehouse_destinations.backend.core.json_type import JsonType
-from products.warehouse_destinations.backend.core.table_marker import TableMarker, parse
 from products.warehouse_destinations.backend.destinations.postgres import integration
 from products.warehouse_destinations.backend.destinations.postgres.destination import (
     BATCH_KEY_COLUMN,
     PostgresDestination,
     PostgresSession,
+    _lock_key,
     batch_key_index_name,
     scoped_identifier,
     staging_table_name,
@@ -51,7 +53,6 @@ from products.warehouse_destinations.backend.facade.contracts import (
 from products.warehouse_destinations.backend.facade.enums import (
     DestinationType,
     ErrorKind,
-    ExistingTablePolicy,
     LogicalType,
     NewColumnPolicy,
     TypePolicy,
@@ -128,8 +129,7 @@ def _integration(postgres_config: dict, **config_overrides: Any) -> Integration:
 
 
 def _ref(schema: str, table: str, write_mode: WriteMode, **kwargs: Any) -> TargetRef:
-    if write_mode != WriteMode.APPEND and "staging_key" not in kwargs:
-        kwargs["staging_key"] = "run1"
+    kwargs.setdefault("staging_key", "run1")
     return TargetRef(namespace=kwargs.pop("namespace", (schema,)), table_name=table, write_mode=write_mode, **kwargs)
 
 
@@ -155,7 +155,7 @@ async def _run(
         prepared = await session.prepare(target)
         await session.write(prepared, _batches(*batches), batch_key=batch_key)
         if commit:
-            await session.commit(target.ref)
+            await session.commit(target)
     return prepared
 
 
@@ -469,7 +469,7 @@ async def test_dedupe_source_keeps_one_row_per_key_across_writes(
         for index, (i, v, n) in enumerate(writes):
             batch = pa.RecordBatch.from_pylist([{"id": i, "version": v, "name": n}], schema=arrow_schema)
             await session.write(prepared, _batches(batch), batch_key=str(index))
-        await session.commit(target.ref)
+        await session.commit(target)
 
     assert _select(pg, schema, "t", "id, version, name") == expected
 
@@ -482,7 +482,7 @@ async def test_duplicate_keys_without_dedupe_source_are_a_data_error(postgres_co
     assert isinstance(exc_info.value.__cause__, psycopg.errors.CardinalityViolation)
 
 
-@pytest.mark.parametrize("write_mode", [WriteMode.MERGE, WriteMode.REPLACE])
+@pytest.mark.parametrize("write_mode", list(WriteMode))
 async def test_retried_write_with_the_same_batch_key_does_not_duplicate(
     postgres_config, pg, schema, write_mode: WriteMode
 ) -> None:
@@ -497,20 +497,10 @@ async def test_retried_write_with_the_same_batch_key_does_not_duplicate(
         assert pg.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(schema, _staging()))).fetchone() == (
             3,
         )
-        await session.commit(target.ref)
+        await session.commit(target)
 
     assert _select(pg, schema, "t") == [(1, "a"), (2, "b"), (3, "c")]
     assert BATCH_KEY_COLUMN not in _columns(pg, schema, "t")
-
-
-async def test_append_refuses_a_batch_key_with_a_configuration_error(postgres_config, pg, schema) -> None:
-    with pytest.raises(DestinationError, match="cannot honor a batch key") as exc_info:
-        await _run(
-            _destination(postgres_config), _target(schema, "t", WriteMode.APPEND), _rows((1, "a")), batch_key="0"
-        )
-
-    assert exc_info.value.kind == ErrorKind.CONFIGURATION
-    assert _select(pg, schema, "t") == []
 
 
 async def test_concurrent_sessions_write_distinct_batch_keys_into_one_staging_key(postgres_config, pg, schema) -> None:
@@ -524,12 +514,12 @@ async def test_concurrent_sessions_write_distinct_batch_keys_into_one_staging_ke
 
     await asyncio.gather(write("0", (1, "a"), (2, "b")), write("1", (3, "c")), write("2", (4, "d")))
     async with destination.connect() as session:
-        await session.commit(target.ref)
+        await session.commit(target)
 
     assert _select(pg, schema, "t") == [(1, "a"), (2, "b"), (3, "c"), (4, "d")]
 
 
-@pytest.mark.parametrize("write_mode", [WriteMode.MERGE, WriteMode.REPLACE])
+@pytest.mark.parametrize("write_mode", list(WriteMode))
 async def test_prepare_again_resumes_the_staging_table(postgres_config, pg, schema, write_mode: WriteMode) -> None:
     await _run(_destination(postgres_config), _target(schema, "t", write_mode), _rows((1, "a")), commit=False)
 
@@ -539,20 +529,21 @@ async def test_prepare_again_resumes_the_staging_table(postgres_config, pg, sche
     assert not _exists(pg, schema, _staging())
 
 
+@pytest.mark.parametrize("write_mode", [WriteMode.APPEND, WriteMode.MERGE])
 @pytest.mark.parametrize(
     "added_to_final, value, expected",
     [
         # The second prepare adds the column to the final table from the data's type.
         (None, "x", "x"),
         # Someone else added it with another type. The staging copy must take that type, or the
-        # merge reads text into a BIGINT column.
+        # commit reads text into a BIGINT column.
         ("BIGINT", "7", 7),
     ],
 )
-async def test_resumed_merge_staging_gains_columns_added_to_the_final_table(
-    postgres_config, pg, schema, added_to_final: str | None, value: str, expected: Any
+async def test_resumed_staging_gains_columns_added_to_the_final_table(
+    postgres_config, pg, schema, write_mode: WriteMode, added_to_final: str | None, value: str, expected: Any
 ) -> None:
-    await _run(_destination(postgres_config), _target(schema, "t", WriteMode.MERGE), _rows((1, "a")), commit=False)
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode), _rows((1, "a")), commit=False)
     if added_to_final is not None:
         pg.execute(
             sql.SQL("ALTER TABLE {} ADD COLUMN extra {}").format(sql.Identifier(schema, "t"), sql.SQL(added_to_final))
@@ -560,12 +551,31 @@ async def test_resumed_merge_staging_gains_columns_added_to_the_final_table(
     wider = pa.schema([*ROWS_SCHEMA, ("extra", pa.string())])
     batch = pa.RecordBatch.from_pylist([{"id": 2, "name": "b", "extra": value}], schema=wider)
 
-    await _run(_destination(postgres_config), _target(schema, "t", WriteMode.MERGE, arrow_schema=wider), batch)
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode, arrow_schema=wider), batch)
 
     assert _select(pg, schema, "t", "id, name, extra") == [(1, "a", None), (2, "b", expected)]
 
 
-@pytest.mark.parametrize("write_mode", [WriteMode.MERGE, WriteMode.REPLACE])
+@pytest.mark.parametrize(
+    "write_mode, expected",
+    [
+        (WriteMode.APPEND, [(1, "a", "mine"), (2, "c", "default")]),
+        (WriteMode.MERGE, [(1, "b", "mine"), (2, "c", "default")]),
+    ],
+)
+async def test_a_column_that_only_the_final_table_has_keeps_its_value(
+    postgres_config, pg, schema, write_mode: WriteMode, expected: list
+) -> None:
+    _create_table(pg, schema, "t", "id BIGINT PRIMARY KEY, name TEXT, note TEXT NOT NULL DEFAULT 'default'")
+    pg.execute(sql.SQL("INSERT INTO {} VALUES (1, 'a', 'mine')").format(sql.Identifier(schema, "t")))
+    rows = _rows((1, "b"), (2, "c")) if write_mode == WriteMode.MERGE else _rows((2, "c"))
+
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode), rows)
+
+    assert _select(pg, schema, "t", "id, name, note") == expected
+
+
+@pytest.mark.parametrize("write_mode", list(WriteMode))
 async def test_staging_tables_index_the_batch_key_also_when_resumed(
     postgres_config, pg, schema, write_mode: WriteMode
 ) -> None:
@@ -585,24 +595,27 @@ async def test_staging_tables_index_the_batch_key_also_when_resumed(
 async def test_a_serialization_failure_after_the_copy_read_its_data_still_writes_every_row(
     postgres_config, pg, schema
 ) -> None:
-    _create_table(pg, schema, "t", "id BIGINT, name TEXT")
-    attempts = sql.Identifier(schema, "attempts")
-    pg.execute(sql.SQL("CREATE SEQUENCE {}").format(attempts))
-    # The sequence is not transactional, so only the first COPY fails, and only on its first row.
-    pg.execute(
-        sql.SQL(
-            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-            "IF nextval({}) = 1 THEN RAISE EXCEPTION 'conflict' USING ERRCODE = 'serialization_failure'; END IF; "
-            "RETURN NEW; END $$"
-        ).format(sql.Identifier(schema, "fail_once"), sql.Literal(attempts.as_string()))
-    )
-    pg.execute(
-        sql.SQL("CREATE TRIGGER fail_once BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()").format(
-            sql.Identifier(schema, "t"), sql.Identifier(schema, "fail_once")
-        )
-    )
+    target = _target(schema, "t", WriteMode.APPEND)
 
-    await _run(_destination(postgres_config), _target(schema, "t", WriteMode.APPEND), _rows((1, "a"), (2, "b")))
+    async with _destination(postgres_config).connect() as session:
+        prepared = await session.prepare(target)
+        attempts = sql.Identifier(schema, "attempts")
+        pg.execute(sql.SQL("CREATE SEQUENCE {}").format(attempts))
+        # The sequence is not transactional, so only the first COPY fails, and only on its first row.
+        pg.execute(
+            sql.SQL(
+                "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                "IF nextval({}) = 1 THEN RAISE EXCEPTION 'conflict' USING ERRCODE = 'serialization_failure'; END IF; "
+                "RETURN NEW; END $$"
+            ).format(sql.Identifier(schema, "fail_once"), sql.Literal(attempts.as_string()))
+        )
+        pg.execute(
+            sql.SQL("CREATE TRIGGER fail_once BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()").format(
+                sql.Identifier(schema, _staging()), sql.Identifier(schema, "fail_once")
+            )
+        )
+        await session.write(prepared, _batches(_rows((1, "a"), (2, "b"))))
+        await session.commit(target)
 
     assert _select(pg, schema, "t") == [(1, "a"), (2, "b")]
 
@@ -614,37 +627,58 @@ async def test_commit_twice_is_safe(postgres_config, pg, schema, write_mode: Wri
     async with _destination(postgres_config).connect() as session:
         prepared = await session.prepare(target)
         await session.write(prepared, _batches(_rows((1, "a"))))
-        await session.commit(target.ref)
-        await session.commit(target.ref)
+        await session.commit(target)
+        await session.commit(target)
 
     assert _select(pg, schema, "t") == [(1, "a")]
 
 
-async def test_merge_commits_per_batch_and_reuses_the_staging_table(postgres_config, pg, schema) -> None:
-    target = _target(schema, "t", WriteMode.MERGE)
+@pytest.mark.parametrize(
+    "write_mode, expected_after_each",
+    [
+        (
+            WriteMode.APPEND,
+            [
+                [(1, "a"), (2, "b")],
+                [(1, "a"), (2, "B"), (2, "b"), (3, "c")],
+                [(1, "A"), (1, "a"), (2, "B"), (2, "b"), (3, "c")],
+            ],
+        ),
+        (
+            WriteMode.MERGE,
+            [
+                [(1, "a"), (2, "b")],
+                [(1, "a"), (2, "B"), (3, "c")],
+                [(1, "A"), (2, "B"), (3, "c")],
+            ],
+        ),
+    ],
+)
+async def test_commits_per_batch_reuse_the_staging_table(
+    postgres_config, pg, schema, write_mode: WriteMode, expected_after_each: list
+) -> None:
+    target = _target(schema, "t", write_mode)
     batches = [
         _rows((1, "a"), (2, "b")),
         _rows((2, "B"), (3, "c")),
         _rows((1, "A")),
     ]
-    expected_after_each = [
-        [(1, "a"), (2, "b")],
-        [(1, "a"), (2, "B"), (3, "c")],
-        [(1, "A"), (2, "B"), (3, "c")],
-    ]
 
     async with _destination(postgres_config).connect() as session:
         prepared = await session.prepare(target)
         for index, (batch, expected) in enumerate(zip(batches, expected_after_each)):
+            before = _select(pg, schema, "t")
             await session.write(prepared, _batches(batch), batch_key=str(index))
-            await session.commit(target.ref, final=False)
+            assert _select(pg, schema, "t") == before
 
-            assert _select(pg, schema, "t") == expected
+            await session.commit(target, final=False)
+
+            assert sorted(_select(pg, schema, "t")) == expected
             assert _select(pg, schema, _staging()) == []
 
-        await session.commit(target.ref, final=True)
+        await session.commit(target, final=True)
 
-    assert _select(pg, schema, "t") == expected_after_each[-1]
+    assert sorted(_select(pg, schema, "t")) == expected_after_each[-1]
     assert not _exists(pg, schema, _staging())
 
 
@@ -655,12 +689,12 @@ async def test_replace_commit_that_is_not_final_changes_nothing(postgres_config,
     async with _destination(postgres_config).connect() as session:
         prepared = await session.prepare(target)
         await session.write(prepared, _batches(_rows((2, "new"))))
-        await session.commit(target.ref, final=False)
+        await session.commit(target, final=False)
 
         assert _select(pg, schema, "t") == [(1, "old")]
         assert _select(pg, schema, _staging(staging_key="run2")) == [(2, "new")]
 
-        await session.commit(target.ref)
+        await session.commit(target)
 
     assert _select(pg, schema, "t") == [(2, "new")]
 
@@ -682,7 +716,7 @@ async def test_a_swap_that_waits_too_long_for_a_reader_is_a_transient_error(post
         reader.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, "t")))
         with pytest.raises(DestinationError) as exc_info:
             async with destination.connect() as session:
-                await session.commit(target.ref)
+                await session.commit(target)
         reader.rollback()
 
     assert exc_info.value.kind == ErrorKind.TRANSIENT
@@ -690,39 +724,22 @@ async def test_a_swap_that_waits_too_long_for_a_reader_is_a_transient_error(post
     assert _select(pg, schema, "t") == [(1, "a")]
 
     async with destination.connect() as session:
-        await session.commit(target.ref)
+        await session.commit(target)
     assert _select(pg, schema, "t") == [(2, "b")]
 
 
-async def test_replayed_replace_finds_its_commit_and_leaves_the_table_intact(postgres_config, pg, schema) -> None:
-    target = _target(schema, "t", WriteMode.REPLACE, owner_tag="owner")
-    await _run(_destination(postgres_config), target, _rows((1, "a")), _rows((2, "b")))
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+async def test_a_new_session_commits_without_prepare(postgres_config, pg, schema, write_mode: WriteMode) -> None:
+    await _run(
+        _destination(postgres_config),
+        _target(schema, "t", write_mode, owner_tag="owner"),
+        _rows((1, "a")),
+        batch_key="0",
+        commit=False,
+    )
 
     async with _destination(postgres_config).connect() as session:
-        replayed = await session.prepare(target)
-        outcome = await session.write(replayed, _batches(_rows((9, "late"))), batch_key="0")
-        await session.commit(target.ref)
-
-    assert replayed.already_committed
-    assert (outcome.rows_written, outcome.bytes_written) == (0, 0)
-    assert _select(pg, schema, "t") == [(1, "a"), (2, "b")]
-    assert not _exists(pg, schema, _staging())
-    assert parse(_comment(pg, schema, "t")) == TableMarker(owner_tag="owner", committed_staging_key="run1")
-
-    async with _destination(postgres_config).connect() as session:
-        fresh = await session.prepare(_target(schema, "t", WriteMode.REPLACE, owner_tag="owner", staging_key="run2"))
-    assert not fresh.already_committed
-
-
-@pytest.mark.parametrize("write_mode", [WriteMode.MERGE, WriteMode.REPLACE])
-async def test_a_new_session_commits_with_only_the_target_ref(
-    postgres_config, pg, schema, write_mode: WriteMode
-) -> None:
-    target = _target(schema, "t", write_mode, owner_tag="owner")
-    await _run(_destination(postgres_config), target, _rows((1, "a")), batch_key="0", commit=False)
-
-    async with _destination(postgres_config).connect() as session:
-        await session.commit(_ref(schema, "t", write_mode, owner_tag="owner"))
+        await session.commit(_target(schema, "t", write_mode, owner_tag="owner"))
 
     assert _select(pg, schema, "t") == [(1, "a")]
     assert not _exists(pg, schema, _staging())
@@ -733,8 +750,13 @@ async def test_a_new_session_commits_with_only_the_target_ref(
 async def test_abort_and_commit_without_prepare_do_nothing(
     postgres_config, pg, schema, write_mode: WriteMode, method: str
 ) -> None:
+    target = _target(schema, "t", write_mode)
+
     async with _destination(postgres_config).connect() as session:
-        await getattr(session, method)(_ref(schema, "t", write_mode))
+        if method == "abort":
+            await session.abort(target.ref)
+        else:
+            await session.commit(target)
 
     assert pg.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is None
 
@@ -744,35 +766,27 @@ async def test_abort_never_raises_for_an_invalid_ref(postgres_config, schema) ->
         await session.abort(_ref(schema, "t", WriteMode.MERGE, namespace=("too", "deep")))
 
 
-@pytest.mark.parametrize(
-    "write_mode, abort_owner_tag, dropped",
-    [
-        (WriteMode.MERGE, "owner", True),
-        (WriteMode.REPLACE, "owner", True),
-        (WriteMode.MERGE, "someone else", False),
-        (WriteMode.REPLACE, None, False),
-    ],
-)
-async def test_abort_drops_only_its_own_staging_and_keeps_the_final_table(
-    postgres_config, pg, schema, write_mode: WriteMode, abort_owner_tag: str | None, dropped: bool
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+async def test_abort_drops_the_staging_table_and_keeps_the_final_table(
+    postgres_config, pg, schema, write_mode: WriteMode
 ) -> None:
-    await _run(_destination(postgres_config), _target(schema, "t", write_mode, owner_tag="owner"), _rows((1, "a")))
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode), _rows((1, "a")))
     await _run(
         _destination(postgres_config),
-        _target(schema, "t", write_mode, owner_tag="owner", staging_key="run2"),
+        _target(schema, "t", write_mode, staging_key="run2"),
         _rows((2, "b")),
         commit=False,
     )
 
     async with _destination(postgres_config).connect() as session:
-        await session.abort(_ref(schema, "t", write_mode, staging_key="run2", owner_tag=abort_owner_tag))
-        await session.abort(_ref(schema, "t", write_mode, staging_key="run2", owner_tag=abort_owner_tag))
+        await session.abort(_ref(schema, "t", write_mode, staging_key="run2"))
+        await session.abort(_ref(schema, "t", write_mode, staging_key="run2"))
 
-    assert _exists(pg, schema, _staging(staging_key="run2")) is not dropped
+    assert not _exists(pg, schema, _staging(staging_key="run2"))
     assert _select(pg, schema, "t") == [(1, "a")]
 
 
-@pytest.mark.parametrize("write_mode", [WriteMode.APPEND, WriteMode.MERGE, WriteMode.REPLACE])
+@pytest.mark.parametrize("write_mode", list(WriteMode))
 @pytest.mark.parametrize(
     "existing_comment, allowed",
     [
@@ -780,70 +794,113 @@ async def test_abort_drops_only_its_own_staging_and_keeps_the_final_table(
         ("someone else", False),
         ("owner-tag123", False),
         ("owner-tag:child", False),
-        (TableMarker(owner_tag="other").encode(), False),
+        (table_marker.encode("other"), False),
         ("owner-tag", True),
-        (TableMarker(owner_tag="owner-tag").encode(), True),
+        (table_marker.encode("owner-tag"), True),
     ],
 )
-async def test_require_owned_refuses_a_table_without_the_owner_tag(
+async def test_an_owner_tag_refuses_an_existing_table_without_it(
     postgres_config, pg, schema, write_mode: WriteMode, existing_comment: str | None, allowed: bool
 ) -> None:
     _create_table(pg, schema, "t", "id BIGINT PRIMARY KEY, name TEXT", comment=existing_comment)
     pg.execute(sql.SQL("INSERT INTO {} VALUES (0, 'old')").format(sql.Identifier(schema, "t")))
-    target = _target(schema, "t", write_mode, owner_tag="owner-tag", existing_table=ExistingTablePolicy.REQUIRE_OWNED)
+    # The extra column makes an accepted write alter the final table.
+    wider = pa.schema([*ROWS_SCHEMA, ("extra", pa.string())])
+    batch = pa.RecordBatch.from_pylist([{"id": 1, "name": "a", "extra": "x"}], schema=wider)
+    target = _target(schema, "t", write_mode, owner_tag="owner-tag", arrow_schema=wider)
 
     if allowed:
-        await _run(_destination(postgres_config), target, _rows((1, "a")))
+        await _run(_destination(postgres_config), target, batch)
         expected = [(1, "a")] if write_mode == WriteMode.REPLACE else [(0, "old"), (1, "a")]
         assert _select(pg, schema, "t") == expected
     else:
         with pytest.raises(PostgreSQLUnrelatedTableError) as exc_info:
-            await _run(_destination(postgres_config), target, _rows((1, "a")))
+            await _run(_destination(postgres_config), target, batch)
         assert exc_info.value.kind == ErrorKind.CONFIGURATION
         assert _select(pg, schema, "t") == [(0, "old")]
+        assert set(_columns(pg, schema, "t")) == {"id", "name"}
         assert not _exists(pg, schema, _staging())
 
 
-@pytest.mark.parametrize("write_mode", [WriteMode.APPEND, WriteMode.MERGE, WriteMode.REPLACE])
-async def test_use_writes_to_a_table_someone_else_created(postgres_config, pg, schema, write_mode: WriteMode) -> None:
-    _create_table(pg, schema, "t", "id BIGINT PRIMARY KEY, name TEXT", comment="someone else")
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+@pytest.mark.parametrize("existing_comment", ["someone else", table_marker.encode("other")])
+async def test_no_owner_tag_writes_to_a_table_someone_else_created(
+    postgres_config, pg, schema, write_mode: WriteMode, existing_comment: str
+) -> None:
+    _create_table(pg, schema, "t", "id BIGINT PRIMARY KEY, name TEXT", comment=existing_comment)
 
-    await _run(_destination(postgres_config), _target(schema, "t", write_mode, owner_tag="owner"), _rows((1, "a")))
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode), _rows((1, "a")))
 
     assert _select(pg, schema, "t") == [(1, "a")]
 
 
-async def test_require_owned_is_checked_again_when_a_replace_commits(postgres_config, pg, schema) -> None:
-    target = _target(
-        schema, "t", WriteMode.REPLACE, owner_tag="owner", existing_table=ExistingTablePolicy.REQUIRE_OWNED
-    )
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+async def test_the_owner_tag_is_checked_again_when_the_commit_runs(
+    postgres_config, pg, schema, write_mode: WriteMode
+) -> None:
+    target = _target(schema, "t", write_mode, owner_tag="owner")
 
     async with _destination(postgres_config).connect() as session:
         prepared = await session.prepare(target)
         await session.write(prepared, _batches(_rows((1, "a"))))
-        _create_table(pg, schema, "t", "id BIGINT, name TEXT", comment="created meanwhile")
+        pg.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(schema, "t")))
+        _create_table(pg, schema, "t", "id BIGINT PRIMARY KEY, name TEXT", comment="created meanwhile")
 
         with pytest.raises(PostgreSQLUnrelatedTableError):
-            await session.commit(target.ref)
+            await session.commit(target)
 
     assert _select(pg, schema, "t") == []
     assert _exists(pg, schema, _staging())
 
 
-@pytest.mark.parametrize(
-    "write_mode, expected",
-    [
-        (WriteMode.APPEND, TableMarker(owner_tag="owner")),
-        (WriteMode.MERGE, TableMarker(owner_tag="owner")),
-        (WriteMode.REPLACE, TableMarker(owner_tag="owner", committed_staging_key="run1")),
-    ],
-)
-async def test_tables_this_destination_creates_carry_the_marker(
-    postgres_config, pg, schema, write_mode: WriteMode, expected: TableMarker
-) -> None:
-    await _run(_destination(postgres_config), _target(schema, "t", write_mode, owner_tag="owner"), _rows((1, "a")))
+async def test_a_prepare_that_loses_the_create_race_does_not_take_the_table(postgres_config, pg, schema) -> None:
+    pg.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    destination = _destination(postgres_config)
 
-    assert parse(_comment(pg, schema, "t")) == expected
+    with psycopg.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        dbname=postgres_config["database"],
+    ) as first:
+        # Another prepare holds the create lock and has created its table, but not committed yet.
+        first.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (_lock_key(schema, "t"),))
+        first.execute(sql.SQL("CREATE TABLE {} (id BIGINT, name TEXT)").format(sql.Identifier(schema, "t")))
+        first.execute(
+            sql.SQL("COMMENT ON TABLE {} IS {}").format(
+                sql.Identifier(schema, "t"), sql.Literal(table_marker.encode("first"))
+            )
+        )
+
+        async with destination.connect() as session:
+            assert isinstance(session, PostgresSession)
+            pid = session._client().connection.info.backend_pid
+            second = asyncio.create_task(session.prepare(_target(schema, "t", WriteMode.APPEND, owner_tag="second")))
+
+            def waits_for_the_lock() -> bool:
+                row = pg.execute("SELECT count(*) FROM pg_locks WHERE pid = %s AND NOT granted", (pid,)).fetchone()
+                return row is not None and row[0] > 0
+
+            await asyncio.to_thread(wait_until, waits_for_the_lock)
+            first.commit()
+
+            with pytest.raises(PostgreSQLUnrelatedTableError):
+                await second
+
+    assert table_marker.parse(_comment(pg, schema, "t")) == "first"
+    assert not _exists(pg, schema, _staging())
+
+
+@pytest.mark.parametrize("write_mode", list(WriteMode))
+@pytest.mark.parametrize("owner_tag", ["owner", None])
+async def test_final_tables_this_destination_creates_carry_the_owner_tag(
+    postgres_config, pg, schema, write_mode: WriteMode, owner_tag: str | None
+) -> None:
+    await _run(_destination(postgres_config), _target(schema, "t", write_mode, owner_tag=owner_tag), _rows((1, "a")))
+
+    comment = _comment(pg, schema, "t")
+    assert (table_marker.parse(comment) if owner_tag else comment) == owner_tag
 
 
 @pytest.mark.parametrize(
@@ -1040,7 +1097,9 @@ async def test_values_the_table_refuses_are_data_errors(postgres_config, pg, sch
 
 
 async def test_a_statement_timeout_is_a_timeout_error(postgres_config, pg, schema, test_roles) -> None:
-    _create_table(pg, schema, "t", "id BIGINT, name TEXT")
+    target = _target(schema, "t", WriteMode.APPEND)
+    async with _destination(postgres_config).connect() as session:
+        await session.prepare(target)
     pg.execute(
         sql.SQL(
             "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$"
@@ -1048,16 +1107,16 @@ async def test_a_statement_timeout_is_a_timeout_error(postgres_config, pg, schem
     )
     pg.execute(
         sql.SQL("CREATE TRIGGER slow BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()").format(
-            sql.Identifier(schema, "t"), sql.Identifier(schema, "slow")
+            sql.Identifier(schema, _staging()), sql.Identifier(schema, "slow")
         )
     )
     role = sql.Identifier(test_roles["slow"])
     pg.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(sql.Identifier(schema), role))
-    pg.execute(sql.SQL("GRANT ALL ON {} TO {}").format(sql.Identifier(schema, "t"), role))
+    pg.execute(sql.SQL("GRANT ALL ON ALL TABLES IN SCHEMA {} TO {}").format(sql.Identifier(schema), role))
     destination = _destination(postgres_config, user=test_roles["slow"], password=ROLE_PASSWORD)
 
     with pytest.raises(DestinationError) as exc_info:
-        await _run(destination, _target(schema, "t", WriteMode.APPEND), _rows((1, "a")))
+        await _run(destination, target, _rows((1, "a")), commit=False)
 
     assert exc_info.value.kind == ErrorKind.TIMEOUT
     assert isinstance(exc_info.value.__cause__, psycopg.errors.QueryCanceled)

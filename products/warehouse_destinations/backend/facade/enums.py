@@ -26,13 +26,13 @@ class DestinationType(StrEnum):
 class WriteMode(StrEnum):
     """How rows go into the final table.
 
-    - APPEND adds rows to the final table. It is not atomic: each chunk of a write commits on
-      its own, so a failed write can leave some of its rows behind. A retried APPEND without a
-      batch key can duplicate rows.
-    - MERGE writes rows to a staging table. A commit upserts them into the final table on the
-      primary keys of the target's `MergeSpec`.
-    - REPLACE writes rows to a staging table. The final commit swaps it in place of the final
-      table, so the final table holds exactly the rows written under the staging key.
+    Every mode writes rows to a staging state first, and only a commit changes the final table.
+
+    - APPEND: a commit inserts the staged rows into the final table.
+    - MERGE: a commit upserts the staged rows into the final table on the primary keys of the
+      target's `MergeSpec`.
+    - REPLACE: the final commit swaps the staging table in place of the final table, so the
+      final table holds exactly the rows written under the staging key.
     """
 
     APPEND = "append"
@@ -63,19 +63,6 @@ class NewColumnPolicy(StrEnum):
 
     ADD = "add"
     IGNORE = "ignore"
-
-
-class ExistingTablePolicy(StrEnum):
-    """What a destination does when the final table exists before `prepare`.
-
-    - USE writes to the table whatever created it. A REPLACE commit drops it.
-    - REQUIRE_OWNED writes only when the table carries the same owner tag as the target. For any
-      other table, `prepare` (and a REPLACE commit) raise a CONFIGURATION-kind `DestinationError`
-      and leave the table unchanged. This applies to every write mode.
-    """
-
-    USE = "use"
-    REQUIRE_OWNED = "require_owned"
 
 
 class LogicalType(StrEnum):

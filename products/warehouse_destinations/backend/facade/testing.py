@@ -16,9 +16,9 @@ no fields:
     connection = DestinationConnection(team_id=1, config=fake_config(DestinationType.SNOWFLAKE))
 
 The fake follows the session contract: it validates targets against its capabilities, keeps
-staged rows per staging key and batch key, upserts MERGE rows on the primary keys (the last
-written row wins; version keys are not compared), and records the staging key of a REPLACE
-commit so a replay gets `already_committed=True`.
+staged rows per staging key and batch key in every write mode, and changes `tables` only on
+commit. A commit appends APPEND rows, upserts MERGE rows on the primary keys (the last written
+row wins; version keys are not compared) and swaps in REPLACE rows. It does not model owner tags.
 """
 
 import functools
@@ -53,7 +53,7 @@ TableKey = tuple[str, ...]
 
 DEFAULT_FAKE_CAPABILITIES = DestinationCapabilities(
     write_modes=frozenset(WriteMode),
-    batch_key_modes=frozenset({WriteMode.MERGE, WriteMode.REPLACE}),
+    batch_key_modes=frozenset(WriteMode),
     namespace_depth=1,
     atomic_replace=True,
 )
@@ -61,7 +61,10 @@ DEFAULT_FAKE_CAPABILITIES = DestinationCapabilities(
 
 @frozen
 class FakeCall:
-    """One call a `FakeSession` received. Fields that do not apply to the method are None."""
+    """One call a `FakeSession` received. Fields that do not apply to the method are None.
+
+    `ref` is the `TargetRef` of the call, also for `prepare` and `commit`, which take a target.
+    """
 
     method: str
     ref: TargetRef
@@ -72,7 +75,6 @@ class FakeCall:
 
 @frozen(frozen=False)
 class _Staged:
-    target: TableTarget
     batches: dict[str | None, list[Row]]
 
 
@@ -116,7 +118,6 @@ class FakeDestination:
         self.tables: dict[TableKey, list[Row]] = defaultdict(list)
         self.connections: list[DestinationConnection] = []
         self._staged: dict[tuple[TableKey, str], _Staged] = {}
-        self._committed_keys: dict[TableKey, str] = {}
         self._failures: dict[str, list[BaseException]] = defaultdict(list)
 
     def __call__(
@@ -146,21 +147,15 @@ class FakeSession:
 
     async def prepare(self, target: TableTarget) -> PreparedTarget:
         fake = self._destination
-        fake.calls.append(FakeCall(method="prepare", ref=target.ref))
-        fake._raise_if_failing("prepare")
         ref = target.ref
+        fake.calls.append(FakeCall(method="prepare", ref=ref))
+        fake._raise_if_failing("prepare")
         check_ref(fake.capabilities, ref)
 
         table = _table_key(ref)
-        if ref.write_mode == WriteMode.REPLACE and fake._committed_keys.get(table) == ref.staging_key:
-            return PreparedTarget(target=target, already_committed=True)
-
         if ref.write_mode != WriteMode.REPLACE:
             fake.tables.setdefault(table, [])
-        if ref.write_mode != WriteMode.APPEND:
-            assert ref.staging_key is not None
-            staged = fake._staged.setdefault((table, ref.staging_key), _Staged(target=target, batches={}))
-            staged.target = target
+        fake._staged.setdefault((table, ref.staging_key), _Staged(batches={}))
         return PreparedTarget(target=target)
 
     async def write(
@@ -169,48 +164,41 @@ class FakeSession:
         fake = self._destination
         ref = prepared.target.ref
         rows: list[Row] = []
-        if not prepared.already_committed:
-            async for batch in batches:
-                rows.extend(batch.to_pylist())
+        async for batch in batches:
+            rows.extend(batch.to_pylist())
         fake.calls.append(FakeCall(method="write", ref=ref, batch_key=batch_key, rows=tuple(rows)))
         fake._raise_if_failing("write")
         check_batch_key(fake.capabilities, ref, batch_key)
-        if prepared.already_committed:
-            return WriteOutcome(rows_written=0, bytes_written=0)
 
-        table = _table_key(ref)
-        if ref.write_mode == WriteMode.APPEND:
-            fake.tables[table].extend(rows)
-        else:
-            assert ref.staging_key is not None
-            staged = fake._staged.get((table, ref.staging_key))
-            if staged is None:
-                raise DestinationError("Write before prepare", kind=ErrorKind.CONFIGURATION)
-            if batch_key is not None:
-                staged.batches[batch_key] = []
-            staged.batches.setdefault(batch_key, []).extend(rows)
+        staged = fake._staged.get((_table_key(ref), ref.staging_key))
+        if staged is None:
+            raise DestinationError("Write before prepare", kind=ErrorKind.CONFIGURATION)
+        if batch_key is not None:
+            staged.batches[batch_key] = []
+        staged.batches.setdefault(batch_key, []).extend(rows)
         return WriteOutcome(rows_written=len(rows), bytes_written=sum(len(repr(row)) for row in rows))
 
-    async def commit(self, ref: TargetRef, *, final: bool = True) -> None:
+    async def commit(self, target: TableTarget, *, final: bool = True) -> None:
         fake = self._destination
+        ref = target.ref
         fake.calls.append(FakeCall(method="commit", ref=ref, final=final))
         fake._raise_if_failing("commit")
         check_ref(fake.capabilities, ref)
-        if ref.write_mode == WriteMode.APPEND or (ref.write_mode == WriteMode.REPLACE and not final):
+        if ref.write_mode == WriteMode.REPLACE and not final:
             return
 
         table = _table_key(ref)
-        assert ref.staging_key is not None
         staged = fake._staged.get((table, ref.staging_key))
         if staged is None:
             return
         rows = [row for batch in staged.batches.values() for row in batch]
 
-        if ref.write_mode == WriteMode.REPLACE:
+        if ref.write_mode == WriteMode.APPEND:
+            fake.tables[table].extend(rows)
+        elif ref.write_mode == WriteMode.REPLACE:
             fake.tables[table] = rows
-            fake._committed_keys[table] = ref.staging_key
         else:
-            merge = staged.target.merge
+            merge = target.merge
             assert merge is not None
             _upsert(fake.tables[table], rows, key=lambda row: tuple(row.get(k) for k in merge.primary_keys))
 
@@ -226,8 +214,7 @@ class FakeSession:
             fake._raise_if_failing("abort")
         except Exception:
             return
-        if ref.staging_key is not None:
-            fake._staged.pop((_table_key(ref), ref.staging_key), None)
+        fake._staged.pop((_table_key(ref), ref.staging_key), None)
 
 
 def _table_key(ref: TargetRef) -> TableKey:

@@ -6,7 +6,11 @@ A caller gets a `Destination` from `api.get_destination`, opens a `DestinationSe
     async with destination.connect() as session:
         prepared = await session.prepare(target)
         await session.write(prepared, batches, batch_key="0")
-        await session.commit(target.ref)
+        await session.commit(target)
+
+Every write mode writes to a staging state first, and only `commit` makes rows visible in the
+final table. The destination does not remember commits: the caller records each finished commit
+in its own store.
 
 Error contract: every exception that escapes `connect()` or a session method is a
 `DestinationError`. When a driver error caused it, that error is its `__cause__`. Callers
@@ -28,7 +32,7 @@ from typed_config import is_config
 from posthog.dataclasses import frozen
 
 from .configs.base import DestinationConfig
-from .enums import DestinationType, ErrorKind, ExistingTablePolicy, LogicalType, NewColumnPolicy, TypePolicy, WriteMode
+from .enums import DestinationType, ErrorKind, LogicalType, NewColumnPolicy, TypePolicy, WriteMode
 
 
 def _empty_mapping() -> Mapping[str, Any]:
@@ -124,20 +128,26 @@ class TargetRef:
     `namespace` holds the parents of the table relative to the connection, for example
     `(schema,)` for Postgres. Its length must equal the destination's `namespace_depth`.
 
-    `staging_key` names the staging state of a MERGE or REPLACE write. Every attempt of the
-    same logical write must use the same key, so that a retry finds the staging state of an
-    earlier attempt and a replayed REPLACE finds that it already committed. Use a new key for
-    a new logical write. APPEND ignores it.
+    `staging_key` names the staging state of the write, in every write mode. Every attempt of
+    the same logical write must use the same key, so that a retry finds the staging state of an
+    earlier attempt. Use a new key for a new logical write.
 
-    `owner_tag` marks the tables the destination creates, so that a later write can tell them
-    apart from tables someone else created. Both keys are opaque: the destination encodes them,
-    and compares them only for exact equality.
+    `owner_tag` is an opaque, stable id that the caller chooses for the thing that owns the
+    table, for example the id of the sync or export configuration that created it. A table is
+    owned by a tag when this destination created it as a final table under that tag. When the
+    tag is set, the destination tags every final table it creates with it. It refuses to write
+    into, merge into or replace a final table that existed before and does not carry the same
+    tag, in every write mode: it raises a CONFIGURATION-kind error before it changes anything.
+    When the tag is None, the destination uses an existing final table as it is, so a caller
+    that writes into tables the customer created passes None. Staging tables carry no tag.
+
+    The destination compares both keys only for exact equality.
     """
 
     namespace: tuple[str, ...]
     table_name: str
     write_mode: WriteMode
-    staging_key: str | None = None
+    staging_key: str
     owner_tag: str | None = None
 
     def __post_init__(self) -> None:
@@ -148,7 +158,7 @@ class TargetRef:
             raise ValueError("TargetRef requires a table name")
         if any(not part.strip() for part in self.namespace):
             raise ValueError("Namespace parts cannot be blank")
-        if self.write_mode in (WriteMode.MERGE, WriteMode.REPLACE) and not self.staging_key:
+        if not self.staging_key:
             raise ValueError(f"A {self.write_mode} write requires a staging key")
         if self.owner_tag == "":
             raise ValueError("The owner tag cannot be empty; pass None for no tag")
@@ -161,7 +171,7 @@ class TableTarget:
     `schema` is the Arrow schema of every batch the caller writes. `merge` is required for
     MERGE and forbidden for other modes, and its keys must be columns of `schema`.
     `column_types` pins a column of `schema` to a logical type, which wins over `type_policy`
-    for that column. `existing_table` REQUIRE_OWNED needs `ref.owner_tag`.
+    for that column.
 
     A JSON column is a column whose Arrow type is an extension type named `json` or
     `arrow.json` (any class), or a column that `column_types` pins to `LogicalType.JSON`.
@@ -172,7 +182,6 @@ class TableTarget:
     merge: MergeSpec | None = None
     type_policy: TypePolicy = TypePolicy.STRICT
     new_columns: NewColumnPolicy = NewColumnPolicy.ADD
-    existing_table: ExistingTablePolicy = ExistingTablePolicy.USE
     column_types: Mapping[str, LogicalType] = field(default_factory=_empty_mapping)
 
     def __post_init__(self) -> None:
@@ -189,9 +198,6 @@ class TableTarget:
             if missing:
                 raise ValueError(f"Merge keys are not in the schema: {missing}")
 
-        if self.existing_table == ExistingTablePolicy.REQUIRE_OWNED and self.ref.owner_tag is None:
-            raise ValueError("REQUIRE_OWNED needs an owner tag on the target")
-
         unknown = sorted(set(self.column_types) - set(self.schema.names))
         if unknown:
             raise ValueError(f"Column types name columns that are not in the schema: {unknown}")
@@ -203,16 +209,11 @@ class TableTarget:
 class PreparedTarget:
     """The result of `DestinationSession.prepare`. Pass it to `write`.
 
-    Only `prepare` builds one. Callers read `target` and `already_committed` and nothing else:
-    `internal` is state the destination owns, and its shape can change at any time.
-
-    `already_committed` is True when an earlier attempt already committed this REPLACE under
-    the same staging key. Then `prepare` created nothing, `write` reads nothing and returns a
-    zero outcome, and `commit` does nothing.
+    Only `prepare` builds one. Callers read `target` and nothing else: `internal` is state the
+    destination owns, and its shape can change at any time.
     """
 
     target: TableTarget
-    already_committed: bool = False
     internal: object = field(default=None, repr=False, compare=False)
 
 
@@ -257,18 +258,17 @@ class DestinationSession(Protocol):
     """
 
     async def prepare(self, target: TableTarget) -> PreparedTarget:
-        """Make sure the final table and, for MERGE and REPLACE, the staging table exist.
+        """Make sure the final table and the staging table of the staging key exist.
 
         Validates the target against the capabilities first, and raises a CONFIGURATION-kind
         error for a write mode the destination does not support or a namespace of the wrong
-        depth, before it changes anything. Then it creates the namespace and the final table
-        when they do not exist, and applies `new_columns` to an existing final table.
-        A REPLACE does not touch the final table before its commit.
+        depth, before it changes anything. Then it checks the owner tag of an existing final
+        table (see `TargetRef.owner_tag`). Then it creates the namespace and, for APPEND and
+        MERGE, the final table when they do not exist, and applies `new_columns` to an existing
+        final table. A REPLACE does not touch the final table before its commit.
 
         Idempotent for the same target: when a staging table for the staging key exists, the
-        call keeps its rows, so a resumed write continues where it stopped. When a REPLACE
-        already committed under the staging key, it creates nothing and returns
-        `already_committed=True`.
+        call keeps its rows, so a resumed write continues where it stopped.
         """
         ...
 
@@ -279,7 +279,7 @@ class DestinationSession(Protocol):
         *,
         batch_key: str | None = None,
     ) -> WriteOutcome:
-        """Write `batches` into the table `prepare` chose.
+        """Write `batches` into the staging state that `prepare` chose, never into the final table.
 
         Every batch must have the schema of `prepared.target.schema`. Empty batches are skipped.
         `prepared` can come from another session of the same destination.
@@ -288,26 +288,31 @@ class DestinationSession(Protocol):
         rows in the staging state. With a `batch_key`, the write first removes the rows that an
         earlier write with the same key left there, so a retry does not duplicate rows. A mode
         outside `capabilities.batch_key_modes` raises a CONFIGURATION-kind error for a `batch_key`.
-
-        APPEND writes go to the final table and are not atomic: each chunk commits on its own,
-        so a failed write can leave some rows behind. A retried APPEND without a batch key can
-        duplicate rows.
         """
         ...
 
-    async def commit(self, ref: TargetRef, *, final: bool = True) -> None:
-        """Make the staged rows of `ref` visible in the final table.
+    async def commit(self, target: TableTarget, *, final: bool = True) -> None:
+        """Make the staged rows of `target` visible in the final table.
 
-        - APPEND: does nothing, because writes are already visible.
-        - MERGE: upserts the staged rows into the final table. With `final=False` it then
-          empties the staging table and keeps it for the next batch. With `final=True` it
-          drops the staging table. The upsert and the cleanup happen in one transaction.
-        - REPLACE: with `final=True`, swaps the staging table in place of the final table and
-          records the staging key on it. With `final=False`, does nothing.
+        - APPEND: inserts the staged rows into the final table.
+        - MERGE: upserts the staged rows into the final table on the primary keys of
+          `target.merge`.
+        - REPLACE: with `final=True`, swaps the staging table in place of the final table. With
+          `final=False`, does nothing.
 
-        Needs no prior `prepare` in this session and no schema, so a new process can finish
-        a write. When no staging state exists for the key (nothing was prepared, or an earlier
-        commit finished), it does nothing. So it is safe to call two times.
+        For APPEND and MERGE, `final=False` then empties the staging table and keeps it for the
+        next batch, and `final=True` drops it. The insert or upsert and the cleanup happen in one
+        transaction. They write only the columns of `target.schema`, so a column that only the
+        final table has keeps its value.
+
+        Needs no prior `prepare` in this session, so a new process can finish a write. When no
+        staging state exists for the staging key (nothing was prepared, or an earlier commit
+        finished), it does nothing. So it is safe to call two times.
+
+        The destination does not remember a finished commit. The caller records it in its own
+        store, and must not replay a write for a staging key that it already committed: a
+        replayed final REPLACE would publish only the rows written after the replay. A user who
+        replays a past run on purpose starts a new write, with a new staging key.
         """
         ...
 
