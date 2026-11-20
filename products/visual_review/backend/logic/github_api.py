@@ -461,6 +461,8 @@ class BranchHead:
     pr_number: int
     # The head is in another repository, or that repository was deleted.
     from_fork: bool = False
+    # The branch a pull request targets. Empty for a merge-queue branch.
+    base_ref: str = ""
 
 
 _LIST_PAGE_SIZE = 100
@@ -501,15 +503,18 @@ def _is_from_fork(pull_request: dict) -> bool:
     return not head_repo.get("full_name") or head_repo.get("full_name") != base_repo.get("full_name")
 
 
-def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | None:
-    """The head commit of every open pull request that targets `base_branch`, or None when GitHub cannot say."""
-    items = _read_all_pages(
-        "visual_review.open_pull_requests_fetch_failed", repo, "pulls", {"state": "open", "base": base_branch}
-    )
+def open_pull_request_heads(repo: Repo) -> list[BranchHead] | None:
+    """The head commit of every open pull request, whatever branch it targets, or None when GitHub cannot say."""
+    items = _read_all_pages("visual_review.open_pull_requests_fetch_failed", repo, "pulls", {"state": "open"})
     if items is None:
         return None
     return [
-        BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"], from_fork=_is_from_fork(item))
+        BranchHead(
+            commit_sha=item["head"]["sha"],
+            pr_number=item["number"],
+            from_fork=_is_from_fork(item),
+            base_ref=(item.get("base") or {}).get("ref") or "",
+        )
         for item in items
     ]
 

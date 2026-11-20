@@ -1488,21 +1488,25 @@ class TestLedgerRecheck:
 
         assert sender.call_count == 2
 
-    def test_the_recheck_skips_fork_pull_requests(self, repo, sender, mocker) -> None:
-        _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])
+    def test_the_recheck_covers_stacked_pull_requests_and_skips_forks(self, repo, sender, mocker) -> None:
+        _serve_heads(mocker, {}, {}, ["skipped"])
         mocker.patch.object(
             github_api,
             "open_pull_request_heads",
             return_value=[
-                github_api.BranchHead(commit_sha="head-4", pr_number=4),
-                github_api.BranchHead(commit_sha="fork-head-5", pr_number=5, from_fork=True),
+                github_api.BranchHead(commit_sha="head-4", pr_number=4, base_ref="master"),
+                github_api.BranchHead(commit_sha="fork-head-5", pr_number=5, from_fork=True, base_ref="master"),
+                github_api.BranchHead(commit_sha="stacked-head-6", pr_number=6, base_ref="feat-parent"),
             ],
         )
 
         output = _recheck_command(repo, "--apply")
 
-        assert "1 open pull requests, 0 merge-queue branches, 1 fork pull requests skipped." in output
-        assert [call.args[1] for call in sender.call_args_list] == ["head-4"]
+        assert output.splitlines()[0] == (
+            "2 open pull requests (1 on the default branch, 1 on other branches), 0 merge-queue branches, "
+            "1 fork pull requests skipped."
+        )
+        assert sorted(call.args[1] for call in sender.call_args_list) == ["head-4", "stacked-head-6"]
 
     def test_the_recheck_apply_needs_the_setup_check(self, repo, sender, mocker) -> None:
         _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])

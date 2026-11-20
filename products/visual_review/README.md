@@ -405,7 +405,7 @@ A revert pull request needs an approval for the pictures it restores.
 - `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
 - `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
 - `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is not approved and is still gated by the commit status.
-- `recheck` shows the `ledger`-mode status of every open pull request head and merge-queue head, and posts nothing. `--apply` posts it and needs the commit status gate. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type (see step 8).
+- `recheck` shows the `ledger`-mode status of every open pull request head, stacked ones included and forks left out, and of every merge-queue head. It posts nothing. `--apply` posts it and needs the commit status gate. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type (see step 8).
 
 To move a repo to the ledger:
 

@@ -318,7 +318,9 @@ class Command(BaseCommand):
         default_branch = github_api.default_branch_name(repo)
         if default_branch is None:
             raise CommandError("GitHub did not name the default branch. Nothing was posted.")
-        pull_requests = github_api.open_pull_request_heads(repo, default_branch)
+        # A stacked pull request gets its status now too. When its parent merges, it is retargeted
+        # to the default branch, and no workflow runs on that change to post the status.
+        pull_requests = github_api.open_pull_request_heads(repo)
         merge_queue = github_api.merge_queue_branch_heads(repo)
         if pull_requests is None or merge_queue is None:
             raise CommandError(
@@ -328,8 +330,10 @@ class Command(BaseCommand):
         # there. A fork pull request is recreated in the repository before it merges, so it gets no status.
         in_repo = [head for head in pull_requests if not head.from_fork]
         forks = len(pull_requests) - len(in_repo)
+        on_default_branch = sum(1 for head in in_repo if head.base_ref == default_branch)
         self.stdout.write(
-            f"{len(in_repo)} open pull requests, {len(merge_queue)} merge-queue branches, "
+            f"{len(in_repo)} open pull requests ({on_default_branch} on the default branch, "
+            f"{len(in_repo) - on_default_branch} on other branches), {len(merge_queue)} merge-queue branches, "
             f"{forks} fork pull requests skipped."
         )
         return in_repo + merge_queue
