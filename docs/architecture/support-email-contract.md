@@ -16,7 +16,9 @@ Where do the two seams go that move the support inbox's email off Mailgun and on
 Conversations keeps the outbox and everything after a message is parsed. Messaging owns sending and the SES wire Message-ID. Workflows owns receiving, up to a parsed message.
 
 - The outbox calls Messaging in-process, so each region sends from its own SES.
-- Inbound reaches Conversations through one provider-neutral `ingest_email`. The Mailgun, SES and Gmail adapters all feed it.
+- Inbound runs through one Workflows SES intake. The support inbound domains are a platform route on it. That route hands parsed mail and signed verdicts to Conversations' existing ingest through one provider-neutral `ingest_email`, which the Mailgun, SES and Gmail adapters all feed. It skips `ReceivedEmail` rows, `$email_received` and 30-day retention.
+- Each region receives its own inbound domain, and the EU domain is received in Frankfurt. Until existing EU teams switch their forwarding address, US SES receives the shared address and ingress forwards EU mail to EU, as it does for Mailgun today.
+- Dan Marchuk builds stack C from his closed SES stack, and Conversations reviews the route and adapter. Afterwards Workflows owns the inbound layer: intake, platform route, parser and adapter.
 - The cutover picks an adapter per channel, and no ticket logic changes.
 
 ## Call paths
@@ -56,7 +58,10 @@ sequenceDiagram
   participant M as Messaging
   U->>S: mail to team-token@
   S->>I: S3 object, signed SNS
-  I->>I: parse, route by recipient
+  I->>I: parse, platform route
+  alt US gets mail for an EU token, until EU teams switch
+    I->>I: ingress forwards signed SNS body to EU
+  end
   I->>V: InboundEmail
   V->>V: adapter, policy
   V->>V: ingest_email, dedup
@@ -212,8 +217,8 @@ class TransientRouteError(Exception):
     """Workflows keeps the S3 intake object and redelivers."""
 
 
-def register_mailbox_route(domain_setting: str, local_part_pattern: str, handler: str) -> None:
-    """Workflows facade, called from Conversations' app config. Workflows never imports Conversations."""
+def register_platform_route(domain_setting: str, local_part_pattern: str, handler: str) -> None:
+    """Workflows facade. Declares a platform route on the one SES intake, outside team InboundEmailDomain routing."""
     raise NotImplementedError
 
 
@@ -232,7 +237,9 @@ def register_mailbox_route(domain_setting: str, local_part_pattern: str, handler
 - `QueuedEmail.message_id` is the Workflows send ID, stored on the outbox as `workflows_send_id`. The RFC Message-ID on the wire is set by SES.
 - A message counts as "sent" once Workflows queues it. Delivered and bounced statuses are not part of this contract.
 - Workflows dispatches `InboundEmail` before its own auto-submitted filter and `ReceivedEmail` persistence. Its own sends carry `Auto-Submitted: auto-generated`, so the forwarding challenge would otherwise be dropped.
-- Workflows never imports Conversations. Conversations registers its routes through the Workflows facade with a lazily resolved handler path.
+- Workflows never imports Conversations. The platform route for the support inbound domains (`team-<token>` and the outbound-capture address) is registered through the Workflows facade with a lazily resolved handler path. The adapter into `ParsedEmail` sits at Conversations' edge so the import points the right way, and Workflows co-owns that file, because Workflows owns the inbound layer.
+- Ingest skips `ReceivedEmail` rows, `$email_received` and 30-day retention for the support domains.
+- While the shared address still receives EU mail, the US Conversations route answers ownership from the recipient token, as `mailgun_inbound_delivery_ownership` does today. Ingress forwards the signed SNS body to EU once, and EU reads the intake object from the US bucket. EU mail rests in US storage only until EU acks, which matches Mailgun today.
 - `ingest_email` is idempotent on (team, Message-ID) through the `EmailMessageMapping` unique constraint. The same message arriving through Mailgun and SES during the MX move settles as `DUPLICATE`.
 - Sender trust comes from the SNS-signed receipt, never from MIME headers. The adapter reads DKIM signer tags from the raw headers for relay and Google confirmation checks. Stack C proves this matches what Mailgun gives today.
 
@@ -244,6 +251,7 @@ def register_mailbox_route(domain_setting: str, local_part_pattern: str, handler
 | Send    | `SenderNotVerified` (new code `sender_not_verified`)            | Mark the channel unverified and fail the row                                                                |
 | Send    | `IdempotencyKeyReused`                                          | Mark the row sent                                                                                           |
 | Send    | Any other `TransactionalEmailError`                             | Fail the row with its code                                                                                  |
+| Receive | Ownership lookup or US to EU forward fails                      | Ingress asks SNS to redeliver, so the forward is decided again                                              |
 | Receive | `TransientRouteError` (database or lock errors)                 | Workflows keeps the S3 object and redelivers with backoff. The DLQ and replay from stack C are the backstop |
 | Receive | Misconfigured channel, email disabled, self-addressed autoreply | Return `IGNORED` and log, as the Mailgun handler acks them today                                            |
 
@@ -262,20 +270,21 @@ def register_mailbox_route(domain_setting: str, local_part_pattern: str, handler
 | `match_sent_message_ids` over the recorded SES message ID                                                                         | A (Workflows), reusing #130635 and #130643 |
 | Per-channel adapter flip on SES readiness                                                                                         | B                                          |
 | Split `mailgun_events.py` into a Mailgun adapter plus `ingest_email`, with attachments as bounded bytes                           | C, base PR                                 |
-| `InboundEmail`, `register_mailbox_route`, dispatch before Workflows filters                                                       | C (Workflows)                              |
-| SES adapter into `ParsedEmail`                                                                                                    | C (Conversations)                          |
+| `InboundEmail`, platform route, dispatch before Workflows filters, US to EU forward                                               | C (Workflows)                              |
+| SES adapter into `ParsedEmail` (built by Dan, reviewed by Conversations, then owned by Workflows)                                 | C                                          |
 | Delete the Mailgun adapters, client and ingress routes                                                                            | D                                          |
 
 ## Follow-ups
 
 - **One email platform module** (Speculative, moved to a follow-up): one Workflows module would own sending, receiving and sender identity for every product, and Conversations would keep only tickets and channels. Revisit after stack D and the move of Django mail onto Workflows.
 - **Delivery status on the reply badge** (Worth exploring, moved to a follow-up): show delivered and bounced from `get_email_status` keyed by `workflows_send_id`.
-- **Not asked: delete cross-region sender probing** (Worth exploring). With each region receiving its own inbound domain, `_sender_is_active_in_other_region` and the ingress ownership callbacks can go in stack D, if outbound capture also moves to regional addresses.
+- **Delete the US to EU forward** (Strong, stack D): once the 8-week window ends and EU teams use the EU domain, the US route's ownership callback, `_sender_is_active_in_other_region` and the cross-account bucket read can go, if outbound capture also moves to regional addresses.
 
 ## Decisions recorded
 
 - [ADR 0001](support-email-contract/adr/0001-conversations-sends-in-process-through-messaging.md): Conversations sends through the Messaging facade in-process, not over HTTP.
-- [ADR 0002](support-email-contract/adr/0002-inbound-routes-before-workflows-filters.md): Workflows hands inbound mail to Conversations before its own filters and storage, and Conversations owns the adapter.
+- [ADR 0002](support-email-contract/adr/0002-inbound-routes-before-workflows-filters.md): One Workflows SES intake hands support mail to Conversations ingest on a platform route, before its own filters and storage.
 - [ADR 0003](support-email-contract/adr/0003-reply-matching-reads-the-wire-id-at-reply-time.md): reply matching reads the SES wire Message-ID from Workflows when a reply arrives.
 - [ADR 0004](support-email-contract/adr/0004-support-idempotency-outlives-the-outbox.md): support send idempotency outlives the outbox's retry age.
-- Below the ADR bar, each easy to reverse or the obvious choice: typed `ReplyHeaders` over a header map (Q2), the error mapping (Q4), the two deepening refactors (Q6, Q7), the badge meaning (Q10), route registration (Q12) and `workflows_send_id` (Q13).
+- [ADR 0005](support-email-contract/adr/0005-us-forwards-eu-mail-until-eu-teams-switch.md): US receives the shared address and forwards EU mail to EU until EU teams switch to the EU domain.
+- Below the ADR bar, each easy to reverse or the obvious choice: typed `ReplyHeaders` over a header map (Q2), the error mapping (Q4), the two deepening refactors (Q6, Q7), the badge meaning (Q10), platform route registration (Q12) and `workflows_send_id` (Q13).

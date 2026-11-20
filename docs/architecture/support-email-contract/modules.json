@@ -48,14 +48,19 @@
                 {
                     "id": "intake",
                     "name": "Workflows inbound intake",
-                    "note": "SES receipt rule, S3, SNS",
+                    "note": "one SES intake; built by Dan, then Workflows owns",
                     "change": "added",
                     "flex": 1.2,
-                    "seam": ["register_mailbox_route", "process_notification"],
+                    "seam": ["register_platform_route", "process_notification"],
                     "chips": [
                         {
                             "id": "i-route",
-                            "text": "route by domain + local part"
+                            "text": "platform route: support inbound domains"
+                        },
+                        {
+                            "id": "i-fwd",
+                            "text": "US to EU forward until EU teams switch",
+                            "change": "added"
                         },
                         {
                             "id": "i-parse",
@@ -145,7 +150,7 @@
                         },
                         {
                             "id": "in-ses",
-                            "text": "InboundEmail to ParsedEmail",
+                            "text": "SES adapter, Workflows co-owned",
                             "change": "added"
                         },
                         {
@@ -181,9 +186,11 @@
         {
             "from": "customer",
             "to": "intake-seam",
-            "label": "MX, regional",
+            "label": "MX per region",
             "change": "added",
-            "toAt": 0.5
+            "toAt": 0.5,
+            "labelAlign": "end",
+            "labelOffset": [-10, 0]
         },
         {
             "from": "customer",

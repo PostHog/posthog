@@ -7,7 +7,10 @@ sequenceDiagram
   participant M as Messaging
   U->>S: mail to team-token@
   S->>I: S3 object, signed SNS
-  I->>I: parse, route by recipient
+  I->>I: parse, platform route
+  alt US gets mail for an EU token, until EU teams switch
+    I->>I: ingress forwards signed SNS body to EU
+  end
   I->>V: InboundEmail
   V->>V: adapter, policy
   V->>V: ingest_email, dedup
