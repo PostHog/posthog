@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto'
 import {
     accessSync,
     chmodSync,
+    closeSync,
     constants,
     copyFileSync,
     linkSync,
+    openSync,
     realpathSync,
     renameSync,
     rmSync,
     statSync,
     writeFileSync,
+    writeSync,
 } from 'node:fs'
 
 import { HogError } from '@/core/errors'
@@ -87,17 +90,34 @@ export const randomChunkId = (now: () => number) => (): string => uuidv7(now())
 // `add` writes the new contents next to the target, and `commit` renames every staged file into
 // place. A full disk or a read-only target then fails before any target changes, instead of
 // leaving a bundle injected while its map keeps the old offsets, which a rerun can't repair.
+function writeChunks(path: string, chunks: Uint8Array[]): void {
+    const descriptor = openSync(path, 'wx')
+    try {
+        for (const chunk of chunks) {
+            for (let written = 0; written < chunk.length; ) {
+                written += writeSync(descriptor, chunk, written, chunk.length - written)
+            }
+        }
+    } finally {
+        closeSync(descriptor)
+    }
+}
+
 export class StagedFiles {
     private readonly staged: { temporary: string; target: string }[] = []
 
-    add(path: string, contents: string): void {
+    add(path: string, contents: string | Uint8Array[]): void {
         const target = realpathSync(path)
         // A rename would replace a read-only file, where posthog-cli's write fails.
         accessSync(target, constants.W_OK)
         const temporary = `${target}.${randomUUID()}.tmp`
         this.staged.push({ temporary, target })
 
-        writeFileSync(temporary, contents, { flag: 'wx' })
+        if (typeof contents === 'string') {
+            writeFileSync(temporary, contents, { flag: 'wx' })
+        } else {
+            writeChunks(temporary, contents)
+        }
         chmodSync(temporary, statSync(target).mode & 0o7777)
     }
 

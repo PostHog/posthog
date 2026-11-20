@@ -36,6 +36,9 @@ export function decodeUtf8(bytes: Uint8Array): string {
 
 export class JsonParser {
     index = 0
+    // Set once the text has a number that isn't an integer. Writing a float and reading it back
+    // can give another float, so a caller that skips that round trip needs to know there is none.
+    sawFloat = false
     private depth = 0
 
     constructor(readonly text: string) {}
@@ -226,6 +229,7 @@ export class JsonParser {
             }
             const next = significand * 10n + BigInt(digit)
             if (next > U64_MAX) {
+                this.sawFloat = true
                 return { kind: 'f', value: this.longInteger(positive, significand) }
             }
             this.index++
@@ -252,9 +256,11 @@ export class JsonParser {
     private afterInteger(positive: boolean, significand: bigint): JsonNumber {
         const char = this.text[this.index]
         if (char === '.') {
+            this.sawFloat = true
             return { kind: 'f', value: this.decimal(positive, significand, 0) }
         }
         if (char === 'e' || char === 'E') {
+            this.sawFloat = true
             return { kind: 'f', value: this.exponent(positive, significand, 0) }
         }
         if (positive) {
@@ -263,6 +269,7 @@ export class JsonParser {
         // serde_json keeps a negative integer when it fits i64, and makes -0 a float.
         const negated = BigInt.asIntN(64, -BigInt.asIntN(64, significand))
         if (negated >= 0n) {
+            this.sawFloat = true
             return { kind: 'f', value: -Number(significand) }
         }
         return { kind: 'i', value: negated }
@@ -492,6 +499,11 @@ export function writeJson<Sink extends JsonSink = string[]>(
 
 export function writeEntries(entries: [string, JsonValue][], parts: JsonSink): void {
     parts.push('{')
+    writeEntryList(entries, parts)
+    parts.push('}')
+}
+
+export function writeEntryList(entries: [string, JsonValue][], parts: JsonSink): void {
     entries
         .sort((a, b) => compareUtf8(a[0], b[0]))
         .forEach(([key, item], index) => {
@@ -501,7 +513,6 @@ export function writeEntries(entries: [string, JsonValue][], parts: JsonSink): v
             parts.push(writeString(key), ':')
             writeJson(item, parts)
         })
-    parts.push('}')
 }
 
 export function stringifyJson(value: JsonValue): string {

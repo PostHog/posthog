@@ -35,7 +35,7 @@ import {
 import {
     loadMapContent,
     readPair,
-    serializeMapContent,
+    serializeMapBytes,
     SourcePair,
     type MapIds,
     type ReleaseMode,
@@ -340,7 +340,7 @@ class PairSnapshot {
             sourcePath: pair.sourcePath,
             mapPath: pair.mapPath,
             source: this.scratch.write(Buffer.from(pair.source, 'utf8')),
-            map: this.scratch.write(Buffer.from(serializeMapContent(pair.map), 'utf8')),
+            map: this.scratch.write(...serializeMapBytes(pair.map)),
             artifact,
         })
     }
@@ -498,7 +498,7 @@ async function injectPairs(
             if (!options.dryRun && !stagingFailure) {
                 try {
                     files.add(pair.sourcePath, pair.source)
-                    files.add(pair.mapPath, serializeMapContent(pair.map))
+                    files.add(pair.mapPath, serializeMapBytes(pair.map))
                 } catch (error) {
                     stagingFailure = { error }
                 }

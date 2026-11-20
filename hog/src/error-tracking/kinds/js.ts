@@ -10,7 +10,9 @@ import {
     JsonParser,
     parseJson,
     stringifyJson,
+    Utf8Writer,
     writeEntries,
+    writeEntryList,
     writeString,
     type JsonValue,
 } from '../json'
@@ -80,6 +82,8 @@ export interface MapContent {
     chunkId: string | null
     debugId: string | null
     fields: Map<string, JsonValue>
+    // False when the map was parsed and has no float. Unset for a map built some other way.
+    hasFloats?: boolean
 }
 
 export type MapIds = Pick<MapContent, 'releaseId' | 'chunkId' | 'debugId'>
@@ -87,8 +91,10 @@ export type MapIds = Pick<MapContent, 'releaseId' | 'chunkId' | 'debugId'>
 // Parses a map like serde's derive: `chunkId` is an alias of `chunk_id`, a repeated known field is an
 // error, nulls read as absent, and any other type for those fields is an error.
 export function loadMapContent(text: string): MapContent {
+    const parser = new JsonParser(text)
     const fields = new Map<string, JsonValue>()
-    return { ...readMapFields(text, (key, value) => fields.set(key, value)), fields }
+    const ids = parseMapFields(parser, (key, value) => fields.set(key, value))
+    return { ...ids, fields, hasFloats: parser.sawFloat }
 }
 
 export class KnownMapFields {
@@ -128,7 +134,11 @@ export class KnownMapFields {
 // Reads the three known fields and hands every other field to `onField` as soon as it is parsed.
 // A caller that keeps none of the values never holds the tree of the whole map.
 export function readMapFields(text: string, onField: (key: string, value: JsonValue) => void): MapIds {
-    const parser = new JsonParser(text)
+    return parseMapFields(new JsonParser(text), onField)
+}
+
+function parseMapFields(parser: JsonParser, onField: (key: string, value: JsonValue) => void): MapIds {
+    const text = parser.text
     parser.skipWhitespace()
     if (text[parser.index] !== '{') {
         parser.fail('invalid type: expected struct SourceMapContent')
@@ -190,6 +200,20 @@ export function serializeMapContent(content: MapContent): string {
     writeEntries([...content.fields.entries()], body)
     const inner = body.join('').slice(1, -1)
     return `{${[...head, ...(inner ? [inner] : [])].join(',')}}`
+}
+
+// The UTF-8 bytes of `serializeMapContent`, without the string in between. A large map is written
+// and hashed as bytes, and its text as a string takes up to twice its size on top of them.
+export function serializeMapBytes(content: MapContent): Buffer[] {
+    const head = serializeMapIds(content).join(',')
+    const out = new Utf8Writer()
+    out.push('{', head)
+    if (head && content.fields.size > 0) {
+        out.push(',')
+    }
+    writeEntryList([...content.fields.entries()], out)
+    out.push('}')
+    return out.finish()
 }
 
 export function isEmptyMap(get: (key: string) => JsonValue | undefined): boolean {
@@ -374,9 +398,10 @@ export class SourcePair {
     // `apply_adjustment`: decode the map with the sourcemap crate rules, move every token through
     // the adjustment, write it back, then keep the old ids and any old keys the writer dropped.
     private applyAdjustment(adjustment: Token[]): void {
-        const decoded = decodeSourceMap(parseJson(serializeMapContent(this.map)))
+        const decoded = decodeSourceMap(this.rawMap())
         adjustMappings(decoded, adjustment)
-        const fresh = loadMapContent(stringifyJson(encodeSourceMap(decoded)))
+        const fresh = this.encodedMap(encodeSourceMap(decoded))
+        fresh.hasFloats = this.map.hasFloats
         fresh.chunkId = this.map.chunkId
         fresh.releaseId = this.map.releaseId
         fresh.debugId = this.map.debugId
@@ -386,6 +411,34 @@ export class SourcePair {
             }
         }
         this.map = fresh
+    }
+
+    // posthog-cli decodes the map from its serialized text, and reads the encoded map back the same
+    // way. Values without a float come back from that round trip as they went in, so the parsed
+    // fields are used as they are: the text of a large map and a second tree are gigabytes. A
+    // float can read back as another float, so a map that has one takes the round trip.
+    private rawMap(): JsonValue {
+        if (this.map.hasFloats !== false) {
+            return parseJson(serializeMapContent(this.map))
+        }
+        const raw = new JsonObject()
+        for (const [key, value] of this.map.fields) {
+            raw.entries.set(key, value)
+        }
+        const ids = { release_id: this.map.releaseId, chunk_id: this.map.chunkId, debugId: this.map.debugId }
+        for (const [key, value] of Object.entries(ids)) {
+            if (value !== null) {
+                raw.entries.set(key, value)
+            }
+        }
+        return raw
+    }
+
+    private encodedMap(encoded: JsonObject): MapContent {
+        if (this.map.hasFloats !== false) {
+            return loadMapContent(stringifyJson(encoded))
+        }
+        return { releaseId: null, chunkId: null, debugId: null, fields: new Map(encoded.entries) }
     }
 
     addChunkId(chunkId: string, releaseId: string | null): void {
@@ -440,7 +493,7 @@ export class SourcePair {
     }
 
     mapFingerprint(): string {
-        return contentHash(serializeMapContent(this.map))
+        return contentHash(...serializeMapBytes(this.map))
     }
 }
 
@@ -564,10 +617,9 @@ export function pairUpload(original: SourcePair, mode: ReleaseMode): SymbolSetUp
         throw new Error(`Chunk ID or debug ID not found in ${pair.sourcePath}`)
     }
     const source = pair.source
-    const map = serializeMapContent(pair.map)
     const data = writeSymbolData(
         SymbolDataType.SourceAndMap,
-        sourceAndMapPayload(Buffer.from(source, 'utf8'), Buffer.from(map, 'utf8'))
+        sourceAndMapPayload(Buffer.from(source, 'utf8'), Buffer.concat(serializeMapBytes(pair.map)))
     )
     let hash: string | undefined
     if (mode === 'event') {
@@ -582,7 +634,7 @@ export function pairUpload(original: SourcePair, mode: ReleaseMode): SymbolSetUp
         if (typeof file === 'string') {
             pair.map.fields.set('file', withoutFilePaths(file))
         }
-        hash = contentHash(withoutFilePaths(pair.source), '\0', serializeMapContent(pair.map), '\0', variant)
+        hash = contentHash(withoutFilePaths(pair.source), '\0', ...serializeMapBytes(pair.map), '\0', variant)
     }
     return { chunkId, releaseId: pair.map.releaseId, data, contentHash: hash }
 }

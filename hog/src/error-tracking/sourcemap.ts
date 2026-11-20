@@ -16,9 +16,110 @@ export interface Token {
     isRange: boolean
 }
 
+const INITIAL_TOKEN_CAPACITY = 64
+
+// The tokens of a map as one typed array per field. A large bundle has millions of tokens, and an
+// object for each one costs several times the 25 bytes a token takes here.
+export class TokenList {
+    length = 0
+    dstLine: Uint32Array
+    dstCol: Uint32Array
+    srcLine: Uint32Array
+    srcCol: Uint32Array
+    srcId: Uint32Array
+    nameId: Uint32Array
+    isRange: Uint8Array
+
+    constructor(capacity = INITIAL_TOKEN_CAPACITY) {
+        const size = Math.max(capacity, 1)
+        this.dstLine = new Uint32Array(size)
+        this.dstCol = new Uint32Array(size)
+        this.srcLine = new Uint32Array(size)
+        this.srcCol = new Uint32Array(size)
+        this.srcId = new Uint32Array(size)
+        this.nameId = new Uint32Array(size)
+        this.isRange = new Uint8Array(size)
+    }
+
+    push(
+        dstLine: number,
+        dstCol: number,
+        srcLine: number,
+        srcCol: number,
+        srcId: number,
+        nameId: number,
+        isRange: number
+    ): void {
+        if (this.length === this.dstLine.length) {
+            this.resize(this.length * 2)
+        }
+        const index = this.length++
+        this.dstLine[index] = dstLine
+        this.dstCol[index] = dstCol
+        this.srcLine[index] = srcLine
+        this.srcCol[index] = srcCol
+        this.srcId[index] = srcId
+        this.nameId[index] = nameId
+        this.isRange[index] = isRange
+    }
+
+    private resize(capacity: number): void {
+        const grown = <T extends Uint32Array | Uint8Array>(column: T): T => {
+            const next = new (column.constructor as new (length: number) => T)(capacity)
+            next.set(column.subarray(0, this.length))
+            return next
+        }
+        this.dstLine = grown(this.dstLine)
+        this.dstCol = grown(this.dstCol)
+        this.srcLine = grown(this.srcLine)
+        this.srcCol = grown(this.srcCol)
+        this.srcId = grown(this.srcId)
+        this.nameId = grown(this.nameId)
+        this.isRange = grown(this.isRange)
+    }
+
+    // Rust uses `sort_unstable_by_key`. For already sorted input, and for ties within 20 tokens,
+    // it agrees with this stable sort. A larger unsorted map with tied positions can order them
+    // differently: a known, unreproduced edge case.
+    sort(): void {
+        const { dstLine, dstCol, length } = this
+        let sorted = true
+        for (let index = 1; index < length && sorted; index++) {
+            sorted =
+                dstLine[index - 1]! < dstLine[index]! ||
+                (dstLine[index - 1] === dstLine[index] && dstCol[index - 1]! <= dstCol[index]!)
+        }
+        if (sorted) {
+            return
+        }
+
+        // The index breaks ties, which keeps tokens at the same position in their original order.
+        const order = new Uint32Array(length)
+        for (let index = 0; index < length; index++) {
+            order[index] = index
+        }
+        order.sort((a, b) => dstLine[a]! - dstLine[b]! || dstCol[a]! - dstCol[b]! || a - b)
+
+        const moved = <T extends Uint32Array | Uint8Array>(column: T): T => {
+            const next = new (column.constructor as new (length: number) => T)(column.length)
+            for (let index = 0; index < length; index++) {
+                next[index] = column[order[index]!]!
+            }
+            return next
+        }
+        this.dstLine = moved(this.dstLine)
+        this.dstCol = moved(this.dstCol)
+        this.srcLine = moved(this.srcLine)
+        this.srcCol = moved(this.srcCol)
+        this.srcId = moved(this.srcId)
+        this.nameId = moved(this.nameId)
+        this.isRange = moved(this.isRange)
+    }
+}
+
 export interface SourceMap {
     file: string | null
-    tokens: Token[]
+    tokens: TokenList
     names: string[]
     sources: string[]
     // Sources with `sourceRoot` prepended, used only when flattening index maps.
@@ -41,40 +142,39 @@ for (let index = 0; index < 64; index++) {
     BASE64_VALUES[BASE64.charCodeAt(index)] = index
 }
 
-function decodeVlqSegment(segment: string, out: number[]): void {
-    let current = 0
-    let shift = 0
-    for (let index = 0; index < segment.length; index++) {
-        const code = segment.charCodeAt(index)
-        const digit = code < 128 ? BASE64_VALUES[code]! : -1
-        if (digit < 0) {
-            fail(`invalid base64 character in mappings`)
-        }
-        current += (digit & 31) * 2 ** shift
-        if (digit & 32) {
-            shift += 5
-        } else {
-            const value = Math.floor(current / 2)
-            out.push(current % 2 === 1 ? -value : value)
-            current = 0
-            shift = 0
-        }
-    }
-    if (shift) {
-        fail('VLQ left over')
-    }
-}
+const COMMA = 44
+const SEMICOLON = 59
 
-function encodeVlq(out: string[], value: number): void {
-    let remaining = value < 0 ? -value * 2 + 1 : value * 2
-    do {
-        let digit = remaining % 32
-        remaining = Math.floor(remaining / 32)
-        if (remaining > 0) {
-            digit |= 32
+// The mappings as bytes. Every character is ASCII, so the string is built from them in one step
+// instead of from an array with one entry per character.
+class MappingsWriter {
+    private bytes = Buffer.allocUnsafe(64 * 1024)
+    private length = 0
+
+    byte(value: number): void {
+        if (this.length === this.bytes.length) {
+            const grown = Buffer.allocUnsafe(this.bytes.length * 2)
+            grown.set(this.bytes)
+            this.bytes = grown
         }
-        out.push(BASE64[digit]!)
-    } while (remaining > 0)
+        this.bytes[this.length++] = value
+    }
+
+    vlq(value: number): void {
+        let remaining = value < 0 ? -value * 2 + 1 : value * 2
+        do {
+            let digit = remaining % 32
+            remaining = Math.floor(remaining / 32)
+            if (remaining > 0) {
+                digit |= 32
+            }
+            this.byte(BASE64.charCodeAt(digit))
+        } while (remaining > 0)
+    }
+
+    text(): string {
+        return this.bytes.toString('latin1', 0, this.length)
+    }
 }
 
 const u32 = (value: number): number => value >>> 0
@@ -200,9 +300,6 @@ function rawDebugId(raw: JsonObject, preferCamelCase: boolean): string | null {
 }
 
 function sortTokens(tokens: Token[]): void {
-    // Rust uses `sort_unstable_by_key`. For already sorted input, and for ties within 20 tokens,
-    // it agrees with this stable sort. A larger unsorted map with tied positions can order them
-    // differently: a known, unreproduced edge case.
     tokens.sort((a, b) => a.dstLine - b.dstLine || a.dstCol - b.dstCol)
 }
 
@@ -215,12 +312,12 @@ function prefixSource(root: string, source: string): string {
 
 function newMap(
     file: string | null,
-    tokens: Token[],
+    tokens: TokenList,
     names: string[],
     sources: string[],
     content: (string | null)[] | null
 ): SourceMap {
-    sortTokens(tokens)
+    tokens.sort()
     return {
         file,
         tokens,
@@ -265,6 +362,109 @@ function numberText(value: JsonNumber): string {
     return value.kind === 'f' ? formatFloat(value.value) : value.value.toString()
 }
 
+function maxSegments(mappings: string): number {
+    let separators = 0
+    for (let index = 0; index < mappings.length; index++) {
+        const code = mappings.charCodeAt(index)
+        if (code === COMMA || code === SEMICOLON) {
+            separators++
+        }
+    }
+    return separators + 1
+}
+
+// Reads the mappings in place. Splitting them into a string per line and per segment first takes
+// several times their size, and a bundle's mappings run to tens of megabytes.
+function decodeMappings(mappings: string, rangeMappings: string, sourceCount: number, nameCount: number): TokenList {
+    const tokens = new TokenList(maxSegments(mappings))
+    const rangeLines = rangeMappings === '' ? null : rangeMappings.split(';')
+    const numbers: number[] = []
+    let sourceId = 0
+    let sourceLine = 0
+    let sourceColumn = 0
+    let nameId = 0
+
+    let lineStart = 0
+    for (let line = 0; lineStart <= mappings.length; line++) {
+        const found = mappings.indexOf(';', lineStart)
+        const lineEnd = found < 0 ? mappings.length : found
+        if (lineEnd > lineStart) {
+            const rangeBits = rangeLines ? decodeRangeBits(rangeLines[line] ?? '') : null
+            let column = 0
+            let segment = 0
+            let current = 0
+            let shift = 0
+            numbers.length = 0
+
+            for (let index = lineStart; index <= lineEnd; index++) {
+                const code = index < lineEnd ? mappings.charCodeAt(index) : COMMA
+                if (code !== COMMA) {
+                    const digit = code < 128 ? BASE64_VALUES[code]! : -1
+                    if (digit < 0) {
+                        fail(`invalid base64 character in mappings`)
+                    }
+                    current += (digit & 31) * 2 ** shift
+                    if (digit & 32) {
+                        shift += 5
+                    } else {
+                        const value = Math.floor(current / 2)
+                        numbers.push(current % 2 === 1 ? -value : value)
+                        current = 0
+                        shift = 0
+                    }
+                    continue
+                }
+
+                // The end of a segment. An empty one still takes an index in the line's range bits.
+                const segmentIndex = segment++
+                if (index > lineStart && mappings.charCodeAt(index - 1) !== COMMA) {
+                    if (shift) {
+                        fail('VLQ left over')
+                    }
+                    if (numbers.length !== 1 && numbers.length !== 4 && numbers.length !== 5) {
+                        fail(`bad segment size ${numbers.length}`)
+                    }
+                    column = u32(column + numbers[0]!)
+                    let tokenSourceId = NONE
+                    let tokenSourceLine = NONE
+                    let tokenSourceColumn = NONE
+                    let tokenNameId = NONE
+                    if (numbers.length > 1) {
+                        sourceId = u32(sourceId + numbers[1]!)
+                        if (sourceId >= sourceCount) {
+                            fail(`bad source reference ${sourceId}`)
+                        }
+                        sourceLine = u32(sourceLine + numbers[2]!)
+                        sourceColumn = u32(sourceColumn + numbers[3]!)
+                        tokenSourceId = sourceId
+                        tokenSourceLine = sourceLine
+                        tokenSourceColumn = sourceColumn
+                        if (numbers.length > 4) {
+                            nameId = u32(nameId + numbers[4]!)
+                            if (nameId >= nameCount) {
+                                fail(`bad name reference ${nameId}`)
+                            }
+                            tokenNameId = nameId
+                        }
+                    }
+                    tokens.push(
+                        line,
+                        column,
+                        tokenSourceLine,
+                        tokenSourceColumn,
+                        tokenSourceId,
+                        tokenNameId,
+                        rangeBits?.[segmentIndex] ? 1 : 0
+                    )
+                    numbers.length = 0
+                }
+            }
+        }
+        lineStart = lineEnd + 1
+    }
+    return tokens
+}
+
 function decodeRegular(raw: JsonObject): SourceMap {
     optionalU32(field(raw, 'version'), 'version')
     const names = optionalArray(field(raw, 'names'), 'names') ?? []
@@ -282,63 +482,7 @@ function decodeRegular(raw: JsonObject): SourceMap {
     validateExtensions(raw)
     const debugId = rawDebugId(raw, false)
 
-    const tokens: Token[] = []
-    let sourceId = 0
-    let sourceLine = 0
-    let sourceColumn = 0
-    let nameId = 0
-    const numbers: number[] = []
-    const rangeLines = rangeMappings.split(';')
-    const lines = mappings.split(';')
-    for (let line = 0; line < lines.length; line++) {
-        const text = lines[line]!
-        if (text === '') {
-            continue
-        }
-        const rangeBits = decodeRangeBits(rangeLines[line] ?? '')
-        let column = 0
-        const segments = text.split(',')
-        for (let index = 0; index < segments.length; index++) {
-            const segment = segments[index]!
-            if (segment === '') {
-                continue
-            }
-            numbers.length = 0
-            decodeVlqSegment(segment, numbers)
-            if (numbers.length !== 1 && numbers.length !== 4 && numbers.length !== 5) {
-                fail(`bad segment size ${numbers.length}`)
-            }
-            column = u32(column + numbers[0]!)
-            const token: Token = {
-                dstLine: line,
-                dstCol: column,
-                srcLine: NONE,
-                srcCol: NONE,
-                srcId: NONE,
-                nameId: NONE,
-                isRange: rangeBits[index] ?? false,
-            }
-            if (numbers.length > 1) {
-                sourceId = u32(sourceId + numbers[1]!)
-                if (sourceId >= sources.length) {
-                    fail(`bad source reference ${sourceId}`)
-                }
-                sourceLine = u32(sourceLine + numbers[2]!)
-                sourceColumn = u32(sourceColumn + numbers[3]!)
-                token.srcId = sourceId
-                token.srcLine = sourceLine
-                token.srcCol = sourceColumn
-                if (numbers.length > 4) {
-                    nameId = u32(nameId + numbers[4]!)
-                    if (nameId >= names.length) {
-                        fail(`bad name reference ${nameId}`)
-                    }
-                    token.nameId = nameId
-                }
-            }
-            tokens.push(token)
-        }
-    }
+    const tokens = decodeMappings(mappings, rangeMappings, sources.length, names.length)
     const nameStrings = names.map((name) =>
         typeof name === 'string' ? name : isJsonNumber(name) ? numberText(name) : ''
     )
@@ -363,6 +507,56 @@ interface Section {
     map: SourceMap | null
 }
 
+function decodeSection(section: JsonValue): Section {
+    if (!(section instanceof JsonObject)) {
+        return fail('invalid type for sections: expected a struct')
+    }
+    const offset = section.entries.get('offset')
+    if (!(offset instanceof JsonObject)) {
+        return fail('invalid type for section offset')
+    }
+    const line = offset.entries.get('line')
+    const column = offset.entries.get('column')
+    if (line === undefined || column === undefined) {
+        return fail('missing field in section offset')
+    }
+    optionalString(section.entries.get('url'), 'url')
+    const map = section.entries.get('map')
+    return {
+        line: asU32(line, 'line'),
+        column: asU32(column, 'column'),
+        map: map === undefined || map === null ? null : decodeAny(map),
+    }
+}
+
+const isU32 = (value: JsonValue | undefined): value is JsonNumber =>
+    value !== undefined && isJsonNumber(value) && value.kind === 'u' && value.value <= 0xffffffffn
+
+// True when the sections are already in the order the flattening sorts them into, and each one has
+// a map. Then a section can be flattened as soon as it is decoded. Otherwise every section is
+// decoded first, so an invalid section fails before a missing map does, in the order they come.
+function sectionsAreOrdered(sections: JsonValue[]): boolean {
+    let lastLine = 0
+    let lastColumn = 0
+    for (const section of sections) {
+        const offset = section instanceof JsonObject ? section.entries.get('offset') : undefined
+        const map = section instanceof JsonObject ? section.entries.get('map') : undefined
+        const line = offset instanceof JsonObject ? offset.entries.get('line') : undefined
+        const column = offset instanceof JsonObject ? offset.entries.get('column') : undefined
+        if (!isU32(line) || !isU32(column) || map === undefined || map === null) {
+            return false
+        }
+        const sectionLine = Number(line.value)
+        const sectionColumn = Number(column.value)
+        if (sectionLine < lastLine || (sectionLine === lastLine && sectionColumn < lastColumn)) {
+            return false
+        }
+        lastLine = sectionLine
+        lastColumn = sectionColumn
+    }
+    return true
+}
+
 function decodeAny(raw: JsonValue): SourceMap {
     if (!(raw instanceof JsonObject)) {
         return fail('invalid type: expected struct RawSourceMap')
@@ -374,42 +568,36 @@ function decodeAny(raw: JsonValue): SourceMap {
     optionalU32(field(raw, 'version'), 'version')
     validateExtensions(raw)
     rawDebugId(raw, true)
-    const parsed: Section[] = (optionalArray(sections, 'sections') ?? []).map((section) => {
-        if (!(section instanceof JsonObject)) {
-            return fail('invalid type for sections: expected a struct')
+    const list = optionalArray(sections, 'sections') ?? []
+    const flattened = new FlattenedSections()
+
+    // An Expo bundle has a section per module. Holding every decoded section until the last one
+    // is read doubles the tokens in memory, so ordered sections are flattened one at a time.
+    if (sectionsAreOrdered(list)) {
+        for (const section of list) {
+            flattened.add(decodeSection(section))
         }
-        const offset = section.entries.get('offset')
-        if (!(offset instanceof JsonObject)) {
-            return fail('invalid type for section offset')
-        }
-        const line = offset.entries.get('line')
-        const column = offset.entries.get('column')
-        if (line === undefined || column === undefined) {
-            return fail('missing field in section offset')
-        }
-        optionalString(section.entries.get('url'), 'url')
-        const map = section.entries.get('map')
-        return {
-            line: asU32(line, 'line'),
-            column: asU32(column, 'column'),
-            map: map === undefined || map === null ? null : decodeAny(map),
-        }
-    })
-    parsed.sort((a, b) => a.line - b.line || a.column - b.column)
-    return flatten(fileField(field(raw, 'file')), parsed)
+    } else {
+        const parsed = list.map(decodeSection)
+        parsed.sort((a, b) => a.line - b.line || a.column - b.column)
+        parsed.forEach((section) => flattened.add(section))
+    }
+    return flattened.finish(fileField(field(raw, 'file')))
 }
 
 // `SourceMapIndex::flatten`: sources and names are deduplicated, tokens offset by their section.
 // The flattened map has no debug id.
-function flatten(file: string | null, sections: Section[]): SourceMap {
-    const sourceIds = new Map<string, number>()
-    const sources: string[] = []
-    const content: (string | null)[] = []
-    const nameIds = new Map<string, number>()
-    const names: string[] = []
-    const tokens: Token[] = []
-    const ignore = new Set<number>()
-    for (const section of sections) {
+class FlattenedSections {
+    private readonly sourceIds = new Map<string, number>()
+    private readonly sources: string[] = []
+    private readonly content: (string | null)[] = []
+    private readonly nameIds = new Map<string, number>()
+    private readonly names: string[] = []
+    private readonly tokens = new TokenList()
+    private readonly ignore = new Set<number>()
+
+    add(section: Section): void {
+        const { sourceIds, sources, content, nameIds, names, tokens, ignore } = this
         const map = section.map ?? fail('cannot flatten a section without a map')
         const sectionSourceIds = (map.prefixedSources ?? map.sources).map((source, index) => {
             let id = sourceIds.get(source)
@@ -436,25 +624,35 @@ function flatten(file: string | null, sections: Section[]): SourceMap {
             }
             return id
         })
-        for (const token of map.tokens) {
-            const srcId = token.srcId === NONE ? NONE : (sectionSourceIds[token.srcId] ?? NONE)
-            tokens.push({
-                ...token,
-                dstLine: u32(token.dstLine + section.line),
-                dstCol: token.dstLine === 0 ? u32(token.dstCol + section.column) : token.dstCol,
+
+        const from = map.tokens
+        const hasIgnored = map.ignoreList.size > 0
+        for (let index = 0; index < from.length; index++) {
+            const tokenSourceId = from.srcId[index]!
+            const tokenNameId = from.nameId[index]!
+            const srcId = tokenSourceId === NONE ? NONE : (sectionSourceIds[tokenSourceId] ?? NONE)
+            tokens.push(
+                u32(from.dstLine[index]! + section.line),
+                from.dstLine[index] === 0 ? u32(from.dstCol[index]! + section.column) : from.dstCol[index]!,
+                from.srcLine[index]!,
+                from.srcCol[index]!,
                 srcId,
-                nameId: token.nameId === NONE ? NONE : (sectionNameIds[token.nameId] ?? NONE),
-            })
-            if (map.ignoreList.has(token.srcId)) {
+                tokenNameId === NONE ? NONE : (sectionNameIds[tokenNameId] ?? NONE),
+                from.isRange[index]!
+            )
+            if (hasIgnored && map.ignoreList.has(tokenSourceId)) {
                 ignore.add(srcId)
             }
         }
     }
-    const map = newMap(file, tokens, names, sources, content.length > 0 ? content : null)
-    for (const index of ignore) {
-        map.ignoreList.add(index)
+
+    finish(file: string | null): SourceMap {
+        const map = newMap(file, this.tokens, this.names, this.sources, this.content.length > 0 ? this.content : null)
+        for (const index of this.ignore) {
+            map.ignoreList.add(index)
+        }
+        return map
     }
-    return map
 }
 
 export function decodeSourceMap(raw: JsonValue): SourceMap {
@@ -466,9 +664,12 @@ export function decodeSourceMap(raw: JsonValue): SourceMap {
 export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
     const before = (aLine: number, aColumn: number, bLine: number, bColumn: number): boolean =>
         aLine < bLine || (aLine === bLine && aColumn < bColumn)
-    const original = map.tokens.sort((a, b) => a.dstLine - b.dstLine || a.dstCol - b.dstCol)
+    const original = map.tokens
+    original.sort()
     const adjusted = [...adjustment].sort((a, b) => a.srcLine - b.srcLine || a.srcCol - b.srcCol)
-    map.tokens = []
+    // Every range starts at most one clipped copy of a token, on top of the tokens themselves.
+    const moved = new TokenList(original.length + adjusted.length)
+    map.tokens = moved
     if (original.length === 0) {
         return
     }
@@ -477,18 +678,16 @@ export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
     // a later line. A bundle's map has millions of tokens, so the positions stay in plain numbers:
     // an object per token or per comparison costs gigabytes on a large bundle.
     let index = 0
-    let token = original[0]!
     let startLine = 0
     let startColumn = 0
     let endLine = 0
     let endColumn = 0
     const load = (): void => {
-        token = original[index]!
-        startLine = token.dstLine
-        startColumn = token.dstCol
-        const next = original[index + 1]
-        const nextLine = next ? next.dstLine : Infinity
-        const nextColumn = next ? next.dstCol : Infinity
+        startLine = original.dstLine[index]!
+        startColumn = original.dstCol[index]!
+        const hasNext = index + 1 < original.length
+        const nextLine = hasNext ? original.dstLine[index + 1]! : Infinity
+        const nextColumn = hasNext ? original.dstCol[index + 1]! : Infinity
         const sameLine = before(nextLine, nextColumn, startLine, Infinity)
         endLine = sameLine ? nextLine : startLine
         endColumn = sameLine ? nextColumn : Infinity
@@ -518,7 +717,15 @@ export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
             const clipped = before(startLine, startColumn, rangeStartLine, rangeStartColumn)
             const line = clipped ? rangeStartLine : startLine
             const column = clipped ? rangeStartColumn : startColumn
-            map.tokens.push({ ...token, dstLine: u32(line + lineDelta), dstCol: u32(column + columnDelta) })
+            moved.push(
+                u32(line + lineDelta),
+                u32(column + columnDelta),
+                original.srcLine[index]!,
+                original.srcCol[index]!,
+                original.srcId[index]!,
+                original.nameId[index]!,
+                original.isRange[index]!
+            )
             if (!before(endLine, endColumn, rangeEndLine, rangeEndColumn)) {
                 break
             }
@@ -528,55 +735,59 @@ export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
             load()
         }
     }
-    sortTokens(map.tokens)
+    moved.sort()
 }
 
-const sameToken = (a: Token, b: Token): boolean =>
-    a.dstLine === b.dstLine &&
-    a.dstCol === b.dstCol &&
-    a.srcLine === b.srcLine &&
-    a.srcCol === b.srcCol &&
-    a.srcId === b.srcId &&
-    a.nameId === b.nameId &&
-    a.isRange === b.isRange
+const sameToken = (tokens: TokenList, a: number, b: number): boolean =>
+    tokens.dstLine[a] === tokens.dstLine[b] &&
+    tokens.dstCol[a] === tokens.dstCol[b] &&
+    tokens.srcLine[a] === tokens.srcLine[b] &&
+    tokens.srcCol[a] === tokens.srcCol[b] &&
+    tokens.srcId[a] === tokens.srcId[b] &&
+    tokens.nameId[a] === tokens.nameId[b] &&
+    tokens.isRange[a] === tokens.isRange[b]
 
 function serializeMappings(map: SourceMap): string {
-    const out: string[] = []
+    const out = new MappingsWriter()
+    const tokens = map.tokens
     let line = 0
     let column = 0
     let sourceLine = 0
     let sourceColumn = 0
     let nameId = 0
     let sourceId = 0
-    map.tokens.forEach((token, index) => {
-        if (token.dstLine !== line) {
+    for (let index = 0; index < tokens.length; index++) {
+        const tokenLine = tokens.dstLine[index]!
+        if (tokenLine !== line) {
             column = 0
-            while (token.dstLine !== line) {
-                out.push(';')
+            while (tokenLine !== line) {
+                out.byte(SEMICOLON)
                 line++
             }
         } else if (index > 0) {
-            if (sameToken(token, map.tokens[index - 1]!)) {
-                return
+            if (sameToken(tokens, index, index - 1)) {
+                continue
             }
-            out.push(',')
+            out.byte(COMMA)
         }
-        encodeVlq(out, token.dstCol - column)
-        column = token.dstCol
-        if (token.srcId !== NONE) {
-            encodeVlq(out, token.srcId - sourceId)
-            sourceId = token.srcId
-            encodeVlq(out, token.srcLine - sourceLine)
-            sourceLine = token.srcLine
-            encodeVlq(out, token.srcCol - sourceColumn)
-            sourceColumn = token.srcCol
-            if (token.nameId !== NONE && token.nameId < map.names.length) {
-                encodeVlq(out, token.nameId - nameId)
-                nameId = token.nameId
+        out.vlq(tokens.dstCol[index]! - column)
+        column = tokens.dstCol[index]!
+        const tokenSourceId = tokens.srcId[index]!
+        if (tokenSourceId !== NONE) {
+            out.vlq(tokenSourceId - sourceId)
+            sourceId = tokenSourceId
+            out.vlq(tokens.srcLine[index]! - sourceLine)
+            sourceLine = tokens.srcLine[index]!
+            out.vlq(tokens.srcCol[index]! - sourceColumn)
+            sourceColumn = tokens.srcCol[index]!
+            const tokenNameId = tokens.nameId[index]!
+            if (tokenNameId !== NONE && tokenNameId < map.names.length) {
+                out.vlq(tokenNameId - nameId)
+                nameId = tokenNameId
             }
         }
-    })
-    return out.join('')
+    }
+    return out.text()
 }
 
 function encodeRangeBits(bits: boolean[], out: string[]): void {
@@ -601,23 +812,25 @@ function encodeRangeBits(bits: boolean[], out: string[]): void {
 // so the first token on a new line is indexed from the previous line's first token, and counted in
 // that line's bitfield. Duplicate tokens the mappings writer skips still take an index.
 function serializeRangeMappings(map: SourceMap): string | null {
+    const tokens = map.tokens
+    if (!tokens.isRange.subarray(0, tokens.length).includes(1)) {
+        return null
+    }
     const out: string[] = []
     let previousLine = 0
     let hadRange = false
-    let empty = true
     let firstInLine = 0
     let bits: boolean[] = []
-    map.tokens.forEach((token, index) => {
-        if (token.isRange) {
+    for (let index = 0; index < tokens.length; index++) {
+        if (tokens.isRange[index]) {
             hadRange = true
-            empty = false
             const position = index - firstInLine
             while (bits.length < position + 1) {
                 bits.push(false)
             }
             bits[position] = true
         }
-        while (token.dstLine !== previousLine) {
+        while (tokens.dstLine[index] !== previousLine) {
             if (hadRange) {
                 encodeRangeBits(bits, out)
                 bits = []
@@ -627,9 +840,6 @@ function serializeRangeMappings(map: SourceMap): string | null {
             hadRange = false
             firstInLine = index
         }
-    })
-    if (empty) {
-        return null
     }
     if (hadRange) {
         encodeRangeBits(bits, out)

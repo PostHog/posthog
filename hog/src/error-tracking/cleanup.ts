@@ -15,7 +15,7 @@ import { dirname, isAbsolute, relative } from 'node:path'
 
 import { contentHash } from './container'
 import { decodeUtf8 } from './json'
-import { findSourceMap, loadMapContent, rustTrim, serializeMapContent, type SourcePair } from './kinds/js'
+import { findSourceMap, loadMapContent, rustTrim, serializeMapBytes, type SourcePair } from './kinds/js'
 
 // `--delete-after`: once an upload succeeded, drop the sourcemap references from the bundles and
 // delete the maps, so they never ship to users. A file that changed since hog read it is left
@@ -185,7 +185,7 @@ export function cssTargets(
             sourcePath: realpathSync(file),
             mapPath,
             sourceFingerprint: contentHash(source),
-            mapFingerprint: contentHash(serializeMapContent(map)),
+            mapFingerprint: contentHash(...serializeMapBytes(map)),
             kind: 'css',
         })
     }
@@ -290,7 +290,7 @@ function deleteVerifiedMap(path: string, fingerprints: Set<string>, warnings: st
     }
     let current: string
     try {
-        current = contentHash(serializeMapContent(loadMapContent(decodeUtf8(readFileSync(staged)))))
+        current = contentHash(...serializeMapBytes(loadMapContent(decodeUtf8(readFileSync(staged)))))
     } catch {
         current = ''
     }
