@@ -40,6 +40,7 @@ from products.signals.backend.temporal.metrics import increment_scout_report_saf
 from products.signals.backend.temporal.report_safety_judge import (
     SafetyJudgeResponse,
     judge_report_safety,
+    report_with_prompts_signal,
     suggested_prompts_signal,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -279,10 +280,13 @@ async def judge_scout_report(
     link_signal = _link_reasons_signal(link_reasons)
     tags_signal = _report_tags_signal(tags)
     safety_input = [
-        _report_content_signal(title, summary),
+        (
+            _report_content_signal(title, summary)
+            if prompts_signal is None
+            else report_with_prompts_signal(title, summary, prompts_signal)
+        ),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
-        *([prompts_signal] if prompts_signal is not None else []),
         *([reasons_signal] if reasons_signal is not None else []),
         *([link_signal] if link_signal is not None else []),
         *([tags_signal] if tags_signal is not None else []),
@@ -325,8 +329,13 @@ async def judge_edited_report_content(
     in their run prompts.
     """
     safety_input: list[SignalData] = []
+    prompts_signal = suggested_prompts_signal(suggested_prompts)
     if title is not None or summary is not None:
-        safety_input.append(_report_content_signal(title or "", summary or ""))
+        if prompts_signal is None:
+            safety_input.append(_report_content_signal(title or "", summary or ""))
+        else:
+            safety_input.append(report_with_prompts_signal(title or "", summary or "", prompts_signal))
+            prompts_signal = None
     if note is not None:
         safety_input.append(_report_content_signal("Report work-log note", note))
     # Appended evidence is judged exactly as emitted evidence is: the descriptions are embedded and
@@ -338,7 +347,8 @@ async def judge_edited_report_content(
     metric_signal = _metric_signal(metrics)
     if metric_signal is not None:
         safety_input.append(metric_signal)
-    prompts_signal = suggested_prompts_signal(suggested_prompts)
+    # An edit that sends prompts without a title or summary is judged without the stored report
+    # text, because this judge does not load the report.
     if prompts_signal is not None:
         safety_input.append(prompts_signal)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)

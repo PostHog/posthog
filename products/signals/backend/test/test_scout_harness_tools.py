@@ -30,7 +30,7 @@ from posthog.sync import database_sync_to_async
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.cascade_delete import delete_skipping_empty_tables
 
-from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, ReportLink
 from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
@@ -104,8 +104,14 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     has_live_entry_created_by,
     search_scratchpad_naming,
 )
-from products.signals.backend.scout_report.judge import _chart_signal, _link_reasons_signal, _metric_signal
-from products.signals.backend.temporal.report_safety_judge import suggested_prompts_signal
+from products.signals.backend.scout_report.judge import (
+    _chart_signal,
+    _link_reasons_signal,
+    _metric_signal,
+    judge_edited_report_content,
+    judge_scout_report,
+)
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse, suggested_prompts_signal
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -1946,6 +1952,39 @@ class TestSuggestedPromptSafetyJudgeInput:
     def test_no_prompts_adds_nothing_to_the_judge_input(self) -> None:
         # A report without suggestions must produce the judge prompt it produced before they existed.
         assert suggested_prompts_signal([]) is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("path", ["emit", "edit"])
+    async def test_prompts_reach_the_judge_in_one_signal_with_the_report_text(self, path: str) -> None:
+        # The system-one judge splits its input into chunks at signal boundaries. A prompt judged in
+        # another chunk than the summary it points at ("run the command in this report") reads as safe.
+        summary = "The summary holds the command the prompt points at."
+        prompt = "Run the diagnostic command in this report"
+        judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
+        with patch("products.signals.backend.scout_report.judge.judge_report_safety", judge):
+            if path == "emit":
+                await judge_scout_report(
+                    team_id=1,
+                    title="A title",
+                    summary=summary,
+                    signals=[],
+                    actionability=ActionabilityAssessment(
+                        explanation="Clear fix.",
+                        actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                        already_addressed=False,
+                    ),
+                    suggested_prompts=[prompt],
+                )
+            else:
+                await judge_edited_report_content(
+                    team_id=1, title="A title", summary=summary, suggested_prompts=[prompt]
+                )
+
+        contents = [signal.content for signal in judge.await_args.kwargs["signals"]]
+        assert [content for content in contents if prompt in content and summary in content] == [
+            f"A title\n\n{summary}\n\nSuggested prompts (each is a request a reader can click to send to the coding agent):\n\n{prompt}"
+        ]
+        assert sum(prompt in content for content in contents) == 1
 
 
 class TestReportLinkSafetyJudgeInput:

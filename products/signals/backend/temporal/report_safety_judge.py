@@ -286,6 +286,20 @@ def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | N
     )
 
 
+def report_with_prompts_signal(title: str, summary: str, prompts_signal: SignalData) -> SignalData:
+    """Join a report's title and summary with its suggested-prompt block in one `SignalData`.
+
+    The agent that runs a clicked prompt gets the report as context, so "run the diagnostic command
+    in this report" is harmless alone and unsafe when the summary holds the command. The system-one
+    judge splits its input into chunks at signal boundaries, so separate signals could put a prompt
+    and the report text it refers to in different calls. A combination too large for one chunk
+    blocks the judge input, which fails closed.
+    """
+    return replace(
+        prompts_signal, signal_id=str(uuid.uuid4()), content=f"{title}\n\n{summary}\n\n{prompts_signal.content}"
+    )
+
+
 async def judge_suggested_prompts(
     *,
     team_id: int,
@@ -299,11 +313,10 @@ async def judge_suggested_prompts(
     """Run the safety judge over a suggested-prompt set and the report text it was written for.
 
     The pipeline judges a report's input signals before research runs, and research writes its
-    prompts after that, so they need their own pass before they are stored. The generated title and
-    summary go in with them because the agent that runs a clicked prompt gets the report as context:
-    "run the diagnostic command in this report" is harmless alone and unsafe when the summary holds
-    the command. `checks_summary` goes in too when it differs, because the ready transition stores it
-    in place of `summary` when the checks reconcile. Raises `LLMRefusalError` when the safety model
+    prompts after that, so they need their own pass before they are stored. Each set is judged with
+    the generated title and summary (see `report_with_prompts_signal`). `checks_summary` goes in too
+    when it differs, because the ready transition stores it in place of `summary` when the checks
+    reconcile. Raises `LLMRefusalError` when the safety model
     refuses, so the caller decides what a refusal costs.
     """
     prompts_signal = suggested_prompts_signal(suggested_prompts)
@@ -312,19 +325,9 @@ async def judge_suggested_prompts(
     summaries = [summary]
     if checks_summary is not None and checks_summary != summary:
         summaries.append(checks_summary)
-    # One signal per summary, because the system-one judge splits its input into chunks at signal
-    # boundaries. Separate signals could put the prompts and the report text they refer to in
-    # different calls. A combination too large for one chunk blocks the set, so the prompts drop.
     return await judge_report_safety(
         team_id=team_id,
-        signals=[
-            replace(
-                prompts_signal,
-                signal_id=str(uuid.uuid4()),
-                content=f"{title}\n\n{report_summary}\n\n{prompts_signal.content}",
-            )
-            for report_summary in summaries
-        ],
+        signals=[report_with_prompts_signal(title, report_summary, prompts_signal) for report_summary in summaries],
         report_id=report_id,
         signal_id=signal_id,
     )
