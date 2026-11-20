@@ -12,7 +12,6 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
-    GatewayNotConfiguredError,
     build_ai_gateway_anthropic_client,
     build_ai_gateway_openai_client,
     trace_id_from_seed,
@@ -26,12 +25,7 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.facade.run_preferences import (
-    ModelChoice,
-    available_model_choices,
-    find_model_choice,
-    group_by_runtime,
-)
+from products.slack_app.backend.facade.run_preferences import ModelChoice, available_model_choices
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -53,6 +47,7 @@ from products.slack_app.backend.temporal.types import (
     SlackAppProjectRoute,
     SlackAppProjectRouteInput,
 )
+from products.tasks.backend.facade.model_override import ModelOverrideAttribution, classify_model_override
 
 logger = structlog.get_logger(__name__)
 
@@ -100,7 +95,7 @@ def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | 
     return trace_id_from_seed(f"slack-thread-{slack_team_id}-{thread_ts}")
 
 
-# The model-override and agent-directed classifiers both run on a reasoning model, which
+# The project-route and agent-directed classifiers both run on a reasoning model, which
 # draws its reasoning from the same token budget as the reply. The reply is one short JSON
 # object; the headroom is for the thinking in front of it, and a truncated turn falls back
 # to the safe answer. Reasoning-class is also why the cap rides on `max_completion_tokens`:
@@ -111,15 +106,6 @@ def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | 
 # because the activity's own deadline expires first. Bounding the retries matters as much
 # as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
 # blocking until the client itself returns.
-MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-6-luna"
-MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
-# One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
-MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
-MODEL_OVERRIDE_MAX_RETRIES = 1
-
-# Same shape of call as the model override, so it takes the same bounds — including the
-# cap riding on `max_completion_tokens`. The reasoning-class chat-completions route
-# rejects `max_tokens` outright, and the classifier would swallow that into its fallback.
 PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-6-luna"
 PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
 PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
@@ -595,47 +581,6 @@ def classify_untagged_followup_activity(
     return False
 
 
-def _model_override_response_format(choices: tuple[ModelChoice, ...]) -> ResponseFormatJSONSchema:
-    """A strict JSON schema pinning the reply to the result shape.
-
-    The `model` enum is the point: it removes the classifier's ability to name a model
-    this workspace can't drive, which the prompt could only ask for and
-    ``find_model_choice`` could only catch after the fact.
-
-    `reasoning_effort` stays an unconstrained string. Which efforts are valid depends on
-    the model the run finally lands on, not on the catalogue-wide union, so it is settled
-    once where the preferences are resolved — constraining it here would move that
-    decision to the wrong place.
-    """
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "slack_app_model_override",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "model": {"type": ["string", "null"], "enum": [*(c.model for c in choices), None]},
-                    "reasoning_effort": {"type": ["string", "null"]},
-                },
-                "required": ["model", "reasoning_effort"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
-def _render_model_catalogue(choices: tuple[ModelChoice, ...]) -> str:
-    """The models on offer, as the runtime → models tree `group_by_runtime` defines."""
-    lines = []
-    for group in group_by_runtime(choices):
-        lines.append(f"{group.label} runtime:")
-        for choice in group.choices:
-            efforts = ", ".join(choice.supported_efforts) if choice.supported_efforts else "no effort setting"
-            lines.append(f"- {choice.model} — {choice.label} (efforts: {efforts})")
-    return "\n".join(lines)
-
-
 def classify_slack_app_model_override(
     event_text: str,
     choices: tuple[ModelChoice, ...],
@@ -644,70 +589,22 @@ def classify_slack_app_model_override(
 ) -> SlackAppModelOverride | None:
     """Read a per-task model or reasoning-effort request out of a Slack mention.
 
-    Returns ``None`` when the author asked for neither — which is the overwhelming
-    majority of mentions, and the answer we fall back to on any parse, validation, or
-    LLM failure. The cost of a miss is that the run uses the author's saved
-    preferences, so every ambiguity resolves that way.
-
-    The hard part is not spotting a model name; it is telling an instruction ("use
-    fable for this") from subject matter ("add fable to the model picker"). The
-    prompt is built around that distinction, and the schema restricts the answer to an
-    id from ``choices``.
-
-    Its other job is resolving the shorthand people actually type onto an id. Nobody
-    writes ``gpt-5.6-sol``; they write "sol", or qualify it with the runtime or vendor
-    it belongs to ("codex sol"), or name a family and leave the version off ("opus").
-
-    Quality on both is measured by the eval suite in
-    ``products/slack_app/evals/eval_model_classifier.py`` — the unit tests around this
-    function cover parsing and validation, not whether the prompt reads a sentence right.
+    The classifier is shared with the other surfaces that take a message for the agent. This
+    function adds the Slack attribution and names the message to the prompt as a Slack message.
     """
-    prompt = prompts.render(
-        "model_override",
-        model_catalogue=_render_model_catalogue(choices),
-        event_text=event_text,
+    override = classify_model_override(
+        event_text,
+        choices,
+        ModelOverrideAttribution(
+            ai_product=CLASSIFIER_AI_PRODUCT,
+            properties=_classifier_properties("model_override", team_id),
+            trace_id=trace_id,
+        ),
+        message_kind="Slack message",
     )
-
-    try:
-        client = _classifier_openai_client("model_override", team_id, trace_id).with_options(
-            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
-        )
-        response = client.chat.completions.create(
-            model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
-            response_format=_model_override_response_format(choices),
-        )
-        # Tolerant parse on top of the schema on purpose: the gateway fronts several
-        # providers and does not honour a response format identically on every route, so
-        # a reply that arrives fenced still lands rather than failing the mention.
-        parsed = extract_json_object(response.choices[0].message.content or "")
-        # The reply has the same shape as the result, so it parses straight into it —
-        # but the model is still the classifier's word, not ours, until checked against
-        # the catalogue below.
-        reply = SlackAppModelOverride.model_validate(parsed)
-    except GatewayNotConfiguredError:
-        logger.exception("slack_app_model_override_classify_failed")
+    if override is None:
         return None
-    except (ValidationError, ValueError):
-        logger.info("slack_app_model_override_unusable_reply")
-        return None
-    except Exception:
-        logger.exception("slack_app_model_override_classify_failed")
-        return None
-
-    choice = find_model_choice(reply.model, choices)
-    if reply.model and choice is None:
-        # The classifier was told to copy an id from the list; anything else is a
-        # hallucination or a model we can't drive. Either way, don't act on it.
-        logger.info("slack_app_model_override_unknown_model", requested_model=reply.model)
-
-    # The effort rides through unchecked: which efforts a model supports depends on the
-    # model the run finally lands on, so it is settled once, where the preferences are
-    # resolved, rather than guessed against the catalogue-wide union here.
-    if choice is None and not reply.reasoning_effort:
-        return None
-    return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=reply.reasoning_effort)
+    return SlackAppModelOverride(model=override.model, reasoning_effort=override.reasoning_effort)
 
 
 @activity.defn
