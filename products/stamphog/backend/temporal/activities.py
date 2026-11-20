@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import router
+from django.db import router, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
@@ -115,7 +115,6 @@ from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.logic.workflow_proofs import (
     SEEN_OUTPUT_KEY,
-    RunOrder,
     proven_check_runs,
     seen_entries,
     seen_on_head,
@@ -229,15 +228,27 @@ def _output_merge(updates: dict[str, Any]) -> Func:
     )
 
 
-def _record_seen_workflow_runs(run: ReviewRun, seen: dict[str, RunOrder], check_runs: list[dict]) -> None:
-    """Store the newest publisher runs that this run verified, never lower than `seen`.
+def _record_seen_workflow_runs(run: ReviewRun, check_runs: list[dict]) -> None:
+    """Raise the newest publisher runs this run stored to include the ones it just verified.
 
     A writer's job can hide a newer result, so once any read of the head verified a run, an older
-    result must never decide for the head again.
+    result must never decide for the head again. A timed-out attempt can overlap its retry, so the
+    read, the maximum and the write happen under the run's row lock and the value never goes down.
     """
-    newest = seen_runs([seen_entries(seen), check_runs])
-    if newest != seen:
-        _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
+    db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=db):
+        stored = (
+            ReviewRun.objects.for_team(run.team_id)
+            .using(db)
+            .select_for_update()
+            .filter(id=run.id)
+            .values_list(f"output__{SEEN_OUTPUT_KEY}", flat=True)
+            .first()
+        )
+        current = seen_runs([stored])
+        newest = seen_runs([stored, check_runs])
+        if newest != current:
+            _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -611,7 +622,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
                 seen=seen,
             )
-            _record_seen_workflow_runs(run, seen, check_runs)
+            _record_seen_workflow_runs(run, check_runs)
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -1060,7 +1071,7 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
                 seen=seen,
             )
-            _record_seen_workflow_runs(run, seen, context["check_runs"])
+            _record_seen_workflow_runs(run, context["check_runs"])
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []

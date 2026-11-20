@@ -2458,11 +2458,7 @@ def test_the_newest_verified_publisher_run_of_a_head_survives_retries_and_other_
     }
 
     def record(key: str, check_runs: list[dict]) -> None:
-        run = runs[key]
-        seen = seen_on_head(
-            team.id, repo_config_id=repo_config.id, pr_number=run.pull_request.pr_number, head_sha=run.head_sha
-        )
-        _record_seen_workflow_runs(run, seen, check_runs)
+        _record_seen_workflow_runs(runs[key], check_runs)
 
     record("review", [_verified(76), {"name": "Migration risk", "app": {"id": 1}}])
     # The posting-time check of the same run verified a newer run, which only that read saw.

@@ -226,7 +226,7 @@ A change to the verification keeps these true:
 - A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
 - Both review paths, the context fetch and `_attest_gates`, and reviewer routing's proof build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
 - The review re-run and reviewer routing parse a pending check with `attestation_check` and poll it with `all_reported` (`logic/attestation_checks.py`), so both wait on a workflow entry until `verified_result` returns a result.
-- Each verified result records its run. The context fetch and `_attest_gates` store the newest run they verified under `seen_workflow_runs` in the run's output, raised and never lowered, and they and the attestation poll refuse a result older than the newest any run of the head stored (`seen_on_head`, a writer-pinned read). A writer's job can hide the newer check run, and a context retry rewrites `check_runs`, so the floor is its own key.
+- Each verified result records its run. The context fetch and `_attest_gates` store the newest run they verified under `seen_workflow_runs` in the run's output, raised under the run's row lock and never lowered, and they and the attestation poll refuse a result older than the newest any run of the head stored (`seen_on_head`, a writer-pinned read). A writer's job can hide the newer check run, and a context retry rewrites `check_runs`, so the floor is its own key.
 
 ## The manual trigger (the one exception to label mode)
 
