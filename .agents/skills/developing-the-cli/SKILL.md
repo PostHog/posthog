@@ -36,9 +36,9 @@ The only exceptions are commands that exist on one side:
 - `hog/MIGRATING.md` lists the posthog-cli commands that don't come to hog. A change to those touches only `cli/`.
 
 Symbol code is copied, not shared.
-`hog/worker/src/` holds copies of posthog-cli's `cli/src/sourcemaps/`, `debug_symbols/`, `dsym/` and `proguard/`, and the first comment of a copied file names its source.
-A change to one of those folders must be copied into `hog/worker/src/` in the same PR, and a change to the copied code in the worker must go back to `cli/`.
-A crate that decides a written byte, such as `sourcemap`, `symbolic`, `zip` or `posthog-symbol-data`, has the same version in `cli/Cargo.lock` and `hog/worker/Cargo.toml`. Raise both together.
+A file in `hog/worker/src/` that copies posthog-cli code names its `cli/` source files in its first comment.
+A change to one of those `cli/` files must land in the matching `hog/worker/src/` file in the same PR, the reverse too, and `hog/test/parity/` must pass.
+A crate that decides a written byte, such as `sourcemap` or `posthog-symbol-data`, is pinned in `hog/worker/Cargo.toml` to its version in `cli/Cargo.lock`, and `hog/test/parity/worker-pins.test.ts` fails until both sides match. Raise both together.
 
 When a change does not apply to the other CLI, say why in the PR description, for example "hog prints only the error message, which never contains the URL".
 Reviewers: a PR that touches `cli/src/` or `hog/src/` without the other side, and without that sentence, is incomplete.
@@ -84,9 +84,10 @@ pnpm --filter hog typecheck
 # hog-worker, from hog/worker/
 cargo fmt -- --check
 cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
 
-hog-worker has no Rust tests. hog's tests and `hog/test/parity/` run it through the real CLI, so a worker change is tested there.
+hog-worker's `cargo test` checks the container goldens. hog's tests and `hog/test/parity/` run the worker through the real CLI, so a worker change is tested there.
 
 Add the regression test on both sides too. hog tests drive the real CLI with `runHog` from `hog/src/testing.ts`, and its `respond` option fakes PostHog and object storage, so a hog test can cover the same failure as the Rust one without a server.
 Use `/writing-tests` for both.
@@ -106,7 +107,7 @@ When agent output (`-o json`) changed, show that too.
 
 - The PR description shows the terminal for each changed case.
 - Both CLIs carry the change, or the PR says why one does not need it.
-- Both test suites pass, `hog/test/parity/` is green, and the worker's `cargo fmt` and `cargo clippy` checks pass when `hog/worker/` changed.
+- Both test suites pass, `hog/test/parity/` is green, and the worker's `cargo fmt`, `cargo clippy` and `cargo test` pass when `hog/worker/` changed.
 - A change to posthog-cli's symbol code is copied into `hog/worker/src/`, with the dependency versions equal on both sides.
 - `cli/` and `hog/` each have a changeset when their behavior changed.
 - Use the `cli` scope in the PR title, as in `fix(cli): ...`, for a change to either CLI.

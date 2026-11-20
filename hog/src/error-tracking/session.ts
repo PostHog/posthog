@@ -9,7 +9,7 @@ import type { Artifact, Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, packVersion, type Release, type ReleaseFields } from './release'
-import { SymbolSetClient, uuidv7 } from './upload'
+import { SymbolSetClient } from './upload'
 import type { InjectAction } from './worker'
 
 export type ReleaseMode = 'event' | 'symbol-set'
@@ -64,8 +64,6 @@ export async function releaseFields(ctx: Context, options: ErrorTrackingOptions)
         build: options.release.build ?? plist.build,
     }
 }
-
-export const randomChunkId = (now: () => number) => (): string => uuidv7(now())
 
 export interface JsRelease {
     name: string

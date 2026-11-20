@@ -90,7 +90,7 @@ export default defineCommand({
 - `hog error-tracking` must upload the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. A change to anything that reaches an upload keeps `test/parity/` green, and a new artifact type or flag adds parity scenarios recorded from posthog-cli.
 - hog-worker does the file work of `inject`, `clone`, `upload` and `process`: it reads and rewrites bundles and maps, parses mappings and binaries, and writes each symbol set. hog keeps flags, ignore globs, releases, HTTP and all output. Put a change to what is read from or written to build output in `worker/`, not in TypeScript.
 - A change to a worker request or answer raises `PROTOCOL` in `worker/src/main.rs` and `WORKER_PROTOCOL` in `src/error-tracking/worker.ts` together, and updates the comment at the top of `main.rs`.
-- The crates in `worker/Cargo.toml` that decide a written byte are pinned with `=` to the versions in `cli/Cargo.lock`.
+- The crates in `worker/Cargo.toml` that decide a written byte are pinned with `=` to the versions in `cli/Cargo.lock`, and `test/parity/worker-pins.test.ts` fails when they differ.
 - hog starts only the `hog-worker` next to its own binary, and never one from `PATH`. A run from source starts the one `pnpm --filter hog build:worker` builds.
 - Code under `src/error-tracking/` walks real folders with `node:fs` and the worker reads real files, so its tests use temporary folders instead of `ctx.runtime` files.
 - Every string a person reads follows `/writing-user-facing-copy`: sentence case, no em dashes.

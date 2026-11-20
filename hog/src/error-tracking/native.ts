@@ -63,24 +63,32 @@ function dedupeNativeFiles(
     return [...kept.values()]
 }
 
+// A native file that a dSYM which fits replaces is never packed, so it has no upload.
+interface Packed {
+    artifact: Artifact
+    chunkId: string
+    upload: SymbolSetFile | null
+}
+
 // `merge_uploads_prefer_dsym`: dSYM symbol sets that fit go first, so they win over a native file
 // with the same ID, then native files, then oversized dSYMs. The first set per chunk ID stays.
-function mergePreferDsym(
-    dsyms: NativeUpload[],
-    natives: NativeUpload[],
-    onDuplicate: (dropped: NativeUpload) => void
-): NativeUpload[] {
-    const fits = ({ upload }: NativeUpload): boolean => upload.size <= MAX_FILE_SIZE
+function mergePreferDsym(dsyms: Packed[], natives: Packed[], onDuplicate: (dropped: Packed) => void): NativeUpload[] {
+    const fits = ({ upload }: Packed): boolean => upload !== null && upload.size <= MAX_FILE_SIZE
     const ordered = [...dsyms.filter(fits), ...natives, ...dsyms.filter((dsym) => !fits(dsym))]
     const seen = new Set<string>()
-    return ordered.filter((native) => {
-        if (seen.has(native.upload.chunkId)) {
-            onDuplicate(native)
-            return false
+    const kept: NativeUpload[] = []
+    for (const entry of ordered) {
+        if (seen.has(entry.chunkId)) {
+            onDuplicate(entry)
+            continue
         }
-        seen.add(native.upload.chunkId)
-        return true
-    })
+        if (entry.upload === null) {
+            throw new Error(`hog-worker packed nothing for ${entry.chunkId}, which no dSYM replaces.`)
+        }
+        seen.add(entry.chunkId)
+        kept.push({ artifact: entry.artifact, upload: entry.upload })
+    }
+    return kept
 }
 
 type DsymMember = { path: string } | { failure: string }
@@ -257,8 +265,13 @@ export async function packageNative(
         }
     }
 
-    const items: PackItem[] = packables.map(({ id, sourceKey }) => ({ id, sources: listOf.get(sourceKey) ?? null }))
-    const packed = await worker.packNative(sourceLists, items, folder)
+    const items: PackItem[] = packables.map(({ id, chunkId, sourceKey }, index) => ({
+        id,
+        sources: listOf.get(sourceKey) ?? null,
+        chunkId,
+        dsym: index >= natives.length,
+    }))
+    const packed = await worker.packNative(sourceLists, items, folder, MAX_FILE_SIZE)
 
     for (const [index, sourceKey] of [...plans.keys()].entries()) {
         const answer = found[index]!
@@ -274,14 +287,18 @@ export async function packageNative(
         }
     }
 
-    const uploads: NativeUpload[] = packables.map(({ artifact, chunkId }, index) => {
-        const { path, ...container } = packed.containers[index]!
-        return { artifact, upload: { chunkId, releaseId: null, ...container, file: path } }
+    const uploads: Packed[] = packables.map(({ artifact, chunkId }, index) => {
+        const container = packed.containers[index]
+        if (!container) {
+            return { artifact, chunkId, upload: null }
+        }
+        const { path, ...rest } = container
+        return { artifact, chunkId, upload: { chunkId, releaseId: null, ...rest, file: path } }
     })
     return mergePreferDsym(uploads.slice(natives.length), uploads.slice(0, natives.length), (dropped) =>
         skipped.push({
             path: dropped.artifact.display,
-            reason: `a dSYM bundle has the same UUID ${dropped.upload.chunkId}, so hog uploads the bundle.`,
+            reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
             intended: true,
         })
     )

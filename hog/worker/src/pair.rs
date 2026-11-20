@@ -1,9 +1,12 @@
-// Copied from posthog-cli's `sourcemaps/content.rs`, `source_pairs.rs` and `inject.rs`, so both
-// write the same bytes. The rules only hog has are marked where they apply.
+// Mirrors cli/src/sourcemaps/content.rs, source_pairs.rs and inject.rs; keep byte output identical.
+// The rules only hog has are marked where they apply.
 
 use anyhow::{anyhow, Result};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, IgnoredAny, MapAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::{
@@ -119,10 +122,12 @@ impl SourceMapContent {
     }
 }
 
+// posthog-cli asks for the content too. `adjust_mappings` reads only the adjustment's tokens, so
+// the copy of the whole bundle inside the adjustment changes no written byte.
 fn magic_adjustment(magic: &mut MagicString) -> Result<SourceMap> {
     let adjustment = magic
         .generate_map(GenerateDecodedMapOptions {
-            include_content: true,
+            include_content: false,
             ..Default::default()
         })
         .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
@@ -246,8 +251,55 @@ const HERMES_FUNCTION_OFFSETS: &str = "x_hermes_function_offsets";
 pub fn is_composed_map(path: &Path) -> bool {
     fs::read(path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<SourceMapContent>(&bytes).ok())
-        .is_some_and(|map| map.fields.contains_key(HERMES_FUNCTION_OFFSETS))
+        .and_then(|bytes| serde_json::from_slice::<ComposedProbe>(&bytes).ok())
+        .is_some_and(|probe| probe.0)
+}
+
+// Discovery asks this of every `.map` in a build, so values are skipped, not built. It fails where
+// reading a `SourceMapContent` fails, so it agrees with that on what counts as a map.
+struct ComposedProbe(bool);
+
+impl<'de> Deserialize<'de> for ComposedProbe {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(ComposedProbeVisitor)
+    }
+}
+
+struct ComposedProbeVisitor;
+
+impl<'de> Visitor<'de> for ComposedProbeVisitor {
+    type Value = ComposedProbe;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a sourcemap object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<ComposedProbe, A::Error> {
+        let mut typed_seen = [false; 3];
+        let mut composed = false;
+        while let Some(key) = map.next_key::<String>()? {
+            let typed = match key.as_str() {
+                "release_id" => Some(0),
+                "chunk_id" | "chunkId" => Some(1),
+                "debugId" => Some(2),
+                _ => None,
+            };
+
+            match typed {
+                Some(index) => {
+                    if std::mem::replace(&mut typed_seen[index], true) {
+                        return Err(de::Error::custom(format!("duplicate field `{key}`")));
+                    }
+                    map.next_value::<Option<String>>()?;
+                }
+                None => {
+                    composed |= key == HERMES_FUNCTION_OFFSETS;
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Ok(ComposedProbe(composed))
+    }
 }
 
 impl SourcePair {
@@ -393,22 +445,19 @@ pub fn inject_event_mode(
 
 // A pair whose release changed gets a new chunk id, because PostHog binds a symbol set to one
 // release.
-pub fn needs_new_chunk_id(pair: &SourcePair, release_id: Option<&str>) -> bool {
-    pair.map.release_id.as_deref() != release_id || pair.chunk_id().is_none()
-}
-
 pub fn inject_symbol_set_mode(
     pair: &mut SourcePair,
     release_id: Option<&str>,
-    new_chunk_id: Option<String>,
+    now: &uuid::Timestamp,
 ) -> Result<(Action, String)> {
     let existing = pair.chunk_id();
-    let Some(chunk_id) = new_chunk_id else {
-        let existing =
-            existing.ok_or_else(|| anyhow!("hog sent no chunk id for a bundle without one"))?;
-        return Ok((Action::Unchanged, existing));
-    };
+    if let Some(existing) = &existing {
+        if pair.map.release_id.as_deref() == release_id {
+            return Ok((Action::Unchanged, existing.clone()));
+        }
+    }
 
+    let chunk_id = uuid::Uuid::new_v7(*now).to_string();
     pair.map.release_id = release_id.map(str::to_string);
     if let Some(existing) = &existing {
         pair.remove_chunk_id(existing)?;

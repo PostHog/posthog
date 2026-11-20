@@ -92,12 +92,7 @@ function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
 }
 
 const CONTAINER_FOLDER_PREFIX = 'hog-upload-'
-const CONTAINER_EXTENSION = 'symbolset'
 const CSS_EXTENSION = '.css'
-
-// Expo stamps only a `debugId` on the packager map, so a Hermes map uploads under it when it has
-// no chunk ID.
-const uploadChunkId = (map: MapState): string | null => map.chunkId ?? map.debugId
 
 const hasUploadId = ({ pair }: OwnedPair): boolean =>
     pair.chunkId !== null || pair.sourceDebugId !== null || pair.mapDebugId !== null
@@ -107,11 +102,12 @@ const withoutRelease = ({ pair }: OwnedPair): boolean => pair.mapReleaseId === n
 async function proguardUpload(
     worker: Worker,
     artifact: Artifact,
-    file: string | null
+    folder: string | null
 ): Promise<{ file: string | null; size: number; contentHash: string }> {
-    const built = await worker.proguard(artifact.path, file)
+    const built = await worker.proguard(artifact.path, folder)
     if (!('invalid' in built)) {
-        return { file, ...built }
+        const { path, ...container } = built
+        return { ...container, file: path }
     }
 
     if (built.invalid === 'not_utf8') {
@@ -172,7 +168,7 @@ async function uploadFrom(
                 reported.id = release.id
             }
         }
-        for (const [index, artifact] of mappings.entries()) {
+        for (const artifact of mappings) {
             const chunkId = options.mapId ?? artifact.root.mapId
             if (!chunkId) {
                 throw new HogError(
@@ -187,11 +183,7 @@ async function uploadFrom(
                 upload: {
                     chunkId,
                     releaseId: release?.id ?? null,
-                    ...(await proguardUpload(
-                        worker,
-                        artifact,
-                        folder === null ? null : join(folder, `mapping-${index}.${CONTAINER_EXTENSION}`)
-                    )),
+                    ...(await proguardUpload(worker, artifact, folder)),
                 },
                 policy: {
                     force: options.force,
@@ -242,7 +234,7 @@ async function uploadFrom(
                 } else {
                     const release = await releases.get(resolved.name, resolved.version, resolved.git)
                     reported.id = release.id
-                    await worker.setRelease(pairIds(uploadable), release.id)
+                    await worker.setRelease({ pairs: pairIds(uploadable) }, release.id)
                     for (const { pair } of uploadable) {
                         pair.mapReleaseId = release.id
                     }
@@ -307,26 +299,18 @@ async function uploadFrom(
                 : { force: options.force, skipOnConflict: options.skipOnConflict }),
             batchSize: options.batchSize ?? 50,
         }
-        const uploadable: { artifact: Artifact; map: MapState; chunkId: string }[] = []
-        for (const { artifact, map } of maps) {
-            const chunkId = uploadChunkId(map)
-            if (chunkId === null) {
-                skipped.push({
-                    path: artifact.display,
-                    reason: 'the map has no chunk ID. Run `hog error-tracking clone` after the Hermes build.',
-                })
-                continue
-            }
-            if (map.empty) {
-                skipped.push({
-                    path: artifact.display,
-                    reason: 'the sourcemap is empty. Check your bundler sourcemap setting.',
-                })
-                continue
-            }
-            uploadable.push({ artifact, map, chunkId })
+        const mapIds = maps.map(({ map }) => map.id)
+        if (options.releaseMode === 'event') {
+            await worker.setRelease({ maps: mapIds }, null)
+        } else if (releaseId !== null) {
+            await worker.setRelease({ maps: mapIds }, releaseId)
         }
-        if (uploadable.length === 0) {
+        const prepared = await worker.prepareMaps(mapIds, folder)
+        const artifacts = new Map(maps.map(({ artifact, map }) => [map.id, artifact]))
+        for (const { id, reason } of prepared.skipped) {
+            skipped.push({ path: artifacts.get(id)!.display, reason })
+        }
+        if (prepared.prepared.length === 0) {
             throw new HogError(
                 'no_hermes_chunk_ids',
                 'None of the Hermes maps has a chunk ID, so nothing was uploaded.',
@@ -334,26 +318,8 @@ async function uploadFrom(
             )
         }
 
-        const mapIds = uploadable.map(({ map }) => map.id)
-        if (options.releaseMode === 'event') {
-            await worker.setMapRelease(mapIds, null)
-        } else if (releaseId !== null) {
-            await worker.setMapRelease(mapIds, releaseId)
-        }
-        const containers = await worker.prepareMaps(mapIds, folder)
-
-        for (const [index, { artifact, map, chunkId }] of uploadable.entries()) {
-            const { path, ...container } = containers[index]!
-            planned.push({
-                artifact,
-                upload: {
-                    chunkId,
-                    releaseId: options.releaseMode === 'event' ? null : (releaseId ?? map.releaseId),
-                    ...container,
-                    file: path,
-                },
-                policy,
-            })
+        for (const { id, path, ...container } of prepared.prepared) {
+            planned.push({ artifact: artifacts.get(id)!, upload: { ...container, file: path }, policy })
         }
     }
 
@@ -611,7 +577,7 @@ export async function cloneMaps(
 
     const fromChanged = from.releaseId !== releaseId
     if (fromChanged) {
-        await worker.setMapRelease([from.id], releaseId)
+        await worker.setRelease({ maps: [from.id] }, releaseId)
     }
     const cloned = await worker.cloneMetadata(from.id, to.id)
     if (!options.dryRun) {

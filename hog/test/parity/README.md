@@ -7,20 +7,20 @@ So a byte that differs between the two CLIs breaks every customer who switches f
 `hog schema pull` must write the same module as `posthog-cli exp schema pull`, so a project can switch CLIs without a change to its generated code.
 
 These tests compare hog against goldens recorded from the Rust code.
-The goldens are checked in, so the tests need nothing from `cli/`. They do need hog-worker, which `pnpm --filter hog unit` builds from `hog/worker/` first.
+The goldens are checked in, so the tests need nothing from `cli/`. They do need hog-worker, which `pnpm --filter hog unit` builds from `hog/worker/` first. The container goldens are checked by `cargo test` in `hog/worker/`.
 
 ## What is compared
 
-| Test                 | Golden                                                            | Recorded with                                                           |
-| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `containers.test.ts` | The content hash of a symbol set container, for 47 inputs         | `cli/examples/hog_parity_oracle.rs`, which calls posthog-cli's own code |
-| `e2e.test.ts`        | Every request the CLI sends, the uploaded bytes and the exit code | The `posthog-cli` binary against `fake-server.ts`                       |
+| Test                       | Golden                                                            | Recorded with                                                           |
+| -------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `hog/worker/src/parity.rs` | The content hash of a symbol set container, for 47 inputs         | `cli/examples/hog_parity_oracle.rs`, which calls posthog-cli's own code |
+| `e2e.test.ts`              | Every request the CLI sends, the uploaded bytes and the exit code | The `posthog-cli` binary against `fake-server.ts`                       |
 
 Every scenario runs the real CLI, so the files it writes and the bytes it uploads come from hog-worker.
-`containers.test.ts` sends each input to the worker's `wrap` request, which puts a payload into a container as it is. That holds the zstd the worker is built with to posthog-cli's.
+`parity.rs` puts each input into a container with the worker's own code, which holds the zstd the worker is built with to posthog-cli's.
 
 The container inputs sit on every boundary where libzstd's streaming output can differ from one-shot compression: exact multiples of the 128 KiB block, the 2 MiB window, and inputs up to 32 MiB.
-`inputs.ts` generates them from a seed, so large inputs are never checked in.
+`inputs.ts` generates them from a seed, so large inputs are never checked in, and `parity.rs` generates the same bytes.
 
 The end-to-end scenarios cover a first upload, a re-upload of chunks PostHog already has, the multipart POST path, content and release conflicts with and without `--force` and `--skip-on-conflict`, check and start failures, and releases from flags and from git.
 

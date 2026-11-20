@@ -8,21 +8,21 @@
 //   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
 //   drop, save         {}
 //   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
-//   set_release        {}
-//   prepare            {"prepared":[{"chunkId","contentHash","size","path",...} | {"skipped"}]}
+//   set_release        {}, for the `pairs` and `maps` it names
+//   prepare            {"skipped":[{"id","reason"}],"prepared":[{"id","chunkId","contentHash",...}],
+//                      "duplicates":["chunk id"]}, uploads in order and the first pair per chunk id
 //   css_candidates     {"candidates":[{"id":0,"mapRealPath":"..."} | null]}
 //   clean_up           {"deletedMaps":["..."],"warnings":["..."]}
-//   proguard           {"contentHash":"...","size":640} | {"invalid":"reason"}
-//   load_maps          {"maps":[{"id":0,"chunkId","debugId","releaseId","empty"} | {"unreadable"}]}
+//   proguard           {"contentHash":"...","size":640,"path":"..."} | {"invalid":"reason"}
+//   load_maps          {"maps":[{"id":0,"chunkId","releaseId"} | {"unreadable"}]}
 //   clone_metadata     {"map":{"id":1,...}}, the `to` map with the chunk id and release of `from`
-//   set_map_release    {}
-//   write_maps         {}
-//   prepare_maps       {"containers":[{"contentHash","size","path"}]}
+//   write_maps         {}, every map or none
+//   prepare_maps       the answer of `prepare`, with no duplicates
 //   native_candidates  {"files":[{"candidates":[{"id",...} | {"problem"}]} | {"unparseable"}]}
 //   dsym_slices        {"members":[{"slices":[{"id","uuid"}]} | {"unreadable"}]}
 //   source_paths       {"sources":[{"paths":["..."]} | {"failed"}]}
-//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...}]}
-//   wrap               {"contentHash":"...","size":640}, for the parity tests
+//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...} | null]},
+//                      null for a native file that a dSYM which fits replaces
 // Each architecture of a fat Mach-O is a binary with an id of its own. `pack_native` reads each
 // list in `sources` once and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
@@ -40,21 +40,25 @@ mod memory;
 mod native;
 mod node;
 mod pair;
+#[cfg(test)]
+mod parity;
 mod proguard;
 mod sources;
+mod store;
 mod trace;
 mod upload;
-mod wrap;
 mod write;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
 
 use pair::{Action, SourcePair, Unreadable};
+use store::Store;
 use trace::Trace;
 
 const PROTOCOL: u32 = 1;
@@ -66,12 +70,11 @@ const VERSION: &str = match option_env!("HOG_RELEASE_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+const MILLIS_PER_SECOND: u64 = 1000;
+const NANOS_PER_MILLI: u32 = 1_000_000;
+
 const BAD_REQUEST: &str = "bad_request";
-const INJECT_FAILED: &str = "inject_failed";
-const WRITE_FAILED: &str = "write_failed";
-const READ_FAILED: &str = "read_failed";
-const PREPARE_FAILED: &str = "prepare_failed";
-const CLEANUP_FAILED: &str = "cleanup_failed";
+const FAILED: &str = "failed";
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -94,9 +97,8 @@ enum Request {
         ids: Vec<usize>,
         mode: ReleaseMode,
         release_id: Option<String>,
-        // Symbol-set mode only: one id for each pair `needs_new_chunk_id` names, in order. hog
-        // mints them, so its clock decides the timestamp inside each id.
-        new_chunk_ids: Vec<String>,
+        // hog's clock, in milliseconds, so its tests decide the timestamps in minted chunk ids.
+        now: u64,
     },
     Save {
         ids: Vec<usize>,
@@ -106,8 +108,11 @@ enum Request {
     },
     #[serde(rename_all = "camelCase")]
     SetRelease {
-        ids: Vec<usize>,
-        release_id: String,
+        #[serde(default)]
+        pairs: Vec<usize>,
+        #[serde(default)]
+        maps: Vec<usize>,
+        release_id: Option<String>,
     },
     Prepare {
         ids: Vec<usize>,
@@ -126,7 +131,7 @@ enum Request {
     },
     Proguard {
         path: String,
-        out: Option<String>,
+        folder: Option<String>,
     },
     LoadMaps {
         paths: Vec<String>,
@@ -134,11 +139,6 @@ enum Request {
     CloneMetadata {
         from: usize,
         to: usize,
-    },
-    #[serde(rename_all = "camelCase")]
-    SetMapRelease {
-        ids: Vec<usize>,
-        release_id: Option<String>,
     },
     WriteMaps {
         ids: Vec<usize>,
@@ -156,23 +156,23 @@ enum Request {
     SourcePaths {
         ids: Vec<usize>,
     },
+    #[serde(rename_all = "camelCase")]
     PackNative {
         sources: Vec<Vec<String>>,
         items: Vec<PackItem>,
         folder: Option<String>,
-    },
-    Wrap {
-        path: String,
-        kind: wrap::Kind,
-        out: Option<String>,
+        max_size: usize,
     },
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PackItem {
     id: usize,
     // A place in the request's `sources`. Null packs the binary alone.
     sources: Option<usize>,
+    chunk_id: String,
+    dsym: bool,
 }
 
 #[derive(Deserialize)]
@@ -220,7 +220,9 @@ enum Answer {
         targets: Vec<usize>,
     },
     Prepared {
+        skipped: Vec<upload::Skipped>,
         prepared: Vec<upload::Prepared>,
+        duplicates: Vec<String>,
     },
     CssCandidates {
         candidates: Vec<Option<CssCandidateAnswer>>,
@@ -237,9 +239,6 @@ enum Answer {
     Map {
         map: MapState,
     },
-    Containers {
-        containers: Vec<hermes::Built>,
-    },
     NativeFiles {
         files: Vec<NativeFileAnswer>,
     },
@@ -251,9 +250,8 @@ enum Answer {
     },
     Packed {
         unreadable: Vec<Vec<sources::Unreadable>>,
-        containers: Vec<native::Built>,
+        containers: Vec<Option<upload::Container>>,
     },
-    Wrapped(wrap::Wrapped),
     Done {},
 }
 
@@ -312,18 +310,14 @@ enum MapAnswer {
 struct MapState {
     id: usize,
     chunk_id: Option<String>,
-    debug_id: Option<String>,
     release_id: Option<String>,
-    empty: bool,
 }
 
 fn map_state(id: usize, map: &hermes::MapFile) -> MapState {
     MapState {
         id,
         chunk_id: map.content.chunk_id.clone(),
-        debug_id: map.content.debug_id.clone(),
         release_id: map.content.release_id.clone(),
-        empty: map.content.is_empty(),
     }
 }
 
@@ -387,9 +381,16 @@ struct Failure {
 }
 
 impl Failure {
-    fn new(code: &'static str, message: impl ToString) -> Self {
+    fn bad_request(message: impl ToString) -> Self {
         Failure {
-            code,
+            code: BAD_REQUEST,
+            message: message.to_string(),
+        }
+    }
+
+    fn failed(message: impl ToString) -> Self {
+        Failure {
+            code: FAILED,
             message: message.to_string(),
         }
     }
@@ -417,12 +418,11 @@ fn state(id: usize, pair: &SourcePair) -> PairState {
 }
 
 struct Worker {
-    // A pair's id is its place here. A dropped pair leaves a hole, so ids never move.
-    pairs: Vec<Option<SourcePair>>,
-    maps: Vec<Option<hermes::MapFile>>,
-    binaries: Vec<native::Binary>,
-    targets: Vec<cleanup::Target>,
-    stylesheets: Vec<cleanup::CssCandidate>,
+    pairs: Store<SourcePair>,
+    maps: Store<hermes::MapFile>,
+    binaries: Store<native::Binary>,
+    targets: Store<cleanup::Target>,
+    stylesheets: Store<cleanup::CssCandidate>,
     trace: Trace,
 }
 
@@ -438,20 +438,22 @@ impl Worker {
                 public_path_prefix,
             } => Ok(self.read_pairs(&paths, public_path_prefix.as_deref())),
             Request::Drop { ids } => {
-                for id in ids {
-                    self.take(id)?;
-                }
+                self.pairs.take_all(&ids)?;
                 Ok(Answer::Done {})
             }
             Request::Inject {
                 ids,
                 mode,
                 release_id,
-                new_chunk_ids,
-            } => self.inject(&ids, mode, release_id.as_deref(), new_chunk_ids),
+                now,
+            } => self.inject(&ids, mode, release_id.as_deref(), now),
             Request::Save { ids } => self.save(&ids),
             Request::Fingerprint { ids } => self.fingerprint(&ids),
-            Request::SetRelease { ids, release_id } => self.set_release(&ids, &release_id),
+            Request::SetRelease {
+                pairs,
+                maps,
+                release_id,
+            } => self.set_release(&pairs, &maps, release_id),
             Request::Prepare { ids, mode, folder } => self.prepare(&ids, mode, folder.as_deref()),
             Request::CssCandidates {
                 files,
@@ -462,16 +464,13 @@ impl Worker {
                 css,
                 roots,
             } => self.clean_up(&targets, &css, &roots),
-            Request::Proguard { path, out } => {
-                proguard::build(Path::new(&path), out.as_deref().map(Path::new))
+            Request::Proguard { path, folder } => {
+                proguard::build(Path::new(&path), folder.as_deref().map(Path::new))
                     .map(Answer::Proguard)
-                    .map_err(|message| Failure::new(READ_FAILED, message))
+                    .map_err(Failure::failed)
             }
             Request::LoadMaps { paths } => Ok(self.load_maps(&paths)),
             Request::CloneMetadata { from, to } => self.clone_metadata(from, to),
-            Request::SetMapRelease { ids, release_id } => {
-                self.set_map_release(&ids, release_id.as_deref())
-            }
             Request::WriteMaps { ids } => self.write_maps(&ids),
             Request::PrepareMaps { ids, folder } => self.prepare_maps(&ids, folder.as_deref()),
             Request::NativeCandidates { paths } => Ok(self.native_candidates(&paths)),
@@ -481,12 +480,8 @@ impl Worker {
                 sources,
                 items,
                 folder,
-            } => self.pack_native(&sources, &items, folder.as_deref()),
-            Request::Wrap { path, kind, out } => {
-                wrap::wrap(Path::new(&path), kind, out.as_deref().map(Path::new))
-                    .map(Answer::Wrapped)
-                    .map_err(|error| Failure::new(READ_FAILED, format!("{error:#}")))
-            }
+                max_size,
+            } => self.pack_native(&sources, &items, folder.as_deref(), max_size),
         }
     }
 
@@ -512,7 +507,7 @@ impl Worker {
         let found: Vec<Detected> = found
             .into_iter()
             .collect::<Result<_, _>>()
-            .map_err(|message| Failure::new(READ_FAILED, message))?;
+            .map_err(Failure::failed)?;
         let indices = |pick: fn(&Detected) -> bool| {
             found
                 .iter()
@@ -541,10 +536,9 @@ impl Worker {
             .into_iter()
             .map(|result| match result {
                 Ok(pair) => {
-                    let id = self.pairs.len();
-                    let answer = PairAnswer::Read(state(id, &pair));
-                    self.pairs.push(Some(pair));
-                    answer
+                    let answer = state(0, &pair);
+                    let id = self.pairs.hold(pair);
+                    PairAnswer::Read(PairState { id, ..answer })
                 }
                 Err(Unreadable::Skipped(skipped)) => PairAnswer::Skipped { skipped },
                 Err(Unreadable::NoSourcemap) => PairAnswer::Missing(()),
@@ -553,63 +547,27 @@ impl Worker {
         Answer::Pairs { pairs }
     }
 
-    fn take(&mut self, id: usize) -> Result<SourcePair, Failure> {
-        self.pairs
-            .get_mut(id)
-            .and_then(Option::take)
-            .ok_or_else(|| Failure::new(BAD_REQUEST, format!("the worker holds no pair {id}")))
-    }
-
-    // Takes the pairs out for the length of a request, so they can change in parallel.
-    fn take_all(&mut self, ids: &[usize]) -> Result<Vec<SourcePair>, Failure> {
-        let mut taken = Vec::with_capacity(ids.len());
-        for (place, id) in ids.iter().enumerate() {
-            match self.take(*id) {
-                Ok(pair) => taken.push(pair),
-                Err(failure) => {
-                    self.put_back(&ids[..place], taken);
-                    return Err(failure);
-                }
-            }
-        }
-        Ok(taken)
-    }
-
-    fn put_back(&mut self, ids: &[usize], pairs: Vec<SourcePair>) {
-        for (id, pair) in ids.iter().zip(pairs) {
-            self.pairs[*id] = Some(pair);
-        }
-    }
-
     fn inject(
         &mut self,
         ids: &[usize],
         mode: ReleaseMode,
         release_id: Option<&str>,
-        new_chunk_ids: Vec<String>,
+        now: u64,
     ) -> Result<Answer, Failure> {
-        let mut pairs = self.take_all(ids)?;
-
-        let mut fresh = new_chunk_ids.into_iter();
-        let assigned: Vec<Option<String>> = pairs
-            .iter()
-            .map(|pair| {
-                (mode == ReleaseMode::SymbolSet && pair::needs_new_chunk_id(pair, release_id))
-                    .then(|| fresh.next())
-                    .flatten()
-            })
-            .collect();
+        let mut pairs = self.pairs.take_all(ids)?;
+        let now = uuid::Timestamp::from_unix(
+            uuid::NoContext,
+            now / MILLIS_PER_SECOND,
+            (now % MILLIS_PER_SECOND) as u32 * NANOS_PER_MILLI,
+        );
 
         let results: Vec<anyhow::Result<(Action, String, Vec<String>)>> = pairs
             .par_iter_mut()
-            .zip(assigned)
-            .map(|(pair, new_chunk_id)| {
+            .map(|pair| {
                 let mut warnings = Vec::new();
                 let (action, chunk_id) = match mode {
                     ReleaseMode::Event => pair::inject_event_mode(pair, release_id, &mut warnings)?,
-                    ReleaseMode::SymbolSet => {
-                        pair::inject_symbol_set_mode(pair, release_id, new_chunk_id)?
-                    }
+                    ReleaseMode::SymbolSet => pair::inject_symbol_set_mode(pair, release_id, &now)?,
                 };
                 Ok((action, chunk_id, warnings))
             })
@@ -628,11 +586,11 @@ impl Worker {
                 }),
                 Err(error) => {
                     let message = format!("{}: {error:#}", pair.source_path.display());
-                    failure.get_or_insert(Failure::new(INJECT_FAILED, message));
+                    failure.get_or_insert(Failure::failed(message));
                 }
             }
         }
-        self.put_back(ids, pairs);
+        self.pairs.put_back(ids, pairs);
 
         match failure {
             Some(failure) => Err(failure),
@@ -642,7 +600,7 @@ impl Worker {
 
     // Unchanged pairs are written too, so every map ends in posthog-cli's canonical form.
     fn save(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
-        let pairs = self.take_all(ids)?;
+        let pairs = self.pairs.take_all(ids)?;
 
         let staged: Vec<Result<Vec<write::Staged>, String>> = pairs
             .par_iter()
@@ -658,7 +616,7 @@ impl Worker {
                 }
             })
             .collect();
-        self.put_back(ids, pairs);
+        self.pairs.put_back(ids, pairs);
         self.trace.mark("stage");
 
         let mut files = Vec::with_capacity(staged.len() * 2);
@@ -673,38 +631,56 @@ impl Worker {
         }
         if let Some(message) = failure {
             write::discard(&files);
-            return Err(Failure::new(WRITE_FAILED, message));
+            return Err(Failure::failed(message));
         }
 
-        write::commit(files, &self.trace).map_err(|message| Failure::new(WRITE_FAILED, message))?;
+        write::commit(files, &self.trace).map_err(Failure::failed)?;
         Ok(Answer::Done {})
     }
 }
 
 impl Worker {
     fn fingerprint(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
-        let pairs = self.take_all(ids)?;
+        let pairs = self.pairs.take_all(ids)?;
 
         let fingerprinted: Result<Vec<cleanup::Target>, String> =
             pairs.par_iter().map(cleanup::js_target).collect();
-        self.put_back(ids, pairs);
+        self.pairs.put_back(ids, pairs);
         self.trace.mark("fingerprint");
 
-        let first = self.targets.len();
-        self.targets
-            .extend(fingerprinted.map_err(|message| Failure::new(PREPARE_FAILED, message))?);
-        Ok(Answer::Targets {
-            targets: (first..self.targets.len()).collect(),
-        })
+        let targets = fingerprinted
+            .map_err(Failure::failed)?
+            .into_iter()
+            .map(|target| self.targets.hold(target))
+            .collect();
+        Ok(Answer::Targets { targets })
     }
 
-    fn set_release(&mut self, ids: &[usize], release_id: &str) -> Result<Answer, Failure> {
-        let mut pairs = self.take_all(ids)?;
+    fn set_release(
+        &mut self,
+        pairs: &[usize],
+        maps: &[usize],
+        release_id: Option<String>,
+    ) -> Result<Answer, Failure> {
+        let mut held_maps = self.maps.take_all(maps)?;
+        let mut held_pairs = match self.pairs.take_all(pairs) {
+            Ok(held) => held,
+            Err(failure) => {
+                self.maps.put_back(maps, held_maps);
+                return Err(failure);
+            }
+        };
 
-        for pair in &mut pairs {
-            pair.map.release_id = Some(release_id.to_string());
+        let contents = held_pairs
+            .iter_mut()
+            .map(|pair| &mut pair.map)
+            .chain(held_maps.iter_mut().map(|map| &mut map.content));
+        for content in contents {
+            content.release_id = release_id.clone();
         }
-        self.put_back(ids, pairs);
+
+        self.pairs.put_back(pairs, held_pairs);
+        self.maps.put_back(maps, held_maps);
         Ok(Answer::Done {})
     }
 
@@ -714,23 +690,26 @@ impl Worker {
         mode: ReleaseMode,
         folder: Option<&str>,
     ) -> Result<Answer, Failure> {
-        let pairs = self.take_all(ids)?;
+        let pairs = self.pairs.take_all(ids)?;
         let folder = folder.map(Path::new);
+        let claimed = upload::claim(ids, pairs);
 
-        let prepared: Result<Vec<upload::Prepared>, String> = ids
-            .par_iter()
-            .zip(pairs)
-            .map(|(id, pair)| {
+        let prepared: Result<Vec<upload::Prepared>, String> = claimed
+            .ready
+            .into_par_iter()
+            .map(|(id, chunk_id, pair)| {
                 let source_path = pair.source_path.clone();
-                upload::prepare(*id, pair, mode, folder)
+                upload::prepare(id, chunk_id, pair, mode, folder)
                     .map_err(|error| format!("{}: {error:#}", source_path.display()))
             })
             .collect();
         self.trace.mark("prepare");
 
-        prepared
-            .map(|prepared| Answer::Prepared { prepared })
-            .map_err(|message| Failure::new(PREPARE_FAILED, message))
+        Ok(Answer::Prepared {
+            skipped: claimed.skipped,
+            prepared: prepared.map_err(Failure::failed)?,
+            duplicates: claimed.duplicates,
+        })
     }
 
     fn css_candidates(&mut self, files: &[String], public_path_prefix: Option<&str>) -> Answer {
@@ -747,10 +726,8 @@ impl Worker {
                 let map_real_path = candidate.map_path().map(|path| {
                     display(&dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
                 });
-                self.stylesheets.push(candidate);
-
                 Some(CssCandidateAnswer {
-                    id: self.stylesheets.len() - 1,
+                    id: self.stylesheets.hold(candidate),
                     map_real_path,
                 })
             })
@@ -765,19 +742,12 @@ impl Worker {
         css: &[usize],
         roots: &[String],
     ) -> Result<Answer, Failure> {
-        let unknown = |kind: &str, id: usize| {
-            Failure::new(BAD_REQUEST, format!("the worker holds no {kind} {id}"))
-        };
-        let failed = |message: String| Failure::new(CLEANUP_FAILED, message);
-        let roots: Vec<PathBuf> = cleanup::canonical_roots(roots).map_err(failed)?;
+        let roots: Vec<PathBuf> = cleanup::canonical_roots(roots).map_err(Failure::failed)?;
 
         let mut warnings = Vec::new();
         let mut stylesheets = Vec::new();
         for id in css {
-            let candidate = self
-                .stylesheets
-                .get(*id)
-                .ok_or_else(|| unknown("stylesheet", *id))?;
+            let candidate = self.stylesheets.get(*id)?;
             match cleanup::css_target(candidate, &roots) {
                 Ok(target) => stylesheets.extend(target),
                 Err(warning) => warnings.push(warning),
@@ -785,15 +755,11 @@ impl Worker {
         }
         let mut all = Vec::with_capacity(targets.len() + stylesheets.len());
         for id in targets {
-            all.push(
-                self.targets
-                    .get(*id)
-                    .ok_or_else(|| unknown("cleanup target", *id))?,
-            );
+            all.push(self.targets.get(*id)?);
         }
         all.extend(&stylesheets);
 
-        let cleaned = cleanup::clean_up(&all).map_err(failed)?;
+        let cleaned = cleanup::clean_up(&all).map_err(Failure::failed)?;
         self.trace.mark("clean up");
 
         warnings.extend(cleaned.warnings);
@@ -816,10 +782,9 @@ impl Worker {
             .into_iter()
             .map(|result| match result {
                 Ok(map) => {
-                    let id = self.maps.len();
-                    let answer = MapAnswer::Loaded(map_state(id, &map));
-                    self.maps.push(Some(map));
-                    answer
+                    let answer = map_state(0, &map);
+                    let id = self.maps.hold(map);
+                    MapAnswer::Loaded(MapState { id, ..answer })
                 }
                 Err(unreadable) => MapAnswer::Unreadable { unreadable },
             })
@@ -827,90 +792,73 @@ impl Worker {
         Answer::Maps { maps }
     }
 
-    fn map_mut(&mut self, id: usize) -> Result<&mut hermes::MapFile, Failure> {
-        self.maps
-            .get_mut(id)
-            .and_then(Option::as_mut)
-            .ok_or_else(|| unknown_map(id))
-    }
-
-    fn take_map(&mut self, id: usize) -> Result<hermes::MapFile, Failure> {
-        self.maps
-            .get_mut(id)
-            .and_then(Option::take)
-            .ok_or_else(|| unknown_map(id))
-    }
-
     fn clone_metadata(&mut self, from: usize, to: usize) -> Result<Answer, Failure> {
-        let mut composed = self.take_map(to)?;
+        let mut composed = self.maps.take(to)?;
 
         let cloned = self
-            .map_mut(from)
+            .maps
+            .get(from)
             .map(|packager| hermes::clone_metadata(&packager.content, &mut composed.content));
         let map = map_state(to, &composed);
-        self.maps[to] = Some(composed);
+        self.maps.put_back(&[to], vec![composed]);
 
         cloned.map(|()| Answer::Map { map })
     }
 
-    fn set_map_release(
-        &mut self,
-        ids: &[usize],
-        release_id: Option<&str>,
-    ) -> Result<Answer, Failure> {
-        for id in ids {
-            self.map_mut(*id)?.content.release_id = release_id.map(str::to_string);
-        }
-        Ok(Answer::Done {})
-    }
-
+    // Every map or none, like `save`, so the two maps of a clone never disagree on the release.
     fn write_maps(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
+        let mut staged = Vec::with_capacity(ids.len());
         for id in ids {
-            self.map_mut(*id)?
-                .write()
-                .map_err(|message| Failure::new(WRITE_FAILED, message))?;
+            match self.maps.get(*id).map(hermes::MapFile::stage) {
+                Ok(Ok(file)) => staged.push(file),
+                Ok(Err(message)) => {
+                    write::discard(&staged);
+                    return Err(Failure::failed(message));
+                }
+                Err(failure) => {
+                    write::discard(&staged);
+                    return Err(failure);
+                }
+            }
         }
-        self.trace.mark("write maps");
 
+        write::commit(staged, &self.trace).map_err(Failure::failed)?;
+        self.trace.mark("write maps");
         Ok(Answer::Done {})
     }
 
     fn prepare_maps(&mut self, ids: &[usize], folder: Option<&str>) -> Result<Answer, Failure> {
-        let maps: Vec<hermes::MapFile> = ids
-            .iter()
-            .map(|id| self.take_map(*id))
-            .collect::<Result<_, _>>()?;
+        let maps = self.maps.take_all(ids)?;
         let folder = folder.map(Path::new);
 
-        let built: Result<Vec<hermes::Built>, String> = ids
-            .par_iter()
-            .zip(maps)
-            .map(|(id, map)| {
+        let mut skipped = Vec::new();
+        let mut ready = Vec::new();
+        for (id, map) in ids.iter().zip(maps) {
+            match hermes::upload_id(&map) {
+                Ok(chunk_id) => ready.push((*id, chunk_id, map)),
+                Err(reason) => skipped.push(upload::Skipped { id: *id, reason }),
+            }
+        }
+
+        let prepared: Result<Vec<upload::Prepared>, String> = ready
+            .into_par_iter()
+            .map(|(id, chunk_id, map)| {
                 let path = map.path.clone();
-                hermes::build(*id, map, folder)
+                hermes::prepare(id, chunk_id, map, folder)
                     .map_err(|error| format!("{}: {error:#}", path.display()))
             })
             .collect();
         self.trace.mark("prepare maps");
 
-        built
-            .map(|containers| Answer::Containers { containers })
-            .map_err(|message| Failure::new(PREPARE_FAILED, message))
+        Ok(Answer::Prepared {
+            skipped,
+            prepared: prepared.map_err(Failure::failed)?,
+            duplicates: Vec::new(),
+        })
     }
 }
 
 impl Worker {
-    fn hold(&mut self, binary: native::Binary) -> usize {
-        self.binaries.push(binary);
-        self.binaries.len() - 1
-    }
-
-    fn binary(&self, id: usize) -> Result<&native::Binary, Failure> {
-        self.binaries
-            .get(id)
-            .ok_or_else(|| Failure::new(BAD_REQUEST, format!("the worker holds no binary {id}")))
-    }
-
     fn native_candidates(&mut self, paths: &[String]) -> Answer {
         let parsed: Vec<Result<Vec<native::Candidate>, String>> = paths
             .par_iter()
@@ -933,7 +881,7 @@ impl Worker {
                                     debug_id,
                                     format: binary.format(),
                                     size: binary.size(),
-                                    id: self.hold(binary),
+                                    id: self.binaries.hold(binary),
                                 }
                             }
                         })
@@ -960,7 +908,7 @@ impl Worker {
                         .into_iter()
                         .map(|slice| SliceAnswer {
                             uuid: slice.uuid,
-                            id: self.hold(slice.binary),
+                            id: self.binaries.hold(slice.binary),
                         })
                         .collect(),
                 },
@@ -973,7 +921,7 @@ impl Worker {
     fn source_paths(&self, ids: &[usize]) -> Result<Answer, Failure> {
         let binaries: Vec<&native::Binary> = ids
             .iter()
-            .map(|id| self.binary(*id))
+            .map(|id| self.binaries.get(*id))
             .collect::<Result<_, _>>()?;
 
         let sources = binaries
@@ -990,21 +938,25 @@ impl Worker {
         Ok(Answer::SourcePaths { sources })
     }
 
+    // A dSYM symbol set that fits wins over a native file with its UUID, so dSYMs pack first and
+    // such a native file never packs. Its sources are still read, for the warnings.
     fn pack_native(
         &mut self,
         sources: &[Vec<String>],
         items: &[PackItem],
         folder: Option<&str>,
+        max_size: usize,
     ) -> Result<Answer, Failure> {
         let folder = folder.map(Path::new);
-        let mut work = Vec::with_capacity(items.len());
-        for item in items {
-            if item.sources.is_some_and(|place| place >= sources.len()) {
-                let message = format!("binary {} names a source list that is not there", item.id);
-                return Err(Failure::new(BAD_REQUEST, message));
-            }
-            work.push((item, self.binary(item.id)?));
+        if let Some(item) = items
+            .iter()
+            .find(|item| item.sources.is_some_and(|place| place >= sources.len()))
+        {
+            let message = format!("binary {} names a source list that is not there", item.id);
+            return Err(Failure::bad_request(message));
         }
+        let ids: Vec<usize> = items.iter().map(|item| item.id).collect();
+        let binaries = self.binaries.take_all(&ids)?;
 
         let (collected, unreadable): (Vec<_>, Vec<_>) = sources
             .par_iter()
@@ -1012,27 +964,42 @@ impl Worker {
             .unzip();
         self.trace.mark("collect sources");
 
-        let containers: Result<Vec<native::Built>, String> = work
+        let pack = |item: &PackItem, binary: &native::Binary| {
+            let sources = item.sources.map(|place| &collected[place]);
+            native::pack(binary, sources, folder).map_err(|error| format!("{error:#}"))
+        };
+        let dsyms: Vec<Option<upload::Container>> = items
             .par_iter()
-            .map(|(item, binary)| {
-                let sources = item.sources.map(|place| &collected[place]);
-                native::pack(item.id, binary, sources, folder).map_err(|error| format!("{error:#}"))
-            })
+            .zip(&binaries)
+            .map(|(item, binary)| item.dsym.then(|| pack(item, binary)).transpose())
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
+        let fitting: HashSet<&str> = items
+            .iter()
+            .zip(&dsyms)
+            .filter_map(|(item, packed)| packed.as_ref().map(|packed| (item, packed)))
+            .filter(|(_, packed)| packed.size <= max_size)
+            .map(|(item, _)| item.chunk_id.as_str())
             .collect();
-        self.trace.mark("pack native");
-        self.binaries.clear();
 
-        containers
-            .map(|containers| Answer::Packed {
-                unreadable,
-                containers,
+        let containers: Vec<Option<upload::Container>> = items
+            .par_iter()
+            .zip(binaries)
+            .zip(dsyms)
+            .map(|((item, binary), packed)| match packed {
+                Some(packed) => Ok(Some(packed)),
+                None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
+                None => pack(item, &binary).map(Some),
             })
-            .map_err(|message| Failure::new(PREPARE_FAILED, message))
-    }
-}
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
+        self.trace.mark("pack native");
 
-fn unknown_map(id: usize) -> Failure {
-    Failure::new(BAD_REQUEST, format!("the worker holds no map {id}"))
+        Ok(Answer::Packed {
+            unreadable,
+            containers,
+        })
+    }
 }
 
 fn send(message: &impl Serialize) -> io::Result<()> {
@@ -1054,16 +1021,16 @@ fn main() -> io::Result<()> {
     })?;
 
     let mut worker = Worker {
-        pairs: Vec::new(),
-        maps: Vec::new(),
-        binaries: Vec::new(),
-        targets: Vec::new(),
-        stylesheets: Vec::new(),
+        pairs: Store::new("pair"),
+        maps: Store::new("map"),
+        binaries: Store::new("binary"),
+        targets: Store::new("cleanup target"),
+        stylesheets: Store::new("stylesheet"),
         trace: Trace::from_environment(),
     };
     for line in io::stdin().lock().lines() {
         let response = serde_json::from_str::<Request>(&line?)
-            .map_err(|error| Failure::new(BAD_REQUEST, error))
+            .map_err(Failure::bad_request)
             .and_then(|request| worker.handle(request));
 
         send(&match response {
