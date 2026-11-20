@@ -534,6 +534,23 @@ describe('ramp', () => {
             },
         ],
         [
+            'a bar that broke at a step while an invariant failed with no crossing unit in any step',
+            { bars: [brokeAt(5)], invariants: [failed('resident_backlog_intact')] },
+            {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: 5,
+                    offeredPerSecond: 5,
+                    by: 'writer_cpu_under',
+                    kind: 'bar',
+                    at: iso(T),
+                    part: 'db:cyclotron',
+                },
+                reason: 'writer_cpu_under broke at the 5x step',
+            },
+        ],
+        [
             'a live bar break that the final judge could not read again',
             {
                 steps: STEPS_DRIVEN.slice(0, 2),

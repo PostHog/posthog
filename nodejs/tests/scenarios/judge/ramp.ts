@@ -386,7 +386,7 @@ export function rampOf(evidence: RampEvidence): Ramp {
     if (first) {
         return {
             end: first.broke.kind === 'harness' ? 'harness_limit' : 'broke',
-            sustainedScale: sustainedBefore(first.index),
+            sustainedScale: unplaced.length > 0 ? null : sustainedBefore(first.index),
             broke: first.broke,
             reason: first.reason,
         }
