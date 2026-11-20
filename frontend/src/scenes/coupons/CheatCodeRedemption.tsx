@@ -12,9 +12,7 @@ import { couponLogic } from './couponLogic'
 
 interface CheatCodeRedemptionProps {
     campaignSlug: string
-    /** Replaces the default "View in billing" buttons when the organization already used the code. */
     renderSuccessActions?: () => React.ReactNode
-    /** Extra content under the instructions, such as the onboarding skip button. */
     renderFooter?: () => React.ReactNode
 }
 

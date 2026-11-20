@@ -28,10 +28,7 @@ export function cheatCodeTypedRecently(): boolean {
     return Date.now() - lastAttemptAt < RECENT_ATTEMPT_WINDOW_MS
 }
 
-/**
- * Claims a cheat code campaign when someone types the code, the way cheats work in GTA: San Andreas.
- * Errors other than "already claimed" stay silent, so typing the letters by chance doesn't reveal the code.
- */
+/** Errors other than "already claimed" stay silent, so typing the letters by chance doesn't reveal the code. */
 export async function claimCheatCode(campaignSlug: string): Promise<void> {
     if (claimInFlight) {
         return
