@@ -2352,7 +2352,9 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertTrue(scheduled.exception.sig.kwargs["pg_membership_written"])
+                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
+                cohort.refresh_from_db()
+                self.assertTrue(cohort.population_copy_started)
 
                 # Turn off the kill switch before the retry runs; because this lineage already wrote
                 # replace rows to Postgres, it finishes converging instead of stranding stale members.
@@ -2395,7 +2397,9 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertFalse(scheduled.exception.sig.kwargs["pg_membership_written"])
+                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
+                cohort.refresh_from_db()
+                self.assertFalse(cohort.population_copy_started)
 
                 self.mock_replace_flag.return_value = False
                 clock.shift(10)
@@ -2411,6 +2415,117 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [stale.id])
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(stale.uuid), 0)])
+
+    def test_killed_replace_during_prune_redispatched_with_flag_off_converges(self) -> None:
+        run = uuid4().hex[:8]
+        stale = create_person(
+            team=self.team, distinct_ids=[f"{run}-stale"], properties={"tag": f"{run}-old"}, uuid=uuid4()
+        )
+        kept = create_person(
+            team=self.team, distinct_ids=[f"{run}-kept"], properties={"tag": f"{run}-keep"}, uuid=uuid4()
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace killed mid prune",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-keep'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+
+        # Simulate a worker killed mid-prune (no finally runs): the claim, open history row,
+        # population_copy_started=True and population_first_marker stay on the cohort row.
+        saved_state: dict[str, Any] = {}
+
+        class _SimulatedKill(BaseException):
+            pass
+
+        def kill_during_prune(*_args: Any, **_kwargs: Any) -> int:
+            cohort.refresh_from_db()
+            saved_state.update(
+                is_calculating=cohort.is_calculating,
+                pending_population_mode=cohort.pending_population_mode,
+                population_marker=cohort.population_marker,
+                population_claimed_at=cohort.population_claimed_at,
+                population_copy_started=cohort.population_copy_started,
+                population_first_marker=cohort.population_first_marker,
+            )
+            raise _SimulatedKill()
+
+        with time_machine.travel(start, tick=False) as clock:
+            cohort.insert_users_list_by_uuid([str(stale.uuid)], team_id=self.team.pk)
+            clock.shift(10)
+            _claim_replace(cohort)
+            clock.shift(10)
+            with (
+                patch(
+                    "products.cohorts.backend.models.util.prune_members_absent_from_replace",
+                    side_effect=kill_during_prune,
+                ),
+                self.assertRaises(_SimulatedKill),
+            ):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+            # Restore the exact pre-finally state a SIGKILL would leave behind.
+            self.assertTrue(saved_state["population_copy_started"])
+            self.assertIsNotNone(saved_state["population_first_marker"])
+            Cohort.objects.filter(pk=cohort.pk).update(**saved_state)
+            CohortCalculationHistory.objects.filter(cohort=cohort).update(finished_at=None, error=None, error_code=None)
+
+            # Turn off the flag, advance past the soft limit so the sweep redispatches with no kwargs.
+            self.mock_replace_flag.return_value = False
+            clock.shift(timedelta(hours=5))
+            with patch("posthog.tasks.calculate_cohort.insert_cohort_from_query") as mock_task:
+                reset_stuck_cohorts()
+                mock_task.delay.assert_called_once_with(cohort.pk, self.team.pk)
+
+            cohort.refresh_from_db()
+            self.assertTrue(cohort.population_copy_started)
+            self.assertEqual(cohort.population_first_marker, saved_state["population_first_marker"])
+
+            # Redispatched attempt runs with no kwargs and flag off; it must converge instead of raising ReplaceDisabled.
+            clock.shift(10)
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertFalse(cohort.population_copy_started)
+        self.assertIsNone(cohort.population_first_marker)
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [kept.id])
+
+    def test_population_copy_started_is_persisted_before_first_postgres_member_write(self) -> None:
+        run = uuid4().hex[:8]
+        matched = create_person(
+            team=self.team, distinct_ids=[f"{run}-m"], properties={"tag": f"{run}-in"}, uuid=uuid4()
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace pre-write flag",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        observed_flags: list[bool] = []
+        from products.cohorts.backend.models import util as cohort_util
+
+        real_insert_members = cohort_util.insert_cohort_members
+
+        def spy_insert_members(*args: Any, **kwargs: Any) -> None:
+            observed_flags.append(Cohort.objects.values_list("population_copy_started", flat=True).get(pk=cohort.pk))
+            return real_insert_members(*args, **kwargs)
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch("products.cohorts.backend.models.util.insert_cohort_members", side_effect=spy_insert_members),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        self.assertEqual(observed_flags, [True])
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [matched.id])
 
     def test_sweep_redispatched_replace_stopped_when_flag_is_off(self) -> None:
         now = timezone.now().replace(microsecond=0)
@@ -2610,13 +2725,20 @@ class TestCohortCalculationTasks(APIBaseTest):
         batch_calls = 0
 
         def write_first_batch_then_fail(
-            cohort_self: Cohort, batch: list[str], insert_in_clickhouse: bool, *, team_id: int
+            cohort_self: Cohort,
+            batch: list[str],
+            insert_in_clickhouse: bool,
+            *,
+            team_id: int,
+            before_write=None,
         ) -> set[str]:
             nonlocal batch_calls
             batch_calls += 1
             if batch_calls == 2:
                 raise RuntimeError("mid-copy failure")
-            return real_insert_batch(cohort_self, batch, insert_in_clickhouse, team_id=team_id)
+            return real_insert_batch(
+                cohort_self, batch, insert_in_clickhouse, team_id=team_id, before_write=before_write
+            )
 
         with (
             time_machine.travel(start + timedelta(seconds=10), tick=False),
@@ -2671,7 +2793,9 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertEqual(scheduled.exception.sig.kwargs["pg_membership_written"], pg_already_written)
+                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
+                cohort.refresh_from_db()
+                self.assertEqual(cohort.population_copy_started, pg_already_written)
 
                 insert_cohort_from_query.pop_request()
                 insert_cohort_from_query.push_request(
@@ -3265,6 +3389,8 @@ class TestCohortCalculationTasks(APIBaseTest):
             last_calculation=now - relativedelta(days=2),
             pending_population_mode=mode,
             population_claimed_at=claimed_at,
+            population_copy_started=mode == CohortPopulationMode.REPLACE,
+            population_first_marker=claimed_at if mode == CohortPopulationMode.REPLACE else None,
         )
         if attempt_age is not None:
             CohortCalculationHistory.objects.create(
@@ -3280,8 +3406,21 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.is_calculating, not expect_reset)
         self.assertEqual(mock_insert_cohort_from_query.delay.called, expect_reset)
-        # A redispatch serves the same request, so it keeps the mode and the request time.
-        self.assertEqual((cohort.pending_population_mode, cohort.population_claimed_at), (mode, claimed_at))
+        # A redispatch serves the same request, so it keeps the mode, request time, copy flag and first marker.
+        self.assertEqual(
+            (
+                cohort.pending_population_mode,
+                cohort.population_claimed_at,
+                cohort.population_copy_started,
+                cohort.population_first_marker,
+            ),
+            (
+                mode,
+                claimed_at,
+                mode == CohortPopulationMode.REPLACE,
+                claimed_at if mode == CohortPopulationMode.REPLACE else None,
+            ),
+        )
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
     def test_reset_stuck_static_cohorts_checks_newest_history_row(
@@ -3335,14 +3474,27 @@ class TestCohortCalculationTasks(APIBaseTest):
             pending_population_mode=CohortPopulationMode.REPLACE,
             population_marker=marker,
             population_claimed_at=marker,
+            population_copy_started=True,
+            population_first_marker=marker,
         )
 
         _end_pending_population(cohort.pk)
 
         cohort.refresh_from_db()
-        expected = (None, None, None) if expect_cleared else (CohortPopulationMode.REPLACE, marker, marker)
+        expected = (
+            (None, None, None, False, None)
+            if expect_cleared
+            else (CohortPopulationMode.REPLACE, marker, marker, True, marker)
+        )
         self.assertEqual(
-            (cohort.pending_population_mode, cohort.population_marker, cohort.population_claimed_at), expected
+            (
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.population_claimed_at,
+                cohort.population_copy_started,
+                cohort.population_first_marker,
+            ),
+            expected,
         )
 
     @parameterized.expand(

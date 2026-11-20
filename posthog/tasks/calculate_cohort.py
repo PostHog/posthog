@@ -1036,7 +1036,7 @@ def _finish_owned_population(
     *,
     log_prefix: str,
     processing_error: BaseException | None,
-    pg_membership_written: bool,
+    copy_started: bool,
     stored_marker: datetime | None,
 ) -> None:
     """Save final cohort state and delete uncopied ClickHouse replace rows when cleanup applies."""
@@ -1051,10 +1051,9 @@ def _finish_owned_population(
         is_calculating=cohort.is_calculating,
         errors_calculating=cohort.errors_calculating,
     )
-    # Clean up ClickHouse rows whenever this attempt ended in error without resolving replace rows in Postgres,
-    # including BaseException exits (SystemExit, broker Reject): _release_population_claim already released the
-    # run fields, so the sweep will not redispatch it, and deleting uncopied rows keeps ClickHouse matching Postgres.
-    if stored_marker is not None and processing_error is not None and not pg_membership_written:
+    # Clean up ClickHouse rows whenever this replace ended in error before any attempt started copying its own
+    # rows into Postgres, including BaseException exits (SystemExit, worker shutdown or revoke).
+    if stored_marker is not None and processing_error is not None and not copy_started:
         try:
             delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, marker=stored_marker)
         except Exception:
@@ -1140,7 +1139,6 @@ def _populate_static_cohort(
     log_prefix: str,
     supports_replace: bool = False,
     replace_marker: str | None = None,
-    pg_membership_written: bool = False,
     append_only: bool = False,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
@@ -1150,9 +1148,9 @@ def _populate_static_cohort(
 
     A replace (only the query task supports one) stamps every match with a marker stored on the
     cohort, and checks that marker before each write. ``replace_marker`` and ``rows_written`` carry
-    a finished insert's marker and row count into a retry; ``pg_membership_written`` records whether
-    this lineage's replace rows resolved in Postgres on an earlier attempt (a kept add is already in
-    Postgres from the add itself and does not set it).
+    a finished insert's marker and row count into a retry. ``cohort.population_copy_started`` records
+    on the cohort row whether any attempt of this replace request has started copying its own rows
+    into Postgres (a kept add is already in Postgres from the add itself and does not set it).
 
     ``append_only`` is for runs dispatched without a claim, such as the staff re-sync. Such a run only
     ever adds members: it stops without writing anything while a replace is pending.
@@ -1230,9 +1228,11 @@ def _populate_static_cohort(
         if marker is not None:
             require_current_population_marker(cohort_id, marker)
 
-        # Stop any replace whose lineage has not resolved replace rows in Postgres yet if the flag is off.
-        # Lineages that already wrote Postgres membership keep going so a partially pruned cohort converges cleanly.
-        replace_disabled = replacing and not pg_membership_written and not is_static_cohort_replace_enabled(team)
+        # If the flag is off, stop the replace unless an earlier attempt of this request already copied some of
+        # its own rows into Postgres. Once that has happened, the replace finishes so Postgres doesn't stay half pruned.
+        replace_disabled = (
+            replacing and not cohort.population_copy_started and not is_static_cohort_replace_enabled(team)
+        )
         claim_incomplete = replacing and cohort.population_claimed_at is None
         if replacing and marker is None and not replace_disabled and not claim_incomplete:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
@@ -1286,9 +1286,17 @@ def _populate_static_cohort(
         if marker is not None:
             floor = _replace_floor(cohort, marker)
 
-            def _mark_pg_membership_written() -> None:
-                nonlocal pg_membership_written
-                pg_membership_written = True
+            def _mark_copy_started() -> None:
+                if cohort.population_copy_started:
+                    return
+                updated = Cohort.objects.filter(
+                    pk=cohort.pk,
+                    pending_population_mode=CohortPopulationMode.REPLACE,
+                    population_marker=marker,
+                ).update(population_copy_started=True)
+                if not updated:
+                    raise PopulationSuperseded(cohort.pk)
+                cohort.population_copy_started = True
 
             _replace_static_members(
                 cohort,
@@ -1297,8 +1305,8 @@ def _populate_static_cohort(
                 marker=marker,
                 floor=floor,
                 rows_written=rows_written,
-                check_replace_enabled=not pg_membership_written,
-                on_pg_write=_mark_pg_membership_written,
+                check_replace_enabled=not cohort.population_copy_started,
+                on_pg_write=_mark_copy_started,
                 log_prefix=log_prefix,
             )
             finished_replace = (marker, floor)
@@ -1324,10 +1332,7 @@ def _populate_static_cohort(
                 "written_since": written_since,
             }
             if marker is not None and ch_insert_done:
-                retry_kwargs.update(
-                    replace_marker=marker.isoformat(),
-                    pg_membership_written=pg_membership_written,
-                )
+                retry_kwargs["replace_marker"] = marker.isoformat()
             retry = _schedule_population_retry(task, cohort_id, err, team_id=team_id, kwargs=retry_kwargs)
             raise retry
         logger.exception(
@@ -1351,6 +1356,7 @@ def _populate_static_cohort(
         # superseded attempt leaves all of it to the attempt that replaced it.
         if claimed is not None:
             stored_marker = claimed.population_marker
+            copy_started = claimed.population_copy_started
             owns_cohort: bool | None = None
             if superseded is None and retry is None:
                 # Finalize only while this attempt still owns the cohort: its mode and marker are still the
@@ -1394,7 +1400,7 @@ def _populate_static_cohort(
                     claimed,
                     log_prefix=log_prefix,
                     processing_error=processing_error,
-                    pg_membership_written=pg_membership_written,
+                    copy_started=copy_started,
                     stored_marker=stored_marker,
                 )
     if settings.DEBUG and processing_error is not None:
@@ -1417,7 +1423,6 @@ def insert_cohort_from_query(
     rows_written: int = 0,
     written_since: Optional[str] = None,
     replace_marker: Optional[str] = None,
-    pg_membership_written: bool = False,
     append_only: bool = False,
 ) -> None:
     """
@@ -1429,8 +1434,9 @@ def insert_cohort_from_query(
 
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written,
-    written_since, replace_marker and pg_membership_written (whether this lineage's replace rows
-    resolved in Postgres). The staff re-sync sets append_only, so it never runs a pending replace.
+    written_since and replace_marker; whether any attempt of this replace request has started
+    copying its own rows into Postgres is stored on ``cohort.population_copy_started``. The staff
+    re-sync sets append_only, so it never runs a pending replace.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1445,7 +1451,6 @@ def insert_cohort_from_query(
         log_prefix="insert_cohort_from_query",
         supports_replace=True,
         replace_marker=replace_marker,
-        pg_membership_written=pg_membership_written,
         append_only=append_only,
     )
 

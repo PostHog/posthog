@@ -74,15 +74,19 @@ STATIC_POPULATION_RUN_FIELDS = frozenset(
         "pending_population_mode",
         "population_marker",
         "population_claimed_at",
+        "population_copy_started",
+        "population_first_marker",
         "last_replace_marker",
         "last_replace_floor",
     }
 )
 
-PENDING_POPULATION_CLEARED: dict[str, None] = {
+PENDING_POPULATION_CLEARED: dict[str, Any] = {
     "pending_population_mode": None,
     "population_marker": None,
     "population_claimed_at": None,
+    "population_copy_started": False,
+    "population_first_marker": None,
 }
 
 
@@ -166,21 +170,19 @@ class CohortManager(RootTeamManager):
 # Fields that are updated during cohort recalculation. The save_fields lists
 # in _safe_save_cohort_state must remain subsets of this set, otherwise the
 # is_cohort_recalculation_only_save guard will incorrectly allow signal handlers to fire.
-COHORT_RECALCULATION_FIELDS = frozenset(
-    {
-        "is_calculating",
-        "last_calculation",
-        "errors_calculating",
-        "last_error_at",
-        "count",
-        "last_import_total_count",
-        "last_import_unmatched_count",
-        "pending_population_mode",
-        "population_marker",
-        "population_claimed_at",
-        "last_replace_marker",
-        "last_replace_floor",
-    }
+COHORT_RECALCULATION_FIELDS = (
+    frozenset(
+        {
+            "is_calculating",
+            "last_calculation",
+            "errors_calculating",
+            "last_error_at",
+            "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
+        }
+    )
+    | STATIC_POPULATION_RUN_FIELDS
 )
 
 
@@ -352,6 +354,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         null=True,
         blank=True,
         help_text="When the current static population was requested. A replace keeps members added from just before this time within the clock-skew margin. Null when no population is pending.",
+    )
+    population_copy_started = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether the current static cohort replace has started copying its own rows into Postgres. Survives worker kills so a sweep redispatch finishes converging even if the flag is turned off.",
+    )
+    population_first_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse _timestamp of the first attempt in the current replace run. Kept across retries and sweep redispatches so failed-attempt cleanup deletes only this run's rows.",
     )
 
     is_static = models.BooleanField(default=False)
@@ -1212,6 +1224,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_in_clickhouse: bool,
         *,
         team_id: int,
+        before_write: Callable[[set[str]], None] | None = None,
     ) -> set[str]:
         """Personhog path for inserting a single batch of cohort members.
 
@@ -1222,8 +1235,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         with personhog_caller_tag("cohorts/static-insert"):
             id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
+        resolved = {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
+        if before_write is not None:
+            before_write(resolved)
         self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
-        return {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
+        return resolved
 
     def _insert_resolved_batch(
         self,

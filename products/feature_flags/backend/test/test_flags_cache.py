@@ -4556,6 +4556,8 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("pending_population_mode", "pending_population_mode", "replace"),
             ("population_marker", "population_marker", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
             ("population_claimed_at", "population_claimed_at", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
+            ("population_copy_started", "population_copy_started", True),
+            ("population_first_marker", "population_first_marker", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
         ]
     )
     @patch("django.db.transaction.on_commit", lambda fn: fn())
@@ -4587,6 +4589,8 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
                     "pending_population_mode",
                     "population_marker",
                     "population_claimed_at",
+                    "population_copy_started",
+                    "population_first_marker",
                     "last_replace_marker",
                     "last_replace_floor",
                     "groups",

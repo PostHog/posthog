@@ -949,12 +949,15 @@ email@example.org
         self, source_field: str, delay_path: str, request_kwargs: Callable[[], dict[str, Any]]
     ):
         # The run fields a replace the sweep gave up on leaves behind, while its worker may still be running.
+        old_marker = timezone.now().replace(microsecond=0) - timedelta(hours=1)
         cohort = Cohort.objects.create(
             team=self.team,
             name="static",
             is_static=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
-            population_marker=timezone.now().replace(microsecond=0) - timedelta(hours=1),
+            population_marker=old_marker,
+            population_copy_started=True,
+            population_first_marker=old_marker,
         )
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
@@ -965,6 +968,10 @@ email@example.org
             self.assertIsNone(cohort.pending_population_mode)
             self.assertIsNone(cohort.population_marker)
             self.assertIsNone(cohort.population_claimed_at)
+            self.assertFalse(cohort.population_copy_started)
+            self.assertIsNone(cohort.population_first_marker)
+            # Also seed stale copy_started/first_marker before the succeeding claim to confirm a fresh claim resets both.
+            Cohort.objects.filter(pk=cohort.pk).update(population_copy_started=True, population_first_marker=old_marker)
             retried = self.client.patch(url, **request_kwargs())
 
         self.assertEqual(failed.status_code, 400, failed.json())
@@ -973,10 +980,16 @@ email@example.org
         self.assertEqual(mock_delay.call_count, 2)
         cohort.refresh_from_db()
         # Either way the stale replace is gone. A CSV import records no mode, because its task never clears one. The
-        # marker is gone too, so the old worker fails its next marker check instead of pruning during this run.
+        # marker, copy flag and first marker are gone too, so the old worker fails its next marker check and the new
+        # run never inherits copy state from a killed run.
         self.assertEqual(
-            (cohort.pending_population_mode, cohort.population_marker),
-            (CohortPopulationMode.APPEND if source_field == "query" else None, None),
+            (
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.population_copy_started,
+                cohort.population_first_marker,
+            ),
+            (CohortPopulationMode.APPEND if source_field == "query" else None, None, False, None),
         )
 
     def test_static_cohort_patch_population_mode_replace_rejected_when_flag_off(self) -> None:

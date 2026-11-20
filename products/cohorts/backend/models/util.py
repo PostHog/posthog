@@ -1739,13 +1739,18 @@ def _copy_static_cohort_rows_to_pg(
         nonlocal any_counted_resolved
         person_uuids = [person_uuid for person_uuid, _ in batch]
         counted_in_batch = {_normalize_uuid(person_uuid) for person_uuid, is_counted in batch if is_counted}
-        resolved = cohort._insert_batch_via_personhog(person_uuids, insert_in_clickhouse=False, team_id=team_id)
-        # Only this attempt's own rows call on_pg_write. If the attempt fails and on_pg_write never ran, the task
-        # deletes the attempt's ClickHouse rows. Copying a member who was added since the request doesn't stop that.
-        counted_resolved = resolved & counted_in_batch
-        if counted_resolved and on_pg_write is not None:
-            on_pg_write()
-        if not any_counted_resolved and counted_resolved:
+
+        def _before_write(resolved: set[str]) -> None:
+            # Only this attempt's own rows call on_pg_write, and before the Postgres write lands so a worker
+            # kill right after the write still sees the flag set. Copying a member who was added since the
+            # request (or a batch whose replace UUIDs did not resolve) does not set it.
+            if resolved & counted_in_batch and on_pg_write is not None:
+                on_pg_write()
+
+        resolved = cohort._insert_batch_via_personhog(
+            person_uuids, insert_in_clickhouse=False, team_id=team_id, before_write=_before_write
+        )
+        if not any_counted_resolved and (resolved & counted_in_batch):
             any_counted_resolved = True
 
     batch_iterator = CursorBatchIterator(
@@ -1902,13 +1907,21 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
         if marker <= floor:
             raise PopulationMarkerClockSkew(f"Cohort {cohort.pk} could not mint a marker after {floor.isoformat()}")
 
+    from django.db.models import F, Value
+    from django.db.models.functions import Coalesce
+
     # filter(field=None) matches NULL, so an unset marker compares the same way as a set one.
     owned = Cohort.objects.filter(
         pk=cohort.pk, pending_population_mode=CohortPopulationMode.REPLACE, population_marker=stored
     )
-    if not owned.update(population_marker=marker):
+    if not owned.update(
+        population_marker=marker,
+        population_first_marker=Coalesce(F("population_first_marker"), Value(marker)),
+    ):
         return None
     cohort.population_marker = marker
+    if cohort.population_first_marker is None:
+        cohort.population_first_marker = marker
     return marker
 
 

@@ -38,6 +38,24 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="cohort",
+            name="population_copy_started",
+            field=models.BooleanField(
+                db_default=False,
+                default=False,
+                help_text="Whether the current static cohort replace has started copying its own rows into Postgres. Survives worker kills so a sweep redispatch finishes converging even if the flag is turned off.",
+            ),
+        ),
+        migrations.AddField(
+            model_name="cohort",
+            name="population_first_marker",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="ClickHouse _timestamp of the first attempt in the current replace run. Kept across retries and sweep redispatches so failed-attempt cleanup deletes only this run's rows.",
+                null=True,
+            ),
+        ),
+        migrations.AddField(
+            model_name="cohort",
             name="last_replace_marker",
             field=models.DateTimeField(
                 blank=True,

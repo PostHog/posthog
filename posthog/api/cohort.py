@@ -2335,6 +2335,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             pending_population_mode=claim_mode,
             population_marker=None,
             population_claimed_at=claimed_at,
+            population_copy_started=False,
+            population_first_marker=None,
         )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
@@ -2343,6 +2345,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohort.pending_population_mode = claim_mode
         cohort.population_marker = None
         cohort.population_claimed_at = claimed_at
+        cohort.population_copy_started = False
+        cohort.population_first_marker = None
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
