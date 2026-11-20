@@ -277,6 +277,19 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
         expect(readdirSync(release.installDir).sort()).toEqual(['hog', 'hog-worker'])
     })
 
+    test('keeps the installed hog when a folder sits where the worker goes', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket')
+        await mkdir(join(release.installDir, 'hog-worker'), { recursive: true })
+        await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
+
+        const result = await install(release, ['--version', '1.2.3'])
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('hog-worker is a folder')
+        expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(readdirSync(join(release.installDir, 'hog-worker'))).toEqual([])
+    })
+
     test('installs a release from before hog-worker without one', async () => {
         const release = await fakeRelease('0.1.0', 'bucket', { worker: false })
 

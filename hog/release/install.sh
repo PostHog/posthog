@@ -291,6 +291,15 @@ main() {
     # The files of a release work only together, so each old one stays aside until every new one is
     # in place, and all of them go back when one can't be replaced or the install is interrupted. A
     # name is recorded once its old file is safe aside, before the move that replaces it.
+    # mv puts a file inside a folder of the same name instead of replacing it, so a folder in the way
+    # stops the install before anything changes.
+    for file in "$staged"/*; do
+        name=$(basename "$file")
+        if [ -d "$install_dir/$name" ]; then
+            rm -rf "$staged" "$kept"
+            err "$install_dir/$name is a folder, so the install left $install_dir as it was. Move it away and run this again."
+        fi
+    done
     replaced=''
     roll_back() {
         for old in $replaced; do

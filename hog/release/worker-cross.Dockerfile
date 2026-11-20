@@ -1,6 +1,8 @@
-# The image release/build-worker.sh runs release/build-worker.ts in. Every tool that decides a byte
-# of hog-worker is pinned here or in worker-cross-requirements.txt, so the release workflow and a
-# local run build with the same ones.
+# The image release/build-worker.sh runs release/build-worker.ts in. The tools that build the macOS
+# and Linux workers are pinned here or in worker-cross-requirements.txt, so the release workflow and
+# a local run build those with the same ones. The Windows builds are not pinned: clang, lld and llvm
+# come from Debian bookworm on the day the image builds, and cargo-xwin downloads the current MSVC
+# runtime and Windows SDK.
 FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS bun
 
 # This image brings rustup. The Rust that builds hog-worker is the one worker/rust-toolchain.toml
