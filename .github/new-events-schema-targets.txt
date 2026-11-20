@@ -35,6 +35,8 @@ posthog/hogql
 posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
+posthog/query_scan/test/test_stub_printing.py
+posthog/temporal/ai_observability/trace_summarization/tests/test_workflow.py
 ee/clickhouse
 ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
@@ -47,6 +49,7 @@ products/customer_analytics/backend/hogql_queries
 products/customer_analytics/backend/test/test_account_automations.py
 products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
+products/data_quality/backend/tests/test_staged_audit.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
 products/error_tracking/backend/tests/test_issue_tagger_rerun.py
