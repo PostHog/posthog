@@ -350,6 +350,36 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('loadIntegrationsOfKind', () => {
+        it('asks only for that kind and keeps every other row', async () => {
+            const emailRow = (verified: boolean): IntegrationType =>
+                ({ id: 50, kind: 'email', display_name: 'hello@example.com', config: { verified } }) as IntegrationType
+            integrationsPayload = [githubIntegration(), emailRow(false)]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            const kindsRequested: (string | null)[] = []
+            integrationsPayload = [githubIntegration({ display_name: 'Renamed' }), emailRow(true)]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': ({ request }) => {
+                        const kind = new URL(request.url).searchParams.get('kind')
+                        kindsRequested.push(kind)
+                        return [200, { results: integrationsPayload.filter((row) => !kind || row.kind === kind) }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadIntegrationsOfKind('email')).toFinishAllListeners()
+
+            expect(kindsRequested).toEqual(['email'])
+            expect(
+                logic.values.integrations?.map(({ kind, display_name, config }) => [kind, display_name, config])
+            ).toEqual([
+                ['github', 'PostHog', githubIntegration().config],
+                ['email', 'hello@example.com', { verified: true }],
+            ])
+        })
+    })
+
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()

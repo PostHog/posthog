@@ -324,10 +324,20 @@ describe('SandboxSenderChoiceProvider', () => {
         showSenderRow()
         await renderStep(SANDBOX_STEP, 'workflow-email-test-sender')
 
-        useSenderMocks([OWN_SENDER])
+        const kindsRequested: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': ({ request }) => {
+                    kindsRequested.push(new URL(request.url).searchParams.get('kind'))
+                    return [200, { results: [OWN_SENDER], next: null }]
+                },
+            },
+        })
         fireEvent.click(screen.getByTestId('workflow-email-test-sender-refresh'))
         expect(await screen.findByTestId('workflow-email-sender-select')).toHaveTextContent('PostHog test sender')
         expect(storedStep()?.type).toEqual('email_sandbox')
+
+        expect(kindsRequested).toEqual(['email'])
 
         fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
         await waitFor(() => expect(storedStep()?.type).toEqual('function_email'))

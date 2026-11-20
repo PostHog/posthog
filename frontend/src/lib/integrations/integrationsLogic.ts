@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -40,6 +41,7 @@ import type {
     GitHubRepoApi,
     IntegrationConfigApi,
     IntegrationKindEnumApi,
+    IntegrationsListKind,
 } from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
@@ -48,6 +50,48 @@ import type { PreflightStatus, UserBasicType } from '../../types'
 import { ICONS, getIntegrationNameFromKind } from './utils'
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
+
+async function fetchIntegrations(
+    projectId: string,
+    kindFilter: IntegrationsListKind | undefined,
+    breakpoint: BreakPointFunction
+): Promise<IntegrationType[]> {
+    const integrations: IntegrationType[] = []
+    let offset = 0
+    let hasNext = true
+    while (hasNext) {
+        const res = await integrationsList(projectId, { kind: kindFilter, limit: 100, offset })
+        await breakpoint()
+        for (const integration of res.results) {
+            // The API serves kinds this union does not name yet, and consumers such as
+            // PosthogConnect read them, so every result is kept and only the icon is optional.
+            const kind = integration.kind as IntegrationKind
+            integrations.push({
+                ...integration,
+                kind,
+                config: integration.config ?? {},
+                created_by: integration.created_by
+                    ? {
+                          id: integration.created_by.id,
+                          uuid: integration.created_by.uuid,
+                          distinct_id: integration.created_by.distinct_id ?? '',
+                          first_name: integration.created_by.first_name ?? '',
+                          last_name: integration.created_by.last_name,
+                          email: integration.created_by.email,
+                          is_email_verified: integration.created_by.is_email_verified,
+                          role_at_organization: integration.created_by.role_at_organization,
+                      }
+                    : integration.created_by,
+                // TODO: Make the icons endpoint independent of hog functions
+                icon_url: ICONS[kind],
+            })
+        }
+        offset += res.results.length
+        hasNext = !!res.next && res.results.length > 0
+    }
+
+    return integrations
+}
 
 function toastApiError(e: unknown): void {
     const detail = e instanceof ApiError ? e.detail : null
@@ -303,6 +347,7 @@ export interface integrationsLogicActions {
         value: true
     }
     loadIntegrations: (_?: any) => any
+    loadIntegrationsOfKind: (kind: IntegrationsListKind) => IntegrationsListKind
     loadIntegrationsFailure: (
         error: string,
         errorObject?: any
@@ -826,43 +871,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
         integrations: [
             null as IntegrationType[] | null,
             {
-                loadIntegrations: async (_ = undefined, breakpoint) => {
-                    const projectId = values.currentProjectId
-                    const integrations: IntegrationType[] = []
-                    let offset = 0
-                    let hasNext = true
-                    while (hasNext) {
-                        const res = await integrationsList(String(projectId), { limit: 100, offset })
-                        await breakpoint()
-                        for (const integration of res.results) {
-                            // The API serves kinds this union does not name yet, and consumers such as
-                            // PosthogConnect read them, so every result is kept and only the icon is optional.
-                            const kind = integration.kind as IntegrationKind
-                            integrations.push({
-                                ...integration,
-                                kind,
-                                config: integration.config ?? {},
-                                created_by: integration.created_by
-                                    ? {
-                                          id: integration.created_by.id,
-                                          uuid: integration.created_by.uuid,
-                                          distinct_id: integration.created_by.distinct_id ?? '',
-                                          first_name: integration.created_by.first_name ?? '',
-                                          last_name: integration.created_by.last_name,
-                                          email: integration.created_by.email,
-                                          is_email_verified: integration.created_by.is_email_verified,
-                                          role_at_organization: integration.created_by.role_at_organization,
-                                      }
-                                    : integration.created_by,
-                                // TODO: Make the icons endpoint independent of hog functions
-                                icon_url: ICONS[kind],
-                            })
-                        }
-                        offset += res.results.length
-                        hasNext = !!res.next && res.results.length > 0
+                loadIntegrations: async (_ = undefined, breakpoint) =>
+                    fetchIntegrations(String(values.currentProjectId), undefined, breakpoint),
+                loadIntegrationsOfKind: async (kind: IntegrationsListKind, breakpoint) => {
+                    if (!values.integrations) {
+                        return fetchIntegrations(String(values.currentProjectId), undefined, breakpoint)
                     }
-
-                    return integrations
+                    const rows = await fetchIntegrations(String(values.currentProjectId), kind, breakpoint)
+                    return [...(values.integrations ?? []).filter((integration) => integration.kind !== kind), ...rows]
                 },
                 newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {
