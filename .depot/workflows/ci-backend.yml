@@ -1841,10 +1841,10 @@ jobs:
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             # A bootstrapped product must pass hoglint from its first commit, its Isolated level
-            # included. The scaffold adds a level line to the ledger, which is no debt, so
-            # --write-ledger records it in this job's copy and still refuses any finding.
+            # included. Bootstrap writes the product's level line into this job's copy of the
+            # ledger, so a plain check also proves that bootstrap leaves the ledger complete.
             - name: Check the scaffold product (hoglint)
-              run: hoglint check --write-ledger
+              run: hoglint check
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
