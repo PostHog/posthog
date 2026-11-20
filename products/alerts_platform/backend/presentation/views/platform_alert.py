@@ -1176,7 +1176,6 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     @destinations.mapping.post
     def create_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
         configuration = self._destination_configuration(pk, write=True)
-        self._require_pipeline_log_access(configuration.source_kind, configuration.source_config)
         team_id = self._canonical_team_id()
         serializer = PlatformAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
