@@ -27,6 +27,7 @@ export type FailoverActuation = {
     observed(signal?: AbortSignal): Promise<boolean>
     release(): Promise<void>
     journal(): FailoverJournal
+    refused(): boolean
 }
 
 export type FailoverOptions = {
@@ -359,6 +360,8 @@ export async function failOver({
                     journal.releaseError = `the fail-back could not start: ${messageOf(error)}`
                 }
             })()),
+
+        refused: () => answered?.refused !== undefined,
 
         journal: () => ({
             ...journal,
