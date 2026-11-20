@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("event_handler_hidden_by_an_angle_bracket", '<a title="a>b" onclick="{{first_name}}">x</a>'),
             ("event_handler_hidden_by_a_tag_like_value", '<a title="<%%>" onclick="{{first_name}}">x</a>'),
             ("brace_before_a_body_tag", "x{<%body%>y"),
+            ("body_tag_in_an_event_handler", '<a onclick="<%body%>">x</a>'),
+            ("body_tag_in_a_quoted_attribute", '<a title="<%body%>">x</a>'),
+            ("body_tag_in_an_unquoted_attribute", "<a href=<%body%>>x</a>"),
+            ("body_tag_in_a_comment", "<!-- <%body%> --><p>x</p>"),
+            ("escaped_body_tag_in_a_style_block", "<style>&lt;%body%&gt;</style><p>x</p>"),
             (
                 "unsubscribe_tag_beside_a_block_in_an_attribute",
                 '<a href="<%subject%>{{#if allow}}u">{{token}}</a>{{/if}}',
@@ -95,6 +101,20 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert expected in converted.html
         assert not any("this template's tags" in note for note in converted.notes)
+
+    def test_plain_text_never_runs_entity_spelled_liquid_around_a_tag_kept_as_text(self) -> None:
+        html = "Hi &#123;&#123; \\{{a}} &#123;% echo person.properties.secret %&#125; &#123;% raw %&#125; }}"
+
+        text = convert_version({"html_content": html}).text
+
+        assert "{% raw %}{% echo person.properties.secret %}{% endraw %}" in text
+        assert text.count("{% echo") == 1
+
+    def test_an_attribute_full_of_angle_brackets_is_checked_quickly(self) -> None:
+        started = time.monotonic()
+        convert_version({"html_content": '<a title="' + ">" * 64_000, "generate_plain_content": False})
+
+        assert time.monotonic() - started < 1
 
     def test_plain_text_keeps_a_stray_brace_from_joining_a_tag(self) -> None:
         converted = convert_version({"html_content": "<p>{<b>{{name}}</b></p>"})

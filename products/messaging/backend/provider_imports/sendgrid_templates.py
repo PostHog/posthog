@@ -165,9 +165,10 @@ _NAME = r"(?!this\b)[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
 _ALLOWED_TAG = re.compile(rf"\{{\{{\{{ *{_NAME} *\}}\}}\}}|\{{\{{ *{_NAME} *\}}\}}")
 # An attribute value in quotes, other than an event handler or a style, can hold a value.
 _PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
+_HELD = re.compile("[\x02\x03]")
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
 _BRACE_BEFORE_SUBSTITUTION = re.compile(r"\{-[A-Za-z_]\w*-")
-_ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"]*[<>][^"]*"|'[^']*[<>][^']*')""")
+_ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"<>]*[<>][^"]*"|'[^'<>]*[<>][^']*')""")
 
 
 def _unsupported_reason(source: str, is_html: bool) -> str | None:
@@ -176,8 +177,9 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
         return "put a brace right before an unsubscribe or body tag"
     held: list[str] = []
     position = 0
-    # `<%...%>` tags hold `<` and `>`, which would read as HTML below.
-    text = _ASM_TAG.sub("\x03", source)
+    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL counts as a value, and any
+    # other `<%...%>` tag, such as the unescaped body, may only sit in body text.
+    text = _ASM_TAG.sub(lambda match: "\x02" if match.group(1) in _ASM_URLS else "\x03", source)
     while (start := text.find("{{", position)) != -1:
         match = _ALLOWED_TAG.match(text, start)
         if match is None:
@@ -190,10 +192,10 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     # A `<` or `>` in a quoted value hides where the tag ends from the checks below.
     if _ANGLE_IN_QUOTED_VALUE.search(text):
         return "have a < or > inside a quoted attribute value"
-    if any("\x02" in text[span.start : span.end] for span in _not_content_spans(text)):
+    if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
         return "sit inside a comment, style, script or head block"
     for tag in _HTML_TAG.finditer(text):
-        if "\x02" in _PLAIN_ATTRIBUTE.sub("", tag.group(0)):
+        if "\x03" in tag.group(0) or "\x02" in _PLAIN_ATTRIBUTE.sub("", tag.group(0)):
             return "sit inside an HTML tag other than a plain attribute value"
     return None
 
@@ -339,6 +341,7 @@ _LIQUID_TAG = re.compile(
     re.DOTALL,
 )
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
+_LIQUID_SLOT_SPLIT = re.compile("(\x01\\d+\x01)")
 _RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
 _RAW_CLOSE = re.compile(r"\{%-?\s*endraw\s*-?%\}")
 
@@ -409,7 +412,13 @@ def plain_text_from_html(html: str) -> str:
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.
-    text = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), text)
+    # Only between held tags: a span across one would put that tag's raw block inside a new one, which ends early.
+    text = "".join(
+        part
+        if _LIQUID_SLOT.fullmatch(part)
+        else _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), part)
+        for part in _LIQUID_SLOT_SPLIT.split(text)
+    )
     # A `{` left beside a held tag would join it into `{{{` or `{{%`.
     text = text.replace("{\x01", '{{ "{" }}\x01')
     # Plain text has no escaping, so `| raw` and the HTML escaping before it have nothing to do in it. Only an output's
