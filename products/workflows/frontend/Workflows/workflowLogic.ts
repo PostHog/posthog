@@ -34,7 +34,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
-import { latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { emailTemplaterLogic, latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -4929,11 +4929,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
-            actions.setDraftActionPending('publish')
-            const emailEditSaved = await latestEmailEditSaved()
-            actions.setDraftActionPending(null)
-            if (!emailEditSaved) {
-                return
+            if (emailTemplaterLogic.findMounted()) {
+                actions.setDraftActionPending('publish')
+                const emailEditSaved = await latestEmailEditSaved()
+                actions.setDraftActionPending(null)
+                if (!emailEditSaved) {
+                    return
+                }
             }
             // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
             // check below reads the form, so it describes the staged draft only once the form is saved.
