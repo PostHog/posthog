@@ -800,7 +800,6 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
         scenarios.push(finish(s))
     }
     {
-        // Its own factory, so the scenarios recorded before it keep their messages.
         const f = new MessageFactory(new Rng(12))
         const keyed = baseScenario(
             'secret-key',
@@ -814,7 +813,6 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
                 await f.logs('phs_parity_plain', 1, { headers: { 'auth-type': 'spoofed' } }),
                 await f.logs(plain, 2, { headers: { 'auth-type': 'secret_key' } }),
                 await f.logs('phs_parity_no_such_key', 2),
-                // The quota check must see the team's public token.
                 await f.logs('phs_parity_pii', 2),
             ],
         ]
