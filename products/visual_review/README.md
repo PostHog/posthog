@@ -416,7 +416,7 @@ To move a repo to the ledger:
 5. `recheck`. It posts nothing and shows, per run type, the status that every open pull request head and merge-queue head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
 6. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it. Keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8.
 7. `status-gate --set on`, set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` (PostHog/posthog sends the "no run needed" report only then), and `mode --set ledger`. From the first of these on, the gate's context carries only ledger verdicts, so the order inside this step does not open a gap.
-8. `recheck --apply`. It posts the status on every open pull request head and merge-queue head, `success` "No visual run for this commit" where no run exists. `--pause` sets the seconds between posts. Run it again for what it reports as not settled.
+8. `recheck --apply`. It posts the status on every open pull request head and merge-queue head, `success` "No visual run for this commit" where no run exists. A commit older than the shortest retention window of a branch's latest run gets `pending` instead, because retention may have deleted its run. `--pause` sets the seconds between posts. Run it again for what it reports as not settled.
 
 Do not skip a step or change the order. A required status that is not posted everywhere blocks every pull request without a visual run. `ledger` mode without the required status leaves a pull request with unreviewed changes blocked only by the merge queue.
 

@@ -38,6 +38,7 @@ from products.visual_review.backend.logic import (
     ledger_recheck,
     quarantine,
     repos,
+    retention,
     runs,
     toleration,
 )
@@ -983,7 +984,14 @@ def _retry_task(run: Run) -> None:
     tasks.publish_visual_review_commit_status.apply(args=(run.team_id, str(run.repo_id), run.commit_sha, run.run_type))
 
 
-def _serve_heads(mocker, pull_requests: dict[int, str], merge_queue: dict[int, str]) -> None:
+def _serve_heads(
+    mocker, pull_requests: dict[int, str], merge_queue: dict[int, str], committed_ago: timedelta | None = timedelta(0)
+) -> None:
+    mocker.patch.object(
+        github_api,
+        "commit_committed_at",
+        return_value=None if committed_ago is None else timezone.now() - committed_ago,
+    )
     mocker.patch.object(
         github_api,
         "open_pull_request_heads",
@@ -1438,10 +1446,22 @@ class TestLedgerRecheck:
         with pytest.raises(CommandError, match="needs the commit status gate"):
             _recheck_command(repo, "--apply")
 
-    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker) -> None:
+    @pytest.mark.parametrize(
+        ("committed_ago", "without_run"),
+        [
+            pytest.param(timedelta(hours=1), ("success", commit_status.NO_RUN_DESCRIPTION), id="young_commit"),
+            pytest.param(
+                timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS, hours=1),
+                ("pending", commit_status.RUN_GONE_DESCRIPTION),
+                id="commit_older_than_retention",
+            ),
+            pytest.param(None, ("pending", commit_status.RUN_GONE_DESCRIPTION), id="commit_date_unknown"),
+        ],
+    )
+    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker, committed_ago, without_run) -> None:
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
         _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
-        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {})
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, committed_ago)
 
         _recheck_command(repo, "--apply")
 
@@ -1449,7 +1469,7 @@ class TestLedgerRecheck:
         assert posted == {
             "head-1": (self.GATING, RERUN_ONE.state, RERUN_ONE.description),
             "head-2": (self.GATING, "success", "No visual changes"),
-            "head-4": (self.GATING, "success", commit_status.NO_RUN_DESCRIPTION),
+            "head-4": (self.GATING, *without_run),
         }
 
     def test_the_recheck_stops_at_the_first_refused_post(self, repo, sender, mocker) -> None:

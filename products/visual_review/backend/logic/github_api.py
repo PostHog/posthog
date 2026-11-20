@@ -394,6 +394,20 @@ class MergedPullRequest:
     head_sha: str | None
 
 
+def commit_committed_at(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> datetime | None:
+    """When the commit was committed, or None when GitHub cannot say."""
+    data = _read_json(
+        "visual_review.commit_fetch_failed",
+        partial(_github_api_request, "GET", repo, f"commits/{sha}", priority=priority),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    committed_at = ((data.get("commit") or {}).get("committer") or {}).get("date")
+    return parse_datetime(committed_at) if committed_at else None
+
+
 def merged_pull_requests_for_commit(
     repo: Repo, sha: str, priority: Priority = Priority.CRITICAL
 ) -> list[MergedPullRequest] | None:

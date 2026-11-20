@@ -86,6 +86,10 @@ _QUIET_BRANCH_PASSES = (
     (QUIET_BRANCH_RETENTION_DAYS, Q()),
 )
 
+# A branch's latest run is never deleted while it is younger than this. Before that, a commit
+# without a run never had one.
+LATEST_RUN_MIN_RETENTION_DAYS = min(days for days, _branches in _QUIET_BRANCH_PASSES)
+
 # The row goes first and the object second, and the DELETE repeats the reference
 # checks of the candidate query, so a reference acquired between the SELECT and
 # the DELETE keeps the row. An Artifact row is what makes the CLI skip an upload

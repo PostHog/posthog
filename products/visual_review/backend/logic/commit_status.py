@@ -9,17 +9,21 @@ verdict without a lock around a GitHub request.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
 from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
 from ..models import Repo, Run
-from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating, ledger_recheck
+from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating, github_api, ledger_recheck, retention
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +32,7 @@ MAX_ROUNDS = 3
 
 NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
 NO_RUN_DESCRIPTION = "No visual run for this commit"
+RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
 
 
 def gate_context(run_type: str) -> str:
@@ -423,6 +428,22 @@ def report_no_run_needed(repo: Repo, report: NoRunNeededInput) -> NoRunNeededOut
     return NoRunNeededOutcome.POSTED
 
 
+def _verdict_without_run(repo: Repo, commit_sha: str) -> StatusVerdict:
+    """The status of a commit that has no run: a pass only while retention cannot have deleted one.
+
+    Retention deletes the latest run of a quiet branch, also one that failed. So a commit older than
+    that window may have had a run, and only a new run can tell.
+    """
+    try:
+        committed_at = github_api.commit_committed_at(repo, commit_sha, Priority.BATCH)
+    except github_api.GITHUB_READ_REFUSED:
+        committed_at = None
+    cutoff = timezone.now() - timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS)
+    if committed_at is None or committed_at < cutoff:
+        return StatusVerdict(state="pending", description=RUN_GONE_DESCRIPTION)
+    return StatusVerdict(state="success", description=NO_RUN_DESCRIPTION)
+
+
 def ledger_verdict(repo: Repo, commit_sha: str, run_type: str) -> StatusVerdict:
     """The status a commit gets under `ledger` rules, in any mode. Posts nothing.
 
@@ -430,7 +451,7 @@ def ledger_verdict(repo: Repo, commit_sha: str, run_type: str) -> StatusVerdict:
     """
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
-        return StatusVerdict(state="success", description=NO_RUN_DESCRIPTION)
+        return _verdict_without_run(repo, commit_sha)
     status = _status_of(run, repo, ledger_mode=True)
     return StatusVerdict(state=status.state, description=status.description)
 
@@ -438,17 +459,18 @@ def ledger_verdict(repo: Repo, commit_sha: str, run_type: str) -> StatusVerdict:
 def publish_after_switch(repo: Repo, commit_sha: str, run_type: str) -> bool:
     """Post the status of a commit that may carry none yet. Returns False when it may not be settled.
 
-    A commit without a run passes, because the CI jobs stay required and block a commit whose
-    workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
+    A young commit without a run passes, because the CI jobs stay required and block a commit
+    whose workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
     It decides as `ledger_verdict` does, so the recheck command posts what its dry run showed.
     """
     if _newest_run(repo, commit_sha, run_type) is None:
+        verdict = _verdict_without_run(repo, commit_sha)
         posted = ci_status._send_commit_status(
             repo,
             commit_sha,
             context=gate_context(run_type),
-            state="success",
-            description=NO_RUN_DESCRIPTION,
+            state=verdict.state,
+            description=verdict.description,
             target_url=None,
         )
         if posted == ci_status.StatusPost.REFUSED:
