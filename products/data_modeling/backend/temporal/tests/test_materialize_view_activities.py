@@ -1009,6 +1009,9 @@ class TestNodeSuspension:
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
             "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
+            "error 502: bad gateway",
+            "error 503: service unavailable",
+            "error 504: gateway timeout",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1061,6 +1064,7 @@ class TestNodeSuspension:
                     "name=CLUSTER_OUT_OF_MEMORY,",
                     "name=TOO_MANY_REQUESTS_FAILED,",
                     "name=PAGE_TRANSPORT_TIMEOUT,",
+                    "error 503: service unavailable",
                 ]
             ),
         ],
