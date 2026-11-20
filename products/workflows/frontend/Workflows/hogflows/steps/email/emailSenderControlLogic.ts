@@ -310,11 +310,12 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 integrationsLogic.actions.startPolling()
             } else if (!awaits && previous) {
                 integrationsLogic.actions.stopPolling()
+                cache.projectDefaultStale = true
                 actions.refreshCurrentTeam()
             }
         },
     })),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
         function replaceStep(next: EmailStepAction, previous: EmailStepAction, preselected = false): void {
             actions.setWorkflowAction(props.actionId, next)
             if (kindOf(next) !== kindOf(previous)) {
@@ -328,7 +329,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
         }
 
         async function preselectDefaultSender(): Promise<void> {
-            if (values.senderToPreselect === null) {
+            if (cache.projectDefaultStale || values.senderToPreselect === null) {
                 return
             }
             if (!(await saveOpenCanvasEdit())) {
@@ -345,7 +346,10 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             preselectDefaultSender,
             loadIntegrationsSuccess: preselectDefaultSender,
             loadSandboxStatusSuccess: preselectDefaultSender,
-            refreshCurrentTeamSuccess: preselectDefaultSender,
+            refreshCurrentTeamSuccess: async () => {
+                cache.projectDefaultStale = false
+                await preselectDefaultSender()
+            },
             chooseSender: ({ choice }) => {
                 const action = values.action
                 if (!action) {

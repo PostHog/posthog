@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { EditorRef, emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -39,6 +40,10 @@ function teamWithDefaultSender(defaultSenderId: number | null): typeof MOCK_DEFA
         ...MOCK_DEFAULT_TEAM,
         workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, default_email_integration_id: defaultSenderId },
     }
+}
+
+function fromSender(integrationId: number): Record<string, any> {
+    return { inputs: { email: { value: { from: { integrationId } } } } }
 }
 
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
@@ -265,11 +270,27 @@ describe('emailSenderControlLogic', () => {
     })
 
     it.each([
-        ['one sender', [OWN_SENDER], null, 7],
-        ['several senders and the project default set with them', [OWN_SENDER, SECOND_SENDER], 8, 8],
+        [
+            'one sender is verified in another tab',
+            [OWN_SENDER],
+            null,
+            { type: 'function_email', config: fromSender(7) },
+        ],
+        [
+            'several senders and their project default are set in another tab',
+            [OWN_SENDER, SECOND_SENDER],
+            8,
+            { type: 'function_email', config: fromSender(8) },
+        ],
+        [
+            'a sender is verified in another tab and the project default is hidden',
+            [OWN_SENDER],
+            8,
+            { type: 'email_sandbox' },
+        ],
     ])(
-        'moves a sandbox step once %s verified in another tab and the editor returns',
-        async (_, verifiedSenders, defaultSenderId, expectedSenderId) => {
+        'updates a sandbox step when the editor returns after %s',
+        async (_, verifiedSenders, defaultSenderId, expected) => {
             await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
             useMocks({
                 get: {
@@ -278,14 +299,11 @@ describe('emailSenderControlLogic', () => {
                 },
             })
 
-            window.dispatchEvent(new Event('focus'))
-
-            await waitFor(() =>
-                expect(storedStep()).toMatchObject({
-                    type: 'function_email',
-                    config: { inputs: { email: { value: { from: { integrationId: expectedSenderId } } } } },
-                })
-            )
+            await expectLogic(teamLogic, () => {
+                window.dispatchEvent(new Event('focus'))
+            }).toDispatchActions(['refreshCurrentTeamSuccess'])
+            await expectLogic(logic).toFinishListeners()
+            expect(storedStep()).toMatchObject(expected)
         }
     )
 
