@@ -122,7 +122,9 @@ products/mobile/app/** @PostHog/team-mobile-app
 products/desktop/apps/mobile/** @PostHog/team-mobile-app
 .github/workflows/*mobile*.yml @PostHog/team-mobile-app
 
-# The hog release approver check decides who may approve a release of the signed hog CLI. The release
-# workflow runs the copy from the last release tag, so a weakened copy merged here would govern every
-# later release, including ones its author could then approve. Growth owns hog; security owns the control.
-hog/release/check-approvers.sh @PostHog/team-growth @PostHog/team-security
+# The hog release approver check decides who may approve a release of the signed hog CLI, and the
+# release workflow is what runs it. The workflow runs the checker as the last release tag has it, so a
+# weakened copy merged here would govern every later release. Both files need a review from the team
+# that owns hog.
+hog/release/check-approvers.sh @PostHog/team-growth
+.github/workflows/release-hog.yml @PostHog/team-growth
