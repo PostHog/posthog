@@ -134,6 +134,10 @@ export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 /** Code of the `AllowIPMiddleware` refusal (posthog/middleware.py). Keep in sync with the backend. */
 export const REGION_BLOCKED_ERROR_CODE = 'region_blocked'
 
+/** `detail` of the `AllowIPMiddleware` refusal (posthog/middleware.py). Keep in sync with the backend. */
+export const REGION_BLOCKED_DETAIL =
+    'PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.'
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',

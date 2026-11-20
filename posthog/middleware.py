@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, 
 from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
+from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import (
     end_impersonation,
@@ -300,6 +301,7 @@ class ManagedProxyClientIPMiddleware:
         return self.get_response(request)
 
 
+# The frontend matches both to leave this refusal unreported. Keep in sync with frontend/src/lib/api-error.ts.
 REGION_BLOCKED_ERROR_CODE = "region_blocked"
 REGION_BLOCKED_DETAIL = (
     "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com."
@@ -335,9 +337,12 @@ class AllowIPMiddleware:
             return self.get_response(request)
         if request.path.startswith("/api/"):
             # A DRF-shaped body lets the frontend tell this refusal apart from other 403s.
-            return JsonResponse(
-                {"type": "authentication_error", "code": REGION_BLOCKED_ERROR_CODE, "detail": REGION_BLOCKED_DETAIL},
-                status=403,
+            return generate_exception_response(
+                "allow_ip",
+                REGION_BLOCKED_DETAIL,
+                code=REGION_BLOCKED_ERROR_CODE,
+                type="authentication_error",
+                status_code=403,
             )
         return HttpResponse(REGION_BLOCKED_DETAIL, status=403)
 
