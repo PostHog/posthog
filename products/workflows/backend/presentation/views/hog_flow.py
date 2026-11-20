@@ -7582,6 +7582,7 @@ class HogFlowViewSet(
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
             use_cached_counts=not params["refresh"],
+            user=cast(Optional[User], request.user),
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.

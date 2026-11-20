@@ -7,7 +7,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.person_sampling import bounded_memory_settings, build_person_count_query
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, replace_proxy_properties
 from products.workflows.backend.services.audience_v2 import (
@@ -16,9 +22,11 @@ from products.workflows.backend.services.audience_v2 import (
     get_person_audience_count_v2,
 )
 from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
     get_batch_audience_person_ids,
     get_batch_audience_person_ids_snapshot,
 )
+from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -311,3 +319,63 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert "cityHash64" in inner_scan
         assert "optimize_aggregation_in_order" in clickhouse_sql
         assert "max_bytes_before_external_group_by=4294967296" in clickhouse_sql
+
+
+class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.restricted_member = self._member("restricted@example.com")
+        self.other_member = self._member("other@example.com")
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=OrganizationMembership.objects.get(user=self.restricted_member).id,
+        )
+        _create_person(team=self.team, distinct_ids=["a"], properties={"email": "a@example.com"})
+        _create_person(team=self.team, distinct_ids=["b"], properties={"email": "b@example.com"})
+        flush_persons_and_events()
+        self.filters = {
+            "properties": [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}]
+        }
+
+    def _member(self, email: str) -> User:
+        user = User.objects.create_user(email=email, password=None, first_name="Member")
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        return user
+
+    def test_person_count_skips_a_restricted_property(self):
+        assert get_person_audience_count_v2(self.team, self.filters, user=self.restricted_member).affected == 0
+        assert get_person_audience_count_v2(self.team, self.filters, user=self.other_member).affected == 1
+
+    def test_dedupe_count_skips_a_restricted_property(self):
+        restricted = get_dedupe_audience_count_v2(
+            self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.restricted_member
+        )
+        allowed = get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.other_member)
+
+        assert (restricted.affected, allowed.affected) == (0, 1)
+
+    def test_cached_counts_are_kept_per_user(self):
+        def size(user: User) -> int:
+            return get_audience_size(
+                team_id=self.team.pk,
+                filters=self.filters,
+                group_type_index=None,
+                dedupe_key=None,
+                sends_email=False,
+                use_cached_counts=True,
+                user=user,
+            ).affected
+
+        assert size(self.other_member) == 1
+        assert size(self.restricted_member) == 0

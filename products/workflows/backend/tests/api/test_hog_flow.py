@@ -5628,7 +5628,7 @@ class TestHogFlowAPI(APIBaseTest):
             body = response.json()
             assert body["affected"] == 3200
             assert body["dedupe_key"] == "email"
-            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email", user=self.user)
             mock_v1.assert_not_called()
 
             # Group audiences stay on the exact query: the sampled count only covers person audiences.
@@ -6048,7 +6048,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["dedupe_key"] == dedupe_key
         if dedupe_key is not None:
             # The person-count query is skipped — only the deduped count runs
-            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email", user=self.user)
             mock_person_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()

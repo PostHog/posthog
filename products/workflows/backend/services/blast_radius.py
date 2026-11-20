@@ -10,6 +10,7 @@ from django.core.cache import cache
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
@@ -50,24 +51,35 @@ def _realtime_audience_total(team: Team) -> int:
 
 
 def _count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team,
+    filters: dict,
+    group_type_index: GroupTypeIndex | None,
+    dedupe_key: str | None,
+    user: User | None = None,
 ) -> BlastRadiusResult:
     if group_type_index is not None:
-        return get_user_blast_radius(team, filters, group_type_index)
+        return get_user_blast_radius(team, filters, group_type_index, user=user)
     if dedupe_key is not None:
-        return get_dedupe_audience_count_v2(team, filters, dedupe_key)
-    return get_person_audience_count_v2(team, filters)
+        return get_dedupe_audience_count_v2(team, filters, dedupe_key, user=user)
+    return get_person_audience_count_v2(team, filters, user=user)
 
 
 def _cached_count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team,
+    filters: dict,
+    group_type_index: GroupTypeIndex | None,
+    dedupe_key: str | None,
+    user: User | None = None,
 ) -> BlastRadiusResult:
-    audience = json.dumps([filters, group_type_index, dedupe_key], sort_keys=True, default=str)
+    # The count depends on the user's property access rules, so each user gets their own cache entry.
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, user.pk if user else None], sort_keys=True, default=str
+    )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, tuple) and len(cached) == 2:
         return BlastRadiusResult(affected=cached[0], total=cached[1])
-    result = _count_audience(team, filters, group_type_index, dedupe_key)
+    result = _count_audience(team, filters, group_type_index, dedupe_key, user)
     cache.set(cache_key, (result.affected, result.total), AUDIENCE_COUNT_CACHE_SECONDS)
     return result
 
@@ -95,6 +107,7 @@ def get_audience_size(
     sends_email: bool,
     email_rate_limit: dict[str, Any] | None = None,
     use_cached_counts: bool = False,
+    user: User | None = None,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
@@ -119,7 +132,7 @@ def get_audience_size(
     if group_type_index is None:
         applied_dedupe_key = dedupe_key
     count = _cached_count_audience if use_cached_counts else _count_audience
-    blast_radius = count(team, filters, group_type_index, applied_dedupe_key)
+    blast_radius = count(team, filters, group_type_index, applied_dedupe_key, user)
 
     mixed_realtime_cohort = (
         find_realtime_behavioral_cohort(team.project_id, _top_level_cohort_ids(filters))
