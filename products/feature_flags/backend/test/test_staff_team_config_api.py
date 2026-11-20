@@ -455,6 +455,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "running_experiments_needing_flag_calls_in_events": 1,
                         "current_mode": FlagEvaluationsMode.EVENTS,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "current_keeps_events_writes": False,
+                        "target_keeps_events_writes": False,
                         "changed": expected_changed[0],
                         "left_above_mode": expected_left_above_mode[0],
                     },
@@ -465,11 +467,31 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "running_experiments_needing_flag_calls_in_events": 0,
                         "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "current_keeps_events_writes": False,
+                        "target_keeps_events_writes": False,
                         "changed": expected_changed[1],
                         "left_above_mode": expected_left_above_mode[1],
                     },
                 ],
             },
+        )
+
+    def test_set_flag_evaluations_mode_passes_keep_writing_flag_calls_to_events_to_the_setter(self):
+        response = self.client.post(
+            SET_FLAG_EVALUATIONS_MODE_URL,
+            {
+                "flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                "team_ids": [self.team.id],
+                "keep_writing_flag_calls_to_events": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [change] = response.json()["organizations"]
+        self.assertEqual((change["current_keeps_events_writes"], change["target_keeps_events_writes"]), (False, True))
+        self.assertTrue(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).keep_writing_flag_calls_to_events
         )
 
     def test_set_flag_evaluations_mode_writes_no_organization_when_a_later_one_fails(self):

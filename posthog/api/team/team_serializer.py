@@ -57,7 +57,7 @@ from products.error_tracking.backend.facade.contracts import ErrorTrackingAIFeat
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import (
     FlagEvaluationsConfig,
-    flag_calls_only_in_flag_evaluations,
+    events_lack_new_flag_calls,
     get_flag_evaluations_read_config,
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
@@ -344,9 +344,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
-        return flag_calls_only_in_flag_evaluations(
-            obj, flag_evaluations_read_config_for(self.context, obj.organization_id)
-        )
+        return events_lack_new_flag_calls(obj, flag_evaluations_read_config_for(self.context, obj.organization_id))
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:

@@ -120,12 +120,14 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <>
-                        <LemonBanner type="warning">
-                            For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only
-                            there, so a failed write loses the event. Teams in INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS
-                            still write to the events table, and so does every team while
-                            INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
-                        </LemonBanner>
+                        {!keepWritingFlagCallsToEvents && (
+                            <LemonBanner type="warning">
+                                For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only
+                                there, so a failed write loses the event. Teams in
+                                INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS still write to the events table, and so does
+                                every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
+                            </LemonBanner>
+                        )}
                         <LemonCheckbox
                             checked={keepWritingFlagCallsToEvents}
                             onChange={(checked) =>

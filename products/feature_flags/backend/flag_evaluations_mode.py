@@ -48,6 +48,9 @@ class OrganizationModeChange:
     running_experiments_needing_flag_calls_in_events: int
     current_mode: int
     target_mode: int
+    # Whether ingestion kept writing flag calls to events before the write, and after it. Only mode 2 keeps them.
+    current_keeps_events_writes: bool
+    target_keeps_events_writes: bool
     # True when the write moved the organization to target_mode, or would on a dry run.
     changed: bool
     # True when the organization is above target_mode and allow_downgrade is off.
@@ -201,6 +204,8 @@ def set_organizations_flag_evaluations_mode(
             ),
             current_mode=current_configs[organization.id].mode,
             target_mode=mode,
+            current_keeps_events_writes=current_configs[organization.id].keeps_events_writes,
+            target_keeps_events_writes=keeps_events_writes,
             changed=organization.id in changed_ids,
             left_above_mode=current_configs[organization.id].mode > mode and not allow_downgrade,
         )

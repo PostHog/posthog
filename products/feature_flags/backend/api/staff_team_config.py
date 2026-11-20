@@ -113,7 +113,7 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
-            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway."
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway."
         ),
     )
     feature_flag_count = serializers.IntegerField(
@@ -217,6 +217,12 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
             "running_experiments_needing_flag_calls_in_events": {
                 "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls."
+            },
+            "current_keeps_events_writes": {
+                "help_text": "True when ingestion kept writing $feature_flag_called to events for the organization before the write."
+            },
+            "target_keeps_events_writes": {
+                "help_text": "True when ingestion keeps writing $feature_flag_called to events for the organization after the write."
             },
             "changed": {
                 "help_text": "True when the write moved the organization to the target mode, or would on a dry run."

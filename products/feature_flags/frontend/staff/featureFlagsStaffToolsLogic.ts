@@ -672,7 +672,9 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     ).length,
                     organizationsLoweredFromFlagEvaluationsOnly: preview.response.organizations.filter(
                         (organization) =>
-                            organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
+                            organization.changed &&
+                            organization.current_mode === FlagEvaluationsModeEnumApi.Number2 &&
+                            organization.target_mode !== FlagEvaluationsModeEnumApi.Number2
                     ).length,
                     experimentsNeedingFlagCallsInEvents:
                         preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2

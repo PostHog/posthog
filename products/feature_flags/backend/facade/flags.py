@@ -41,6 +41,11 @@ class FlagEvaluationsConfig:
     mode: int
     keeps_events_writes: bool
 
+    @property
+    def stops_events_writes(self) -> bool:
+        """Whether ingestion writes no new flag calls to events for the organization's teams."""
+        return self.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and not self.keeps_events_writes
+
 
 _DEFAULT_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
 
@@ -130,7 +135,7 @@ def reads_flag_calls_without_events_fallback(team: "Team") -> bool:
     return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
-def flag_calls_only_in_flag_evaluations(team: "Team", read_config: FlagEvaluationsConfig | None = None) -> bool:
+def events_lack_new_flag_calls(team: "Team", read_config: FlagEvaluationsConfig | None = None) -> bool:
     """Whether a reader that picks its own table finds none of the team's new flag calls in the events table it
     reads: the organization is on FLAG_EVALUATIONS_ONLY without kept events writes, or the team reads the native JSON
     events table. A caller that already holds get_flag_evaluations_read_config for the team's organization passes it
@@ -139,7 +144,7 @@ def flag_calls_only_in_flag_evaluations(team: "Team", read_config: FlagEvaluatio
         return True
     if read_config is None:
         read_config = get_flag_evaluations_read_config(team.organization_id)
-    return read_config.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and not read_config.keeps_events_writes
+    return read_config.stops_events_writes
 
 
 def _reads_native_events_with_flag_evaluations(team: "Team", modifiers: "HogQLQueryModifiers | None") -> bool:

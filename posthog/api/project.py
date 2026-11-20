@@ -150,7 +150,7 @@ from products.authorization.backend.facade.enums import Action, ResourceType
 from products.authorization.backend.presentation.querysets import filter_visible_projects
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flags import events_lack_new_flag_calls
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -1069,7 +1069,7 @@ class ProjectBackwardCompatSerializer(
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
         read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
-        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_config)
+        return events_lack_new_flag_calls(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:

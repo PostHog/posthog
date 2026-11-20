@@ -70,7 +70,6 @@ from products.feature_flags.backend.facade.edits import (
     parse_percentage,
     parse_variants,
 )
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
@@ -1017,7 +1016,7 @@ def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE == "flag_evaluations":
         return False
     config = get_organization_flag_evaluations_config(experiment.team.organization_id)
-    return config.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and not config.keeps_events_writes
+    return config.stops_events_writes
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:
