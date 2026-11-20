@@ -60,7 +60,7 @@ export function QuillEvaluationContextSuggestions({
                             <Chip key={name} className="text-muted-foreground">
                                 {name}
                                 <ChipClose
-                                    aria-label="Restore to suggestions"
+                                    aria-label={`Restore "${name}" to suggestions`}
                                     tooltip="Restore to suggestions"
                                     onClick={() => onUnhide(name)}
                                     disabledReason={actionDisabledReason}

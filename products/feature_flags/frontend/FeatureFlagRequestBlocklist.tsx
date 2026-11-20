@@ -33,7 +33,8 @@ export function FeatureFlagRequestBlocklist(): JSX.Element {
                 onBlockedHostsChange={setBlockedHosts}
                 onBlockedIpsChange={setBlockedIps}
                 disabled={currentTeamLoading}
-                disabledReason={restrictedReason}
+                // Chip removal only honors the disabled reason, and a removal during a save would send the old list.
+                disabledReason={restrictedReason ?? (currentTeamLoading ? 'Loading...' : null)}
             />
         )
     }

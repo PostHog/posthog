@@ -75,7 +75,10 @@ export function QuillEventsRetentionMonthsSelect({
                                 disabledReason={option.disabledReason}
                                 data-attr={option['data-attr']}
                             >
-                                {option.label}
+                                {/* The menu label carries the lock and upgrade hint for periods above the plan limit. */}
+                                {typeof option.labelInMenu === 'function'
+                                    ? option.label
+                                    : (option.labelInMenu ?? option.label)}
                             </SelectItem>
                         ))}
                     </SelectGroup>

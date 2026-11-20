@@ -19,6 +19,10 @@ export interface QuillLevelSelectOption<T extends string> {
 }
 
 interface QuillLevelSelectProps<T extends string> {
+    /** Id of the trigger, so a field label can point at it. */
+    id?: string
+    /** Accessible name when no field label points at the trigger. */
+    'aria-label'?: string
     value: T | null
     options: QuillLevelSelectOption<T>[]
     onChange: (value: T | null) => void
@@ -50,6 +54,8 @@ export function QuillLevelSelect<T extends string>({
     renderValue,
     className,
     'data-attr': dataAttr,
+    id,
+    'aria-label': ariaLabel,
 }: QuillLevelSelectProps<T>): JSX.Element {
     const items: SelectEntry<T>[] = [
         ...(allowNoOverride ? [{ value: null, label: NO_OVERRIDE_LABEL }] : []),
@@ -78,13 +84,24 @@ export function QuillLevelSelect<T extends string>({
         <Select<T | null> items={items} value={value} onValueChange={(next) => onChange(next as T | null)}>
             {tooltip && !disabledReason ? (
                 <Tooltip>
-                    <TooltipTrigger delay={0} render={<SelectTrigger className={className} data-attr={dataAttr} />}>
+                    <TooltipTrigger
+                        delay={0}
+                        render={
+                            <SelectTrigger id={id} aria-label={ariaLabel} className={className} data-attr={dataAttr} />
+                        }
+                    >
                         {valueContent}
                     </TooltipTrigger>
                     <TooltipContent>{tooltip}</TooltipContent>
                 </Tooltip>
             ) : (
-                <SelectTrigger className={className} disabledReason={disabledReason} data-attr={dataAttr}>
+                <SelectTrigger
+                    id={id}
+                    aria-label={ariaLabel}
+                    className={className}
+                    disabledReason={disabledReason}
+                    data-attr={dataAttr}
+                >
                     {valueContent}
                 </SelectTrigger>
             )}

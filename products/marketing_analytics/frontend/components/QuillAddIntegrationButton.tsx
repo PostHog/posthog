@@ -1,4 +1,3 @@
-import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -14,6 +13,8 @@ import {
     DropdownMenuTrigger,
     Text,
 } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
@@ -40,15 +41,6 @@ export function QuillAddIntegrationButton({
     integrationUrl: (integrationId: string) => string | undefined
     onIntegrate: (integrationId: string) => void
 }): JSX.Element {
-    const selectIntegration = (integrationId: string): void => {
-        const url = integrationUrl(integrationId)
-        onIntegrate(integrationId)
-
-        if (url) {
-            router.actions.push(url)
-        }
-    }
-
     return (
         <DropdownMenu open={open} onOpenChange={onOpenChange}>
             <DropdownMenuTrigger
@@ -84,17 +76,24 @@ export function QuillAddIntegrationButton({
                         {index > 0 && <DropdownMenuSeparator />}
                         <DropdownMenuGroup>
                             <DropdownMenuLabel>{title}</DropdownMenuLabel>
-                            {sources.map((integrationId) => (
-                                <DropdownMenuItem
-                                    key={integrationId}
-                                    disabledReason={restrictedReason}
-                                    onClick={() => selectIntegration(integrationId)}
-                                >
-                                    <SourceIcon type={integrationId} size="xsmall" disableTooltip />
-                                    {integrationLabel(integrationId)}
-                                    {isNewSource(integrationId) && <Badge variant="info">New</Badge>}
-                                </DropdownMenuItem>
-                            ))}
+                            {sources.map((integrationId) => {
+                                const url = integrationUrl(integrationId)
+                                return (
+                                    <DropdownMenuItem
+                                        key={integrationId}
+                                        disabledReason={restrictedReason}
+                                        onClick={() => onIntegrate(integrationId)}
+                                        // A real link keeps cmd-click and middle-click opening the source in a new tab.
+                                        {...(url
+                                            ? { render: <Button size="row" left render={<LinkPrimitive to={url} />} /> }
+                                            : {})}
+                                    >
+                                        <SourceIcon type={integrationId} size="xsmall" disableTooltip />
+                                        {integrationLabel(integrationId)}
+                                        {isNewSource(integrationId) && <Badge variant="info">New</Badge>}
+                                    </DropdownMenuItem>
+                                )
+                            })}
                         </DropdownMenuGroup>
                     </Fragment>
                 ))}
