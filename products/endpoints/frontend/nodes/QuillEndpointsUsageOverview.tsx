@@ -1,4 +1,4 @@
-import { Badge, Card, Skeleton, Text } from '@posthog/quill'
+import { Badge, Card, Skeleton, Text, cn } from '@posthog/quill'
 import {
     Metric,
     MetricDelta,
@@ -21,20 +21,25 @@ import {
 export interface QuillEndpointsUsageOverviewProps {
     results: EndpointsUsageOverviewItem[] | undefined
     loading: boolean
+    /** The tiles to show, in order. Defaults to every metric. */
+    metricKeys?: EndpointsUsageOverviewItemKey[]
+    /** The grid the tiles sit in. Defaults to two columns, four when wide. */
+    className?: string
 }
 
 const CHANGE_TOOLTIP = 'Compared with the previous period of the same length'
 
-export function QuillEndpointsUsageOverview({ results, loading }: QuillEndpointsUsageOverviewProps): JSX.Element {
+export function QuillEndpointsUsageOverview({
+    results,
+    loading,
+    metricKeys = ENDPOINTS_USAGE_OVERVIEW_KEYS,
+    className = 'grid-cols-2 @min-[40rem]/main-content:grid-cols-4',
+}: QuillEndpointsUsageOverviewProps): JSX.Element {
     const itemByKey = new Map((results ?? []).map((item) => [item.key, item]))
 
     return (
-        <div
-            className="grid grid-cols-2 gap-2 @min-[40rem]/main-content:grid-cols-4"
-            aria-busy={loading}
-            data-attr="endpoints-usage-overview"
-        >
-            {ENDPOINTS_USAGE_OVERVIEW_KEYS.map((key) => (
+        <div className={cn('grid gap-2', className)} aria-busy={loading} data-attr="endpoints-usage-overview">
+            {metricKeys.map((key) => (
                 <Card key={key} size="sm" className="min-w-0">
                     {loading ? (
                         <OverviewTileSkeleton metricKey={key} />

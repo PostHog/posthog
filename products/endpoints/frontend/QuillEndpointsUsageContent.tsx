@@ -11,14 +11,16 @@ import {
     EmptyTitle,
     IconStack,
     IconStackItem,
+    cn,
 } from '@posthog/quill'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { EndpointsUsageOverviewQueryResponse } from '~/queries/schema/schema-general'
+import { EndpointsUsageOverviewItemKey, EndpointsUsageOverviewQueryResponse } from '~/queries/schema/schema-general'
 
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { QuillEndpointsUsageOverview } from './nodes/QuillEndpointsUsageOverview'
 import { QuillEndpointsUsageChartCard } from './QuillEndpointsUsageChartCard'
+import { QuillEndpointsUsageSection } from './QuillEndpointsUsageSection'
 import { QuillEndpointsUsageTable } from './QuillEndpointsUsageTable'
 
 let uniqueNode = 0
@@ -99,43 +101,64 @@ export function QuillEndpointsUsageContent(): JSX.Element {
         )
     }
 
+    const tiles = (metricKeys: EndpointsUsageOverviewItemKey[]): JSX.Element => (
+        <QuillEndpointsUsageOverview
+            results={overview?.results}
+            loading={loading}
+            metricKeys={metricKeys}
+            // A row above the charts when narrow, a column beside them when wide, stretched to the charts' height.
+            className={cn(
+                'h-full auto-rows-fr @min-[60rem]/main-content:grid-cols-1',
+                metricKeys.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+            )}
+        />
+    )
+
     return (
         <>
-            <QuillEndpointsUsageOverview results={overview?.results} loading={loading} />
-            <div className="grid grid-cols-1 gap-4 @min-[60rem]/main-content:grid-cols-3">
+            <QuillEndpointsUsageSection
+                title="Executions"
+                description="How often your endpoints ran, and how many of those runs read a materialized table."
+                tiles={tiles(['total_requests', 'materialized_requests', 'inline_requests'])}
+            >
                 <QuillEndpointsUsageChartCard
-                    title="Executions"
-                    description="How many times your endpoints ran."
+                    title="Executions over time"
                     query={requestsTrendsQuery}
                     refreshKey={refreshKey}
                 />
+            </QuillEndpointsUsageSection>
+            <QuillEndpointsUsageSection
+                title="Performance"
+                description="How many executions failed, and how long the rest took to answer."
+                tiles={tiles(['error_rate', 'avg_query_duration_ms', 'p95_query_duration_ms'])}
+            >
                 <QuillEndpointsUsageChartCard
-                    title="Error rate"
-                    description="The share of executions that failed."
+                    title="Error rate over time"
                     query={errorRateTrendsQuery}
                     refreshKey={refreshKey}
                 />
                 <QuillEndpointsUsageChartCard
-                    title="Query duration"
-                    description="The average time an execution took."
+                    title="Average duration over time"
                     query={queryDurationTrendsQuery}
                     refreshKey={refreshKey}
                 />
-            </div>
-            <div className="grid grid-cols-1 gap-4 @min-[48rem]/main-content:grid-cols-2">
+            </QuillEndpointsUsageSection>
+            <QuillEndpointsUsageSection
+                title="Cost"
+                description="The data scanned and the processing time the executions used."
+                tiles={tiles(['total_bytes_read', 'total_cpu_seconds'])}
+            >
                 <QuillEndpointsUsageChartCard
-                    title="CPU time"
-                    description="The processing time your executions used."
-                    query={cpuSecondsTrendsQuery}
-                    refreshKey={refreshKey}
-                />
-                <QuillEndpointsUsageChartCard
-                    title="Bytes read"
-                    description="The data your executions scanned."
+                    title="Bytes read over time"
                     query={bytesReadTrendsQuery}
                     refreshKey={refreshKey}
                 />
-            </div>
+                <QuillEndpointsUsageChartCard
+                    title="CPU time over time"
+                    query={cpuSecondsTrendsQuery}
+                    refreshKey={refreshKey}
+                />
+            </QuillEndpointsUsageSection>
             <QuillEndpointsUsageTable />
         </>
     )
