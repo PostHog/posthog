@@ -2341,6 +2341,27 @@ describe('PersonhogPersonsStore', () => {
             await expect(bound.mergePersons(mergeReq())).rejects.toThrow(PersonMergeCallFailedError)
             expect((store as any).entries.get('1:9')?.segments).toHaveLength(1)
         })
+
+        it('counts a transport failure in the pre-merge write as an error, because the drain does not retry it', async () => {
+            personhogStoreFlushCounter.reset()
+            const bound = store.forBatch(0)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
+            ] as never)
+            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' } as never)
+            await bound.fetchForUpdate(1, 'anon-1')
+            await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'stale' } }), 'anon-1')
+            repository.updatePersonProperties.mockRejectedValueOnce(
+                Object.assign(new ConnectError('leader unavailable', Code.Unavailable), { isRetriable: true as const })
+            )
+            repository.mergePersons = jest.fn()
+
+            await expect(bound.mergePersons(mergeReq())).rejects.toThrow(PersonMergeCallFailedError)
+            expect(repository.mergePersons).not.toHaveBeenCalled()
+            const outcomes = (await personhogStoreFlushCounter.get()).values
+            expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value).toBe(1)
+            expect(outcomes.find((entry) => entry.labels.outcome === 'transient')?.value ?? 0).toBe(0)
+        })
     })
 
     describe('round-3 closures', () => {
@@ -3241,7 +3262,14 @@ describe('PersonhogPersonsStore', () => {
                 isRetriable: true as const,
             })
 
+        const personWithId = (id: number): InternalPerson => ({ ...person, id: String(id), uuid: `person-uuid-${id}` })
+
+        const flushOutcome = async (outcome: string): Promise<number> =>
+            (await personhogStoreFlushCounter.get()).values.find((entry) => entry.labels.outcome === outcome)?.value ??
+            0
+
         it('is written again on the next round and the flush acks', async () => {
+            personhogStoreFlushCounter.reset()
             jest.useFakeTimers()
             try {
                 repository.updatePersonProperties.mockRejectedValueOnce(transportFailure())
@@ -3252,24 +3280,58 @@ describe('PersonhogPersonsStore', () => {
                 await expect(flushing).resolves.toEqual([])
                 expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
                 expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+                expect(await flushOutcome('transient')).toBe(1)
+                expect(await flushOutcome('error')).toBe(0)
             } finally {
                 jest.useRealTimers()
             }
         })
 
-        it('fails the flush with the transport error once the retry budget is spent', async () => {
+        it('sends only the unwritten segments when a lane fails partway', async () => {
             jest.useFakeTimers()
             try {
-                repository.updatePersonProperties.mockRejectedValue(transportFailure())
                 const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1', k: 'x' }, $unset: ['k'] }), 'd1')
+                await bound.applyEventOps(person, ops({ $set: { b: '2' }, $set_once: { k: 'y' } }), 'd1')
+                expect((store as any).entries.get('1:7').segments).toHaveLength(2)
+                repository.updatePersonProperties
+                    .mockResolvedValueOnce({ person, updated: true } as never)
+                    .mockRejectedValueOnce(transportFailure())
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                const sent = repository.updatePersonProperties.mock.calls.map(([request]) => request.setProperties)
+                expect(sent).toHaveLength(3)
+                expect(sent.slice(1)).toEqual([{ b: '2' }, { b: '2' }])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps retrying for the whole budget, then fails the flush with the transport error', async () => {
+            personhogStoreFlushCounter.reset()
+            jest.useFakeTimers()
+            try {
+                const budgetStore = new PersonhogPersonsStore(repository, { flushTransientRetryBudgetMs: 15_000 })
+                repository.updatePersonProperties.mockRejectedValue(transportFailure())
+                const bound = budgetStore.forBatch(0)
                 await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
                 const settled = bound.flush().then(
                     () => 'acked' as const,
                     (error: unknown) => error
                 )
-                await jest.advanceTimersByTimeAsync(31_000)
+                let done = false
+                void settled.then(() => {
+                    done = true
+                })
+                await jest.advanceTimersByTimeAsync(14_000)
+                expect(done).toBe(false)
+
+                await jest.advanceTimersByTimeAsync(2_000)
                 expect(await settled).toBeInstanceOf(ConnectError)
-                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+                expect((budgetStore as any).entries.get('1:7').segments).toHaveLength(1)
+                expect(await flushOutcome('transient_exhausted')).toBe(1)
+                expect(await flushOutcome('error')).toBe(0)
             } finally {
                 jest.useRealTimers()
             }
@@ -3284,12 +3346,13 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         })
 
-        const personWithId = (id: number): InternalPerson => ({ ...person, id: String(id), uuid: `person-uuid-${id}` })
-
         it('starts no queued write once the budget is spent, and keeps those lanes for redelivery', async () => {
             jest.useFakeTimers()
             try {
-                const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
+                const narrowStore = new PersonhogPersonsStore(repository, {
+                    maxConcurrentUpdates: 1,
+                    flushTransientRetryBudgetMs: 15_000,
+                })
                 repository.updatePersonProperties.mockImplementation(
                     () => new Promise((_, reject) => setTimeout(() => reject(transportFailure()), 10_000))
                 )
@@ -3304,7 +3367,9 @@ describe('PersonhogPersonsStore', () => {
                 )
                 await jest.advanceTimersByTimeAsync(60_000)
                 expect(await settled).toBeInstanceOf(ConnectError)
-                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(3)
+                // The first failing write starts at 0 s, so the budget ends at 15 s. The second
+                // write starts at 10 s. The third is due at 20 s and does not start.
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
                 for (const id of ids) {
                     const entry = (narrowStore as any).entries.get(`1:${id}`)
                     expect(entry.segments).toHaveLength(1)
@@ -3315,7 +3380,39 @@ describe('PersonhogPersonsStore', () => {
             }
         })
 
-        it('measures the budget from the first failure, so a long healthy flush still retries', async () => {
+        it('stops a lane between segments once the budget is spent', async () => {
+            jest.useFakeTimers()
+            try {
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(personWithId(11), ops({ $set: { a: '1' } }), 'd11')
+                await bound.applyEventOps(personWithId(12), ops({ $set: { a: '1', k: 'x' }, $unset: ['k'] }), 'd12')
+                await bound.applyEventOps(personWithId(12), ops({ $set: { b: '2' }, $set_once: { k: 'y' } }), 'd12')
+                const deep = (store as any).entries.get('1:12')
+                expect(deep.segments).toHaveLength(2)
+                // Lane 11 spends the budget while lane 12 is still on its first segment.
+                repository.updatePersonProperties.mockImplementation((request: any) =>
+                    request.personId === '11'
+                        ? Promise.reject(transportFailure())
+                        : new Promise((resolve) =>
+                              setTimeout(() => resolve({ person: personWithId(12), updated: true } as any), 20_000)
+                          )
+                )
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: unknown) => error
+                )
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(await settled).toBeInstanceOf(ConnectError)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect(deep.segments).toHaveLength(1)
+                expect(deep.segments[0].set).toEqual({ b: '2' })
+                expect(deep.inFlight).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('measures the budget from the first failing write, so a long healthy flush still retries', async () => {
             jest.useFakeTimers()
             try {
                 const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
@@ -3349,6 +3446,33 @@ describe('PersonhogPersonsStore', () => {
                 await jest.advanceTimersByTimeAsync(FLUSH_ROUND_MS)
                 await expect(flushing).resolves.toEqual([])
                 expect(repository.updatePersonProperties).toHaveBeenCalledTimes(4)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps transport retry rounds out of the wait budget of a fenced lane', async () => {
+            jest.useFakeTimers()
+            try {
+                const tightStore = new PersonhogPersonsStore(repository, {
+                    requestTimeoutMs: 1_000,
+                    mergeTimeoutMs: 1_000,
+                })
+                // More transport rounds than the fence wait budget holds, so a fence that
+                // follows them fails the flush if those rounds were counted against it.
+                const transportRounds = Math.ceil((tightStore as any).fenceWaitBudgetMs / FLUSH_ROUND_MS) + 1
+                for (let round = 0; round < transportRounds; round++) {
+                    repository.updatePersonProperties.mockRejectedValueOnce(transportFailure())
+                }
+                repository.updatePersonProperties.mockRejectedValueOnce(
+                    new PersonhogFencedError('held by a lifecycle op', '7', 'op-1')
+                )
+                const bound = tightStore.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync((transportRounds + 1) * FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(transportRounds + 2)
             } finally {
                 jest.useRealTimers()
             }
