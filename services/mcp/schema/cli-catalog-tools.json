@@ -39671,6 +39671,92 @@
             "validators": []
         }
     },
+    "posthog-support-ticket-get": {
+        "name": "posthog-support-ticket-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "after",
+                    "key": "after",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "posthog-support-tickets-list": {
+        "name": "posthog-support-tickets-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "status",
+                    "key": "status",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "pr-lifecycle": {
         "name": "pr-lifecycle",
         "kind": "http",

@@ -7,6 +7,7 @@ tickets arrive verified and the caller never holds a signing value.
 
 import time
 import uuid
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -77,6 +78,19 @@ class PostHogSupportClient:
             "session_context": session_context,
         }
         return self._request("POST", "/api/conversations/v1/widget/message", json=payload)
+
+    def list_tickets(self, identity: SupportIdentity, *, status: str | None, limit: int, offset: int) -> dict[str, Any]:
+        params: dict[str, Any] = {**self._identity_fields(identity), "limit": limit, "offset": offset}
+        if status:
+            params["status"] = status
+        return self._request("GET", "/api/conversations/v1/widget/tickets", params=params)
+
+    def get_ticket(self, identity: SupportIdentity, ticket_id: str, *, after: datetime | None = None) -> dict[str, Any]:
+        path = f"/api/conversations/v1/widget/messages/{uuid.UUID(ticket_id)}"
+        params = self._identity_fields(identity)
+        if after is not None:
+            params["after"] = after.isoformat()
+        return self._request("GET", path, params=params)
 
     def _identity_fields(self, identity: SupportIdentity) -> dict[str, Any]:
         identity_hash = compute_identity_hash(identity.distinct_id, self._signing_secret)
