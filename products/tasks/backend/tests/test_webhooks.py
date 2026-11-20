@@ -2299,6 +2299,7 @@ class TestFindTaskRun(TestCase):
                         "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
                     },
                 },
+                False,
             ),
             (
                 "opener_pushed_and_reports_additional_url",
@@ -2309,14 +2310,29 @@ class TestFindTaskRun(TestCase):
                         "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
                     },
                 },
+                False,
             ),
             (
                 "opener_only_reports_pr_url",
                 {"branch": "feature/shared-branch", "output": {"pr_url": "https://github.com/posthog/posthog/pull/42"}},
+                False,
+            ),
+            (
+                "fixer_also_reports_pr_url",
+                {
+                    "branch": "master",
+                    "output": {
+                        "pr_url": "https://github.com/posthog/posthog/pull/42",
+                        "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                    },
+                },
+                True,
             ),
         ]
     )
-    def test_newer_push_from_another_task_does_not_take_the_pr_from_its_opener(self, _name, opener_fields):
+    def test_newer_push_from_another_task_does_not_take_the_pr_from_its_opener(
+        self, _name, opener_fields, fixer_reports_pr
+    ):
         opener_run = TaskRun.objects.create(
             task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, **opener_fields
         )
@@ -2333,7 +2349,10 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="master",
-            output={"head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}]},
+            output={
+                "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                **({"pr_url": "https://github.com/posthog/posthog/pull/42"} if fixer_reports_pr else {}),
+            },
         )
 
         result = find_task_run(
@@ -2343,7 +2362,7 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
         )
 
-        self.assertEqual(result, opener_run)
+        self.assertEqual(result, None if fixer_reports_pr else opener_run)
 
     @parameterized.expand([("self_driving_head_branch", False), ("signed_head_branch", True)])
     def test_branch_fallback_ignores_reviewhog_runs(self, _name, signed_head_branch):

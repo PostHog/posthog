@@ -178,11 +178,12 @@ def _select_task_run_candidate(
             reporting_runs = [run for run in eligible_runs if _reports_pull_request(run, pr_urls)]
             if reporting_runs:
                 eligible_runs = reporting_runs
-            elif rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and (
-                any_run_reports_pr or len({run.task_id for run in eligible_runs}) > 1
+            if rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and (
+                len({run.task_id for run in eligible_runs}) > 1 or (not reporting_runs and any_run_reports_pr)
             ):
-                # Any task can push a fix to another task's PR branch, so a push alone doesn't
-                # show which task opened the PR. A wrong match links the PR to that task's reports.
+                # Any task can push a fix to another task's PR branch and report that PR, so neither
+                # a push nor a report from one of several tasks shows which task opened the PR. A
+                # wrong match links the PR to that task's reports, and a missed match does not.
                 logger.info(
                     "github_webhook_task_run_lookup_ambiguous",
                     pr_url=pr_url,
@@ -217,8 +218,8 @@ def find_task_run(
 
     A checkout branch alone does not prove PR ownership: a discussion can inspect a shared
     branch without authoring a change. Legacy branch matches also require the exact reported PR URL.
-    Among runs that pushed to the PR branch, a run that reports the PR wins; when none reports it
-    and the pushes come from more than one task, nothing matches.
+    Among runs that pushed to the PR branch, the runs that report the PR win. When the remaining
+    runs come from more than one task, nothing matches.
     """
     repository = repository.strip() if repository else None
 
