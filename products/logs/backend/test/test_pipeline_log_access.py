@@ -155,6 +155,8 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
+            ("change_routing_labels", True, {"labels": {"team": "payments"}}, 403),
+            ("send_no_routing_labels", True, {"labels": {}}, 200),
         ]
     )
     def test_restricted_member_updating_a_pipeline_log_alert(
