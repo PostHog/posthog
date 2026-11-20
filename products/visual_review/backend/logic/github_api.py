@@ -509,14 +509,26 @@ MAX_PATH_COMMITS = 1000
 _PATH_COMMITS_PAGE_SIZE = 100
 
 
+@frozen
+class PathCommit:
+    sha: str
+    # The committer date, which GitHub's `since` filter compares against. None when GitHub left it out.
+    committed_at: datetime | None
+
+
+def _path_commit(item: dict) -> PathCommit:
+    date = ((item.get("commit") or {}).get("committer") or {}).get("date")
+    return PathCommit(sha=item["sha"], committed_at=parse_datetime(date) if date else None)
+
+
 def commits_touching_path(
     repo: Repo, path: str, head_sha: str, since: datetime, priority: Priority = Priority.CRITICAL
-) -> list[str] | None:
+) -> list[PathCommit] | None:
     """The commits in the history of `head_sha` that changed `path`, committed at or after `since`, newest first.
 
     None when GitHub cannot say, or when the list is longer than `MAX_PATH_COMMITS`.
     """
-    shas: list[str] = []
+    commits: list[PathCommit] = []
     page = 1
     while True:
         items = _read_json(
@@ -540,10 +552,10 @@ def commits_touching_path(
         )
         if items is None:
             return None
-        shas.extend(item["sha"] for item in items)
+        commits.extend(_path_commit(item) for item in items)
         if len(items) < _PATH_COMMITS_PAGE_SIZE:
-            return shas
-        if len(shas) >= MAX_PATH_COMMITS:
+            return commits
+        if len(commits) >= MAX_PATH_COMMITS:
             logger.warning("visual_review.path_commits_too_many", repo_id=str(repo.id), path=path)
             return None
         page += 1

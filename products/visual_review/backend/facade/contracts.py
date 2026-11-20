@@ -680,6 +680,9 @@ class BaselineLedgerRepair:
     drift_after: tuple[str, ...]
     # Commits GitHub lists as changes of the file that have no ledger position, so the repair cannot place them.
     unplaced_commits: tuple[str, ...]
+    # Planned entries whose hash differs from the file read at their own commit. Any of them means
+    # GitHub's list of the file's changes missed one, and an apply refuses to write.
+    mismatches: tuple[str, ...] = ()
 
 
 # How far back the page reads. Sets the width of the per-day activity strip and

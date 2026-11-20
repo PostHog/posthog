@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import pytest
@@ -40,10 +40,12 @@ class _FakeBaselineFile:
     def __init__(self, mocker, repo: Repo) -> None:
         self.repo = repo
         self.history: list[str] = []
+        self.dates: dict[str, datetime] = {}
         self.files: dict[str, dict] = {}
         self.unlisted: set[str] = set()
-        mocker.patch.object(github_api, "get_github_integration_for_repo", return_value=MagicMock())
-        mocker.patch.object(github_api, "commit_date", return_value=SEED_DATE)
+        self.priorities: set[Priority] = set()
+        mocker.patch.object(github_api, "get_github_integration_for_repo", side_effect=self._integration)
+        mocker.patch.object(github_api, "commit_date", side_effect=self._commit_date)
         mocker.patch.object(github_api, "commits_touching_path", side_effect=self._commits_touching_path)
         mocker.patch.object(
             github_api,
@@ -51,8 +53,9 @@ class _FakeBaselineFile:
             side_effect=lambda github, repo_full_name, file_path, ref: (self._file_at(ref), "blob"),
         )
 
-    def commit(self, sha: str, hashes: dict[str, str] | None = None) -> None:
+    def commit(self, sha: str, hashes: dict[str, str] | None = None, *, committed_at: datetime | None = None) -> None:
         self.history.append(sha)
+        self.dates[sha] = committed_at or SEED_DATE + timedelta(hours=len(self.history))
         if hashes is not None:
             self.files[sha] = _signed(self.repo, hashes)
 
@@ -60,11 +63,24 @@ class _FakeBaselineFile:
         reachable = self.history[: self.history.index(sha) + 1]
         return next(self.files[changed] for changed in reversed(reachable) if changed in self.files)
 
+    def _integration(self, repo: Repo, priority: Priority = Priority.CRITICAL) -> MagicMock:
+        self.priorities.add(priority)
+        return MagicMock()
+
+    def _commit_date(self, repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> datetime:
+        self.priorities.add(priority)
+        return self.dates[sha]
+
     def _commits_touching_path(
         self, repo: Repo, path: str, head_sha: str, since: datetime, priority: Priority = Priority.CRITICAL
-    ) -> list[str]:
+    ) -> list[github_api.PathCommit]:
+        self.priorities.add(priority)
         reachable = self.history[: self.history.index(head_sha) + 1]
-        return [sha for sha in reversed(reachable) if sha in self.files and sha not in self.unlisted]
+        return [
+            github_api.PathCommit(sha=sha, committed_at=self.dates[sha])
+            for sha in reversed(reachable)
+            if sha in self.files and sha not in self.unlisted and self.dates[sha] >= since
+        ]
 
 
 def _repair(repo: Repo, *args: str) -> str:
@@ -127,7 +143,9 @@ class TestLedgerRepair:
         repo = baseline_file.repo
         ledger.seed(repo, "s0", {RunType.STORYBOOK: _FILE_AT[0]})
         set_baseline_mode(repo, BaselineMode.SHADOW)
-        baseline_file.commit("s0", _FILE_AT[0])
+        # Older than the seed, but inside the margin of the listing.
+        baseline_file.commit("before-seed", {"Button": B2}, committed_at=SEED_DATE - timedelta(hours=2))
+        baseline_file.commit("s0", _FILE_AT[0], committed_at=SEED_DATE)
         with transaction.atomic(using=WRITER_DB):
             ledger.lock_ledger(repo.id)
             for position, (sha, pr_number, merged, file_hashes) in enumerate(_HISTORY, start=1):
@@ -144,10 +162,12 @@ class TestLedgerRepair:
                         source=BaselineEntrySource.MERGE,
                         pr_number=pr_number,
                     )
-                baseline_file.commit(sha, file_hashes)
+                # The first commit after the seed carries an older committer date, as a rebased commit can.
+                committed_at = SEED_DATE - timedelta(hours=1) if position == 1 else None
+                baseline_file.commit(sha, file_hashes, committed_at=committed_at)
         return repo
 
-    def test_a_dry_run_prints_the_plan_and_writes_nothing(self, repo) -> None:
+    def test_a_dry_run_prints_the_plan_and_writes_nothing(self, repo, baseline_file) -> None:
         entries_before = BaselineEntry.objects.filter(repo=repo).count()
 
         output = _repair(repo)
@@ -156,7 +176,9 @@ class TestLedgerRepair:
         assert f"  Gone: {G0} -> removed (removal)" in output
         assert "3 entries at 3 positions for 3 identifiers" in output
         assert "Drift at the cursor: 2 identifiers before, 0 after" in output
+        assert "no ledger position" not in output
         assert "Dry run" in output
+        assert baseline_file.priorities == {Priority.BATCH}
 
     def test_apply_makes_the_ledger_equal_the_baseline_file_at_every_position(self, repo) -> None:
         output = _repair(repo, "--apply")
@@ -173,15 +195,26 @@ class TestLedgerRepair:
         }
         assert _export(repo) == _signed(repo, _FILE_AT[5])
 
-    def test_a_change_github_does_not_list_shows_as_drift_and_blocks_the_apply(self, repo, baseline_file) -> None:
-        baseline_file.unlisted.add("s4")
+    @pytest.mark.parametrize(
+        ("unlisted", "reported"),
+        [
+            pytest.param("s4", "  Still drifted: Card", id="last_change"),
+            pytest.param(
+                "s2",
+                f"Differs from the file at its commit: position 2, Card: the plan has {C0}, the file at s2 has {C2}",
+                id="change_a_later_change_overwrites",
+            ),
+        ],
+    )
+    def test_a_change_github_does_not_list_blocks_the_apply(self, repo, baseline_file, unlisted, reported) -> None:
+        baseline_file.unlisted.add(unlisted)
         entries_before = BaselineEntry.objects.filter(repo=repo).count()
 
         output = _repair(repo)
-        with pytest.raises(CommandError, match="1 identifiers would still differ"):
+        with pytest.raises(CommandError, match="list of the file's changes is incomplete"):
             _repair(repo, "--apply")
 
-        assert "  Still drifted: Card" in output
+        assert reported in output
         assert BaselineEntry.objects.filter(repo=repo).count() == entries_before
 
     def test_a_second_apply_plans_nothing(self, repo) -> None:

@@ -163,6 +163,8 @@ class Command(BaseCommand):
             self.stdout.write(f"  Drifted before: {identifier}")
         for identifier in plan.drift_after:
             self.stdout.write(f"  Still drifted: {identifier}")
+        for mismatch in plan.mismatches:
+            self.stdout.write(f"Differs from the file at its commit: {mismatch}")
         for sha in plan.unplaced_commits:
             self.stdout.write(f"Changed the baseline file but has no ledger position: {sha}")
 
