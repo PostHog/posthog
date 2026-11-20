@@ -330,25 +330,31 @@ describe('runner', () => {
                 metrics = 200,
                 project = 200,
                 projectToken = 'phc_test',
-            }: { metrics?: number; project?: number; projectToken?: string },
+                month = {},
+            }: { metrics?: number; project?: number; projectToken?: string; month?: Record<string, number> },
             interrupt = new AbortController()
         ): Promise<{ result: RunResult; offered: number }> => {
             let offered = 0
             const server = http.createServer((req, res) => {
-                req.resume().on('end', () => {
+                let text = ''
+                req.on('data', (chunk) => (text += chunk))
+                req.on('end', () => {
                     const reply = (status: number, body: object): void => {
                         res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
                     }
-                    if (req.url === '/i/v0/e/') {
+                    if (req.url === '/i/v1/analytics/events') {
                         offered++
                         interrupt.abort()
-                        return reply(200, { status: 'Ok' })
+                        const { uuid } = parseJSON(text).batch[0]
+                        return reply(200, { results: { [uuid]: { result: 'ok' } } })
                     }
                     if (req.headers.authorization !== 'Bearer phx_test') {
                         return reply(401, { type: 'authentication_error' })
                     }
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
-                        return reply(metrics, { labels: [], series: [] })
+                        const daily = req.url!.includes('interval=day')
+                        const series = Object.entries(daily ? month : {}).map(([name, n]) => ({ name, values: [n] }))
+                        return reply(metrics, { labels: ['2026-11-01'], series })
                     }
                     if (req.url === '/api/projects/1/') {
                         return reply(project, { id: 1, api_token: projectToken })
@@ -365,6 +371,7 @@ describe('runner', () => {
                         host: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
                         offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
                         receiptsTeamId: 2,
+                        monthlyRuns: 10_000,
                         key: 'phx_test',
                     }),
                     topologyEveryMs: 10,
@@ -389,6 +396,16 @@ describe('runner', () => {
                 'an offers token of another project',
                 { projectToken: 'phc_other' },
                 'DEV_TARGET_OFFERS_TOKEN is not the token of project 1',
+            ],
+            [
+                'a workflow dev quota limited this month',
+                { month: { triggered: 5, quota_limited: 1 } },
+                'dev quota limited 1 runs of the workflow this month',
+            ],
+            [
+                'a month whose runs leave less than a full run of room',
+                { month: { triggered: 8_001 } },
+                'could pass DEV_TARGET_MONTHLY_RUNS',
             ],
         ])('calls a run invalid before its first offer on %s', async (_story, answers, reason) => {
             const { result, offered } = await runOnDev(answers)

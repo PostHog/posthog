@@ -4,7 +4,7 @@ import { AddressInfo } from 'net'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { DevConfig } from './config'
-import { QUERY_EVERY_MS, RECEIPT_ROWS, receiptTruth, unfinishedRuns } from './reads'
+import { QUERY_EVERY_MS, RECEIPT_ROWS, receiptTruth, unfinishedOf, workflowRuns } from './reads'
 
 type Receipt = { runId: string; unitId: string; at: number; uuid: string }
 type Seen = { method?: string; url?: string; authorization?: string; body: any }
@@ -57,6 +57,7 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
         host: url,
         offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
         receiptsTeamId: 2,
+        monthlyRuns: 10_000,
         key: 'phx_test',
     }
     return { config, seen, close: () => new Promise<void>((done) => server.close(() => done())) }
@@ -149,7 +150,9 @@ describe('dev reads', () => {
             series: { triggered: [3, 7], fetch: [2, 5], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 9] },
         })
         try {
-            expect(await unfinishedRuns(dev.config, '2026-11-20T14:30:00.000Z')).toBe(1)
+            const runs = await workflowRuns(dev.config, '2026-11-20T14:30:00.000Z', 'hour')
+
+            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, fetch: 7, failed: 1, quota_limited: 1 }, 1])
         } finally {
             await dev.close()
         }

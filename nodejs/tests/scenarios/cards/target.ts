@@ -6,10 +6,10 @@ export type Target = 'local' | 'dev'
 
 const DEV_RUNS: Record<string, string[]> = {
     'drive.traffic': [captureWebhook.name],
-    invariants: ['at_least_once', 'duplicate_sends'],
+    invariants: ['at_least_once', 'duplicate_sends', 'refused_at_intake'],
     measure: ['delivery_latency_ms'],
 }
-const DEV_CAPS = { ratePerSecond: 10, units: 2000, driveMs: 10 * 60_000, stepMs: 60_000, convergeMs: 5 * 60_000 }
+export const DEV_CAPS = { ratePerSecond: 10, units: 2000, driveMs: 10 * 60_000, stepMs: 60_000, convergeMs: 5 * 60_000 }
 
 function devProblems(
     { drive, invariants, measure, bars, valves, setup, convergeWithin }: Card,
@@ -18,7 +18,6 @@ function devProblems(
     const shapes = drive.traffic.map(({ name }) => captureWebhook.profile.safeParse(profile.traffic[name]).data)
     const used: Record<string, string[]> = {
         'drive.traffic': drive.traffic.map(({ name }) => name),
-        drive: drive.stopOnBreak ? ['stopOnBreak'] : [],
         invariants: invariants.map(({ name }) => name),
         measure: measure.map(({ name }) => name),
         bars: bars.map(({ name }) => name),

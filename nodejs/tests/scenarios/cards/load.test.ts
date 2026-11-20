@@ -386,8 +386,8 @@ describe('load', () => {
         profile: 'dev',
         drive: { for: '11s', traffic: [{ name: 'capture_webhook' }] },
         convergeWithin: '10m',
-        invariants: [{ name: 'at_least_once' }, { name: 'duplicate_sends' }],
-        gates: { duplicate_sends: 0 },
+        invariants: [{ name: 'at_least_once' }, { name: 'duplicate_sends' }, { name: 'refused_at_intake' }],
+        gates: { duplicate_sends: 0, refused_at_intake: 0 },
     }
     const devProfile = { name: 'dev', traffic: { capture_webhook: { ratePerSecond: 1 } } }
     const devAt = (ratePerSecond: number): object => ({
@@ -499,23 +499,6 @@ describe('load', () => {
             },
             devProfile,
             'drive.ramp: each dev step lasts 1m at least',
-        ],
-        [
-            'a drive that stops on a break, whose repeated steps no cap counts',
-            {
-                ...devCard,
-                drive: {
-                    ...devCard.drive,
-                    for: '2m',
-                    stopOnBreak: true,
-                    ramp: [
-                        { scale: 1, for: '1m' },
-                        { scale: 2, for: '1m' },
-                    ],
-                },
-            },
-            devProfile,
-            'drive: dev does not run stopOnBreak',
         ],
     ])('the dev target refuses %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent, 'dev')).toEqual([expect.stringContaining(problem)])

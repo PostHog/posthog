@@ -277,7 +277,7 @@ export const captureWebhook: TrafficKind = {
     name: 'capture_webhook',
     params: z.object({}).strict(),
     profile: Shape,
-    intake: 'event',
+    intake: 'capture',
     deliveries: [WEBHOOK_ACTION],
     flow: () => Promise.reject(new Error('capture_webhook drives a workflow a person made once on the target')),
     offer: (unit, { emit }) => emit(unit, CAPTURE_EVENT, { unit_id: unit.unitId }),

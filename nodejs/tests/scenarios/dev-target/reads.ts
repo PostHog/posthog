@@ -83,18 +83,28 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     }
 }
 
-export async function unfinishedRuns(config: DevConfig, since: string): Promise<number> {
+export type WorkflowRuns = Record<'triggered' | 'fetch' | 'failed' | 'quota_limited', number>
+
+export async function workflowRuns(config: DevConfig, after: string, interval: 'hour' | 'day'): Promise<WorkflowRuns> {
     const { teamId, workflowId } = config.offers
     const names = 'triggered,fetch,failed,quota_limited'
     const { series } = (await devFetch(
-        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?after=${since}&interval=hour&breakdown_by=name&name=${names}`,
+        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?after=${after}&interval=${interval}&breakdown_by=name&name=${names}`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow metrics read'
     )) as { series: { name: string; values: number[] }[] }
     const total = (name: string): number =>
         series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
-    return Math.max(0, total('triggered') - total('fetch') - total('failed') - total('quota_limited'))
+    return {
+        triggered: total('triggered'),
+        fetch: total('fetch'),
+        failed: total('failed'),
+        quota_limited: total('quota_limited'),
+    }
 }
+
+export const unfinishedOf = (runs: WorkflowRuns): number =>
+    Math.max(0, runs.triggered - runs.fetch - runs.failed - runs.quota_limited)
 
 export async function checkOffersToken(config: DevConfig): Promise<void> {
     const { teamId, token } = config.offers

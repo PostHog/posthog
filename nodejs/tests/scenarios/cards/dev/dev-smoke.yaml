@@ -13,7 +13,9 @@ convergeWithin: 10m
 invariants:
     - name: at_least_once
     - name: duplicate_sends
+    - name: refused_at_intake
 gates:
     duplicate_sends: 0
+    refused_at_intake: 0
 measure:
     - name: delivery_latency_ms
