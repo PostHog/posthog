@@ -19,7 +19,8 @@ VERDICT_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
 MERGE_QUEUE_LABEL = "trunk-merge-queue-submit"
 FORK_PR_MARKER = "<!-- fork-pr: {number} @{login} -->"
 RECREATED_MARKER = "<!-- fork-pr-recreated -->"
-PROTECTED_PATH_PREFIXES = (".github/workflows/",)
+CI_PATH_PREFIXES = (".github/", ".depot/", "bin/")
+CI_FILE_NAMES = frozenset({"package.json", "conftest.py"})
 MAX_COMPARE_FILES = 300
 GRAPHQL_PATHS_PER_QUERY = 100
 _SOURCE = "review_hog_fork_recreation"
@@ -72,12 +73,13 @@ def latest_approvals(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
         user = review.get("user") or {}
         if review.get("state") in VERDICT_STATES and isinstance(user.get("id"), int):
             latest[user["id"]] = review
-    approvals = [
-        Approval(login=review["user"]["login"], commit_sha=review["commit_id"])
+    approved = [
+        review
         for review in latest.values()
         if review["state"] == "APPROVED" and isinstance(review.get("commit_id"), str)
     ]
-    return list(reversed(approvals))
+    approved.sort(key=lambda review: str(review.get("submitted_at") or ""), reverse=True)
+    return [Approval(login=review["user"]["login"], commit_sha=review["commit_id"]) for review in approved]
 
 
 def co_author_trailers(contributor: Contributor, commits: Iterable[Mapping[str, Any]]) -> list[str]:
@@ -111,8 +113,12 @@ def touched_paths(files: Sequence[ChangedFile]) -> list[str]:
     return list(dict.fromkeys(paths))
 
 
-def protected_paths(paths: Iterable[str]) -> list[str]:
-    return [path for path in paths if path.startswith(PROTECTED_PATH_PREFIXES)]
+def ci_paths(paths: Iterable[str]) -> list[str]:
+    def runs_in_ci(path: str) -> bool:
+        name = path.rpartition("/")[2]
+        return path.startswith(CI_PATH_PREFIXES) or name in CI_FILE_NAMES or name.startswith("Dockerfile")
+
+    return [path for path in paths if runs_in_ci(path)]
 
 
 def tree_entries(files: Sequence[ChangedFile], head_entries: Mapping[str, TreeEntry]) -> list[TreeEntry]:
@@ -143,11 +149,12 @@ def _graphql_string(value: str) -> str:
 
 
 class ForkRecreation:
-    def __init__(self, github: GitHubIntegration, repository: str, pr_number: int) -> None:
+    def __init__(self, github: GitHubIntegration, repository: str, pr_number: int, *, enqueue: bool = False) -> None:
         self._github = github
         self._repository = repository
         self._owner, self._name = repository.split("/", 1)
         self._pr_number = pr_number
+        self._enqueue = enqueue
 
     def run(self) -> ForkRecreationOutcome:
         fork_pr = self._get(
@@ -159,9 +166,13 @@ class ForkRecreation:
         approval = self._approval()
         branch = f"fork-pr/{self._pr_number}"
         if self._ref_exists(branch):
-            raise RecreationRefused(
-                f"The branch `{branch}` already exists, so this pull request was already re-created. Delete the branch to re-create it."
-            )
+            existing = self._open_pull_request_from(branch)
+            if existing is None:
+                raise RecreationRefused(
+                    f"The branch `{branch}` already exists with no open pull request. Delete the branch to re-create it."
+                )
+            contributor = self._contributor(fork_pr["user"]["login"])
+            return self._outcome(existing, self._hand_over(existing["number"], approval, contributor, fork_pr))
 
         base_sha = self._get(
             f"/repos/{self._repository}/git/ref/heads/{default_branch}", "/repos/{owner}/{repo}/git/ref/{ref}"
@@ -183,9 +194,11 @@ class ForkRecreation:
                 f"The approved commit changes {MAX_COMPARE_FILES} files or more, more than GitHub lists. Re-create it by hand."
             )
         paths = touched_paths(files)
-        blocked = protected_paths(paths)
-        if blocked:
-            raise RecreationRefused("The approved commit changes CI workflows. Re-create it by hand.")
+        if ci_paths(paths):
+            raise RecreationRefused(
+                "The approved commit changes files CI runs, such as workflows, scripts, `package.json` or Dockerfiles. "
+                "Re-create it by hand."
+            )
 
         merge_base_sha = comparison["merge_base_commit"]["sha"]
         conflicts = self._paths_changed_since(merge_base_sha, base_sha, paths)
@@ -245,13 +258,27 @@ class ForkRecreation:
             self._delete_branch(branch)
             raise
 
-        try:
-            self._finish(new_pr["number"], approval, contributor, fork_pr["head"]["sha"])
-        except RecreationFailed:
-            logger.warning("fork_recreation_handover_failed", repository=self._repository, exc_info=True)
+        return self._outcome(new_pr, self._hand_over(new_pr["number"], approval, contributor, fork_pr))
+
+    def _outcome(self, pull_request: Mapping[str, Any], handed_over: bool) -> ForkRecreationOutcome:
         return ForkRecreationOutcome(
-            created=True, message="", pull_request_number=new_pr["number"], pull_request_url=new_pr["html_url"]
+            created=True,
+            message="",
+            pull_request_number=pull_request["number"],
+            pull_request_url=pull_request["html_url"],
+            handed_over=handed_over,
         )
+
+    def _open_pull_request_from(self, branch: str) -> Mapping[str, Any] | None:
+        response = self._request(
+            "GET",
+            f"/repos/{self._repository}/pulls?head={self._owner}:{branch}&state=open",
+            "/repos/{owner}/{repo}/pulls",
+        )
+        if response.status_code != 200:
+            raise RecreationFailed(f"GitHub answered {response.status_code} listing pull requests")
+        pulls = response.json()
+        return pulls[0] if pulls else None
 
     def _refuse_unless_recreatable(self, fork_pr: Mapping[str, Any], default_branch: str) -> None:
         head_repo = (fork_pr.get("head") or {}).get("repo") or {}
@@ -351,25 +378,57 @@ class ForkRecreation:
             ]
         )
 
-    def _finish(self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_head_sha: str) -> None:
+    def _hand_over(
+        self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_pr: Mapping[str, Any]
+    ) -> bool:
+        if self._enqueue:
+            self._attempt("enqueue", lambda: self._add_merge_queue_label(new_pr_number))
+        self._attempt(
+            "request_review",
+            lambda: self._github.request_pull_request_reviews(self._repository, new_pr_number, [approval.login]),
+        )
+        commented = self._attempt("comment", lambda: self._comment_once(new_pr_number, approval, contributor, fork_pr))
+        if not commented:
+            return False
+        closed = self._attempt("close", lambda: self._github.close_pull_request(self._repository, self._pr_number))
+        return bool(closed and closed.get("success"))
+
+    def _attempt(self, step: str, call: Any) -> Any:
+        try:
+            return call()
+        except (RecreationFailed, *_CALL_ERRORS):
+            logger.warning(
+                "fork_recreation_handover_step_failed", step=step, repository=self._repository, exc_info=True
+            )
+            return None
+
+    def _add_merge_queue_label(self, new_pr_number: int) -> None:
         label = self._request(
             "GET", f"/repos/{self._repository}/labels/{MERGE_QUEUE_LABEL}", "/repos/{owner}/{repo}/labels/{name}"
         )
         if label.status_code == 200:
             self._github.add_pull_request_labels(self._repository, new_pr_number, [MERGE_QUEUE_LABEL])
-        self._github.request_pull_request_reviews(self._repository, new_pr_number, [approval.login])
+
+    def _comment_once(
+        self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_pr: Mapping[str, Any]
+    ) -> bool:
+        already = self._github.has_pull_request_comment(self._repository, self._pr_number, RECREATED_MARKER)
+        if already:
+            return True
+        if already is None:
+            return False
         left_out = (
             f" Commits pushed after {approval.commit_sha[:7]} are not included."
-            if fork_head_sha != approval.commit_sha
+            if fork_pr["head"]["sha"] != approval.commit_sha
             else ""
         )
-        self._github.comment_on_pull_request(
+        result = self._github.comment_on_pull_request(
             self._repository,
             self._pr_number,
             f"{RECREATED_MARKER}\nThank you @{contributor.login}! CI doesn't run code from forks, "
             f"so this change continues in #{new_pr_number}, with you as co-author.{left_out}",
         )
-        self._github.close_pull_request(self._repository, self._pr_number)
+        return bool(result.get("success"))
 
     def _delete_branch(self, branch: str) -> None:
         try:
@@ -411,7 +470,7 @@ class ForkRecreation:
 
 
 def recreate_fork_pull_request(
-    *, team_id: int, installation_id: str, repository: str, pr_number: int
+    *, team_id: int, installation_id: str, repository: str, pr_number: int, enqueue: bool = False
 ) -> ForkRecreationOutcome:
     rows = IntegrationManager.github.oauth.list_by_external_id(installation_id, team_ids=[team_id])
     if not rows:
@@ -420,7 +479,7 @@ def recreate_fork_pull_request(
         )
     github = GitHubIntegration(min(rows, key=lambda row: row.id), source=_SOURCE, priority=Priority.NORMAL)
     try:
-        return ForkRecreation(github, repository, pr_number).run()
+        return ForkRecreation(github, repository, pr_number, enqueue=enqueue).run()
     except RecreationRefused as refusal:
         return ForkRecreationOutcome(created=False, message=str(refusal))
     except RecreationFailed:

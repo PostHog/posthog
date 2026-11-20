@@ -29,7 +29,7 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 from posthog.dataclasses import frozen
 from posthog.scopes.catalog import APIScopeObject
 
-from .commands import SUBJECT_NAMES, SubjectKind
+from .commands import SUBJECT_NAMES, ChannelName, SubjectKind
 
 SCHEMA_VERSION = 1
 
@@ -113,7 +113,7 @@ class ResolveArgs:
 
 @frozen
 class RecreateArgs:
-    pass
+    enqueue: bool = flag("Also submit the new pull request to the merge queue, when the repository has Trunk's label.")
 
 
 @frozen
@@ -265,6 +265,7 @@ class CommandDeclaration[A]:
     # must refuse forks; only a command that reads nothing from the head may allow them.
     allows_forks: bool = False
     pull_request_states: tuple[str, ...] = ("open",)
+    channels: tuple[ChannelName, ...] = get_args(ChannelName)
 
     def __post_init__(self) -> None:
         for verb in (self.verb, *self.aliases):
@@ -333,6 +334,7 @@ RECREATE = CommandDeclaration(
     dispatches_to="PostHog Review",
     access=ResourceAccess(resource="code_review", level="editor"),
     allows_forks=True,
+    channels=("github",),
 )
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
@@ -476,6 +478,7 @@ def _command_signature(declaration: CommandDeclaration[Any]) -> dict[str, object
         ),
         "subject_kinds": list(declaration.subject_kinds),
         "refuses_forks": not declaration.allows_forks,
+        "channels": list(declaration.channels),
         "access": (
             {"resource": declaration.access.resource, "level": declaration.access.level}
             if declaration.access is not None

@@ -209,9 +209,16 @@ def handle_recreate(context: CommandContext, args: RecreateArgs) -> CommandOutco
         installation_id=ref.installation_id,
         repository=pull_request.repository,
         pr_number=pull_request.number,
+        enqueue=args.enqueue,
     )
     if not outcome.created:
         return CommandOutcome(accepted=False, message=outcome.message)
+    if not outcome.handed_over:
+        return CommandOutcome(
+            accepted=True,
+            message=f"Re-created as #{outcome.pull_request_number}, but I couldn't comment on and close this pull request. "
+            "Comment `@posthog recreate` again to finish.",
+        )
     return CommandOutcome(accepted=True, message=f"Re-created as #{outcome.pull_request_number}.")
 
 

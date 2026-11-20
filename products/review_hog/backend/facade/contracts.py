@@ -629,3 +629,4 @@ class ForkRecreationOutcome:
     message: str
     pull_request_number: int | None = None
     pull_request_url: str | None = None
+    handed_over: bool = True

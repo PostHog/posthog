@@ -98,6 +98,7 @@ Declare the command in `logic/schema.py`: an args dataclass built with `flag()`,
 Set `subject_kinds` to the kinds of subject the command acts on. The default is pull requests only.
 Set `access` when the target product has a resource in PostHog access control, at the level its own API asks for the same action.
 Leave `allows_forks` off unless the command reads nothing from the pull request head.
+Set `channels` to limit where a command runs. A command that needs the requester's GitHub write access lists only `github`.
 `recreate` is the one exception: it copies only a commit that someone with write access approved, into a new pull request, and runs nothing.
 Write a handler in `logic/handlers.py` that takes the args dataclass and calls the target product's facade, then bind the two in `logic/registry.py`.
 Run `hogli build:projections` and commit the regenerated command reference.
@@ -133,6 +134,8 @@ The defenses do not depend on an agent ignoring instructions:
 - A command runs only when the pull request's branch name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`. Even then, the name never goes into a prompt or a loop payload. Only the head commit SHA does, and the QA task gets the branch as checkout data.
 - Fork pull requests are refused by every command that runs or reviews code.
   `recreate` accepts them, because it copies only the approved commit into a new pull request in the repository, where CI runs it.
+  It refuses a commit that changes files CI runs, such as workflows, scripts, `package.json` or Dockerfiles, because the new branch runs CI with secrets before anyone approves it.
+  It runs only from a pull request comment, because a Slack command has no GitHub write-access check.
 - The QA task gets the head commit seen at request time, and is told to stop if the branch moved since.
 - A loop fires only for its owner, because a loop runs with its owner's credentials and its payload becomes part of its prompt.
 - Replies are built from fixed text and values PostHog or GitHub produced. A reply never repeats what the comment said, so nobody can make the bot post their text.
