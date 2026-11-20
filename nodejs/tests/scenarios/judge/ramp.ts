@@ -69,7 +69,7 @@ const perSecond = (units: number, { startedAt, endedAt }: Pick<DrivenStep, 'star
 const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =>
     step.dueUnits === 0
         ? `the generator had no units to offer in the ${step.scale}x step`
-        : step.offeredUnits < minOffered * step.dueUnits
+        : step.offeredUnits / step.dueUnits < minOffered
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
@@ -171,14 +171,15 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     const halt = new AbortController()
-    const watching = AbortSignal.any([signal, halt.signal])
     const refused: JournalEntry[] = []
     const settled = new Map<number, readonly BarResult[]>()
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
     let stop: RampStop | undefined
 
     const stopWith = (stopped: RampStop): void => {
-        stop ??= stopped
+        if (stop === undefined || stopped.index < stop.index) {
+            stop = stopped
+        }
         halt.abort()
     }
 
@@ -206,12 +207,12 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
         },
         gate: async (window, offered) => {
             try {
-                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), watching)
-                if (watching.aborted) {
+                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
+                if (signal.aborted) {
                     return
                 }
                 const { results, stop: stopped } = await judgeLive(live, window, offered())
-                if (watching.aborted) {
+                if (signal.aborted) {
                     return
                 }
                 if (results) {
@@ -250,7 +251,7 @@ const RANK = { generator: 0, bar: 1, gate: 2, invariant: 2, run_host: 3 } as con
 
 const rankOf = (broke: Broke): number => (broke.kind === 'harness' ? RANK[broke.by] : RANK[broke.kind])
 
-function candidatesOf({ steps, minOffered, stop, bars, invariants, gates, journal }: RampEvidence): {
+function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gates, journal }: RampEvidence): {
     placed: Candidate[]
     unplaced: Broke[]
 } {
@@ -261,9 +262,13 @@ function candidatesOf({ steps, minOffered, stop, bars, invariants, gates, journa
             placed.push({ index, rank: rankOf(broke), broke, reason })
         }
     }
+    const cutShort = (step: DrivenStep): boolean =>
+        stop !== undefined &&
+        step.index === steps.length - 1 &&
+        step.endedAt - step.startedAt < planned[step.index].toMs - planned[step.index].fromMs
     for (const step of steps) {
         const shortfall = shortfallOf(step, minOffered)
-        if (shortfall) {
+        if (shortfall && !cutShort(step)) {
             add(step.index, harness(step, 'generator'), shortfall)
         }
     }

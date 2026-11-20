@@ -42,6 +42,8 @@ export function crossedByOf(
     return undefined
 }
 
+const crossing = (crossedBy: string | undefined): { crossedBy?: string } => (crossedBy ? { crossedBy } : {})
+
 export const deliveryKey = (unitId: string, actionId: string): string => `${unitId}/${actionId}`
 
 const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
@@ -102,6 +104,7 @@ export const atLeastOnce: InvariantDefinition = {
                         : `the last of ${first.records.length} attempts was answered ${first.records.at(-1)!.status}`
                 }`,
             unitIds: [...new Set(missed.map(({ unitId }) => unitId))].slice(0, EVIDENCE_UNIT_IDS),
+            ...crossing(crossedByOf(journal, missed, 0)),
         }
     },
 }
@@ -115,7 +118,7 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth, janitorResets }, gate) => {
+    check: ({ journal, truth, janitorResets }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
                 record: records[0],
@@ -132,6 +135,13 @@ export const duplicateSends: InvariantDefinition = {
             violation:
                 first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times; ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
+            ...crossing(
+                crossedByOf(
+                    journal,
+                    duplicated.map(({ record, extra }) => ({ unitId: record.unitId, count: extra })),
+                    janitorResets + (gate ?? 0)
+                )
+            ),
         }
     },
 }
@@ -145,9 +155,7 @@ export const refusedAtIntake: InvariantDefinition = {
     name: 'refused_at_intake',
     params: z.object({}).strict(),
     check: ({ journal }, gate) => {
-        const refused = journal.flatMap(({ unitId, kind, answer }) =>
-            answer.accepted || kind === 'event' ? [] : [{ unitId, answer }]
-        )
+        const refused = refusalsOf(journal)
         const [first] = refused
         const reason = (answer: (typeof refused)[number]['answer']): string =>
             'transportError' in answer
@@ -158,6 +166,7 @@ export const refusedAtIntake: InvariantDefinition = {
             observed: refused.length,
             violation: first && `${first.unitId}: ${reason(first.answer)}`,
             unitIds: firstUnitIds(refused.map(({ unitId }) => unitId)),
+            ...crossing(crossedByOf(journal, refused, gate ?? 0)),
         }
     },
 }
