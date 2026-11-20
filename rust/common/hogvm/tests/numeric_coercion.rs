@@ -240,6 +240,18 @@ fn ordering_functions_order_numeric_arrays() {
 }
 
 #[test]
+fn array_ordering_treats_signed_zeros_as_equal() {
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[float(-0.0), int(2)]), array(&[float(0.0), int(1)])],
+        ),
+        json!(false),
+        "less([-0.0, 2], [0.0, 1])",
+    );
+}
+
+#[test]
 fn number_vs_numeric_string_coerces_the_string() {
     // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(

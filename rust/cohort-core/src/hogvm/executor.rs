@@ -589,10 +589,6 @@ mod tests {
             (OP_LT, "2.10.0", "2.10.0", false),
             (OP_LT_EQ, "2.10.0", "2.10.0", true),
             (OP_LT_EQ, "2.10.1", "2.10.0", false),
-            // Arrays of different length: the shorter prefix sorts first.
-            (OP_LT, "1.2", "1.2.0", true),
-            (OP_GT, "1.2.0", "1.2", true),
-            (OP_GT_EQ, "1.2", "1.2.0", false),
         ];
         for (op, left, right, expected) in cases {
             assert_eq!(
@@ -601,6 +597,30 @@ mod tests {
                 "op {op}: {left} vs {right}"
             );
         }
+    }
+
+    /// ClickHouse orders arrays lexicographically, a shorter prefix first.
+    #[test]
+    fn arrays_of_different_length_order_with_the_shorter_prefix_first() {
+        let array = |items: &[i64]| {
+            let mut bc: Vec<Value> = items
+                .iter()
+                .flat_map(|n| [json!(OP_INTEGER), json!(n)])
+                .collect();
+            bc.extend([json!(OP_ARRAY), json!(items.len())]);
+            bc
+        };
+        let compare = |op: i64, left: &[i64], right: &[i64]| {
+            let mut bc = header();
+            bc.extend(array(right));
+            bc.extend(array(left));
+            bc.extend([json!(op), json!(OP_RETURN)]);
+            outcome_to_bool_matched(evaluate_detailed(&bc, json!({})))
+        };
+        assert!(compare(OP_LT, &[1, 2], &[1, 2, 0]));
+        assert!(compare(OP_GT, &[1, 2, 0], &[1, 2]));
+        assert!(!compare(OP_GT_EQ, &[1, 2], &[1, 2, 0]));
+        assert!(compare(OP_GT, &[2], &[1, 9, 9]));
     }
 
     #[test]
