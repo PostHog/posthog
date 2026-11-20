@@ -26,6 +26,10 @@ class DashboardNotFound(Exception):
     """A requested dashboard is not one this team can place an insight on."""
 
 
+class QueryBatchBusy(Exception):
+    """Too many query batches are reading or running for this process or team to take another one now."""
+
+
 class DashboardNotEditable(Exception):
     """The requester may not change which insights sit on this dashboard."""
 

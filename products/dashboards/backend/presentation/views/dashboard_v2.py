@@ -7,27 +7,22 @@ from django.http.response import HttpResponseBase
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.parsers import JSONParser
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.auth import SessionAuthentication
 from posthog.models.user import User
-from posthog.rate_limit import (
-    APIQueriesBurstThrottle,
-    APIQueriesSustainedThrottle,
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-    HogQLQueryThrottle,
-)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.api import (
     MAX_QUERIES_PER_BATCH,
     DashboardNotFound,
     DashboardNotViewable,
+    QueryBatchBusy,
     dashboard_v2_enabled,
     query_batch_stream,
     viewable_dashboard_id,
@@ -130,22 +125,6 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 scopes.update(required_scopes_for_query_payload(_scoped_node(target)) or [])
         return sorted(scopes)
 
-    def get_throttles(self):
-        # One request runs many ClickHouse queries, so it gets `/query`'s query throttles, not the generic ones.
-        if self.action != "query_batch":
-            return super().get_throttles()
-        if _is_personal_api_key_request():
-            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        queries = self.request.data.get("queries") if isinstance(self.request.data, dict) else None
-        if isinstance(queries, list) and any(
-            isinstance(item, dict)
-            and isinstance(item.get("target"), dict)
-            and item["target"].get("language") == QueryBatchLanguage.HOGQL
-            for item in queries
-        ):
-            return [HogQLQueryThrottle()]
-        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
-
     @validated_request(
         request_serializer=QueryBatchRequestSerializer,
         responses={
@@ -163,10 +142,16 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "read as the requesting user, keyed by its content, and cached hits come first."
         ),
     )
-    @action(methods=["POST"], detail=False)
+    # JSON only: the scope check reads the raw body, so it must parse it the way the serializer does.
+    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def query_batch(self, request: ValidatedRequest, **kwargs: Any) -> HttpResponseBase:
         if request.user.is_anonymous:
             raise exceptions.NotFound()
+        # One request runs up to hundreds of queries, which no per-request API throttle accounts for.
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise exceptions.PermissionDenied(
+                "This endpoint is available only in the web app. Use /query with an API key."
+            )
         user = cast(User, request.user)
         if not dashboard_v2_enabled(self.team, str(user.distinct_id)):
             raise exceptions.NotFound()
@@ -198,24 +183,22 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             for item in request.validated_data["queries"]
         ]
-        stream = query_batch_stream(
-            team=self.team,
-            user=user,
-            inputs=inputs,
-            dashboard_id=dashboard_id,
-            client_query_id=f"dashboard-v2-batch-{uuid.uuid4().hex[:12]}",
-            asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
-            is_query_service=_is_personal_api_key_request(),
-        )
+        try:
+            stream = query_batch_stream(
+                team=self.team,
+                user=user,
+                inputs=inputs,
+                dashboard_id=dashboard_id,
+                client_query_id=f"dashboard-v2-batch-{uuid.uuid4().hex[:12]}",
+                asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
+            )
+        except QueryBatchBusy:
+            raise exceptions.Throttled(wait=5, detail="Too many dashboards are loading at once. Try again shortly.")
         return streaming_response(
             stream,
             content_type="application/x-ndjson",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
-
-
-def _is_personal_api_key_request() -> bool:
-    return get_query_tag_value("access_method") == "personal_api_key"
 
 
 def _scoped_node(target: dict[str, Any]) -> object:
@@ -225,7 +208,8 @@ def _scoped_node(target: dict[str, Any]) -> object:
     if not isinstance(text, str):
         return None
     try:
-        parsed = json.loads(text)
+        # Stripped as the serializer's CharField strips it, so the scope check sees the query that runs.
+        parsed = json.loads(text.strip())
     except ValueError:
         return None
     return parsed.get("query") if isinstance(parsed, dict) else None
