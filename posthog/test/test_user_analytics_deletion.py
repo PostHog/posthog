@@ -20,10 +20,11 @@ DELETION_URL = "https://us.posthog.com/api/projects/2/persons/bulk_delete/"
     POSTHOG_USER_DELETION_API_KEY="phs_fake_deletion_key",
 )
 class TestUserAnalyticsDeletion(TestCase):
+    @parameterized.expand([(None, "example-user"), ("US", None)])
     @responses.activate
-    def test_skips_self_hosted_users(self) -> None:
-        user = User.objects.create(email="deleted@example.com", distinct_id="example-user")
-        with override_settings(CLOUD_DEPLOYMENT=None), self.captureOnCommitCallbacks(execute=True):
+    def test_skips_users_without_cloud_analytics(self, deployment: str | None, distinct_id: str | None) -> None:
+        user = User.objects.create(email="deleted@example.com", distinct_id=distinct_id)
+        with override_settings(CLOUD_DEPLOYMENT=deployment), self.captureOnCommitCallbacks(execute=True):
             user.delete()
         assert not responses.calls
 
@@ -62,28 +63,26 @@ class TestUserAnalyticsDeletion(TestCase):
         assert "sensitive request details" not in str(logs.output)
         assert "phs_fake_deletion_key" not in str(logs.output)
 
-    @parameterized.expand([("US", "example-user"), ("EU", "example-user"), ("US", None)])
+    @parameterized.expand([("US", "example-user"), ("EU", "example-user")])
     @responses.activate
-    def test_opts_out_before_deleting_analytics(self, deployment: str, distinct_id: str | None) -> None:
+    def test_opts_out_before_deleting_analytics(self, deployment: str, distinct_id: str) -> None:
         responses.post(PREFERENCES_URL, json={})
-        if distinct_id:
-            responses.post(DELETION_URL, json={}, status=202)
+        responses.post(DELETION_URL, json={}, status=202)
         user = User.objects.create(email="deleted@example.com", distinct_id=distinct_id)
         with override_settings(CLOUD_DEPLOYMENT=deployment), self.captureOnCommitCallbacks(execute=True):
             user.delete()
             assert not responses.calls
         assert responses.calls[0].request.url == PREFERENCES_URL
         assert json.loads(responses.calls[0].request.body) == {"identifier": user.email, "all_marketing": False}
-        assert len(responses.calls) == (2 if distinct_id else 1)
+        assert len(responses.calls) == 2
         for call in responses.calls:
             assert call.request.headers["Authorization"] == "Bearer phs_fake_deletion_key"
-        if distinct_id:
-            assert responses.calls[1].request.url == DELETION_URL
-            assert json.loads(responses.calls[1].request.body) == {
-                "distinct_ids": [distinct_id],
-                "delete_events": True,
-                "delete_recordings": True,
-            }
+        assert responses.calls[1].request.url == DELETION_URL
+        assert json.loads(responses.calls[1].request.body) == {
+            "distinct_ids": [distinct_id],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
 
     @parameterized.expand([("http",), ("timeout",)])
     @responses.activate
