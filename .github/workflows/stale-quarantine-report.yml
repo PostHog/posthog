@@ -5,8 +5,9 @@ name: Stale test quarantine report
 # vars.STALE_QUARANTINE_TEAM_CHANNELS is 'true', and stay in the digest thread otherwise.
 #
 # Requires (no-ops with a warning until set):
-#   - secrets.TRUNK_API_TOKEN, the same token the CI uploaders use. It has to be accepted as a
-#     Bearer key by api.trunk.io/v2. A rejected token fails the run.
+#   - secrets.TRUNK_V2_API_KEY, a Trunk v2 API key sent as a Bearer credential to api.trunk.io/v2.
+#     The organization token the CI uploaders use works only with Trunk's legacy API. A rejected
+#     key fails the run.
 #   - vars.TRUNK_STALE_QUARANTINE_COLLECTION_IDS, comma-separated ids of this repository's test
 #     collections. The list endpoint is organization-wide, so the script refuses to run without it.
 #   - secrets.SLACK_DEVEX_BOT_TOKEN, the existing DevEx Slack bot.
@@ -61,7 +62,7 @@ jobs:
 
             - name: Build and post the stale quarantine report
               env:
-                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  TRUNK_API_KEY: ${{ secrets.TRUNK_V2_API_KEY }}
                   TRUNK_STALE_QUARANTINE_COLLECTION_IDS: ${{ vars.TRUNK_STALE_QUARANTINE_COLLECTION_IDS }}
                   STALE_QUARANTINE_TEAM_CHANNELS: ${{ vars.STALE_QUARANTINE_TEAM_CHANNELS }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

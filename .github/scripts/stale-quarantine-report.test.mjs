@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { classifyQuarantines, fetchQuarantined, MIN_RUNS, WINDOW_DAYS } from './stale-quarantine-report.mjs'
+import {
+    classifyQuarantines,
+    fetchQuarantined,
+    MIN_RUNS,
+    pagesOf,
+    ROWS_PER_TABLE,
+    sections,
+    WINDOW_DAYS,
+} from './stale-quarantine-report.mjs'
 
 const now = new Date('2026-06-30T00:00:00Z')
 const daysAgo = (days) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -50,5 +58,19 @@ describe('stale quarantine report', () => {
 
         const endless = async () => ({ data: [], hasMore: true, nextCursor: 'x' })
         await assert.rejects(() => fetchQuarantined('coll', endless), /exceeded/)
+    })
+
+    it('keeps each Slack table within 100 rows, header included, without dropping tests', () => {
+        const items = Array.from({ length: ROWS_PER_TABLE * 2 + 1 }, (_, i) => ({
+            test: { name: `t${i}` },
+            quarantinedDays: 20,
+            runs: 30,
+            kind: 'passing',
+            owner: 'team-devex',
+        }))
+        const pages = pagesOf(items)
+        const tableRows = pages.map((page) => sections(page).find((block) => block.type === 'table').rows.length)
+        assert.deepEqual(tableRows, [100, 100, 2])
+        assert.equal(pages.flat().length, items.length)
     })
 })
