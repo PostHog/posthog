@@ -11,7 +11,7 @@ import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { IMPLEMENTATION_AGENTS } from 'products/signals/frontend/inbox/components/detail/implementationAgents'
-import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
+import { type InboxReportActionSurface, captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
@@ -25,11 +25,13 @@ export function TodayImplementMenu({
     reportUrl,
     disabledReason,
     postHogDisabledReason,
+    surface,
 }: {
     report: SignalReport
     reportUrl: string
     disabledReason: string | null
     postHogDisabledReason: string | null
+    surface: InboxReportActionSurface
 }): JSX.Element {
     const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
     const { startWithPostHog } = useActions(todayReportLogic({ reportId: report.id }))
@@ -42,7 +44,7 @@ export function TodayImplementMenu({
         captureInboxReportAction({
             report,
             actionType: 'copy_implementation_prompt',
-            surface: 'today',
+            surface,
             extra: { agent: agentKey, work: reportWorkKind(report) },
         })
         send(reportWorkPrompt(report, reportUrl))
@@ -72,7 +74,7 @@ export function TodayImplementMenu({
     const items = ({ Item, Separator }: TodayMenuParts): JSX.Element => (
         <>
             <Item
-                onClick={() => startWithPostHog()}
+                onClick={() => startWithPostHog(surface)}
                 disabled={!!postHogDisabledReason || starting}
                 dataAttr="today-report-start-task"
             >

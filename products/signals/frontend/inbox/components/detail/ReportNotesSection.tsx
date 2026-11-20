@@ -5,9 +5,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { membersLogic } from '~/models/membersLogic'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { reportNotesFromArtefacts } from '../../utils/reportNotes'
+import { QuillReportNotesSection } from './QuillReportNotesSection'
 import { ReportNoteComposer } from './ReportNoteComposer'
 import { ReportNoteRow } from './ReportNoteRow'
 
@@ -17,6 +20,7 @@ import { ReportNoteRow } from './ReportNoteRow'
  */
 export function ReportNotesSection({ report }: { report: SignalReport }): JSX.Element {
     const { reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const notes = reportNotesFromArtefacts(reportArtefacts ?? [])
     const mentionsEnabled = useFeatureFlag('SIGNALS_REPORT_NOTE_MENTIONS')
     const { ensureAllMembersLoaded } = useActions(membersLogic)
@@ -27,6 +31,10 @@ export function ReportNotesSection({ report }: { report: SignalReport }): JSX.El
             ensureAllMembersLoaded()
         }
     }, [mentionsEnabled, ensureAllMembersLoaded])
+
+    if (todayRailNav) {
+        return <QuillReportNotesSection report={report} notes={notes} />
+    }
 
     return (
         <div className="mb-4 flex flex-col gap-2" data-attr="inbox-report-notes">
