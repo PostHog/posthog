@@ -130,11 +130,13 @@ function pickupsBetween(
         if (first < 0 || gap > 0) {
             return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
         }
-        if (inside.length < 2) {
-            return { unread: `no scrape of ${worker} was taken` }
-        }
-        inside.slice(1).forEach((sample, i) => {
-            const previous = inside[i]
+        // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
+        // never pass into the next step's larger volume unjudged.
+        const last = inside.at(-1)!
+        const next = sorted.find(({ at }) => at > to)
+        const covered = last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
+        covered.slice(1).forEach((sample, i) => {
+            const previous = covered[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})
         })
     }

@@ -204,7 +204,7 @@ describe('judgeBars', () => {
             [HELD[0], broke(1, 10, 60, 10, 'email')],
         ],
         [
-            'a scrape that straddles the step boundary counts in the step it was taken in, so its late pickups leave the 1x step held',
+            'a scrape after the step boundary reported late pickups from the end of the 1x step',
             {
                 samples: scrapedEvery5s(
                     120,
@@ -212,10 +212,10 @@ describe('judgeBars', () => {
                     { offsetS: -3 }
                 ),
             },
-            [HELD[0], broke(1, 10, 60, 10, 'email')],
+            [HELD[0], broke(1, 1, 0, 10, 'email')],
         ],
         [
-            'a short step whose only scrape interval ends after it is not read as a step without pickups',
+            'a short step whose only scrape interval ends after it counts that interval, so its prompt pickups hold',
             {
                 drive: { startedAt: T, endedAt: T + 20_000 },
                 steps: [
@@ -224,10 +224,7 @@ describe('judgeBars', () => {
                 ],
                 samples: scrapedEvery5s(25, prompt, { offsetS: -4 }).filter(({ at }) => at < T || at > T + 10_000),
             },
-            [
-                unjudged(0, 'no whole writer CPU minute in the 1x step'),
-                unjudged(1, 'no scrape of cdp-cyclotron-worker-hogflow-0 was taken in the 1x step'),
-            ],
+            [unjudged(0, 'no whole writer CPU minute in the 1x step'), HELD[1]],
         ],
         [
             'jobs due in the 10x step were picked up late after the drive ended',
