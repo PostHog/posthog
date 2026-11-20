@@ -1,4 +1,9 @@
-import { BatchCapacity, CodeSendBatchRequestSchema, TemplateBatchRequestSchema } from './transactional-email-batch'
+import {
+    BatchCapacity,
+    CodeSendBatchRequestSchema,
+    TemplateBatchRequestSchema,
+    slotRequestOf,
+} from './transactional-email-batch'
 
 describe('transactional email batch', () => {
     describe('BatchCapacity', () => {
@@ -13,6 +18,22 @@ describe('transactional email batch', () => {
 
             expect(capacity.admit()).not.toBeNull()
             expect(capacity.admit()).toBeNull()
+        })
+    })
+
+    describe('slotRequestOf', () => {
+        it("keeps the batch's variables and lets a recipient's own value win", () => {
+            const recipient = {
+                to: 'ada@example.com',
+                distinct_id: 'ada',
+                idempotency_key: 'key-ada',
+                variables: { link: 'https://example.com/ada' },
+            }
+            const batch = { variables: { link: 'https://example.com/shared', name: 'Shared' }, recipients: [recipient] }
+
+            expect(slotRequestOf(batch, recipient)).toEqual(
+                expect.objectContaining({ variables: { link: 'https://example.com/ada', name: 'Shared' } })
+            )
         })
     })
 
