@@ -4245,23 +4245,24 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None or config.skill_name in withheld_skills_for_team(team_id):
             raise exceptions.NotFound()
-        run = (
+        live_run = (
             live_lane_runs(scout_lane_runs(team_id, config.skill_name))
-            .select_related("task_run")
             .order_by("-created_at")
+            .values_list("id", "task_run_id", "task_run__task_id")
             .first()
         )
-        if run is None:
+        if live_run is None:
             raise exceptions.NotFound("This scout has no run in progress.")
+        run_id, task_run_id, task_id = live_run
 
         # Deferred: the cancellation facade imports the Tasks Temporal workflow graph. See `run`.
         from products.tasks.backend.facade import cancellation as tasks_cancellation  # noqa: PLC0415
 
         user = cast(User, request.user)
         outcome, _ = tasks_cancellation.cancel_task_run(
-            run.task_run_id,
-            run.task_run.task_id,
-            run.team_id,
+            task_run_id,
+            task_id,
+            team_id,
             source="scout_stop",
             requested_by_user_id=user.id,
             requested_by_distinct_id=user.distinct_id,
@@ -4270,14 +4271,14 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.ValidationError("Only cloud runs can be stopped.")
         if outcome == "unavailable":
             raise StopUnavailable()
-        detail = get_run(team_id=team_id, run_id=str(run.id))
+        detail = get_run(team_id=team_id, run_id=str(run_id))
         if outcome == "not_found" or detail is None:
             raise exceptions.NotFound()
         logger.info(
             "signals_scout: run stop requested",
             team_id=team_id,
             skill_name=config.skill_name,
-            run_id=str(run.id),
+            run_id=str(run_id),
             outcome=outcome,
             user_id=user.pk,
         )

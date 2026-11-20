@@ -6032,19 +6032,21 @@ class TestScoutHarnessConfigStopAPI(APIBaseTest):
         if expected_status < 300:
             assert response.json()["run_id"] == str(live.id)
 
-    @parameterized.expand([("finished",), ("stale",), ("trial",), ("other_scout",), ("none",)])
-    def test_stop_without_a_live_run_returns_404_without_cancelling(self, case: str) -> None:
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        if case == "finished":
-            _make_run(self.team, skill_name="signals-scout-foo", task_run_status=TaskRun.Status.CANCELLED)
-        elif case == "stale":
-            stale = _make_run(self.team, skill_name="signals-scout-foo")
+    @parameterized.expand(
+        [
+            ("finished", {"task_run_status": "cancelled"}, False),
+            ("stale", {}, True),
+            ("trial", {"metadata": {"scout_trial": {"version": 1}}}, False),
+            ("other_scout", {"skill_name": "signals-scout-bar"}, False),
+        ]
+    )
+    def test_stop_without_a_live_run_returns_404_without_cancelling(
+        self, _name: str, run_overrides: dict, stale: bool
+    ) -> None:
+        run = _make_run(self.team, **{"skill_name": "signals-scout-foo", **run_overrides})
+        if stale:
             old = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60)
-            TaskRun.objects.filter(id=stale.task_run_id).update(created_at=old)
-        elif case == "trial":
-            _make_run(self.team, skill_name="signals-scout-foo", metadata={"scout_trial": {"version": 1}})
-        elif case == "other_scout":
-            _make_run(self.team, skill_name="signals-scout-bar")
+            apps.get_model("tasks", "TaskRun").objects.filter(id=run.task_run_id).update(created_at=old)
 
         with patch(_CANCEL) as cancel:
             response = self._stop()
@@ -6052,12 +6054,18 @@ class TestScoutHarnessConfigStopAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         cancel.assert_not_called()
 
-    @parameterized.expand([("unknown_config",), ("withheld_scout",)])
-    def test_stop_hidden_config_returns_404_without_cancelling(self, case: str) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_config", "00000000-0000-0000-0000-000000000000", set()),
+            ("withheld_scout", None, {"signals-scout-foo"}),
+        ]
+    )
+    def test_stop_hidden_config_returns_404_without_cancelling(
+        self, _name: str, config_id: str | None, withheld: set[str]
+    ) -> None:
         _make_run(self.team, skill_name="signals-scout-foo")
-        with patch(_WITHHELD, return_value={"signals-scout-foo"} if case == "withheld_scout" else set()):
-            with patch(_CANCEL) as cancel:
-                response = self._stop("00000000-0000-0000-0000-000000000000" if case == "unknown_config" else None)
+        with patch(_WITHHELD, return_value=withheld), patch(_CANCEL) as cancel:
+            response = self._stop(config_id)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         cancel.assert_not_called()
