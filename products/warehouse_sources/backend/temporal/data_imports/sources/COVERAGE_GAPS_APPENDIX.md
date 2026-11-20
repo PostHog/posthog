@@ -5741,11 +5741,11 @@ Diffed against: <https://finnworlds.com/documentation/>
 - [x] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high) — added as `company_identifiers` (`/identifiers`)
 - [x] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high) — already synced: `stock_prices` calls `/historicalcandlestick`. The uncovered endpoint is the real-time quote one (`/stockprice`), not this one.
 - [x] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high) — added as `insider_transactions`, one row per Form 4 transaction line
-- [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium)
-- [ ] `Stock Market Index` — index level series needed to benchmark the synced company data (medium)
+- [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium) Skipped: `/exchangeinfo` resolves one MIC per request and has no list call, so a sync has nothing to iterate.
+- [x] `Stock Market Index` — index level series needed to benchmark the synced company data (medium) — added as `stock_market_indices` (`/benchmark`), latest level per index, fanned out over the countries field
 - [x] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium) — added as `macroeconomic_indicators` (`/macroindicator`), fanned out over a new countries field
-- [ ] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium)
-- [ ] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium)
+- [x] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium) — added as `economic_calendar` (`/macrocalendar`), fanned out over the countries field
+- [x] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium) — added as `currency_exchange_rates` (`/currencypairs`), latest quotes, fanned out over a new base currencies field
 - [ ] `ETF Holdings` — fund-to-holding breakdown rows linking funds to already-synced companies (medium)
 - [ ] `Mutual Fund Holdings` — same fund-to-holding join for mutual funds (medium)
 - [ ] `Historical Bond Yields` — bond_yields is synced but only current; the historical series is what yield-curve analysis needs (medium)
@@ -12947,8 +12947,8 @@ Today (3): `batches`, `projects`, `tasks`
 
 Diffed against: <https://api-reference.scale.com/llms.txt>
 
-- [ ] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
-- [ ] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
+- [x] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
+- [x] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
 
 Note: The v1 REST API is genuinely small: batches, projects, tasks, audits. GenAI Data Engine, GenAI Platform and Taxonomy Service are documented as guides with no listable REST collections. The audits endpoint requires a task_id or audit id, so it has to be driven off the already-synced tasks table rather than bulk-listed.
 

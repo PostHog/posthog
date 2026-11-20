@@ -17,7 +17,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.fixtures import create_app_metric2
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
@@ -280,6 +279,38 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [
             ("queued", None),
             ("failed", "provider_error"),
+        ]
+
+    def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
+        sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
+        relayed_id = self._send(3, "ann@example.com", [("sent", 1, "relayed")])
+
+        body = self.client.get(self._url(f"{sent_id}/")).json()
+        delivered_body = self.client.get(self._url(f"{message_id}/")).json()
+        relayed_body = self.client.get(self._url(f"{relayed_id}/")).json()
+
+        assert (body["status"], body["reason"]) == ("sent", None)
+        assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [("queued", None), ("sent", None)]
+        assert [(event["kind"], event["reason"]) for event in delivered_body["timeline"]] == [
+            ("queued", None),
+            ("sent", None),
+            ("delivered", None),
+        ]
+        assert (relayed_body["status"], relayed_body["reason"]) == ("sent", "relayed")
+        assert [(event["kind"], event["reason"]) for event in relayed_body["timeline"]] == [
+            ("queued", None),
+            ("sent", "relayed"),
+        ]
+        listed = self.client.get(self._url()).json()["results"]
+        assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
+            ("ann@example.com", "sent", "relayed"),
+            ("bob@example.com", "sent", None),
+            ("jane@example.com", "delivered", None),
+        ]
+        assert self.client.get(self._url(), {"reason": "untracked"}).json()["results"] == []
+        assert [row["message_id"] for row in self.client.get(self._url(), {"reason": "relayed"}).json()["results"]] == [
+            relayed_id
         ]
 
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
@@ -595,8 +626,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 timedelta(days=8),
             ),
             (4_000, "reader", [*delivered, ("opened", 60, "")], timedelta(days=1)),
-            (5_000, "late", delivered, timedelta(days=7, hours=1)),
-            (6_000, "bounced", [("sent", 1, ""), ("bounced", 2, "")], timedelta(hours=1)),
+            (5_000, "late", [("sent", 1, "untracked"), ("delivered", 2, "")], timedelta(days=7, hours=1)),
+            (6_000, "bounced", [("sent", 1, "untracked"), ("bounced", 2, "")], timedelta(hours=1)),
             (7_000, None, [("sent", 1, ""), ("clicked", 3600, "")], None),
         ]
         for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
@@ -611,20 +642,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 )
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
         self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
-        for workflow_id, metric_name, count in [
-            (str(self.workflow_id), "email_untracked", 2),
-            (str(self.workflow_id), "email_sent", 9),
-            (str(other_workflow), "email_untracked", 5),
-        ]:
-            create_app_metric2(
-                team_id=self.team.id,
-                app_source="hog_flow",
-                app_source_id=workflow_id,
-                timestamp=NOW - timedelta(days=1),
-                metric_kind="email",
-                metric_name=metric_name,
-                count=count,
-            )
+        self._send(400, "reader@example.com", [("sent", 1, "untracked")], workflow_id=other_workflow)
         flush_persons_and_events()
 
     def _impact(self, **params: str) -> dict:
@@ -693,6 +711,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
         }
+
+    def test_counts_a_send_with_tracking_off_in_the_period_it_was_queued_in(self, _flag):
+        self._send(3 * 24 * 60, "queued-before@example.com", [("sent", 2 * 86400, "untracked")])
+        self._send(24 * 60, "queued-inside@example.com", [("sent", 1, "untracked")])
+        self._send(13 * 60, "sent-after-the-period@example.com", [("sent", 2 * 3600, "untracked")])
+        self._send(14 * 60, "also-sent-after-the-period@example.com", [("sent", 3 * 3600, "untracked")])
+
+        impact = self._impact(
+            date_from=(NOW - timedelta(days=2)).isoformat(), date_to=(NOW - timedelta(hours=12)).isoformat()
+        )
+
+        assert (impact["sent"], impact["untracked"]) == (3, 3)
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
