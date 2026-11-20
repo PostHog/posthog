@@ -17,6 +17,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -347,6 +348,23 @@ def _build_person_query(team: Team, prop_group: PropertyGroup, cursor: Optional[
     return select_query
 
 
+def _restrictions_for_group_filter(
+    user: Optional[User], team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+) -> Optional[set[RestrictedProperty]]:
+    """
+    The property restrictions to apply, or None to let HogQL load every group type's restrictions.
+
+    The groups table spans every group type, so the default load applies another type's restriction to this
+    count. Narrowing to the requested type is safe only when each filter reads that type's own properties.
+    Any other filter, such as a HogQL expression, can read other group types and keeps every restriction.
+    """
+    if any(prop.type not in ("group", "flag") for prop in prop_group.flat):
+        return None
+    return access_control_api.get_restricted_properties_for_group_type(
+        user=user, team_id=team.pk, group_type_index=group_type_index
+    )
+
+
 def _get_group_blast_radius(
     team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex, user: Optional[User] = None
 ) -> BlastRadiusResult:
@@ -386,10 +404,7 @@ def _get_group_blast_radius(
             team_id=team.pk,
             database=database,
             globals=_group_property_globals(group_type_index),
-            # The groups table spans every group type. The default load would apply another type's restriction.
-            restricted_properties=access_control_api.get_restricted_properties_for_group_type(
-                user=user, team_id=team.pk, group_type_index=group_type_index
-            ),
+            restricted_properties=_restrictions_for_group_filter(user, team, prop_group, group_type_index),
         ),
         user=user,
     )

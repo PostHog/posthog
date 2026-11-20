@@ -9778,6 +9778,33 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (response.json()["affected"], response.json()["total"]) == (1, 1)
 
+    def test_group_count_keeps_other_group_type_restrictions_for_hogql_filters(self):
+        for index, name in enumerate(["organization", "company"]):
+            create_group_type_mapping(
+                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=index,
+                group_key="shared",
+                properties={"secret": "hidden"} if index == 1 else {},
+            )
+        flush_persons_and_events()
+        self._restrict_for_member("secret", PropertyDefinition.Type.GROUP, group_type_index=1)
+        condition = {
+            "properties": [
+                {
+                    "type": "hogql",
+                    "group_type_index": 0,
+                    "key": "key IN (SELECT key FROM groups WHERE index = 1 AND properties.secret = 'hidden')",
+                }
+            ]
+        }
+
+        result = get_user_blast_radius(self.team, condition, 0, user=self.user)
+
+        assert result.affected == 0
+
     def test_access_controls_action_keeps_its_api_key_scope(self):
         flag = FeatureFlag.objects.create(team=self.team, key="scoped", created_by=self.user)
         key = generate_random_token_personal()
