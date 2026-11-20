@@ -312,6 +312,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
     DASHBOARD_V2: 'dashboard-v2', // owner: @DanielVisca, aggregated by project. Loads and refreshes only the dashboard tiles on screen, and queues metrics tiles apart from analytics tiles
     DASHBOARD_V2_USERS: 'dashboard-v2-users', // owner: @DanielVisca, aggregated by person. Who sees dashboard-v2 behaviour in the UI; it applies only together with DASHBOARD_V2
+    DASHBOARDS_V2: 'dashboards-v2', // owner: #team-product-analytics, gates the dashboards v2 scene with nested layout containers
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
@@ -382,6 +383,7 @@ export const FEATURE_FLAGS = {
     INBOX_REPORT_IMPLEMENT_BUTTON_POSITION: 'inbox-report-implement-button-position', // owner: #team-self-driving
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
+    INBOX_TAG_FILTER: 'inbox-tag-filter', // owner: #team-self-driving, gates the report tag chips and the Tags filter on the inbox report list
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
     INBOX_TRIAGE_BUTTON_COLOR: 'inbox-triage-button-color', // owner: #team-self-driving multivariate=control,test, shows the inbox Triage button as a secondary button instead of a primary one; gate on === 'test'
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
@@ -649,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_CONDITION_FILTER_GROUPS: 'workflows-condition-filter-groups', // owner: @meikelmosby #team-workflows, AND/OR filter groups in conditional branch conditions
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
+    WORKFLOWS_EMAIL_ACTIVITY: 'workflows-email-activity', // owner: @dmarchuk #team-workflows, shows what a workflow email's recipient did around the send
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
     WORKFLOWS_EMAIL_DOCUMENT_EDITOR: 'workflows-email-document-editor', // owner: @dmarchuk #team-workflows, the TipTap email editor that replaces Unlayer
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key

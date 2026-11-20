@@ -19,7 +19,9 @@ export const getMCPServerBuild = (): string | undefined => {
 // `captureImmediate()`. Configure `serverBuild` once so the SDK stamps both paths.
 export const getPostHogClient = (): PostHogMCP => {
     if (!_client) {
-        _client = new PostHogMCP(env.POSTHOG_ANALYTICS_API_KEY ?? '', {
+        // posthog-node logs an error for an empty project token even when the client is
+        // disabled, so a client without a key gets a placeholder token and stays disabled.
+        _client = new PostHogMCP(env.POSTHOG_ANALYTICS_API_KEY || 'disabled', {
             disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
             ...(env.POSTHOG_ANALYTICS_HOST ? { host: env.POSTHOG_ANALYTICS_HOST } : {}),
             flushAt: 1,
@@ -29,7 +31,7 @@ export const getPostHogClient = (): PostHogMCP => {
             enableExceptionAutocapture: false,
             captureModel: true,
             serverBuild: getMCPServerBuild(),
-            before_send: (event) => {
+            beforeSend: (event) => {
                 if (event?.properties?.is_impersonated === true || event?.properties?.suppress_analytics === true) {
                     return null
                 }

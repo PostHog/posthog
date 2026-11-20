@@ -1121,6 +1121,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'workflows-email-activity',
             'workflows-supabase-auth-emails',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
@@ -1157,7 +1158,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
-            'workflows-resend-import',
             'signals-source-filters',
             'error-tracking-issue-tags',
         ]

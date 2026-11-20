@@ -7,9 +7,10 @@ name: Release hog
 # the version in the hog-publish environment, which has no reviewers and admits only master. That one
 # approval in hog-release covers the release. See hog/README.md, "Releases".
 #
-# The changesets the hog changeset workflow adds for MCP and catalog changes, named pr-<number>.md, don't
-# start a release on their own: they wait for the weekly run, so they cost one approval a week. A
-# changeset a person writes, or a manual run, releases everything pending at once.
+# The file name of a changeset says when it releases. weekly-<name>.md, which the hog changeset workflow
+# also uses for MCP and catalog changes, waits for the weekly run, so those cost one approval a week.
+# Any other name, or a manual run, releases everything pending at once. sampo reads every front matter
+# line as a package and a bump, so the file name carries the timing.
 on:
     push:
         branches: [master]
@@ -95,12 +96,12 @@ jobs:
                       printf '%s\n' "$changesets" | sed 's/^/- /'
                   } >> "$GITHUB_STEP_SUMMARY"
 
-                  written=$(printf '%s\n' "$changesets" | grep -Ev '/pr-[0-9]+\.md$' || true)
-                  if [ "$EVENT_NAME" != push ] || [ -n "$written" ]; then
+                  now=$(printf '%s\n' "$changesets" | grep -Ev '/weekly-[^/]+\.md$' || true)
+                  if [ "$EVENT_NAME" != push ] || [ -n "$now" ]; then
                       echo "release-now=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "release-now=false" >> "$GITHUB_OUTPUT"
-                      echo "Only changesets the hog changeset workflow added are pending, so they wait for the weekly release"
+                      echo "Every pending changeset is named weekly-<name>.md, so they wait for the weekly release"
                   fi
 
     notify-approval-needed:
