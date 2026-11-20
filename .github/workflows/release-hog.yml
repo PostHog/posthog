@@ -68,11 +68,16 @@ env:
         .github/actions/pnpm-install
         .github/actions/setup-pnpm
         .github/workflows/release-hog.yml
-    # The approver checks run hog/release/check-approvers.sh as the last release tag has it, so a pull
-    # request can't weaken the check of its own release. The copies below predate the fixed list of
-    # release paths, so they miss pull requests that changed code compiled into hog without a changeset.
-    # When the tag carries one of them, the checks run COMPILED_OWNERS_CHECKER_BLOB, the first copy with
-    # that list, instead. Both are git blobs, so neither can change without a change to this workflow.
+    # The approver checks run hog/release/check-approvers.sh as the last release tag has it. A pull request
+    # that changes the checker can't weaken the check of its own release, because hog/ is one of the
+    # release paths, so its people own that release. It doesn't stop the next releases: once a tag
+    # carries a changed checker, that copy decides their owners, so the checker gets the same review as
+    # any release code. The gap job fails before approval when the copy that will run no longer covers
+    # every compiled file and build input.
+    #
+    # The copies below predate the release paths. When the tag carries one of them, the checks run
+    # COMPILED_OWNERS_CHECKER_BLOB instead. Both are git blobs, so neither can change without a change to
+    # this workflow, which no tag protects.
     OLD_CHECKER_BLOBS: >-
         b15fb50313c6bf32a76db83d40ff35afe61718fb
         799d46e6a3f739377c713ccc6f65aabb0b266e5f
