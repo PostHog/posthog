@@ -369,10 +369,6 @@ def _without_raw_filter(tag: str) -> str:
     return f"{{{{{head.removesuffix(_HTML_ESCAPE)} }}}}"
 
 
-def _is_control_flow(tag: str) -> bool:
-    return tag.startswith("{%") and not _RAW_OPEN.match(tag)
-
-
 def plain_text_from_html(html: str) -> str:
     """The plain text part SendGrid would have built from the HTML when it sent the email. PostHog only sends a plain
     text part it's given, so this happens at import."""
@@ -386,17 +382,9 @@ def plain_text_from_html(html: str) -> str:
     text = _hold_raw_blocks(html.replace("\x01", ""), tags)
     text = _LIQUID_TAG.sub(hold, text)
     spans = list(_not_content_spans(text))
-
-    def kept_control_flow(fragment: str) -> str:
-        # Removed HTML can hold the `if` around visible content, and dropping only the tag would print what it guards.
-        held = (match.group(0) for match in _LIQUID_SLOT.finditer(fragment))
-        return "".join(slot for slot in held if _is_control_flow(tags[int(slot.strip("\x01"))]))
-
     text = "".join(
-        text[start:end] + (kept_control_flow(text[spans[index].start : spans[index].end]) if index < len(spans) else "")
-        for index, (start, end) in enumerate(
-            zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
-        )
+        text[start:end]
+        for start, end in zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
     )
 
     text = _HTML_LINK.sub(
@@ -408,7 +396,7 @@ def plain_text_from_html(html: str) -> str:
         text,
     )
     text = _HTML_LINE_BREAK.sub("\n", text)
-    text = html_lib.unescape(_HTML_TAG.sub(lambda match: kept_control_flow(match.group(0)), text))
+    text = html_lib.unescape(_HTML_TAG.sub("", text))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.
