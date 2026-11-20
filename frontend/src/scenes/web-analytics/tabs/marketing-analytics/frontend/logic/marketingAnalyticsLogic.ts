@@ -154,11 +154,13 @@ export type RecommendationsAction =
     | 'open_step_link'
     | 'show_resolved'
     | 'undo'
+    | 'edit_conversion_actions'
 
 export type RecommendationsActionLocation =
     | 'section_empty'
     | 'section_campaigns'
     | 'section_data_gaps'
+    | 'section_conversion_actions'
     | 'modal_data_gaps'
     | 'rule_banner'
     | 'instructions'

@@ -1,4 +1,6 @@
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LegacyOAuthReconnectBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
 import { AttributionSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/AttributionSettings'
 import { CampaignFieldPreferencesConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/CampaignFieldPreferencesConfiguration'
@@ -10,6 +12,7 @@ import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/front
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { DetectedSources } from 'products/marketing_analytics/frontend/dashboard/DetectedSources'
+import { ConversionActionsSettings } from 'products/marketing_analytics/frontend/recommendations/ConversionActionsSettings'
 
 import { SECTION_LABEL } from './sectionRouting'
 import { SuggestedActions } from './SuggestedActions'
@@ -47,7 +50,14 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
         key: SetupSection.CONVERSION_GOALS,
         label: SECTION_LABEL[SetupSection.CONVERSION_GOALS],
         description: 'The events that count as a conversion, and what each one is worth.',
-        content: <ConversionGoalsConfiguration />,
+        content: (
+            <div className="flex flex-col gap-6">
+                <ConversionGoalsConfiguration />
+                <FlaggedFeature flag={FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS}>
+                    <ConversionActionsSettings />
+                </FlaggedFeature>
+            </div>
+        ),
     },
     {
         key: SetupSection.UTM_MAPPING,

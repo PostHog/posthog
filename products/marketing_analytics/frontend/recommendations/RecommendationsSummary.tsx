@@ -3,8 +3,10 @@ import { useValues } from 'kea'
 import { IconLightBulb } from '@posthog/icons'
 import { LemonBadge, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { RecommendationConversionActionsButton } from './RecommendationConversionActionsButton'
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { IMPACT_DIRECTION_DESCRIPTIONS, IMPACT_DIRECTION_LABELS, RecommendationTotal } from './recommendations'
 import { RecommendationsConnectGoogleAdsButton } from './RecommendationsConnectGoogleAdsButton'
@@ -33,6 +35,7 @@ function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Eleme
 export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.Element {
     const { hasAdsSource, dataGaps, connectedSourceTypes, activeRecommendations, totals } =
         useValues(recommendationsLogic)
+    const canChooseConversionActions = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS')
 
     return (
         <>
@@ -58,6 +61,7 @@ export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.
                     location="section_data_gaps"
                 />
             )}
+            {hasAdsSource && canChooseConversionActions && <RecommendationConversionActionsButton />}
             {!hasAdsSource && (
                 <span className="text-secondary">
                     Connect Google Ads and sync its campaign tables to also get campaign recommendations.

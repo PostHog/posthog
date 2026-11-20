@@ -1,4 +1,5 @@
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
+import { ExternalDataSource } from '~/types'
 
 import {
     RecommendationsLoadStatus,
@@ -6,6 +7,7 @@ import {
     groupRecommendations,
     reconcileResolutionOverrides,
     recommendationsShownState,
+    recommendationsSource,
     sectionRecommendations,
     summarizeImpact,
     unresolved,
@@ -231,6 +233,29 @@ describe('recommendations', () => {
             },
         ])('$name', ({ rows, expected }) => {
             expect(summarizeImpact(rows)).toEqual(expected)
+        })
+    })
+
+    it('reads the conversion action tables of a google ads source, so a saved selection applies', () => {
+        const names = [
+            'campaign',
+            'campaign_stats',
+            'search_term_stats',
+            'campaign_conversion_action_stats',
+            'search_term_conversion_action_stats',
+        ]
+        const source = {
+            source_type: 'GoogleAds',
+            schemas: names.map((name) => ({
+                name,
+                should_sync: true,
+                table: { name, hogql_name: `googleads.${name}` },
+            })),
+        } as unknown as ExternalDataSource
+
+        expect(recommendationsSource(source)).toMatchObject({
+            campaignConversionActionTable: 'googleads.campaign_conversion_action_stats',
+            searchTermConversionActionTable: 'googleads.search_term_conversion_action_stats',
         })
     })
 })

@@ -367,6 +367,8 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
             adTable: syncedTable(source, 'ad'),
+            campaignConversionActionTable: syncedTable(source, 'campaign_conversion_action_stats'),
+            searchTermConversionActionTable: syncedTable(source, 'search_term_conversion_action_stats'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {
