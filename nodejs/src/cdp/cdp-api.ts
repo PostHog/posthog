@@ -1636,27 +1636,28 @@ export class CdpApi {
                 })
             }
             stages.start('auth')
-            if (
-                !this.verifyScopedWorkflowJwt(
-                    this.transactionalEmailJwt,
-                    req,
-                    res,
-                    'transactional email batch',
-                    tokenClaims
-                )
-            ) {
-                transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
-                return
-            }
-            // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
-            if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
-                return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
-            }
-            const release = this.transactionalEmailBatchCapacity.admit()
-            if (!release) {
-                return refuse('over_capacity', 503, { error: 'over_capacity' })
-            }
+            let release: (() => void) | null = null
             try {
+                if (
+                    !this.verifyScopedWorkflowJwt(
+                        this.transactionalEmailJwt,
+                        req,
+                        res,
+                        'transactional email batch',
+                        tokenClaims
+                    )
+                ) {
+                    transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
+                    return
+                }
+                // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
+                if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
+                    return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
+                }
+                release = this.transactionalEmailBatchCapacity.admit()
+                if (!release) {
+                    return refuse('over_capacity', 503, { error: 'over_capacity' })
+                }
                 stages.start('validate')
                 const parsed = schema.safeParse(req.body)
                 if (!parsed.success) {
@@ -1735,7 +1736,7 @@ export class CdpApi {
                 return refuse('error', 500, { error: e instanceof Error ? e.message : String(e) })
             } finally {
                 stages.finish()
-                release()
+                release?.()
             }
         }
 

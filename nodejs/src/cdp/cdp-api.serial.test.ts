@@ -5567,8 +5567,15 @@ describe('CDP API', () => {
             })
 
             it('answers 503 and publishes nothing when the batch reaches its publish after the deadline', async () => {
-                let now = 0
-                jest.spyOn(performance, 'now').mockImplementation(() => (now += BATCH_PUBLISH_DEADLINE_MS))
+                const realNow = performance.now.bind(performance)
+                let skippedMs = 0
+                jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                const queue = api['hogflowQueue']
+                const findIdempotencyKeys = queue.findIdempotencyKeys.bind(queue)
+                jest.spyOn(queue, 'findIdempotencyKeys').mockImplementation((...args) => {
+                    skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                    return findIdempotencyKeys(...args)
+                })
 
                 const res = await sendBatch(TEMPLATE, {
                     variables: body.variables,
@@ -5620,7 +5627,7 @@ describe('CDP API', () => {
                 const servedWith = async (
                     settings: Partial<Hub>,
                     options: Parameters<typeof setupExpressApp>[0] = {}
-                ): Promise<{ app: express.Application; port: number; requests: express.Request[] }> => {
+                ): Promise<{ app: express.Application }> => {
                     const ownQueue = new CyclotronJobQueuePostgresV2(100, hub)
                     await ownQueue.startAsProducer()
                     const cdpApi = new CdpApi(
@@ -5629,23 +5636,11 @@ describe('CDP API', () => {
                         { hogQueue: createMockJobQueue(), hogflowQueue: ownQueue }
                     )
                     const ownApp = setupExpressApp(options)
-                    const requests: express.Request[] = []
-                    ownApp.use((req, _res, next) => {
-                        requests.push(req)
-                        next()
-                    })
                     ownApp.use('/', cdpApi.router())
-                    let port = 0
                     await new Promise<void>((listening) => {
-                        served.push({
-                            cdpApi,
-                            server: ownApp.listen(0, () => {
-                                port = (ownApp as unknown as { port: number }).port
-                                listening()
-                            }),
-                        })
+                        served.push({ cdpApi, server: ownApp.listen(0, listening) })
                     })
-                    return { app: ownApp, port, requests }
+                    return { app: ownApp }
                 }
                 const batchOf = (...recipients: Record<string, unknown>[]) => ({
                     variables: body.variables,
