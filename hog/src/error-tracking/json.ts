@@ -424,8 +424,7 @@ const SHORT_STRING_LENGTH = 64
 const MAX_UTF8_BYTES_PER_CODE_UNIT = 3
 const utf8Encoder = new TextEncoder()
 
-// Collects output as UTF-8 bytes. A joined string of a large map costs two bytes per character
-// when one character is outside Latin-1, on top of the pieces it is joined from.
+// A joined string costs two bytes per character once one character is outside Latin-1.
 export class Utf8Writer implements JsonSink {
     private readonly full: Buffer[] = []
     private current = Buffer.allocUnsafe(UTF8_CHUNK_SIZE)
@@ -462,7 +461,6 @@ export class Utf8Writer implements JsonSink {
     }
 
     finish(): Buffer[] {
-        // A small last chunk is copied, so a short value doesn't keep a whole chunk alive.
         const last = this.current.subarray(0, this.used)
         return [...this.full, this.used < UTF8_CHUNK_SIZE / 2 ? Buffer.from(last) : last]
     }

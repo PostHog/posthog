@@ -83,8 +83,6 @@ export function nativeCandidates(path: string): NativeCandidate[] {
     return candidates
 }
 
-// The container is hashed here, while it is in memory, and then handed to `keep`. The upload
-// and the report read the hash from the symbol set, so neither loads the container to hash it again.
 function debugSymbolSet(
     chunkId: string,
     type: SymbolDataType,

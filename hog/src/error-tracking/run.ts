@@ -744,13 +744,10 @@ async function uploadArtifacts(
                 'In event mode, exceptions take their release from the app. Pass --release-name, --release-version and --build matching the app identifier, version and build number, or exceptions will report no release.'
             )
         }
-        // Every map is read before the release is settled, because one that already carries a
-        // release decides whether a release is created. Only its ids stay in memory: the rest waits
-        // in the scratch file, so memory follows the largest map and not the build.
+        // Every map is read before the release is settled, because a map that carries a release
+        // decides whether one is created. Only its ids stay in memory, and the rest waits on disk.
         const maps = composed.map((artifact) => {
             const map = storeHermesMap(artifact.path, scratch)
-            // What reading the map left behind is several times its size, and it must be gone
-            // before the next map is read.
             collect()
             return { artifact, ...map }
         })
@@ -1051,9 +1048,8 @@ export async function cloneMaps(
     options: ErrorTrackingOptions
 ): Promise<CloneReport> {
     const cwd = ctx.runtime.cwd()
-    // The packager map is only rewritten when its release changes, so the first read keeps its ids
-    // alone, and what it parsed is collected before the composed map is read. Both maps are read
-    // before the release is settled, so a broken map stops the command before it creates one.
+    // Both maps are read before the release is settled, so a broken map stops the command before
+    // it creates one. The packager map is read for its ids, and again only if its release changes.
     const from = readMap(cwd, fromPath, 'packager', 'ids')
     collect()
     const to = readMap(cwd, toPath, 'composed', options.dryRun ? 'ids' : 'all')
@@ -1176,8 +1172,6 @@ function packageNative(
             // Sources come from the whole binary, so every slice of a fat binary carries all of them.
             const steps = new Map<string, ReturnType<typeof sourceStep>>()
             const folder = resolve(cwd, artifact.root.path)
-            // A bundle that fails part of the way through uploads nothing, so its symbol sets wait
-            // here until every slice is packaged.
             const uploads: SymbolSetUpload[] = []
             for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
                 if (includeSource && !steps.has(slice.path)) {

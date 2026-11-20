@@ -131,8 +131,6 @@ export class KnownMapFields {
     }
 }
 
-// Reads the three known fields and hands every other field to `onField` as soon as it is parsed.
-// A caller that keeps none of the values never holds the tree of the whole map.
 export function readMapFields(text: string, onField: (key: string, value: JsonValue) => void): MapIds {
     return parseMapFields(new JsonParser(text), onField)
 }
