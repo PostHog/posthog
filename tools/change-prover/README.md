@@ -71,6 +71,7 @@ Two workflows split the work.
 Only `publish` can request an OIDC token, and it checks out only `publish-check-run.sh` and runs only `jq`, `curl` and `gh`.
 The token's audience is a digest of the check name, the conclusion and the marker, so it signs exactly that result.
 stamphog accepts the check run only with that token, from this job of the default-branch workflow, because any job's built-in token can post a check run under any name.
+Every check run also names the one open pull request at the head, including one whose author gets no proof and one the prover refused, because stamphog takes a signed result only for the pull request it names.
 
 Nothing from the pull request tree runs.
 Each job checks out only the prover, the `setup-uv` action and `.nvmrc` from the default branch.

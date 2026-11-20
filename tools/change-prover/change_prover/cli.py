@@ -133,6 +133,8 @@ def run_step(heading: str, refused: dict[str, str], work: Callable[[], StepAnswe
     except Refused as refusal:
         # A refusal is an answer, so the job passes. Only a failure of the prover itself fails the run.
         summary, outputs = f"Refused: {refusal}", {**refused, "refused": "true"}
+        if refusal.pr:
+            outputs["pr"] = str(refusal.pr)
     log(printable(summary))
     log(f"::{token}::")
     with step_files.output.open("a") as handle:
@@ -146,7 +148,9 @@ def identify_dependency(env: Mapping[str, str]) -> StepAnswer:
     request = identify_request(env)
     found = prove.identify(request, prove.GitHub(request.repository, env["GITHUB_TOKEN"]))
     if found is None:
-        return "No pull request at this head is eligible for a proof", NOT_DEPENDENCY_IDENTIFIED
+        return "No single open pull request has this head", NOT_DEPENDENCY_IDENTIFIED
+    if isinstance(found, prove.Ineligible):
+        return f"Pull request {found.pr} gets no proof", {**NOT_DEPENDENCY_IDENTIFIED, "pr": str(found.pr)}
     outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "lane": found.lane, "eligible": "true"}
     return f"Pull request {found.pr} is eligible for a proof", outputs
 
