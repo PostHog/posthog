@@ -60,9 +60,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         const restart = setTimeout(() => {
             restarts.delete(restart)
             if (!stopping) {
-                launch(spec).once('spawn', () => {
-                    exit.relaunchedAt = new Date().toISOString()
-                })
+                launch(spec).once('spawn', () => (exit.relaunchedAt = new Date().toISOString()))
             }
         }, options.restartBackoffMs)
         restarts.add(restart)

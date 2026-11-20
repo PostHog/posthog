@@ -435,7 +435,8 @@ export async function failOver({
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
-        const busy = minutes.filter(({ at, acu }) => at >= until - CAPACITY_MINUTES * MINUTE_MS && acu > idleMax)
+        const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
+        const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
         if (busy.length > 0) {
             refuse(
                 `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
