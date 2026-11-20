@@ -41,16 +41,16 @@ fi
 # again on every resume and compaction. It prepends the file to every Bash command, so
 # a block appended on each start grows the file until every command fails with
 # "argument list too long". Each block ends with a marker line that carries the
-# checksum of its exports. A block that matches the last marker is already in effect,
-# so the hook skips it. Any other block is appended, so a changed environment, a
-# switch back to an earlier manifest, or a complete block after a partial one still
-# applies. The hook only appends, because lines in the file that this hook did not
+# checksum of its exports. When the file ends with the marker of the same block, that
+# block is the last thing sourced and is in effect, so the hook skips it. In every
+# other case the hook appends: a changed environment, a switch back to an earlier
+# manifest, a partial block, or lines written after the marker by another version of
+# this hook. The hook only appends, because lines in the file that this hook did not
 # write are not its to remove.
 append_env_block() {
-  local block="$1" marker last_marker
+  local block="$1" marker
   marker="# setup-flox block: $(printf '%s' "$block" | cksum | awk '{print $1 "-" $2}')"
-  last_marker=$(grep '^# setup-flox block: ' "$CLAUDE_ENV_FILE" 2>/dev/null | tail -n 1)
-  if [ "$last_marker" != "$marker" ]; then
+  if [ "$(tail -n 1 "$CLAUDE_ENV_FILE" 2>/dev/null)" != "$marker" ]; then
     # The leading newline starts the block on its own line when the file does not
     # end with one.
     printf '\n%s\n%s\n' "$block" "$marker" >> "$CLAUDE_ENV_FILE"
