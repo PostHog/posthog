@@ -828,7 +828,7 @@ def _segment_references(automation: dict[str, Any]) -> set[str]:
 
 def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
     try:
-        return str(client.get(f"/segments/{segment_id}").get("name") or segment_id)
+        return str(client.get(f"/segments/{quote(segment_id, safe='')}").get("name") or segment_id)
     except ResendAPIError as e:
         # A step can name a deleted segment. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:
@@ -838,7 +838,7 @@ def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
 
 def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | None:
     try:
-        return client.get(f"/templates/{reference}")
+        return client.get(f"/templates/{quote(reference, safe='')}")
     except ResendAPIError as e:
         # A step can name a deleted template. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:

@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -801,6 +802,25 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 runs.run_step(self.team.id, run.id, step, attempt=1)
 
         assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
+
+    def test_automation_references_cannot_reach_another_resend_endpoint(self) -> None:
+        automations = copy.deepcopy(self.resend.data["automations"])
+        for automation in automations:
+            for step in automation["steps"]:
+                if step["type"] == "add_to_segment":
+                    step["config"]["segment_id"] = "s/../../api-keys"
+                if step["type"] == "send_email":
+                    step["config"]["template"]["id"] = "t/../../api-keys"
+        self.resend.data["automations"] = automations
+
+        run = runs.start_run(self.team.id, "resend", ["automations"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/templates/t%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert not any("/api-keys" in call and "%2F" not in call for call in self.resend.calls)
 
     def test_an_account_with_too_many_segments_fills_no_cohort(self) -> None:
         segment = self.resend.data["segments"][0]
