@@ -5,16 +5,37 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { NotebookNodeLogicProps } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+
+import { isSavedInsightNode } from '~/queries/utils'
 
 import { notebookFilterLogic } from './notebookFilterLogic'
+import { getFilteredNotebookQuery } from './notebookFilters'
+
+function isFilterableBlock({ nodeType, attributes }: NotebookNodeLogicProps): boolean {
+    if (nodeType === NotebookNodeType.RecordingPlaylist) {
+        return true
+    }
+    return (
+        nodeType === NotebookNodeType.Query &&
+        (!!attributes.id ||
+            isSavedInsightNode(attributes.query) ||
+            !!getFilteredNotebookQuery(attributes.query, { properties: [] }))
+    )
+}
 
 export function NotebookFiltersBar(): JSX.Element | null {
-    const { shortId, mode, isShared } = useValues(notebookLogic)
+    const { shortId, mode, isShared, nodeLogics } = useValues(notebookLogic)
     const logic = notebookFilterLogic({ shortId })
     const { filters } = useValues(logic)
     const { setFilters } = useActions(logic)
-    if (isShared || mode === 'canvas') {
+    if (
+        isShared ||
+        mode === 'canvas' ||
+        (!filters && !Object.values(nodeLogics).some((node) => isFilterableBlock(node.props)))
+    ) {
         return null
     }
 

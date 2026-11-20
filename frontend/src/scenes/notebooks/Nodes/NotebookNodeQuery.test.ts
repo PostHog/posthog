@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
@@ -8,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
+import { NotebookFiltersBar } from 'products/notebooks/frontend/NotebookFiltersBar'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType } from '../types'
@@ -75,6 +77,42 @@ describe('NotebookNodeQuery', () => {
             unmountNode()
             unmountNotebook()
             capture.mockRestore()
+        }
+    })
+
+    it('offers filters only while the notebook has a filterable block', async () => {
+        initKeaTests()
+        const notebook = notebookLogic({ shortId: 'template-filter-bar' })
+        const unmountNotebook = notebook.mount()
+        const query = notebookNodeLogic({
+            notebookLogic: notebook,
+            nodeType: NotebookNodeType.Query,
+            titlePlaceholder: 'Events',
+            attributes: {
+                nodeId: 'events',
+                query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } },
+            },
+            updateAttributes: () => {},
+        })
+        try {
+            render(
+                createElement(BindLogic, {
+                    logic: notebookLogic,
+                    props: notebook.props,
+                    children: createElement(NotebookFiltersBar),
+                })
+            )
+            expect(screen.queryByLabelText('Notebook filters')).toBeNull()
+            const unmountQuery = query.mount()
+            try {
+                expect(await screen.findByLabelText('Notebook filters')).toBeTruthy()
+            } finally {
+                act(unmountQuery)
+            }
+            await waitFor(() => expect(screen.queryByLabelText('Notebook filters')).toBeNull())
+        } finally {
+            cleanup()
+            unmountNotebook()
         }
     })
 
