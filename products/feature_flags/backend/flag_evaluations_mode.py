@@ -112,8 +112,10 @@ def _upsert_modes(organization_ids: Collection[UUID], mode: FlagEvaluationsMode,
          WHERE {table}.flag_evaluations_mode {comparison} EXCLUDED.flag_evaluations_mode
         RETURNING organization_id
     """
+    # The statement locks existing rows in the order of the array, so every writer sorts the ids to lock
+    # overlapping rows in the same order.
     with connection.cursor() as cursor:
-        cursor.execute(query, [[str(organization_id) for organization_id in organization_ids], int(mode)])
+        cursor.execute(query, [[str(organization_id) for organization_id in sorted(organization_ids)], int(mode)])
         return {row[0] for row in cursor.fetchall()}
 
 

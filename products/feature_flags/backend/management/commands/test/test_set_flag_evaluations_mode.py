@@ -427,6 +427,30 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIn(expected_line, output)
         self.assertNotIn(unexpected_text, output)
 
+    def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(self) -> None:
+        listed, moved = self._organizations_without_config(2)
+        changed_ids_file = self._ids_file()
+        Path(changed_ids_file).write_text(str(listed.id))
+
+        self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
+
+        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(listed.id), str(moved.id)])
+
+    def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
+        organizations = self._organizations_without_config(5)
+
+        with CaptureQueriesContext(connection) as queries:
+            set_organizations_flag_evaluations_mode(
+                list(reversed(organizations)),
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                allow_downgrade=False,
+                dry_run=False,
+            )
+
+        [upsert] = [query["sql"] for query in queries if "unnest" in query["sql"]]
+        sent_ids = re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", upsert)
+        self.assertEqual(sent_ids, sorted(str(organization.id) for organization in organizations))
+
     def test_a_chunk_takes_the_same_number_of_queries_for_any_number_of_organizations(self) -> None:
         def count_queries(organizations: list[Organization]) -> int:
             with CaptureQueriesContext(connection) as queries:

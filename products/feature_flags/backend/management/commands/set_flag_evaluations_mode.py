@@ -299,8 +299,11 @@ class Command(BaseCommand):
             file.close()
             raise CommandError(f"Another run is writing to {path}") from error
         file.seek(0)
-        if listed_count := sum(1 for line in file if line.strip()):
+        listed = file.read()
+        if listed_count := sum(1 for line in listed.splitlines() if line.strip()):
             self.stdout.write(f"Appending to {path}, which lists {listed_count} organization id(s) already.")
+        if listed and not listed.endswith("\n"):
+            file.write("\n")
         file.seek(0, os.SEEK_END)
         return file
 
