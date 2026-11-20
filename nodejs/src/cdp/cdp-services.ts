@@ -14,6 +14,7 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
+import { ClassifyDailyCap } from './async-functions/classify'
 import type { CdpConfig } from './config'
 import {
     CdpEventsDlqOutput,
@@ -159,6 +160,7 @@ export type CdpCoreServicesConfig = Pick<
     UsageIngestionConfig &
     Pick<
         CdpConfig,
+        | 'CDP_CLASSIFY_TEAM_DAILY_CAP'
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
@@ -594,6 +596,10 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            // Every worker that routes a classification to the classify queue holds this pool.
+            classifyDailyCap: deps.emailValidationValkey
+                ? new ClassifyDailyCap(deps.emailValidationValkey, config.CDP_CLASSIFY_TEAM_DAILY_CAP)
+                : null,
         }
     )
 

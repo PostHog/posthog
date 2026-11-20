@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
@@ -124,6 +126,77 @@ registerAsyncFunction('postHogClassify', {
         }
     },
 })
+
+const classifyDailyCapSkippedTotal = new Counter({
+    name: 'cdp_classify_daily_cap_skipped_total',
+    help: 'Classify with AI steps skipped because their team reached its daily cap.',
+})
+
+const classifyDailyCapUncountedTotal = new Counter({
+    name: 'cdp_classify_daily_cap_uncounted_total',
+    help: 'Classify with AI steps let through without a daily cap count, because Valkey failed or was too slow.',
+})
+
+// Longer than the UTC day a key counts, so a key never expires while its day still runs.
+const DAILY_COUNT_TTL_SECONDS = 2 * 24 * 60 * 60
+const DAILY_COUNT_DEADLINE_MS = 500
+
+/** Counts each team's classifications per UTC day, so one team cannot spend the whole model budget. */
+export class ClassifyDailyCap {
+    constructor(
+        private valkey: RedisV2,
+        readonly dailyCap: number
+    ) {}
+
+    /** Counts one classification and says whether it fits. A slow or failing Valkey lets it through: the queue's limiter still bounds the rate. */
+    async countAndCheck(teamId: number): Promise<boolean> {
+        const day = new Date(Date.now()).toISOString().slice(0, 10)
+        const key = `@posthog/classify-day/{${teamId}}/${day}`
+        try {
+            const count = await this.valkey.useClient(
+                { name: 'classify-daily-cap', failOpen: true, deadlineMs: DAILY_COUNT_DEADLINE_MS },
+                async (client) => {
+                    const [[, counted]] = (await client
+                        .multi()
+                        .incr(key)
+                        .expire(key, DAILY_COUNT_TTL_SECONDS)
+                        .exec()) ?? [[null, 0]]
+                    return Number(counted)
+                }
+            )
+            if (count === null) {
+                classifyDailyCapUncountedTotal.inc()
+                return true
+            }
+            return count <= this.dailyCap
+        } catch {
+            classifyDailyCapUncountedTotal.inc()
+            return true
+        }
+    }
+}
+
+/** Counts before the classify queue, so a skip never spends its shared rate. Null when the classification fits. */
+export async function skipPastDailyCap(
+    invocation: CyclotronJobInvocationHogFunction,
+    dailyCap: ClassifyDailyCap | null
+): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    if (!dailyCap || (await dailyCap.countAndCheck(invocation.teamId))) {
+        return null
+    }
+    const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: false })
+    createAddLogFunction(result.logs)(
+        'warn',
+        `This project reached its daily limit of ${dailyCap.dailyCap.toLocaleString('en-US')} classifications, so the step was skipped. The limit resets at midnight UTC.`
+    )
+    // A success that carries the skip, so the template returns it as the step's output without a change.
+    result.invocation.state.vmState?.stack.push({
+        status: 200,
+        body: { category: null, confidence: null, skipped: true },
+    })
+    classifyDailyCapSkippedTotal.inc()
+    return result
+}
 
 export interface ClassifyRetryPolicy {
     maxAttempts: number

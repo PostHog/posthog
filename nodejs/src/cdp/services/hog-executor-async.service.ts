@@ -8,7 +8,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
-import { classifyOnce } from '../async-functions/classify'
+import { ClassifyDailyCap, classifyOnce, skipPastDailyCap } from '../async-functions/classify'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -74,6 +74,7 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
+    classifyDailyCap: ClassifyDailyCap | null
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -202,7 +203,9 @@ export class HogExecutorAsyncService {
                     // The classify queue is rate limited, so a run only calls the model from there. A test
                     // run executes in-process and never enqueues, so it calls inline.
                     if (invocation.queue !== 'classify' && !options?.isTest) {
-                        result = this.routeClassifyToQueue(nextInvocation, invocation)
+                        result =
+                            (await skipPastDailyCap(nextInvocation, this.deps.classifyDailyCap)) ??
+                            this.routeClassifyToQueue(nextInvocation, invocation)
                     } else {
                         result = await classifyOnce(nextInvocation, this.config.internalApiBaseUrl, {
                             maxAttempts: options?.isTest ? 1 : this.config.fetchRetries,

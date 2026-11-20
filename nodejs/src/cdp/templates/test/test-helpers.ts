@@ -251,6 +251,7 @@ export class TemplateTester {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                classifyDailyCap: null,
             }
         )
     }

@@ -34,6 +34,7 @@ import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import { ClassifyDailyCap } from '../../async-functions/classify'
 import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
@@ -255,7 +256,8 @@ describe('Hogflow Executor', () => {
     }
 
     const createExecutor = (
-        emailService: EmailService
+        emailService: EmailService,
+        classifyDailyCap: ClassifyDailyCap | null = null
     ): { executor: HogFlowExecutorService; hogFlowFunctionsService: HogFlowFunctionsService } => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
@@ -286,6 +288,7 @@ describe('Hogflow Executor', () => {
                 hogInputsService,
                 emailService,
                 recipientTokensService,
+                classifyDailyCap,
                 pushNotificationService: new PushNotificationService(
                     hub.integrationManager,
                     hub.encryptedFields,
@@ -3753,6 +3756,7 @@ describe('Hogflow Executor', () => {
 
         afterEach(() => {
             jest.mocked(internalFetch).mockReset()
+            jest.restoreAllMocks()
         })
 
         it('moves the step to the classify queue, calls Django once there, and resumes the run with the answer', async () => {
@@ -3805,6 +3809,59 @@ ${classifyTemplate.code}`,
 
             expect(onHogflow.invocation.queue).toBe('classify')
             expect(onHogflow.capturedPostHogEvents.map((captured) => captured.event)).toEqual(['ticket triaged'])
+        })
+
+        it("skips a team's classifications past its daily cap until the next UTC day", async () => {
+            const capValkey = createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
+            const { executor: capped } = createExecutor(createEmailService(), new ClassifyDailyCap(capValkey, 2))
+            const django = djangoAnswers(200, 200, 200)
+            const classifyToTheEnd = async (): Promise<{
+                result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+                logs: string[]
+                queues: string[]
+            }> => {
+                let result = await capped.execute(await classifyRun())
+                const logs = result.logs.map((log) => log.message)
+                const queues = [result.invocation.queue]
+                while (!result.finished) {
+                    result = await capped.execute(result.invocation)
+                    logs.push(...result.logs.map((log) => log.message))
+                    queues.push(result.invocation.queue)
+                }
+                return { result, logs, queues }
+            }
+            const today = DateTime.fromISO('2026-11-20T23:00:00Z')
+            const dateNow = jest.spyOn(Date, 'now').mockReturnValue(today.toMillis())
+
+            const runsToday = [await classifyToTheEnd(), await classifyToTheEnd(), await classifyToTheEnd()]
+
+            expect(runsToday.map((run) => run.result.invocation.state.variables?.classification)).toEqual([
+                { category: 'spam', confidence: 0.9 },
+                { category: 'spam', confidence: 0.9 },
+                { category: null, confidence: null, skipped: true },
+            ])
+            expect(runsToday[2].result.error).toBeUndefined()
+            // A skip never spends the classify queue's shared rate.
+            expect(runsToday[2].queues).not.toContain('classify')
+            expect(runsToday[2].logs).toEqual(
+                expect.arrayContaining([expect.stringContaining('daily limit of 2 classifications')])
+            )
+            expect(django).toHaveBeenCalledTimes(2)
+
+            dateNow.mockReturnValue(today.plus({ hours: 2 }).toMillis())
+            const tomorrow = await classifyToTheEnd()
+
+            expect(tomorrow.result.invocation.state.variables?.classification?.category).toBe('spam')
+            expect(django).toHaveBeenCalledTimes(3)
         })
 
         it.each([
