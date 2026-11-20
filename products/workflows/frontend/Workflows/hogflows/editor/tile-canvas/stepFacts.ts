@@ -2,6 +2,7 @@ import { EmailPreviewPerson, renderEmailPreviewText } from 'scenes/hog-functions
 
 import type { HogFlow, HogFlowAction } from '../../types'
 import { isBranchingAction } from '../../workflowBranches'
+import { renderWithinBudget } from './canvasRenderBudget'
 import { StepPresentation, stepPresentation, TimeWindowPresentation, WaitPresentation } from './stepPresentation'
 import {
     ActionOf,
@@ -34,30 +35,10 @@ type PresentationOf<Kind extends StepPresentation['kind']> = Extract<StepPresent
 
 const fieldIf = (label: string, value: string | undefined): Field[] => (value ? [[label, value]] : [])
 
-// The canvas renders every email step as the page draws, so a crafted workflow could stall it one step after another.
-// Once rendering has taken this long within a second, the remaining steps show their tags as plain words.
-const RENDER_BUDGET_MS = 300
-const budget = { windowStart: -Infinity, spent: 0 }
-
-function renderWithinBudget(template: string, person: EmailPreviewPerson): string | null {
-    const started = Date.now()
-    if (started - budget.windowStart > 1000) {
-        budget.windowStart = started
-        budget.spent = 0
-    }
-    if (budget.spent >= RENDER_BUDGET_MS) {
-        return null
-    }
-    try {
-        return renderEmailPreviewText(template, person)
-    } finally {
-        budget.spent += Date.now() - started
-    }
-}
-
 function emailFacts(email: EmailContent, action: HogFlowAction, person: PreviewPersonInput): StepFacts {
     const text = (template: string): string =>
-        (person && email.liquid ? renderWithinBudget(template, person) : null) ?? plainVariables(template)
+        (person && email.liquid ? renderWithinBudget(() => renderEmailPreviewText(template, person)) : null) ??
+        plainVariables(template)
     const subject = text(email.subject)
     const isTransactional =
         (action.type === 'function_email' || action.type === 'email_sandbox') &&

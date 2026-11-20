@@ -8,13 +8,16 @@ import {
 } from 'scenes/hog-functions/email-templater/preview/emailPreview'
 
 import { CanvasPreviewPersonContext } from '../CanvasPreviewPersonContext'
+import { renderWithinBudget } from '../canvasRenderBudget'
 import { EmailContent, plainVariables } from '../stepValues'
 
 export function EmailPreview({ email, title }: { email: EmailContent; title: string }): JSX.Element | null {
     const contextPerson = useContext(CanvasPreviewPersonContext)
     const person = email.liquid ? contextPerson : undefined
     if (email.html) {
-        const html = person ? withUnresolvedChips(renderEmailPreviewMarked(email.html, person)) : email.html
+        const html =
+            (person && renderWithinBudget(() => withUnresolvedChips(renderEmailPreviewMarked(email.html!, person)))) ||
+            email.html
         return (
             <div className="flex justify-center overflow-hidden rounded-md border bg-white">
                 <EmailPreviewThumbnail html={html} title={title} size="card" />
@@ -24,7 +27,8 @@ export function EmailPreview({ email, title }: { email: EmailContent; title: str
     return email.text ? (
         <div className="ph-no-capture rounded-md border p-2.5 text-left text-[12.5px] leading-snug">
             <div className="line-clamp-6 whitespace-pre-line break-words">
-                {person ? renderEmailPreviewText(email.text, person) : plainVariables(email.text)}
+                {(person && renderWithinBudget(() => renderEmailPreviewText(email.text!, person))) ||
+                    plainVariables(email.text)}
             </div>
         </div>
     ) : null
