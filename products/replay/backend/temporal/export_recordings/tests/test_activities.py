@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -33,6 +34,7 @@ from products.replay.backend.temporal.export_recordings.activities import (
     fetch_blocks_in_order,
     list_shard_sessions,
     load_session_metadata,
+    load_shard_session_ids,
     policy_statements,
     quote_storage_key,
     write_summary,
@@ -49,6 +51,11 @@ from products.replay.backend.temporal.export_recordings.types import (
     ExportTotals,
     WriteSummaryInput,
 )
+
+
+def _list(input: ExportShardInput) -> list[SessionRow]:
+    return list_shard_sessions(input, load_shard_session_ids(input))
+
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
@@ -162,14 +169,13 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         ):
             return async_to_sync(self._run_activity)(env, self._shard_input())
 
-    def _shard_input(self, day: datetime | None = None, quote: Quote | None = None) -> ExportShardInput:
+    def _shard_input(self, day: datetime | None = None, quote: Quote | None = None, shard: int = 0) -> ExportShardInput:
         return ExportShardInput(
             team_id=self.team.pk,
             destination=self.destination,
             run_id="run-1",
             day=(day or self.day).date().isoformat(),
-            shard=0,
-            shards_per_day=1,
+            shard=shard,
             session_ids_prefix=(quote or self.quote).session_ids_prefix,
         )
 
@@ -212,8 +218,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert parts == [f"{day}-0000-0000.jsonl", f"{day}-0000-0001.jsonl"]
         assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s1", "exported"), ("s2", "deleted")]
 
-    def _quote(self, session_ids: list[str] | None) -> Quote:
-        activities.load_session_ids.cache_clear()
+    def _quote(self, session_ids: list[str] | None, shards_per_day: int = 1) -> Quote:
         return create_quote(
             team_id=self.team.pk,
             date_from=self.day.date().isoformat(),
@@ -221,14 +226,14 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             session_ids=session_ids,
             region="us-east-1",
             cross_region=False,
-            shards_per_day=1,
+            shards_per_day=shards_per_day,
             max_parallel_shards=1,
             selection="test",
         )
 
     def _listed_by_day(self, quote: Quote) -> list[list[str]]:
         return [
-            [s.session_id for s in list_shard_sessions(self._shard_input(day, quote))]
+            [s.session_id for s in _list(self._shard_input(day, quote))]
             for day in (self.day, self.day + timedelta(days=1))
         ]
 
@@ -237,6 +242,19 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
         assert self._listed_by_day(quote) == [["s2"], ["s4"]]
         assert quote.usage.sessions == 2
+
+    def test_each_quoted_session_is_in_exactly_one_shard(self) -> None:
+        quote = self._quote(None, shards_per_day=4)
+
+        listed = [s.session_id for shard in range(4) for s in _list(self._shard_input(quote=quote, shard=shard))]
+
+        assert sorted(listed) == ["s1", "s2"]
+
+    def test_a_lost_shard_list_fails_the_shard_without_retrying(self) -> None:
+        with pytest.raises(ApplicationError) as error:
+            load_shard_session_ids(self._shard_input(quote=dataclasses.replace(self.quote, session_ids_prefix="gone")))
+
+        assert error.value.non_retryable
 
     def test_saved_filter_selects_its_matches_in_the_quote_range(self) -> None:
         for session_id, start in (("s5", self.day + timedelta(hours=3)), ("s6", self.day + timedelta(days=1))):
@@ -399,12 +417,14 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         quote = self._quote(None)
 
         def listed(day: datetime) -> dict[str, int]:
-            return {s.session_id: len(s.blocks or []) for s in list_shard_sessions(self._shard_input(day, quote))}
+            return {s.session_id: len(s.blocks or []) for s in _list(self._shard_input(day, quote))}
 
         assert listed(self.day)["s5"] == 2
         assert "s5" not in listed(midnight)
         next_day = midnight.date().isoformat()
-        assert select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC)).usage.sessions == 1
+        assert (
+            select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
+        )
 
     def test_viewport_batches_that_hit_the_row_limit_are_split(self) -> None:
         _create_event(
@@ -415,7 +435,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$viewport_width": 800, "$viewport_height": 600},
         )
         flush_persons_and_events()
-        sessions = [s for s in list_shard_sessions(self._shard_input()) if s.session_id in ("s1", "s2")]
+        sessions = [s for s in _list(self._shard_input()) if s.session_id in ("s1", "s2")]
 
         with patch.object(activities, "VIEWPORT_ROW_LIMIT", 1):
             viewports, _ = load_session_metadata(self.team.pk, sessions)
@@ -425,7 +445,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()
 
-        usage = select_sessions(self.team.pk, day, day, None, 1, datetime.now(UTC)).usage
+        usage = select_sessions(self.team.pk, day, day, None, 1, datetime.now(UTC), lambda *_: None)
 
         # s1 and s2 count. s3 is deleted and s4 started the next day. Only the 90d block is in Glacier IR.
         assert (usage.sessions, usage.blocks, usage.bytes, usage.glacier_blocks, usage.glacier_bytes) == (
@@ -458,10 +478,10 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             ensure_analytics_event_in_session=False,
         )
 
-        assert [s.session_id for s in list_shard_sessions(self._shard_input())] == ["s2"]
+        assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
         # A page whose sessions were all deleted does not end the shard.
         with patch.object(activities, "SESSIONS_PER_CHECKPOINT", 1):
-            assert [s.session_id for s in list_shard_sessions(self._shard_input())] == ["s2"]
+            assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
 
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
@@ -528,7 +548,6 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         run_id="run-1",
         day="2026-01-01",
         shard=0,
-        shards_per_day=1,
         session_ids_prefix="unused",
     )
 

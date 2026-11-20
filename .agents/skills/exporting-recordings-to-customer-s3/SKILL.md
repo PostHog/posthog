@@ -50,6 +50,7 @@ To export only some sessions in the range, you also need one of:
 Filters on event properties, such as country, scan events over the whole range and can take minutes on a large team.
 The quote saves the list of sessions it priced, and the run exports exactly that list. Sessions that arrive after the quote are not exported.
 Each day is split into `--shards-per-day` shards (default 16), and a shard holds at most 100,000 sessions. When the quote names a shard that goes over, quote again with a higher `--shards-per-day`.
+A session ID file or saved filter can select at most 1,000,000 sessions per quote. Split a larger selection by date range.
 A session belongs to the day it started on.
 The range must end before today (UTC). The command refuses a range that includes today.
 Recordings past their retention are gone and cannot be exported.

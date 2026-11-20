@@ -1,6 +1,8 @@
 import json
 import uuid
 import dataclasses
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
 from posthog.schema import RecordingOrder, RecordingOrderDirection
@@ -16,12 +18,11 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.storage import object_storage
 
 from products.replay.backend.temporal.export_recordings.activities import (
-    MAX_SELECTED_SESSION_BYTES,
-    MAX_SELECTED_SESSIONS,
     SESSION_EXPIRY_TIME_SQL,
     quote_storage_key,
     session_ids_shard_key,
 )
+from products.replay.backend.temporal.export_recordings.types import day_range
 
 # AWS list prices for the replay bucket's storage classes.
 STANDARD_GET_USD_PER_1K = 0.0004
@@ -37,8 +38,13 @@ GLACIER_IR_AFTER_DAYS = 30
 QUOTE_VALID_DAYS = 7
 # A file that crosses into Glacier IR before the run ends is read at the Glacier IR price.
 RUN_ALLOWANCE_DAYS = 2
-SESSION_IDS_PER_QUERY = 2000
-PLAYLIST_PAGE_SIZE = 1000
+# A listed ID adds about 40 bytes to the query, so a chunk stays well under the query size limit.
+SESSION_IDS_PER_QUERY = 20_000
+SHARD_FILE_WRITERS = 16
+MAX_SESSIONS_PER_SHARD = 100_000
+# Bounds the ID scans a list quote runs: one scan of the range per chunk.
+MAX_LISTED_SESSIONS = 1_000_000
+PLAYLIST_PAGE_SIZE = 10_000
 PLAYLIST_QUERY_SECONDS = 600
 
 # Per-URL expressions, applied to each row's block_urls so a session aggregates counters, not URL lists.
@@ -93,11 +99,6 @@ class QuoteUsage:
     glacier_blocks: int = 0
     glacier_bytes: int = 0
     best_effort_sessions: int = 0
-
-    def add(self, other: "QuoteUsage") -> "QuoteUsage":
-        return QuoteUsage(
-            **{f.name: getattr(self, f.name) + getattr(other, f.name) for f in dataclasses.fields(QuoteUsage)}
-        )
 
 
 @frozen
@@ -156,25 +157,23 @@ def price(usage: QuoteUsage, *, max_parallel_shards: int, cross_region: bool) ->
     )
 
 
-def day_range(date_from: str, date_to: str) -> list[date]:
-    first, last = date.fromisoformat(date_from), date.fromisoformat(date_to)
-    return [first + timedelta(days=offset) for offset in range((last - first).days + 1)]
-
-
 def _day_start(day: date) -> datetime:
     return datetime.combine(day, datetime.min.time(), UTC)
 
 
-@frozen
-class Selection:
-    usage: QuoteUsage
-    shards: dict[tuple[date, int], list[str]]
+ShardLists = dict[tuple[date, int], list[str]]
 
 
 def select_sessions(
-    team_id: int, date_from: str, date_to: str, session_ids: list[str] | None, shards_per_day: int, now: datetime
-) -> Selection:
-    """Find the sessions the quote exports, with their usage. A list narrows the range to the sessions it names."""
+    team_id: int,
+    date_from: str,
+    date_to: str,
+    session_ids: list[str] | None,
+    shards_per_day: int,
+    now: datetime,
+    on_days: Callable[[list[date], ShardLists], None],
+) -> QuoteUsage:
+    """Measure the sessions the quote exports and hand their lists to `on_days`, a day at a time for a range."""
     tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=team_id)
     glacier_cutoff = now + timedelta(days=QUOTE_VALID_DAYS + RUN_ALLOWANCE_DAYS - GLACIER_IR_AFTER_DAYS)
     params = {
@@ -194,8 +193,8 @@ def select_sessions(
             for start in range(0, len(session_ids), SESSION_IDS_PER_QUERY)
         ]
 
-    usage = QuoteUsage()
-    shards: dict[tuple[date, int], list[str]] = {}
+    totals = [0] * len(dataclasses.fields(QuoteUsage))
+    pending: ShardLists = {}
     for first, last, chunk in windows:
         rows = sync_execute(
             SESSION_USAGE_QUERY.replace(
@@ -209,19 +208,17 @@ def select_sessions(
             },
             workload=Workload.OFFLINE,
         )
-        for session_id, day, shard, blocks, bytes, glacier_blocks, glacier_bytes, best_effort in rows:
-            shards.setdefault((day, int(shard)), []).append(session_id)
-            usage = usage.add(
-                QuoteUsage(
-                    sessions=1,
-                    blocks=int(blocks),
-                    bytes=int(bytes),
-                    glacier_blocks=int(glacier_blocks),
-                    glacier_bytes=int(glacier_bytes),
-                    best_effort_sessions=int(best_effort),
-                )
-            )
-    return Selection(usage=usage, shards={key: sorted(ids) for key, ids in shards.items()})
+        for session_id, day, shard, *counters in rows:
+            pending.setdefault((day, int(shard)), []).append(session_id)
+            totals[0] += 1
+            for index, value in enumerate(counters, start=1):
+                totals[index] += int(value)
+        if session_ids is None:
+            on_days([first], {key: sorted(ids) for key, ids in pending.items()})
+            pending.clear()
+    if session_ids is not None:
+        on_days(days, {key: sorted(ids) for key, ids in pending.items()})
+    return QuoteUsage(**dict(zip((f.name for f in dataclasses.fields(QuoteUsage)), totals)))
 
 
 def create_quote(
@@ -236,18 +233,25 @@ def create_quote(
     max_parallel_shards: int,
     selection: str,
 ) -> Quote:
+    if session_ids is not None and len(session_ids) > MAX_LISTED_SESSIONS:
+        raise SelectionError(f"The list has {len(session_ids):,} sessions. Quote at most {MAX_LISTED_SESSIONS:,}.")
     now = datetime.now(UTC)
     quote_id = uuid.uuid4().hex
-    selected = select_sessions(team_id, date_from, date_to, session_ids, shards_per_day, now)
-    for (day, shard), ids in selected.shards.items():
-        check_shard_selection(day, shard, ids)
     session_ids_prefix = f"session_recording_exports/session_ids/{quote_id}"
-    # Every shard gets a file, so a shard that finds none knows the list was lost rather than empty.
-    for day in day_range(date_from, date_to):
-        for shard in range(shards_per_day):
-            ids = selected.shards.get((day, shard), [])
-            object_storage.write(session_ids_shard_key(session_ids_prefix, day.isoformat(), shard), "\n".join(ids))
-    usage = selected.usage
+
+    def write_lists(days: list[date], lists: ShardLists) -> None:
+        for (day, shard), ids in lists.items():
+            check_shard_selection(day, shard, ids)
+        # Every shard gets a file, so a shard that finds none knows the list was lost rather than empty.
+        files = [
+            (session_ids_shard_key(session_ids_prefix, day.isoformat(), shard), "\n".join(lists.get((day, shard), [])))
+            for day in days
+            for shard in range(shards_per_day)
+        ]
+        with ThreadPoolExecutor(max_workers=SHARD_FILE_WRITERS) as pool:
+            list(pool.map(lambda item: object_storage.write(*item), files))
+
+    usage = select_sessions(team_id, date_from, date_to, session_ids, shards_per_day, now, write_lists)
     quote = Quote(
         quote_id=quote_id,
         team_id=team_id,
@@ -274,22 +278,17 @@ def load_quote(quote_id: str) -> Quote | None:
 
 
 def check_shard_selection(day: date, shard: int, session_ids: list[str]) -> None:
-    """Refuse a shard whose session list does not fit in the shard query that filters by it."""
-    if len(session_ids) > MAX_SELECTED_SESSIONS:
+    """Refuse a shard too big for one export activity to load and checkpoint through."""
+    if len(session_ids) > MAX_SESSIONS_PER_SHARD:
         raise SelectionError(
-            f"Shard {day}:{shard} has {len(session_ids):,} sessions, more than {MAX_SELECTED_SESSIONS:,}. "
-            "Quote again with a higher --shards-per-day."
-        )
-    # Each ID goes into the query quoted and comma-separated.
-    if sum(len(session_id.encode()) + 4 for session_id in session_ids) > MAX_SELECTED_SESSION_BYTES:
-        raise SelectionError(
-            f"The session IDs in shard {day}:{shard} are too long to send in one query. "
+            f"Shard {day}:{shard} has {len(session_ids):,} sessions, more than {MAX_SESSIONS_PER_SHARD:,}. "
             "Quote again with a higher --shards-per-day."
         )
 
 
 def playlist_session_ids(team: Team, short_id: str, date_from: str, date_to: str) -> list[str]:
     """List every session a saved recordings filter matches in the range, as the recordings list would show it."""
+    tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=team.pk)
     playlist = SessionRecordingPlaylist.objects.filter(team=team, short_id=short_id, deleted=False).first()
     if playlist is None:
         raise SelectionError(f"Saved filter {short_id} does not exist in team {team.pk}")

@@ -1,6 +1,6 @@
 import asyncio
 import dataclasses
-from datetime import date, timedelta
+from datetime import timedelta
 
 from temporalio import common, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -13,6 +13,7 @@ from products.replay.backend.temporal.export_recordings.types import (
     ExportShardInput,
     ExportTotals,
     WriteSummaryInput,
+    day_range,
 )
 
 # Keeps each run's history well under Temporal's event limit; longer exports continue as new.
@@ -25,8 +26,7 @@ def shard_name(day: str, shard: int) -> str:
 
 def shard_plan(input: ExportRecordingsInput) -> list[tuple[str, int]]:
     """Every (day, shard) pair to run, oldest day first, so the sessions closest to expiry go first."""
-    first, last = date.fromisoformat(input.date_from), date.fromisoformat(input.date_to)
-    days = [(first + timedelta(days=offset)).isoformat() for offset in range((last - first).days + 1)]
+    days = [day.isoformat() for day in day_range(input.date_from, input.date_to)]
     plan = [(day, shard) for day in days for shard in range(input.shards_per_day)]
     if input.only_shards is not None:
         plan = [(day, shard) for day, shard in plan if shard_name(day, shard) in input.only_shards]
@@ -109,7 +109,6 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                 run_id=input.run_id,
                 day=day,
                 shard=shard,
-                shards_per_day=input.shards_per_day,
                 session_ids_prefix=input.session_ids_prefix,
             ),
             start_to_close_timeout=timedelta(hours=12),

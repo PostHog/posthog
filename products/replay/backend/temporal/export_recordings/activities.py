@@ -69,9 +69,6 @@ RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
 # S3 needs at least 5 MiB for every multipart part except the last.
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
-MAX_SELECTED_SESSIONS = 100_000
-# Half of ClickHouse's 8 MiB query size limit, so the rest of the query and the quoting always fit.
-MAX_SELECTED_SESSION_BYTES = 4 * 1024 * 1024
 METADATA_BATCH_SIZE = 100
 VIEWPORT_ROW_LIMIT = 50000
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
@@ -81,13 +78,16 @@ BUCKET_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 KMS_KEY_PATTERN = re.compile(r"^(arn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:key/)?[A-Za-z0-9-]+$")
 BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<start>\d+)-(?P<end>\d+)$")
 
+# Our cost and storage paths stay out of the customer's bucket.
+CUSTOMER_QUOTE_FIELDS = ("quote_id", "team_id", "date_from", "date_to", "selection", "created_at", "usage")
+
 NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, ExternalRoleArnNotConfiguredError)
 
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
 SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
 
-# A session that crosses midnight has rows on two days. Reading the day before finds its true start,
-# and reading the day after finds its later rows.
+# A session that crosses midnight has rows on two days, so the day before and the day after are read too.
+# The quote already fixed each session's day, so a start that moves later does not drop it.
 SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
@@ -104,8 +104,6 @@ PREWHERE team_id = %(team_id)s
 WHERE session_id IN %(session_ids)s
 GROUP BY session_id
 HAVING max(is_deleted) = 0
-    AND start_time >= %(day_start)s
-    AND start_time < %(day_start)s + INTERVAL 1 DAY
 ORDER BY session_id
 """
 
@@ -219,9 +217,8 @@ def session_ids_shard_key(prefix: str, day: str, shard: int) -> str:
     return f"{prefix}/{day}/{shard:04d}.txt"
 
 
-def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
+def list_shard_sessions(input: ExportShardInput, listed: tuple[str, ...], after: str = "") -> list[SessionRow]:
     """Return the next page of the shard's listed sessions after a session ID, skipping deleted ones."""
-    listed = load_session_ids(session_ids_shard_key(input.session_ids_prefix, input.day, input.shard))
     remaining = listed[bisect.bisect_right(listed, after) :]
     # A page can come back empty when all its sessions were deleted, so keep going until one has rows.
     for start in range(0, len(remaining), SESSIONS_PER_CHECKPOINT):
@@ -249,10 +246,10 @@ def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[Sessio
     return []
 
 
-@functools.lru_cache(maxsize=8)
-def load_session_ids(key: str) -> tuple[str, ...]:
+def load_shard_session_ids(input: ExportShardInput) -> tuple[str, ...]:
+    key = session_ids_shard_key(input.session_ids_prefix, input.day, input.shard)
     # read() returns None for an empty file too, and a shard without sessions has one.
-    content = object_storage.read_bytes(key)
+    content = object_storage.read_bytes(key, missing_ok=True)
     if content is None:
         raise ApplicationError(f"Session ID list {key} does not exist", non_retryable=True)
     return tuple(sorted({line.strip() for line in content.decode().splitlines() if line.strip()}))
@@ -636,16 +633,17 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
         checkpoint = ShardCheckpoint(**{**details, "totals": ExportTotals(**details["totals"])})
     log.info("export_recordings.shard_started", resumed_after=checkpoint.last_session_id)
 
-    def load_page(after: str) -> asyncio.Task[tuple[list[SessionRow], SessionMetadata]]:
+    def load_page(listed: tuple[str, ...], after: str) -> asyncio.Task[tuple[list[SessionRow], SessionMetadata]]:
         def load() -> tuple[list[SessionRow], SessionMetadata]:
-            sessions = list_shard_sessions(input, after=after)
+            sessions = list_shard_sessions(input, listed, after=after)
             return sessions, load_session_metadata(input.team_id, sessions) if sessions else ({}, {})
 
         return asyncio.create_task(database_sync_to_async_pool(load)())
 
     # Heartbeat from the start: the first listing can take minutes on a large day.
     async with Heartbeater(details=(checkpoint,)) as heartbeater:
-        page = load_page(checkpoint.last_session_id)
+        listed = await database_sync_to_async_pool(load_shard_session_ids)(input)
+        page = load_page(listed, checkpoint.last_session_id)
         try:
             async with (
                 recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
@@ -666,7 +664,7 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
                     if not chunk:
                         break
                     # The next page lists and loads its metadata while this page exports.
-                    page = load_page(chunk[-1].session_id)
+                    page = load_page(listed, chunk[-1].session_id)
                     # A failed session cancels the rest of the page, and each cancelled session aborts its upload.
                     # Temporal then retries the shard from the last checkpoint.
                     try:
@@ -736,7 +734,6 @@ async def write_summary(input: WriteSummaryInput) -> None:
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
     async with customer_bucket(input.team_id, input.destination, input.run_id) as bucket:
-        # The customer gets the selection and the usage. Our cost stays out of their bucket.
-        customer_quote = {key: value for key, value in quote.items() if key != "cost"}
+        customer_quote = {key: quote[key] for key in CUSTOMER_QUOTE_FIELDS if key in quote}
         await bucket.put(f"{prefix}/quote.json", json.dumps(customer_quote, indent=2).encode())
         await bucket.put(f"{prefix}/summary.json", json.dumps(summary).encode())

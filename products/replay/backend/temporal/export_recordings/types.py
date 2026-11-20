@@ -1,9 +1,15 @@
 import dataclasses
+from datetime import date, timedelta
 from typing import Literal
 
 from posthog.dataclasses import frozen
 
 SessionStatus = Literal["exported", "deleted", "expired", "missing"]
+
+
+def day_range(date_from: str, date_to: str) -> list[date]:
+    first, last = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    return [first + timedelta(days=offset) for offset in range((last - first).days + 1)]
 
 
 @frozen
@@ -59,7 +65,6 @@ class ExportShardInput:
     run_id: str
     day: str
     shard: int
-    shards_per_day: int
     session_ids_prefix: str
 
 

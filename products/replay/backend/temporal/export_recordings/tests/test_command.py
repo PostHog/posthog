@@ -29,10 +29,9 @@ def test_shard_list_rejects_malformed_names(value: str) -> None:
     [
         (["a" * 36] * 1000, True),
         (["a" * 36] * 100_001, False),
-        (["a" * 100_000] * 50, False),
     ],
 )
-def test_a_day_of_selected_sessions_must_fit_in_one_query(session_ids: list[str], accepted: bool) -> None:
+def test_a_shard_holds_at_most_the_session_cap(session_ids: list[str], accepted: bool) -> None:
     if accepted:
         check_shard_selection(date(2026, 8, 1), 0, session_ids)
     else:
