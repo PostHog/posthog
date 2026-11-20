@@ -8,6 +8,7 @@ describe('devConfigOf', () => {
     const keyFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'dev-target-')), 'key')
     writeFileSync(keyFile, 'phx_test\n')
     const env = {
+        DEV_TARGET_HOST: 'https://us.posthog.com',
         DEV_TARGET_OFFERS_TEAM_ID: '1',
         DEV_TARGET_OFFERS_TOKEN: 'phc_test',
         DEV_TARGET_WORKFLOW_ID: '0190f6a2-0000-7000-8000-000000000001',
@@ -17,7 +18,7 @@ describe('devConfigOf', () => {
 
     beforeEach(() => chmodSync(keyFile, 0o600))
 
-    it('reads the target from the environment and the key from its file', () => {
+    it('reads the target from the environment and the key from its file, on the dev host whatever DEV_TARGET_HOST says', () => {
         expect(devConfigOf(env)).toEqual({
             host: 'https://app.dev.posthog.dev',
             offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
