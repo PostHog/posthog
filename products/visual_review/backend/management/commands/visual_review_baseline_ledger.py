@@ -9,6 +9,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Count, Exists, OuterRef, Q
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 
@@ -41,6 +42,13 @@ _DEFAULT_PATH_KEY = "default"
 _MAX_LISTED_PULL_REQUESTS = 50
 
 _COUNT_RE = re.compile(r"\d+")
+
+
+@frozen
+class _Heads:
+    heads: list[github_api.BranchHead]
+    # Heads of pull requests that target another branch than the default one, and of none that targets it.
+    stacked_commits: frozenset[str]
 
 
 class _Pacer:
@@ -330,7 +338,12 @@ class Command(BaseCommand):
     def _write_pull_requests_gated_by_status(self, repo: Repo) -> None:
         # These runs passed their CI job on the commit status alone, so removing the required statuses
         # from the ruleset leaves their pull requests without a gate until a new run replaces them. A run
-        # without unreviewed changes has nothing for the gate to hold back.
+        # without unreviewed or unfinalized changes has nothing for the gate to hold back.
+        awaiting_finalize = RunSnapshot.objects.using(WRITER_DB).filter(
+            run_id=OuterRef("id"),
+            review_state=ReviewState.APPROVED,
+            result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED),
+        )
         unreviewed = (
             RunSnapshot.objects.using(WRITER_DB)
             .filter(run_id=OuterRef("id"))
@@ -340,10 +353,11 @@ class Command(BaseCommand):
         )
         pr_numbers = list(
             Run.objects.using(WRITER_DB)
-            .alias(unreviewed=Exists(unreviewed))
+            .alias(unreviewed=Exists(unreviewed), awaiting_finalize=Exists(awaiting_finalize))
             .filter(
                 Q(status__in=(RunStatus.PENDING, RunStatus.PROCESSING))
-                | Q(status=RunStatus.COMPLETED, unreviewed=True),
+                | Q(status=RunStatus.COMPLETED, unreviewed=True)
+                | Q(status=RunStatus.COMPLETED, awaiting_finalize=True),
                 repo_id=repo.id,
                 gate=RunGate.COMMIT_STATUS,
                 purpose=RunPurpose.REVIEW,
@@ -362,7 +376,7 @@ class Command(BaseCommand):
         more = f", and {rest} more" if rest > 0 else ""
         self.stdout.write(f"Pull requests whose run is gated by the commit status: {shown}{more}")
 
-    def _heads(self, repo: Repo) -> list[github_api.BranchHead]:
+    def _heads(self, repo: Repo) -> _Heads:
         default_branch = github_api.default_branch_name(repo)
         if default_branch is None:
             raise CommandError("GitHub did not name the default branch. Nothing was posted.")
@@ -384,16 +398,19 @@ class Command(BaseCommand):
             f"{len(in_repo) - on_default_branch} on other branches), {len(merge_queue)} merge-queue branches, "
             f"{forks} fork pull requests skipped."
         )
-        return in_repo + merge_queue
+        on_default = {head.commit_sha for head in in_repo if head.base_ref == default_branch}
+        stacked = {head.commit_sha for head in in_repo if head.base_ref != default_branch}
+        return _Heads(heads=in_repo + merge_queue, stacked_commits=frozenset(stacked - on_default))
 
-    def _show_verdicts(
-        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], setup_check: str
-    ) -> None:
+    def _show_verdicts(self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str) -> None:
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
-        for head in heads:
+        for head in heads.heads:
+            stacked = head.commit_sha in heads.stacked_commits
             for run_type in run_types:
                 try:
-                    verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type, setup_check)
+                    verdict = commit_status.ledger_verdict(
+                        repo, head.commit_sha, run_type, setup_check, stacked=stacked
+                    )
                 except github_api.GITHUB_READ_REFUSED:
                     verdict = commit_status.StatusVerdict(state="unknown", description="read refused")
                 # Counts and the partial-run note would give almost every head a line of its own.
@@ -413,20 +430,21 @@ class Command(BaseCommand):
             f"{outcomes[commit_status.RecheckPost.POSTED]} posted, "
             f"{outcomes[commit_status.RecheckPost.UNCHANGED]} skipped as already posted, "
             f"{outcomes[commit_status.RecheckPost.NOT_SUCCESS]} skipped as not success, "
+            f"{outcomes[commit_status.RecheckPost.STACKED_WITHOUT_RUN]} skipped as stacked without a run, "
             f"{legacy_replaced} old statuses replaced"
         )
 
     def _post_verdicts(
         self,
         repo: Repo,
-        heads: list[github_api.BranchHead],
+        heads: _Heads,
         run_types: list[str],
         setup_check: str,
         options: dict[str, Any],
     ) -> None:
         only_success = options["only_success"]
         pacer = _Pacer(options["pause"])
-        commits = sorted({head.commit_sha for head in heads})
+        commits = sorted({head.commit_sha for head in heads.heads})
         statuses = [(commit_sha, run_type) for commit_sha in commits for run_type in run_types]
         outcomes: Counter[commit_status.RecheckPost] = Counter()
         legacy_replaced = 0
@@ -443,15 +461,24 @@ class Command(BaseCommand):
                 current = None
             if current is None:
                 raise stopped
-            outcome = commit_status.publish_recheck(
-                repo, commit_sha, run_type, setup_check, current=current, only_success=only_success, wait=pacer.wait
+            result = commit_status.publish_recheck(
+                repo,
+                commit_sha,
+                run_type,
+                setup_check,
+                current=current,
+                only_success=only_success,
+                wait=pacer.wait,
+                stacked=commit_sha in heads.stacked_commits,
             )
-            if outcome == commit_status.RecheckPost.STOPPED:
+            if result.outcome == commit_status.RecheckPost.STOPPED:
                 raise stopped
-            outcomes[outcome] += 1
+            outcomes[result.outcome] += 1
             if only_success:
                 continue
-            legacy = commit_status.replace_legacy_status(repo, commit_sha, run_type, current=current, wait=pacer.wait)
+            legacy = commit_status.replace_legacy_status(
+                repo, commit_sha, run_type, gate_state=result.state, current=current, wait=pacer.wait
+            )
             if legacy == commit_status.RecheckPost.STOPPED:
                 raise stopped
             legacy_replaced += legacy == commit_status.RecheckPost.POSTED
@@ -459,6 +486,13 @@ class Command(BaseCommand):
 
     def _recheck(self, repo: Repo, options: dict[str, Any]) -> None:
         apply = options["apply"]
+        # With the gate on, publishers post failures at any time, and a success posted from a verdict
+        # read before the pacing sleep could overwrite one.
+        if options["only_success"] and repo.commit_status_gate_enabled:
+            raise CommandError(
+                "--only-success is for before the sitting, with the commit status gate off. "
+                "With the gate on, run --apply without it. Nothing was posted."
+            )
         if apply and not options["only_success"] and not repo.commit_status_gate_enabled:
             raise CommandError(
                 "--apply posts the gate's status, so it needs the commit status gate. "

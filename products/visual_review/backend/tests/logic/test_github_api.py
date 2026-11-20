@@ -245,3 +245,27 @@ def test_recheck_setup_job_evidence_counts_only_github_actions_check_runs() -> N
         conclusions = github_api.check_run_conclusions(Repo(repo_full_name="org/repo"), "sha", "Create run")
 
     assert conclusions == ["success"]
+
+
+def test_recheck_reads_the_newest_status_of_each_context_from_every_page() -> None:
+    def respond(method, path, *, params=None, **kwargs):
+        page: list[dict[str, object]] = [
+            {"context": f"other-{params['page']}-{i}", "state": "success"} for i in range(100)
+        ]
+        if params["page"] == 2:
+            page = [
+                {"context": "gate", "state": "failure", "description": "Changed", "creator": {"login": "app[bot]"}},
+                {"context": "gate", "state": "success", "description": "Older", "creator": {"login": "app[bot]"}},
+            ]
+        response = MagicMock(status_code=200)
+        response.json.return_value = page
+        return response
+
+    github = MagicMock()
+    github.api_request.side_effect = respond
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        statuses = github_api.commit_statuses(Repo(repo_full_name="org/repo"), "sha")
+
+    assert statuses is not None
+    assert statuses["gate"] == github_api.PostedStatus(state="failure", description="Changed", creator="app[bot]")

@@ -14,6 +14,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import (
     BaselineEntrySource,
     BaselineMode,
+    ReviewState,
     RunGate,
     RunStatus,
     RunType,
@@ -140,12 +141,13 @@ class TestLedger:
         repo.refresh_from_db()
         assert (repo.baseline_mode, repo.commit_status_gate_enabled) == (BaselineMode.LEDGER, True)
         runs = {
-            12: (RunStatus.COMPLETED, False, SnapshotResult.CHANGED),
-            13: (RunStatus.COMPLETED, True, SnapshotResult.CHANGED),
-            14: (RunStatus.PROCESSING, False, None),
-            15: (RunStatus.COMPLETED, False, SnapshotResult.UNCHANGED),
+            12: (RunStatus.COMPLETED, False, SnapshotResult.CHANGED, ""),
+            13: (RunStatus.COMPLETED, True, SnapshotResult.CHANGED, ReviewState.APPROVED),
+            14: (RunStatus.PROCESSING, False, None, ""),
+            15: (RunStatus.COMPLETED, False, SnapshotResult.UNCHANGED, ""),
+            16: (RunStatus.COMPLETED, False, SnapshotResult.CHANGED, ReviewState.APPROVED),
         }
-        for pr_number, (status, approved, result) in runs.items():
+        for pr_number, (status, approved, result, review_state) in runs.items():
             run = Run.objects.create(
                 repo=repo,
                 team_id=repo.team_id,
@@ -158,11 +160,13 @@ class TestLedger:
                 approved=approved,
             )
             if result is not None:
-                RunSnapshot.objects.create(run=run, team_id=repo.team_id, identifier="Button", result=result)
+                RunSnapshot.objects.create(
+                    run=run, team_id=repo.team_id, identifier="Button", result=result, review_state=review_state
+                )
         output = StringIO()
         call_command(command[0], "status", *command[1:], stdout=output)
         assert "Commit status gate: on" in output.getvalue()
-        assert "Pull requests whose run is gated by the commit status: #12, #14\n" in output.getvalue()
+        assert "Pull requests whose run is gated by the commit status: #12, #14, #16\n" in output.getvalue()
 
     def _export_storybook(self, repo: Repo) -> dict:
         out = StringIO()

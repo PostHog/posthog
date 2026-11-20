@@ -12,6 +12,7 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.models.instance_setting import override_instance_config
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
@@ -56,6 +57,7 @@ from products.visual_review.backend.models import (
 from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ledger_fakes import (
+    DEFAULT_BRANCH,
     SEED,
     FakeGit,
     approve,
@@ -1004,7 +1006,10 @@ def _serve_heads(
     mocker.patch.object(
         github_api,
         "open_pull_request_heads",
-        return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in pull_requests.items()],
+        return_value=[
+            github_api.BranchHead(commit_sha=sha, pr_number=n, base_ref=DEFAULT_BRANCH)
+            for n, sha in pull_requests.items()
+        ],
     )
     mocker.patch.object(
         github_api,
@@ -1035,6 +1040,7 @@ def _recheck_command(
 
 
 RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
+APP_BOT = "posthog-app[bot]"
 LEGACY = "PostHog Visual Review / storybook"
 NO_RUN_NEEDED = commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION
 
@@ -1332,6 +1338,11 @@ class TestStatusByCommit:
 class TestLedgerRecheck:
     GATING = "Visual Review gate / storybook"
 
+    @pytest.fixture(autouse=True)
+    def app_slug(self):
+        with override_instance_config("GITHUB_APP_SLUG", "posthog-app"):
+            yield
+
     @pytest.fixture
     def git(self, mocker) -> FakeGit:
         return FakeGit(mocker, SEED)
@@ -1498,7 +1509,8 @@ class TestLedgerRecheck:
 
         assert sender.call_count == 2
 
-    def test_the_recheck_covers_stacked_pull_requests_and_skips_forks(self, repo, sender, mocker) -> None:
+    def test_the_recheck_covers_stacked_pull_requests_with_a_run_and_skips_forks(self, repo, sender, mocker) -> None:
+        _shadow_run(repo, "b0", commit_sha="stacked-head-7", branch="pr-7", pr_number=7)
         _serve_heads(mocker, {}, {}, ["skipped"])
         mocker.patch.object(
             github_api,
@@ -1507,16 +1519,20 @@ class TestLedgerRecheck:
                 github_api.BranchHead(commit_sha="head-4", pr_number=4, base_ref="master"),
                 github_api.BranchHead(commit_sha="fork-head-5", pr_number=5, from_fork=True, base_ref="master"),
                 github_api.BranchHead(commit_sha="stacked-head-6", pr_number=6, base_ref="feat-parent"),
+                github_api.BranchHead(commit_sha="stacked-head-7", pr_number=7, base_ref="feat-parent"),
             ],
         )
 
+        dry_run = _recheck_command(repo)
         output = _recheck_command(repo, "--apply")
 
         assert output.splitlines()[0] == (
-            "2 open pull requests (1 on the default branch, 1 on other branches), 0 merge-queue branches, "
+            "3 open pull requests (1 on the default branch, 2 on other branches), 0 merge-queue branches, "
             "1 fork pull requests skipped."
         )
-        assert sorted(call.args[1] for call in sender.call_args_list) == ["head-4", "stacked-head-6"]
+        assert "storybook skipped (1) stacked, no run: #6" in dry_run
+        assert "1 skipped as stacked without a run" in output
+        assert sorted(call.args[1] for call in sender.call_args_list) == ["head-4", "stacked-head-7"]
 
     def test_the_recheck_apply_needs_the_setup_check(self, repo, sender, mocker) -> None:
         _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])
@@ -1551,32 +1567,56 @@ class TestLedgerRecheck:
         assert sender.call_count == 3
         assert sleep.call_args_list == [mocker.call(8.0)] * 2
 
-    def test_the_recheck_skips_a_head_that_already_carries_the_verdict(self, repo, sender, mocker) -> None:
-        already = {"head-4": {self.GATING: github_api.PostedStatus(state="success", description=NO_RUN_NEEDED)}}
-        _serve_heads(mocker, {4: "head-4", 6: "head-6"}, {}, ["skipped"], already)
+    @pytest.mark.parametrize(
+        ("creator", "posted_heads"),
+        [
+            pytest.param(APP_BOT, ["head-6"], id="posted_by_this_app"),
+            pytest.param("someone-else", ["head-4", "head-6"], id="posted_by_another_account"),
+        ],
+    )
+    def test_the_recheck_skips_a_head_that_already_carries_the_verdict(
+        self, repo, sender, mocker, creator, posted_heads
+    ) -> None:
+        carried = {
+            "head-4": {
+                self.GATING: github_api.PostedStatus(state="success", description=NO_RUN_NEEDED, creator=creator)
+            }
+        }
+        _serve_heads(mocker, {4: "head-4", 6: "head-6"}, {}, ["skipped"], carried)
 
-        output = _recheck_command(repo, "--apply")
+        _recheck_command(repo, "--apply")
 
-        assert [call.args[1] for call in sender.call_args_list] == ["head-6"]
-        assert "1 posted, 1 skipped as already posted, 0 skipped as not success" in output
+        assert [call.args[1] for call in sender.call_args_list] == posted_heads
 
     def test_the_recheck_posts_only_greens_with_the_gate_off(self, repo, sender, mocker) -> None:
         set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
-        red = {"head-4": {LEGACY: github_api.PostedStatus(state="failure", description="Visual changes detected")}}
+        red = {"head-4": {LEGACY: github_api.PostedStatus(state="failure", description="Changed", creator=APP_BOT)}}
         _serve_heads(mocker, {1: "head-1", 4: "head-4"}, {}, ["skipped"], red)
 
         output = _recheck_command(repo, "--apply", "--only-success")
 
         assert _posted(sender) == [(self.GATING, "success", NO_RUN_NEEDED)]
-        assert "1 posted, 0 skipped as already posted, 1 skipped as not success, 0 old statuses replaced" in output
+        assert "1 posted, 0 skipped as already posted, 1 skipped as not success," in output
+        assert "0 old statuses replaced" in output
 
-    def test_the_recheck_turns_a_red_old_status_green(self, repo, sender, mocker) -> None:
+    def test_the_recheck_refuses_only_success_with_the_gate_on(self, repo, sender, mocker) -> None:
+        _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])
+
+        with pytest.raises(CommandError, match="with the commit status gate off"):
+            _recheck_command(repo, "--apply", "--only-success")
+
+        assert sender.call_count == 0
+
+    def test_the_recheck_turns_a_red_old_status_green_only_behind_a_passing_gate(self, repo, sender, mocker) -> None:
+        _shadow_run(repo, "y0", commit_sha="head-8", branch="pr-8", pr_number=8)
+        red = github_api.PostedStatus(state="failure", description="Changed", creator=APP_BOT)
         carried = {
-            "head-4": {LEGACY: github_api.PostedStatus(state="failure", description="Visual changes detected")},
-            "head-6": {LEGACY: github_api.PostedStatus(state="success", description="No visual changes")},
+            "head-4": {LEGACY: red},
+            "head-6": {LEGACY: github_api.PostedStatus(state="success", description="Clean", creator=APP_BOT)},
+            "head-8": {LEGACY: red},
         }
-        _serve_heads(mocker, {4: "head-4", 6: "head-6"}, {}, ["skipped"], carried)
+        _serve_heads(mocker, {4: "head-4", 6: "head-6", 8: "head-8"}, {}, ["skipped"], carried)
 
         _recheck_command(repo, "--apply")
 
@@ -1585,4 +1625,5 @@ class TestLedgerRecheck:
             ("head-4", self.GATING, "success", NO_RUN_NEEDED),
             ("head-4", LEGACY, "success", "Replaced by Visual Review gate / storybook"),
             ("head-6", self.GATING, "success", NO_RUN_NEEDED),
+            ("head-8", self.GATING, RERUN_ONE.state, RERUN_ONE.description),
         ]

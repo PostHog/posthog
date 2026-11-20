@@ -398,22 +398,29 @@ class MergedPullRequest:
 class PostedStatus:
     state: str
     description: str
+    # The login of the account that posted it.
+    creator: str
 
 
 def commit_statuses(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> dict[str, PostedStatus] | None:
     """The newest status of each context on the commit, or None when GitHub cannot say."""
-    data = _read_json(
-        "visual_review.commit_statuses_fetch_failed",
-        partial(_github_api_request, "GET", repo, f"commits/{sha}/status", params={"per_page": 100}, priority=priority),
-        repo_id=str(repo.id),
-        sha=sha,
+    items = _read_all_pages(
+        "visual_review.commit_statuses_fetch_failed", repo, f"commits/{sha}/statuses", {}, priority=priority
     )
-    if data is None:
+    if items is None:
         return None
-    return {
-        status["context"]: PostedStatus(state=status.get("state") or "", description=status.get("description") or "")
-        for status in data.get("statuses") or []
-    }
+    newest: dict[str, PostedStatus] = {}
+    # GitHub lists the statuses of a commit newest first, so the first one of a context is its current one.
+    for status in items:
+        newest.setdefault(
+            status["context"],
+            PostedStatus(
+                state=status.get("state") or "",
+                description=status.get("description") or "",
+                creator=(status.get("creator") or {}).get("login") or "",
+            ),
+        )
+    return newest
 
 
 # Only workflow jobs prove what CI did. Any app with `checks:write` can post a check run of any name.
@@ -491,7 +498,13 @@ _LIST_PAGE_SIZE = 100
 _MAX_LIST_PAGES = 50
 
 
-def _read_all_pages(log_event: str, repo: Repo, path: str, params: dict[str, str | int]) -> list[dict] | None:
+def _read_all_pages(
+    log_event: str,
+    repo: Repo,
+    path: str,
+    params: dict[str, str | int],
+    priority: Priority = Priority.CRITICAL,
+) -> list[dict] | None:
     """Every item of a paged GitHub list, or None when GitHub cannot say or the list has more than the cap.
 
     A cut list would leave heads without a status, so a caller must not act on one.
@@ -506,6 +519,7 @@ def _read_all_pages(log_event: str, repo: Repo, path: str, params: dict[str, str
                 repo,
                 path,
                 params={**params, "per_page": _LIST_PAGE_SIZE, "page": page},
+                priority=priority,
             ),
             repo_id=str(repo.id),
             page=page,
