@@ -27,11 +27,12 @@ const isScreenshotMutation = (event: eventWithTime): boolean => {
     return (
         event.type === EventType.IncrementalSnapshot &&
         event.data?.source === IncrementalSource.Mutation &&
+        // the swap carries exactly one attribute entry, so web mutations are rejected without a scan
         Array.isArray(event.data.attributes) &&
-        event.data.attributes.some(
-            (mutation) =>
-                isObject(mutation) && isObject(mutation.attributes) && SCREENSHOT_ATTRIBUTE in mutation.attributes
-        )
+        event.data.attributes.length === 1 &&
+        isObject(event.data.attributes[0]) &&
+        isObject(event.data.attributes[0].attributes) &&
+        SCREENSHOT_ATTRIBUTE in event.data.attributes[0].attributes
     )
 }
 

@@ -1312,18 +1312,6 @@ describe('process all snapshots', () => {
             expect((results[4].data as any).attributes[0].attributes.src).toBe('data:image/webp;base64,three')
         })
 
-        it('only writes string attribute values, since rrweb ignores the rest', async () => {
-            const results = await process([
-                screenshotFull(1000, 'data:image/webp;base64,one'),
-                screenshotFull(2000, 'data:image/webp;base64,two'),
-            ])
-
-            const attributes = (results[2].data as any).attributes[0].attributes
-            for (const value of Object.values(attributes)) {
-                expect(typeof value).toBe('string')
-            }
-        })
-
         it('keeps the first screenshot of every source as a full snapshot with a meta', async () => {
             const sourceOne = await processWindows(
                 {
@@ -1468,9 +1456,22 @@ describe('process all snapshots', () => {
             expect(results).toEqual(snapshots)
         })
 
-        it('keeps a full snapshot with a null child node instead of throwing', async () => {
-            const body = { type: 2, tagName: 'body', id: 3, attributes: {}, childNodes: [null] }
-            const html = { type: 2, tagName: 'html', id: 2, attributes: {}, childNodes: [body] }
+        it.each([
+            [
+                'a null child node',
+                {
+                    type: 2,
+                    tagName: 'html',
+                    id: 2,
+                    attributes: {},
+                    childNodes: [{ type: 2, tagName: 'body', id: 3, attributes: {}, childNodes: [null] }],
+                },
+            ],
+            [
+                'a non-array childNodes',
+                { type: 2, tagName: 'html', id: 2, attributes: {}, childNodes: 'H4sI_truncated' },
+            ],
+        ])('keeps a full snapshot with %s instead of throwing', async (_label, html) => {
             const results = await process([
                 { type: 4, timestamp: 1000, data: { width: 400, height: 800, href: 'https://example.com' } },
                 {
@@ -1597,6 +1598,27 @@ describe('process all snapshots', () => {
                 { source: IncrementalSource.Mutation, texts: [], attributes: [], removes: [], adds: 'H4sI_truncated' },
             ],
             ['stylesheet rule with string adds', { source: IncrementalSource.StyleSheetRule, adds: 'H4sI_truncated' }],
+            [
+                'mobile screenshot mutation with string removes',
+                {
+                    source: IncrementalSource.Mutation,
+                    texts: [],
+                    attributes: [],
+                    removes: 'H4sI_truncated',
+                    adds: [
+                        {
+                            parentId: 5,
+                            node: {
+                                type: 2,
+                                tagName: 'img',
+                                id: 12345,
+                                attributes: { src: 'data:image/webp;base64,one', 'data-posthog-screenshot': 'true' },
+                                childNodes: [],
+                            },
+                        },
+                    ],
+                },
+            ],
         ])('drops a %s without throwing', async (_label, badData) => {
             const snapshots = [
                 { windowId: 1, timestamp: 1000, type: 4, data: { width: 100, height: 100, href: 'x' } },
