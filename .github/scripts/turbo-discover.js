@@ -1387,6 +1387,9 @@ const TRUSTED_PRODUCT_CASCADE_PHASE = 1
 
 const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
 const PRODUCT_FACADE_FILE = /^products\/[^/]+\/backend\/facade\//
+// Facade modules core loads by name through load_product_modules (posthog/products.py), an edge
+// no import graph shows: the Temporal worker's registrations and the today highlight registry.
+const PRODUCT_FACADE_LOADED_BY_NAME_FILE = /^products\/[^/]+\/backend\/facade\/(temporal|today_highlights)(\.py$|\/)/
 const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
 
 // Python test code and syrupy snapshots. Any other file under a test directory is a fixture,
@@ -1402,6 +1405,10 @@ function isProductTestFile(file) {
         return false
     }
     return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test') || name.startsWith('test_')
+}
+
+function isImportOnlyFacadeFile(file) {
+    return PRODUCT_FACADE_FILE.test(file) && !PRODUCT_FACADE_LOADED_BY_NAME_FILE.test(file)
 }
 
 // How far a product cascade has to be trusted for the selector's subset to replace the
@@ -1429,7 +1436,7 @@ function productCascadePhase(runLegacyReason, changedFiles) {
         }
         productFiles.push(file)
     }
-    if (productFiles.length > 0 && productFiles.every((file) => isProductTestFile(file) || PRODUCT_FACADE_FILE.test(file))) {
+    if (productFiles.length > 0 && productFiles.every((file) => isProductTestFile(file) || isImportOnlyFacadeFile(file))) {
         return 1
     }
     if (runLegacyReason === 'contract_cascade') {
