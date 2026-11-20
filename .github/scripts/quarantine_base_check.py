@@ -44,6 +44,8 @@ ENV_SETTINGS = ("PERSON_ON_EVENTS_V2_ENABLED", "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_
 SETTINGS_KEYS = (*ENV_SETTINGS, "PYTEST_ARGS")
 ENVIRONMENT_FILES = ("uv.lock", "pyproject.toml", ".python-version")
 # The shard installs these from the PR's tree. Checking out the base does not reinstall them.
+# These lists name the inputs of the shard's migrate, ClickHouse table, and package install steps in ci-backend.yml.
+# Update them with those steps.
 # The shard's ClickHouse test tables come from these definitions and survive `--reuse-db`.
 CLICKHOUSE_SCHEMA = ("posthog/clickhouse/", "ee/clickhouse/", "posthog/user_scripts/")
 INSTALLED_FROM_TREE = ("common/hogql_parser/", "rust/hogql/parser/", "products/canvas/packages/canvas_builder/")
@@ -172,7 +174,7 @@ def environment_changes(run: Runner, base: str) -> list[str]:
         for path in paths
         if "migrations/" in path
         or path.startswith((*INSTALLED_FROM_TREE, *CLICKHOUSE_SCHEMA))
-        or path.endswith((*ENVIRONMENT_FILES, "/sql.py"))
+        or path.endswith((*ENVIRONMENT_FILES, "sql.py"))
     ]
 
 
