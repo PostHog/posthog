@@ -47,6 +47,8 @@ class HogFlowAdmin(admin.ModelAdmin):
     actions = ("pause_email_sending", "resume_email_sending")
     readonly_fields = (
         "id",
+        # Status changes go through the workflow write service, which tells workers and records conversion goals.
+        "status",
         "version",
         "team",
         "team_link",

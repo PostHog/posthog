@@ -31,6 +31,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
+from products.workflows.backend.services.conversion_goals import record_conversion_goals
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
     is_apply_eligible,
@@ -77,6 +78,8 @@ def create_workflow(
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
+        if instance.status == HogFlow.State.ACTIVE:
+            record_conversion_goals(instance.team_id, instance.pk, [instance.conversion])
         if tags:
             set_tags_on_object(tags, instance)
         HogFlowRevision.objects.create(
@@ -172,11 +175,17 @@ def _save_live(
         data["encrypted_inputs"] = strip_secrets_from_content(
             data, template_cache=template_cache if template_cache is not None else {}
         )
+    previous_conversion = instance.conversion
+    was_active = instance.status == HogFlow.State.ACTIVE
     for attr, value in data.items():
         setattr(instance, attr, value)
     if instance.status == HogFlow.State.ACTIVE:
         require_sandbox_runtime(instance.actions)
     instance.save()
+    # Runs start only while a workflow is active. The outgoing goal is stamped too: runs that started under it
+    # keep it after this save replaces it or pauses the workflow.
+    if was_active or instance.status == HogFlow.State.ACTIVE:
+        record_conversion_goals(instance.team_id, instance.pk, [previous_conversion, instance.conversion])
 
 
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
