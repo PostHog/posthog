@@ -16,7 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team, TeamMarketingAnalyticsConfig, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
@@ -350,6 +351,17 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
     @parameterized.expand(
         [
             ("primary_actions_by_default", None, BOTH_SPLITS, "alpha", 100.0, "target_cpa", []),
+            (
+                "empty_list_counts_primary_over_saved",
+                [],
+                BOTH_SPLITS,
+                "alpha",
+                100.0,
+                "target_cpa",
+                [],
+                SIGNUP,
+                [SIGNUP],
+            ),
             ("selected_secondary_action", [SIGNUP], BOTH_SPLITS, "beta", 200.0, "account", []),
             ("no_split_tables", [SIGNUP], (), "alpha", 100.0, "target_cpa", ["conversion_action_tables_not_synced"]),
             (
@@ -392,7 +404,53 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         benchmark_source: str,
         gaps: list[str],
         signup: str = SIGNUP,
+        saved: list[str] | None = None,
     ) -> None:
+        if saved is not None:
+            TeamMarketingAnalyticsConfig.objects.update_or_create(
+                team=self.team, defaults={"recommendation_conversion_actions": saved}
+            )
+
+        response = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+                sources=[self._conversion_action_source(split_tables, signup)],
+                conversionActions=conversion_actions,
+            ),
+            team=self.team,
+            user=self.user,
+        ).calculate()
+
+        wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
+        assert [rec.subject for rec in wasted] == [wasted_term]
+        assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
+        assert wasted[0].cpa.benchmarkSource == benchmark_source
+        assert [gap.kind for gap in response.dataGaps or []] == gaps
+
+    def test_saving_a_selection_replaces_the_cached_results(self) -> None:
+        query = MarketingAnalyticsRecommendationsQuery(
+            dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+            sources=[self._conversion_action_source(BOTH_SPLITS, SIGNUP)],
+        )
+
+        def wasted_terms() -> list[str]:
+            response = MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=self.user).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+            assert isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse)
+            return [rec.subject for rec in response.results if rec.rule == "spend_without_conversions"]
+
+        assert wasted_terms() == ["alpha"]
+        TeamMarketingAnalyticsConfig.objects.update_or_create(
+            team=self.team, defaults={"recommendation_conversion_actions": [SIGNUP]}
+        )
+        # Each request loads its own Team, so the saved selection is read fresh.
+        self.team = Team.objects.get(pk=self.team.pk)
+        assert wasted_terms() == ["beta"]
+
+    def _conversion_action_source(
+        self, split_tables: tuple[str, ...], signup: str
+    ) -> MarketingAnalyticsRecommendationsSource:
         campaigns = self._table(
             "campaign",
             {
@@ -470,22 +528,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             source.performanceMaxSearchTermTable = self._table(
                 "performance_max_search_term_stats", pmax_columns, ",".join(pmax_columns) + "\n"
             )
-
-        response = MarketingAnalyticsRecommendationsQueryRunner(
-            query=MarketingAnalyticsRecommendationsQuery(
-                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
-                sources=[source],
-                conversionActions=conversion_actions,
-            ),
-            team=self.team,
-            user=self.user,
-        ).calculate()
-
-        wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
-        assert [rec.subject for rec in wasted] == [wasted_term]
-        assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
-        assert wasted[0].cpa.benchmarkSource == benchmark_source
-        assert [gap.kind for gap in response.dataGaps or []] == gaps
+        return source
 
     @parameterized.expand(
         [

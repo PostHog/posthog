@@ -97,6 +97,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
 
     @cached_property
+    def conversion_actions(self) -> list[str]:
+        if self.query.conversionActions is not None:
+            return self.query.conversionActions
+        return list(self.team.marketing_analytics_config.recommendation_conversion_actions or [])
+
+    @cached_property
     def hogql_database(self) -> Database:
         return Database.create_for(
             team=self.team,
@@ -120,6 +126,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         payload = super().get_cache_payload()
         # Resolutions apply after the cache, so both views of the results share one entry.
         payload["query"].pop("includeResolved", None)
+        # The saved selection is not in the query, so it has to key the cache for a changed selection to apply.
+        payload["conversion_actions"] = self.conversion_actions
         return payload
 
     def run(
@@ -415,7 +423,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return {row[0]: tuple(row[1:]) for row in rows}
 
     def _account_conversion_actions(self, source: MarketingAnalyticsRecommendationsSource) -> list[str] | None:
-        actions = self.query.conversionActions
+        actions = self.conversion_actions
         if not actions:
             return None
         customer_id = self._customer_id(source)

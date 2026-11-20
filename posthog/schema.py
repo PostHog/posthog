@@ -34349,6 +34349,7 @@ class MarketingAnalyticsConfig(BaseModel):
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
     filter_test_accounts: bool | None = None
+    recommendation_conversion_actions: list[str] | None = None
     sources_map: dict[str, SourceMap] | None = None
 
 
@@ -34372,7 +34373,8 @@ class MarketingAnalyticsRecommendationsQuery(BaseModel):
             " account uses the actions under its own customer ID, and an account with"
             " none of them counts its primary actions. Selected actions count every"
             " conversion, including secondary actions and conversions outside campaign"
-            " goals. Omit to count the primary actions only."
+            " goals. An empty list counts the primary actions only. Omit to use the"
+            " actions saved in the project's marketing analytics settings."
         ),
     )
     dateRange: DateRange | None = None

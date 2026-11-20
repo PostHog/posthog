@@ -3800,6 +3800,16 @@
                     "description": "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default.",
                     "type": "boolean"
                 },
+                "recommendation_conversion_actions": {
+                    "description": "Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.",
+                    "items": {
+                        "description": "A Google Ads conversion action resource name, such as customers/123/conversionActions/456.",
+                        "pattern": "^customers\\/\\d+\\/conversionActions\\/\\d+$",
+                        "type": "string"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "properties": {

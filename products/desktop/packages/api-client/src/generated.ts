@@ -17340,6 +17340,7 @@ export namespace Schemas {
         campaign_name_mappings: MarketingAnalyticsCampaignNameMappings;
         custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
         campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
+        recommendation_conversion_actions: Array<string>;
     }>;
     export type TeamCustomerAnalyticsPinnedAccountProperty = {
         /**

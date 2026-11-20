@@ -366,6 +366,10 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
+export const organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp =
+    new RegExp('^customers\/\\d+\/conversionActions\/\\d+$')
+export const organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax = 200
+
 export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
@@ -2786,6 +2790,22 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
                     ),
+                recommendation_conversion_actions: zod
+                    .array(
+                        zod
+                            .string()
+                            .regex(
+                                organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp
+                            )
+                            .describe(
+                                'A Google Ads conversion action resource name, such as customers\/123\/conversionActions\/456.'
+                            )
+                    )
+                    .max(organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax)
+                    .optional()
+                    .describe(
+                        'Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.'
+                    ),
             })
             .optional(),
         customer_analytics_config: zod
@@ -3256,6 +3276,10 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault = `hogql`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
+
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp =
+    new RegExp('^customers\/\\d+\/conversionActions\/\\d+$')
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax = 200
 
 export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
@@ -5690,6 +5714,24 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
+                    ),
+                recommendation_conversion_actions: zod
+                    .array(
+                        zod
+                            .string()
+                            .regex(
+                                organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp
+                            )
+                            .describe(
+                                'A Google Ads conversion action resource name, such as customers\/123\/conversionActions\/456.'
+                            )
+                    )
+                    .max(
+                        organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax
+                    )
+                    .optional()
+                    .describe(
+                        'Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.'
                     ),
             })
             .optional(),

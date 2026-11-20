@@ -62023,7 +62023,7 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQuery {
-      /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only. */
+      /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. An empty list counts the primary actions only. Omit to use the actions saved in the project's marketing analytics settings. */
       conversionActions?: string[] | null;
       dateRange?: DateRange | null;
       /** Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`. */
@@ -95617,6 +95617,12 @@ export namespace Schemas {
       custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
       /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
+      /**
+         * Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.
+         * @maxItems 200
+         * @items.pattern ^customers/\d+/conversionActions/\d+$
+         */
+      recommendation_conversion_actions?: string[];
     }
 
     export interface TeamCustomerAnalyticsPinnedAccountProperty {
