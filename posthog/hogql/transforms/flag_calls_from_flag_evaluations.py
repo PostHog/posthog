@@ -1435,8 +1435,8 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
 def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: HogQLContext) -> bool:
     """Whether each property that the swapped query reads comes from the same kind of column as in the original.
 
-    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads the
-    same property from the JSON blob, which returns those strings. A property-group map has the same definition on
+    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads a
+    property that has no typed column from the JSON blob, which returns those strings. A property-group map has the same definition on
     both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or "null", so a
     read of it agrees whatever column backs it.
     """

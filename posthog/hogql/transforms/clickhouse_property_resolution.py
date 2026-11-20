@@ -36,6 +36,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_PROPERTY_COLUMNS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
@@ -170,6 +171,11 @@ def resolve_materialized_property_source(
 
     if context.modifiers.materializationMode == "disabled":
         return None
+
+    # The flag_evaluations typed columns are fixed DDL, so they are declared on the table, not read from the registry.
+    if isinstance(table_type.table, FlagEvaluationsTable) and field_name == "properties":
+        if typed_column := FLAG_EVALUATIONS_PROPERTY_COLUMNS.get(property_name):
+            return MaterializedPropertySource(kind="materialized_column", column=typed_column, is_nullable=False)
 
     # 1) static materialized column (mat_* / pmat_*)
     materialized_column = (

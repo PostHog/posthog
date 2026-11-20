@@ -441,6 +441,30 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("flag", "$feature_flag", "probe-flag", "flag_key"),
+            ("response", "$feature_flag_response", "variant-x", "response"),
+            ("session", "$session_id", SESSION_ID, "session_id"),
+            ("request", "$feature_flag_request_id", "req-456", "request_id"),
+        ]
+    )
+    def test_property_with_a_typed_column_reads_the_column_not_the_json(
+        self, _name: str, property_name: str, value: str, column: str
+    ):
+        read = self._execute(f"properties.`{property_name}`", f" AND properties.`{property_name}` = '{value}'")
+
+        sql = read.clickhouse or ""
+        assert read.results == [(value,)]
+        assert "JSONExtractRaw" not in sql
+        assert f"equals(flag_evaluations.{column}, " in sql
+
+    def test_property_response_reads_null_for_an_empty_string(self):
+        row_uuid = uuid.uuid4()
+        self._insert_row(row_uuid, {"$feature_flag": "probe-flag", "$feature_flag_response": ""})
+
+        assert self._select("properties.$feature_flag_response", row_uuids=(row_uuid,)) == [(None,)]
+
+    @parameterized.expand(
+        [
             ("json_null", {"$feature_flag_response": None}),
             ("missing", {}),
             ("empty_string", {"$feature_flag_response": ""}),
@@ -2156,19 +2180,19 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            (f"{value_name}_{join}", field, source, response)
-            for value_name, response in (
-                ("escaped_characters", 'say "hi" \\ bye'),
-                ("number_as_string", "100"),
-                ("empty_string", ""),
-                ("null_as_string", "null"),
+            (f"{value_name}_{join}", field, source, response, reads_as_null)
+            for value_name, response, reads_as_null in (
+                ("escaped_characters", 'say "hi" \\ bye', False),
+                ("number_as_string", "100", False),
+                ("empty_string", "", True),
+                ("null_as_string", "null", True),
             )
             for join, source, field in LAZY_JOINS_TO_EVENTS
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_lazy_join_pushes_a_pin_that_selects_what_events_selects(
-        self, _name: str, field: str, source: str, response: str
+        self, _name: str, field: str, source: str, response: str, reads_as_null: bool
     ):
         self._create_lazy_join_sources()
         row_uuid = uuid.uuid4()
@@ -2198,7 +2222,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert [row[0] for row in from_events] == ["probe-distinct-id"]
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
-        assert swapped.results == from_events
+        # The test events table has no materialized column, so it returns the JSON text. Production materializes
+        # `$feature_flag_response`, which reads "" and "null" as NULL, as the typed column does.
+        expected = [(distinct_id, None if reads_as_null else read) for distinct_id, read in from_events]
+        assert swapped.results == expected
 
     @parameterized.expand(
         [
