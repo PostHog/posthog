@@ -1409,6 +1409,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             AlertConfiguration.objects.filter(id=self.alert.id).update(threshold=None)
             alert_id = self.alert.id
+        assert self.alert.threshold_id is not None
         Threshold.objects.filter(id=self.alert.threshold_id).delete()
         url = f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/"
 
