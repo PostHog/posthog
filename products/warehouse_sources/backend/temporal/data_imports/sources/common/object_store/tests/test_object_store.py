@@ -19,6 +19,7 @@ from django.test import override_settings
 import boto3
 import pyarrow as pa
 import structlog
+import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
 from botocore.awsrequest import AWSResponse
 from botocore.compat import HTTPHeaders
@@ -1022,6 +1023,27 @@ class TestDeltaCursor:
     def _deleted(scope: ReplaceScope | None, file: str) -> bool:
         return scope is not None and (file in scope.replaced or file not in scope.retained)
 
+    def test_data_files_read_through_a_filesystem_plan_the_same_read(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}), partition_by=["day"])
+            stored = ObjectStorageDeltaCursor(version=0, table_id=str(DeltaTable(path).metadata().id), file_names=True)
+            _update(path)
+            handler = pa_fs.FSSpecHandler(LocalFileSystem())  # type: ignore[abstract]
+            data_filesystem = pa_fs.SubTreeFileSystem(path, pa_fs.PyFileSystem(handler))
+
+            reads = [
+                plan_delta_read(path, {}, "sales", stored=stored, by_file=True, data_filesystem=filesystem)
+                for filesystem in (None, data_filesystem)
+            ]
+            rows = [
+                sorted(map(str, (row for table in read.iter_tables(with_file_names=True) for row in table.to_pylist())))
+                for read in reads
+            ]
+
+        assert reads[0].replace_scope == reads[1].replace_scope
+        assert rows[0] == rows[1] and rows[0]
+
     @parameterized.expand([("append", False), ("by_file", True)])
     def test_a_cleaned_up_version_rebuilds(self, _name: str, by_file: bool) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -1630,13 +1652,10 @@ def _forbidden_os_error() -> OSError:
 
 
 class TestAccessDeniedMessage:
-    GENERIC_WIZARD_MESSAGE = (
-        f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check the access key and secret, and that the key can list "
-        "and read objects in this bucket."
-    )
+    GENERIC_WIZARD_MESSAGE = f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check that these credentials can list and read objects in this bucket."
     GENERIC_SYNC_MESSAGE = (
-        "The storage provider rejected these credentials. Check the access key and secret, and that "
-        "the key can list and read the bucket, then reconnect the source."
+        "The storage provider rejected these credentials. Check that they can list and read the bucket, "
+        "then reconnect the source."
     )
     PROVIDER_MESSAGE = "This provider denied access. Grant the role on the bucket, then reconnect."
 
@@ -1890,7 +1909,7 @@ class TestDefineAddedTable:
         store = local_store(tmp_path)
 
         table = _source_with_store(store).define_added_table(
-            EXPORTS_ROOT_CONFIG, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
+            EXPORTS_ROOT_CONFIG, 1, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
         )
 
         assert (
@@ -1915,7 +1934,7 @@ class TestDefineAddedTable:
         write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
 
         table = _source_with_store(local_store(tmp_path)).define_added_table(
-            EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+            EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
         )
 
         assert (table.kind, table.path, table.pattern, table.file_format) == ("delta", "events", None, "delta")
@@ -1937,7 +1956,7 @@ class TestDefineAddedTable:
 
         with patch.object(type(store), "list_objects", list_only_the_log):
             table = _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
         assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
@@ -1948,7 +1967,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(Exception):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
         assert [c.args[0] for c in store.list_objects.call_args_list] == ["events/_delta_log"]
@@ -1958,7 +1977,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match="^No Delta table is at .*_delta_log"):
             _source_with_store(local_store(tmp_path)).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events", "delta", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events", "delta", allow_double_quotes=True
             )
 
     @parameterized.expand(
@@ -1999,7 +2018,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=re.escape(expected)):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
             )
 
         store.list_objects.assert_not_called()
@@ -2042,9 +2061,9 @@ class TestDefineAddedTable:
 
         if expected is None:
             with pytest.raises(ObjectStorageError, match="outside|can't be added to it"):
-                source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+                source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
             return
-        table = source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+        table = source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
         assert (table.path, table.pattern, [f.path for f in table.files]) == (*expected, ["exports/events/a.csv"])
 
     @pytest.mark.parametrize(
@@ -2062,7 +2081,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=f"^{NO_IMPORTABLE_FILES_ERROR}.*{re.escape(expected)}"):
             _source_with_store(local_store(tmp_path)).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", location, "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", location, "infer", allow_double_quotes=True
             )
 
     def test_a_location_with_more_files_than_a_sync_reads_is_refused(self) -> None:
@@ -2075,7 +2094,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=f"^{TOO_MANY_FILES_ERROR}"):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
     @pytest.mark.parametrize(
@@ -2093,7 +2112,7 @@ class TestDefineAddedTable:
         store = bucket_root_store(client)
 
         table = _source_with_store(store).define_added_table(
-            BUCKET_ROOT_CONFIG, "orders", location, "infer", allow_double_quotes=True
+            BUCKET_ROOT_CONFIG, 1, "orders", location, "infer", allow_double_quotes=True
         )
         rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
         assert rebuilt is not None
@@ -2118,7 +2137,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError) as error:
             _source_with_store(bucket_root_store(client)).define_added_table(
-                BUCKET_ROOT_CONFIG, "other", "tables/other/", "infer", allow_double_quotes=True
+                BUCKET_ROOT_CONFIG, 1, "other", "tables/other/", "infer", allow_double_quotes=True
             )
 
         assert str(error.value).startswith(expected)
@@ -2139,4 +2158,4 @@ class TestDefineAddedTable:
             values={**BUCKET_ROOT_CONFIG.values, "url_pattern": url, "account_key": "a2V5"}
         )
 
-        assert source.table_root(config) == expected
+        assert source.table_root(config, 1) == expected

@@ -95,7 +95,7 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
     def config_with_files_url(self, config: FakeObjectStorageConfig, url: str) -> FakeObjectStorageConfig:
         return FakeObjectStorageConfig(values={**config.values, "url_pattern": url})
 
-    def object_store_config(self, config: FakeObjectStorageConfig) -> StoreConfig:
+    def object_store_config(self, config: FakeObjectStorageConfig, team_id: int) -> StoreConfig:
         return self._build_store_config(config.values)
 
     def discovery_options(self, config: FakeObjectStorageConfig) -> DiscoveryOptions:

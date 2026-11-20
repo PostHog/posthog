@@ -502,7 +502,7 @@ def _storage_identity(source: ExternalDataSource) -> tuple[str | None, ...] | No
         job_inputs = SourceInputsStore.load(source)
     except Exception:
         return None
-    return source_storage_identity(source.source_type, job_inputs)
+    return source_storage_identity(source.source_type, job_inputs, source.team_id)
 
 
 def _bucket_tables(source: ExternalDataSource) -> dict[str, str | None]:

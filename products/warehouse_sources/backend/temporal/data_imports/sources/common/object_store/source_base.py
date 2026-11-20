@@ -145,7 +145,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     supports_incremental_history = False
 
     @abstractmethod
-    def object_store_config(self, config: ConfigType) -> StoreConfig: ...
+    def object_store_config(self, config: ConfigType, team_id: int) -> StoreConfig: ...
 
     @abstractmethod
     def discovery_options(self, config: ConfigType) -> DiscoveryOptions: ...
@@ -164,7 +164,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         """The job inputs that reach the table's bucket with the table's own credential."""
 
     def job_inputs_for_self_managed(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
+        self, location: SelfManagedLocation, credential: SelfManagedCredential, team_id: int
     ) -> dict[str, Any]:
         """Job inputs for a source rooted at the bucket of a self-managed table.
 
@@ -178,7 +178,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         }
         try:
             config = self.parse_config(raw)
-            validate_store_location(self.object_store_config(config))
+            validate_store_location(self.object_store_config(config, team_id))
         except (ObjectStorageError, TypeError, ValueError) as e:
             raise UnmappableTableError(str(e)) from e
         return self.serialize_config(config)
@@ -197,8 +197,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             BLOCKED_LOCATION_ERROR: None,
             ACCESS_DENIED_ERROR: self.access_denied_message
             or (
-                "The storage provider rejected these credentials. Check the access key and secret, and that "
-                "the key can list and read the bucket, then reconnect the source."
+                "The storage provider rejected these credentials. Check that they can list and read the bucket, "
+                "then reconnect the source."
             ),
             NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
             WRONG_REGION_ERROR: (
@@ -214,9 +214,12 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         }
 
     def _discover(
-        self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
+        self,
+        store: ObjectStore,
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
     ) -> list[TableDefinition]:
-        store_config = self.object_store_config(config)
         return self._group(self._list_objects(store, store_config, logger), store_config, config, logger)
 
     def _list_objects(
@@ -260,7 +263,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            store_config = self.object_store_config(config)
+            store_config = self.object_store_config(config, team_id)
             objects = self._list_objects(self.open_store(store_config), store_config)
             tables = self._group(objects, store_config, config)
         except ObjectStorageError as e:
@@ -288,11 +291,12 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        store = self.open_store(self.object_store_config(config))
+        store_config = self.object_store_config(config, team_id)
+        store = self.open_store(store_config)
         requested = set(names) if names is not None else None
         return [
             _source_schema(table)
-            for table in self._discover(store, config)
+            for table in self._discover(store, store_config, config)
             if requested is None or table.name in requested
         ]
 
@@ -308,7 +312,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         table = TableDefinition.from_schema_metadata(name, schema_metadata)
         if table is None:
             return None
-        store = self.open_store(self.object_store_config(config))
+        store = self.open_store(self.object_store_config(config, team_id))
         location = store.path(table.path)
         try:
             if table.kind == "delta":
@@ -322,20 +326,20 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             _raise_translated(e, location)
         return _source_schema(table)
 
-    def storage_identity(self, config: ConfigType) -> tuple[str | None, ...]:
+    def storage_identity(self, config: ConfigType, team_id: int) -> tuple[str | None, ...]:
         """The bucket the source reads, as `store_identity` names it.
 
         A source whose config parsing makes a network call overrides this to read only the URL.
         """
-        return store_identity(self.object_store_config(config))
+        return store_identity(self.object_store_config(config, team_id))
 
-    def table_root(self, config: ConfigType) -> str | None:
+    def table_root(self, config: ConfigType, team_id: int) -> str | None:
         """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<folder>/`.
 
         None when the files URL names one file or a pattern, so no table can be added. A source whose config
         parsing makes a network call overrides this to read only the URL.
         """
-        return display_root(self.object_store_config(config))
+        return display_root(self.object_store_config(config, team_id))
 
     def config_with_files_url(self, config: ConfigType, url: str) -> ConfigType:
         """The config with another files URL, so the URL is parsed the same way as the source's own."""
@@ -344,6 +348,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     def define_added_table(
         self,
         config: ConfigType,
+        team_id: int,
         name: str,
         location: str,
         file_format: FileFormatChoice,
@@ -355,9 +360,9 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         bucket. Only that location is read, so a source rooted at a large bucket isn't walked.
         """
         try:
-            store_config = self.object_store_config(config)
+            store_config = self.object_store_config(config, team_id)
             if is_full_url(location):
-                url_config = self.object_store_config(self.config_with_files_url(config, location.strip()))
+                url_config = self.object_store_config(self.config_with_files_url(config, location.strip()), team_id)
                 relative = relative_key(store_config, url_config)
             else:
                 relative = added_relative_path(store_config, location)
@@ -420,9 +425,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             _raise_translated(e, store.path(table.path))
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        store = self.open_store(self.object_store_config(config))
+        store_config = self.object_store_config(config, inputs.team_id)
+        store = self.open_store(store_config)
         table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
-            store, config, inputs.schema_name, inputs.logger
+            store, store_config, config, inputs.schema_name, inputs.logger
         )
         if table.kind == "delta":
             return self._delta_response(store, table, inputs)
@@ -487,6 +493,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             stored=stored,
             logger=inputs.logger,
             by_file=by_file,
+            data_filesystem=store.delta_data_filesystem(table.path),
         )
 
         def items() -> Iterator[pa.Table]:
@@ -506,10 +513,15 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         )
 
     def _find_table(
-        self, store: ObjectStore, config: ConfigType, schema_name: str, logger: FilteringBoundLogger
+        self,
+        store: ObjectStore,
+        store_config: StoreConfig,
+        config: ConfigType,
+        schema_name: str,
+        logger: FilteringBoundLogger,
     ) -> TableDefinition:
         """Find a table by name when its schema predates `schema_metadata`."""
-        for table in self._discover(store, config, logger):
+        for table in self._discover(store, store_config, config, logger):
             if table.name == schema_name:
                 return table
         raise ObjectStorageError(
@@ -531,7 +543,7 @@ def supports_adding_tables(source_type: str) -> bool:
     return _object_storage_source(source_type) is not None
 
 
-def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None:
+def added_table_root(source_type: str, job_inputs: dict[str, Any], team_id: int) -> str | None:
     """Where relative paths of an added table start, or None for a source that can't add tables.
 
     It reads only the files URL, so it makes no network call.
@@ -540,18 +552,20 @@ def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None
     if source is None:
         return None
     try:
-        return source.table_root(source.parse_config(job_inputs))
+        return source.table_root(source.parse_config(job_inputs), team_id)
     except Exception:
         return None
 
 
-def source_storage_identity(source_type: str, job_inputs: dict[str, Any]) -> tuple[str | None, ...] | None:
+def source_storage_identity(
+    source_type: str, job_inputs: dict[str, Any], team_id: int
+) -> tuple[str | None, ...] | None:
     """The bucket an object storage source reads, or None when the source is no such source or its inputs can't be read."""
     source = _object_storage_source(source_type)
     if source is None:
         return None
     try:
-        return source.storage_identity(source.parse_config(job_inputs))
+        return source.storage_identity(source.parse_config(job_inputs), team_id)
     except Exception:
         return None
 
@@ -566,6 +580,7 @@ def self_managed_storage_identity(location: SelfManagedLocation) -> tuple[str | 
 def define_added_table_metadata(
     source_type: str,
     job_inputs: dict[str, Any],
+    team_id: int,
     name: str,
     location: str,
     file_format: FileFormatChoice,
@@ -581,7 +596,7 @@ def define_added_table_metadata(
         raise ValueError(f"'{source_type}' is not an object storage source")
     config = source.parse_config(job_inputs)
     try:
-        table = source.define_added_table(config, name, location, file_format, allow_double_quotes)
+        table = source.define_added_table(config, team_id, name, location, file_format, allow_double_quotes)
     except ObjectStorageError as e:
         raise AddedTableLocationError(str(e)) from e
     return table.schema_metadata()
@@ -614,7 +629,11 @@ def iter_table(
 ) -> Iterator[pa.Table]:
     if table.kind == "delta":
         yield from iter_delta_tables(
-            store.delta_uri(table.path), store.delta_storage_options, table.name, logger=logger
+            store.delta_uri(table.path),
+            store.delta_storage_options,
+            table.name,
+            logger=logger,
+            data_filesystem=store.delta_data_filesystem(table.path),
         )
         return
 

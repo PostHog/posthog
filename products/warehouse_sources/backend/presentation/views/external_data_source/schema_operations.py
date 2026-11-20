@@ -592,6 +592,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return define_added_table_metadata(
                 instance.source_type,
                 source_inputs,
+                instance.team_id,
                 data["name"],
                 data["path"],
                 data["file_format"],
