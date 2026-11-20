@@ -176,6 +176,9 @@ class UnsubscribeUrlTag extends Tag {
 }
 
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
+// The worker's EMAIL_BODY_TAG_LIMIT, from nodejs/src/cdp/utils/liquid.ts.
+const MARKED_OUTPUT_LIMIT = 10_000
+
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
     private static _plainTextLiquid: Liquid | null = null
@@ -369,7 +372,8 @@ export class LiquidRenderer {
         let marked = ''
         let cursor = 0
         const { outputs, locals } = this.outputsOf(this.liquid.parse(decoded))
-        for (const node of outputs) {
+        // Each output costs a lookup outside the render budget, so past the worker's tag limit nothing is marked.
+        for (const node of outputs.length > MARKED_OUTPUT_LIMIT ? [] : outputs) {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
             const root = expression.split(/[.[\s]/)[0]

@@ -121,6 +121,12 @@ describe('renderEmailPreview', () => {
         expect(renderEmailPreview(template, person)).toBe(template)
     })
 
+    it('stops marking missing values past the tag limit and renders the rest normally', () => {
+        const template = '{{ person.properties.nickname }}'.repeat(10_001)
+
+        expect(renderEmailPreviewMarked(template, person)).toBe('')
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
     })
