@@ -110,7 +110,9 @@ tools:
             that always flags. Pass `order: recent` for the series whose newest flagged bucket ended last first, so an
             hourly series flagged a few hours ago sorts above a daily series flagged yesterday. Pass `search` to keep
             only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to
-            `offset + limit`. A 404 means anomaly search is not available for this project.
+            `offset + limit`. When `series_capped` is true, the project has more scored series than one search reads, so
+            some matching series are missing from every page: narrow the date range, or pass `insight_id`,
+            `dashboard_id` or `search`. A 404 means anomaly search is not available for this project.
         exclude_params:
             - include_points
         feature_flag: anomalies-search
