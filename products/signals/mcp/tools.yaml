@@ -1801,7 +1801,9 @@ tools:
             returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before
             you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an
             entry. The version a write replaces is kept for two weeks: read it with `scout-scratchpad-search` passing
-            `key` and `include_revisions=true`, and restore it by remembering its content.
+            `key` and `include_revisions=true`, and restore it by remembering its content. A write onto an expired entry
+            succeeds, and the response's `revived_expiry` gives the expiry it replaced and, when known, who set it.
+            Another writer may have retired that entry on purpose, so check why before you keep the rewrite.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
@@ -1822,7 +1824,11 @@ tools:
             entry's original creator: a scout's skill name or a pipeline stage (`pipeline:report-research`,
             `pipeline:implementation`). An upsert keeps the creator, so the last writer can differ. Expired entries are
             hidden by default, and a daily janitor hard-deletes them once their expiry is more than two weeks in the
-            past.
+            past. A `key` search adds `last_changed_by_skill` and `last_changed_at`, naming the last writer after the
+            creator. When the entry exists but has expired, a `key` search returns it with `expired=true`, a blank
+            `content` and its `expires_at`, and the two fields name who set the expiry when known. That means another
+            writer or a time limit retired the entry on purpose: read it with `include_expired=true` and weigh that
+            before you rebuild it.
     scout-trial-archive:
         operation: signals_scout_config_trial_comparison_archive
         enabled: true
