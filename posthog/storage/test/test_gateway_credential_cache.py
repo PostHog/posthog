@@ -46,7 +46,6 @@ from posthog.storage.test.cluster_cache import reject_multi_key_commands
 from posthog.tasks.gateway_credential import (
     drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
-    reproject_organization_gateway_credentials_task,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
@@ -993,7 +992,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
             patch(
                 "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
-                side_effect=reproject_organization_gateway_credentials_task,
+                side_effect=ConnectionError("broker down"),
             ),
         ):
             mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
@@ -1007,13 +1006,26 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             self.organization.save()
             self.assertIsNotNone(self._read_blob(cache_hash))
 
-    def test_organization_deactivation_survives_a_failed_enqueue(self):
+    @parameterized.expand([("broker_up", True), ("broker_down", False)])
+    def test_organization_deactivation_queues_a_retry_without_failing_the_save(self, _name, broker_up):
+        self._make_secret_key([GATEWAY_SCOPE])
+        queued: list[str] = []
+
+        def enqueue(organization_id: str) -> None:
+            if not broker_up:
+                raise ConnectionError("broker down")
+            queued.append(organization_id)
+
         with (
             patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
             patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
             patch(
+                "posthog.tasks.gateway_credential.project_gateway_credential",
+                side_effect=ConnectionError("redis down"),
+            ),
+            patch(
                 "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
-                side_effect=ConnectionError("broker down"),
+                side_effect=enqueue,
             ),
         ):
             mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
@@ -1023,6 +1035,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         self.organization.refresh_from_db()
         self.assertIs(self.organization.is_active, False)
+        self.assertEqual(queued, [str(self.organization.pk)] if broker_up else [])
 
     @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
