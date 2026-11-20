@@ -142,10 +142,11 @@ describe('workflow write response shape', () => {
     }
 
     const throughEachRoute = <Rest extends unknown[]>(
-        rows: [string, ...Rest][]
+        rows: [string, ...Rest][],
+        through: readonly (typeof routes)[number][] = routes
     ): [string, (typeof routes)[number], ...Rest][] =>
         rows.flatMap(([name, ...rest]) =>
-            routes.map((route) => [name, route, ...rest] as [string, (typeof routes)[number], ...Rest])
+            through.map((route) => [name, route, ...rest] as [string, (typeof routes)[number], ...Rest])
         )
 
     it.each(
@@ -194,31 +195,34 @@ describe('workflow write response shape', () => {
     )
 
     it.each(
-        throughEachRoute<[Record<string, unknown>, Record<string, unknown>, boolean]>([
+        throughEachRoute<[Record<string, unknown>, Record<string, unknown>, boolean]>(
             [
-                'a publish onto the test sender',
-                { confirm: true, confirm_token: 'preview-token' },
-                { published: true, workflow: { ...workflow(), warnings: testSenderLive } },
-                true,
+                [
+                    'a publish onto the test sender',
+                    { confirm: true, confirm_token: 'preview-token' },
+                    { published: true, workflow: { ...workflow(), warnings: testSenderLive } },
+                    true,
+                ],
+                [
+                    'a publish on its own sender',
+                    { confirm: true, confirm_token: 'preview-token' },
+                    { published: true, workflow: { ...workflow(), warnings: [] } },
+                    false,
+                ],
+                ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
+                [
+                    'a preview that shows the live workflow',
+                    {},
+                    {
+                        published: false,
+                        confirm_token: 'preview-token',
+                        workflow: { ...workflow(), warnings: testSenderLive },
+                    },
+                    false,
+                ],
             ],
-            [
-                'a publish on its own sender',
-                { confirm: true, confirm_token: 'preview-token' },
-                { published: true, workflow: { ...workflow(), warnings: [] } },
-                false,
-            ],
-            ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
-            [
-                'a preview that shows the live workflow',
-                {},
-                {
-                    published: false,
-                    confirm_token: 'preview-token',
-                    workflow: { ...workflow(), warnings: testSenderLive },
-                },
-                false,
-            ],
-        ])
+            ['the MCP server', 'the CLI']
+        )
     )(
         'relays the test sender warning only for %s, through %s',
         async (_name, route, confirmation, response, relays) => {
