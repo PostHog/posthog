@@ -71,7 +71,7 @@ from .github import (
     github_account_type,
     invalidate_github_repository_caches_for_installation,
 )
-from .gitlab import GitLabIntegration, GitLabIntegrationError
+from .gitlab import GitLabIntegration, GitLabIntegrationError, GitLabOverwriteNotAllowed
 from .google_ads import (
     GoogleAdsIntegration,
     GoogleAdsQuotaExhaustedError,
@@ -264,6 +264,7 @@ __all__ = [
     "GitHubIntegration",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "GitLabOverwriteNotAllowed",
     "Assignee",
     "AssigneeLookupFailed",
     "ReconnectRequired",
