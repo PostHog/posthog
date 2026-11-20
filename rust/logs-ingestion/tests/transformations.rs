@@ -9,6 +9,7 @@ use logs_ingestion::content_weights::StagedRecord;
 use logs_ingestion::js::{json_parse, JsValue};
 use logs_ingestion::pipeline::LogsTransformer;
 use logs_ingestion::rate_limiter::Clock;
+use logs_ingestion::transformations::exec::redact_sensitive_values;
 use logs_ingestion::transformations::functions::{HogFunction, HogFunctionRow};
 use logs_ingestion::transformations::{
     HogFunctionMonitoring, HogFunctionSource, LogsTransformerConfig, LogsTransformerService,
@@ -145,9 +146,16 @@ async fn a_runaway_program_is_stopped_by_the_wall_clock_and_fails_open() {
 }
 
 #[tokio::test]
-async fn the_batch_budget_is_shared_across_messages() {
+async fn the_batch_budget_is_shared_across_messages_of_one_team_only() {
+    let other_team_function = HogFunction {
+        team_id: TEAM_ID + 1,
+        ..(*function(BUSY, "{}", None)).clone()
+    };
     let (service, _) = service(
-        Arc::new(StaticHogFunctions(vec![function(BUSY, "{}", None)])),
+        Arc::new(StaticHogFunctions(vec![
+            function(BUSY, "{}", None),
+            Arc::new(other_team_function),
+        ])),
         60_000.0,
     );
     let budget = Arc::new(TransformationBatchBudget::new(0.0001));
@@ -164,13 +172,25 @@ async fn the_batch_budget_is_shared_across_messages() {
 
     let mut second = vec![record("api")];
     service
-        .transform_records(TEAM_ID, &mut second, Some(budget))
+        .transform_records(TEAM_ID, &mut second, Some(budget.clone()))
         .await
         .unwrap();
     assert_eq!(
         attribute(&second[0], "posthog.transformations_skipped").as_deref(),
         Some("\"budget\"")
     );
+
+    let used_by_first_team = budget.used_ms();
+    let mut other_team = vec![record("api")];
+    service
+        .transform_records(TEAM_ID + 1, &mut other_team, Some(budget.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        attribute(&other_team[0], "posthog.transformations_skipped"),
+        None
+    );
+    assert!(budget.used_ms() > used_by_first_team);
 }
 
 #[tokio::test]
@@ -458,4 +478,10 @@ async fn a_timeout_too_large_for_the_clock_is_no_deadline() {
         .await
         .unwrap();
     assert_eq!(attribute(&records[0], "svc").as_deref(), Some("\"x\""));
+}
+
+#[test]
+fn redaction_stops_at_the_length_the_log_line_keeps() {
+    let redacted = redact_sensitive_values(&"x".repeat(100_000), &["x".to_string()], 100);
+    assert!(redacted.len() < 200, "{}", redacted.len());
 }

@@ -37,30 +37,37 @@ pub struct LogsTransformerConfig {
     pub max_error_logs_per_function_per_message: usize,
 }
 
+/// Each team spends its own share, so one team's slow functions cannot skip another team's transformations.
 #[derive(Debug)]
 pub struct TransformationBatchBudget {
     total_ms: f64,
-    used_ms: Mutex<f64>,
+    used_ms_by_team: Mutex<HashMap<i64, f64>>,
 }
 
 impl TransformationBatchBudget {
     pub fn new(total_ms: f64) -> Self {
         Self {
             total_ms,
-            used_ms: Mutex::new(0.0),
+            used_ms_by_team: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn exhausted(&self) -> bool {
-        *self.used_ms.lock().unwrap() >= self.total_ms
+    pub fn exhausted(&self, team_id: i64) -> bool {
+        let used = self.used_ms_by_team.lock().unwrap();
+        used.get(&team_id).copied().unwrap_or(0.0) >= self.total_ms
     }
 
-    pub fn add(&self, ms: f64) {
-        *self.used_ms.lock().unwrap() += ms;
+    pub fn add(&self, team_id: i64, ms: f64) {
+        *self
+            .used_ms_by_team
+            .lock()
+            .unwrap()
+            .entry(team_id)
+            .or_insert(0.0) += ms;
     }
 
     pub fn used_ms(&self) -> f64 {
-        *self.used_ms.lock().unwrap()
+        self.used_ms_by_team.lock().unwrap().values().sum()
     }
 }
 
@@ -145,7 +152,7 @@ impl RecordContext<'_> {
     fn add_vm_ms(&mut self, ms: f64) {
         self.result.vm_ms += ms;
         if let Some(budget) = self.run.batch_budget {
-            budget.add(ms);
+            budget.add(self.run.team_id, ms);
         }
     }
 
@@ -317,7 +324,7 @@ pub fn transform_message(
     let mut dropped = vec![false; records.len()];
     for (index, staged) in records.iter_mut().enumerate() {
         if exhausted_scope.is_none() {
-            if run.batch_budget.is_some_and(|b| b.exhausted()) {
+            if run.batch_budget.is_some_and(|b| b.exhausted(run.team_id)) {
                 exhausted_scope = Some("batch");
             } else if ctx.result.vm_ms >= run.config.message_budget_ms {
                 exhausted_scope = Some("message");
