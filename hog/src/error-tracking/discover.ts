@@ -170,7 +170,6 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
     return roots.flatMap((root) => rootFiles(root, cwd).files)
 }
 
-const BUNDLE_EXTENSIONS = [...JS_EXTENSIONS, ...HERMES_BUNDLE_EXTENSIONS]
 const MAP_EXTENSION = '.map'
 const MAPPING_EXTENSION = '.txt'
 
@@ -182,18 +181,21 @@ export async function discover(
 ): Promise<Artifact[]> {
     const worker = commandWorker(ctx)
     const listed = roots.map((root) => rootFiles(root, cwd))
-    // One request for every file, so the worker reads them in parallel.
+    // One request for every file, so the worker reads them in parallel. A root with a kind asks only
+    // the checks of that kind, as `detect` runs only its detectors.
     const answers = await worker.detect(
-        listed.flatMap(({ isFile, files }, index) =>
-            files.map((path) => ({
+        listed.flatMap(({ isFile, files }, index) => {
+            const wants = (kind: ArtifactKind): boolean =>
+                roots[index]!.kind === undefined || roots[index]!.kind === kind
+            return files.map((path) => ({
                 path,
-                bundle: hasBundleName(path, BUNDLE_EXTENSIONS),
-                map: isFile || path.endsWith(MAP_EXTENSION),
-                mapping:
-                    (isFile || path.endsWith(MAPPING_EXTENSION)) &&
-                    (roots[index]!.kind === undefined || roots[index]!.kind === 'proguard'),
+                bundle:
+                    (wants('js') && hasBundleName(path, JS_EXTENSIONS)) ||
+                    (wants('hermes') && hasBundleName(path, HERMES_BUNDLE_EXTENSIONS)),
+                map: wants('hermes') && (isFile || path.endsWith(MAP_EXTENSION)),
+                mapping: wants('proguard') && (isFile || path.endsWith(MAPPING_EXTENSION)),
             }))
-        ),
+        }),
         options.publicPathPrefix
     )
 
