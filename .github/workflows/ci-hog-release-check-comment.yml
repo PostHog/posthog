@@ -41,18 +41,27 @@ jobs:
                   MAX_RESULT_BYTES: 262144
               run: |
                   set -euo pipefail
-                  if ! gh run download "$RUN_ID" --repo "$REPOSITORY" --name hog-release-check --dir "$RUNNER_TEMP/result"; then
+                  # The artifact comes from a run of pull request code, so it's read as hostile: only result.json is
+                  # read out of the archive, with no more than MAX_RESULT_BYTES + 1 bytes ever written, so a
+                  # compressed bomb can't expand on the runner. It's then parsed once as exactly one JSON document,
+                  # and every value is checked against a fixed pattern before it reaches GITHUB_OUTPUT.
+                  artifact_id=$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+                      --jq '[.artifacts[] | select(.name == "hog-release-check" and (.expired | not))] | if length == 1 then .[0].id else empty end')
+                  if [ -z "$artifact_id" ]; then
                       echo "The check left no result, so the comment stays as it was"
                       echo "status=unknown" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
-
-                  # The artifact comes from a run of pull request code, so it's read as hostile: one file under a
-                  # size limit, parsed once as exactly one JSON document, and every value checked against a fixed
-                  # pattern before it reaches GITHUB_OUTPUT.
-                  result="$RUNNER_TEMP/result/result.json"
-                  if [ "$(find "$RUNNER_TEMP/result" -type f | wc -l)" -ne 1 ] || [ "$(wc -c <"$result")" -gt "$MAX_RESULT_BYTES" ]; then
-                      echo "::error::The check result isn't one file under $MAX_RESULT_BYTES bytes, so nothing is posted"
+                  archive="$RUNNER_TEMP/result.zip"
+                  result="$RUNNER_TEMP/result.json"
+                  gh api "repos/$REPOSITORY/actions/artifacts/$artifact_id/zip" >"$archive"
+                  if [ "$(unzip -Z1 "$archive")" != result.json ]; then
+                      echo "::error::The check result isn't exactly one result.json, so nothing is posted"
+                      exit 1
+                  fi
+                  unzip -p "$archive" result.json | head -c "$((MAX_RESULT_BYTES + 1))" >"$result" || true
+                  if [ "$(wc -c <"$result")" -gt "$MAX_RESULT_BYTES" ]; then
+                      echo "::error::The check result is over $MAX_RESULT_BYTES bytes, so nothing is posted"
                       exit 1
                   fi
                   if ! values=$(jq -rs --arg head "$HEAD_SHA" '
