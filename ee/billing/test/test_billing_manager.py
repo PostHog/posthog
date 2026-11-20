@@ -414,7 +414,7 @@ class TestBillingManager(BaseTest):
             "replay_vision_credits": {},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
-            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
+            "workflow_destinations": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "survey_responses": {
@@ -448,7 +448,7 @@ class TestBillingManager(BaseTest):
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
                     "workflow_emails": {"usage": 100, "limit": 10000},
-                    "workflow_destinations_dispatched": {"usage": 50, "limit": 10000},
+                    "workflow_destinations": {"usage": 50, "limit": 10000},
                     "logs_mb_ingested": {"usage": 5500, "limit": 50000},
                 },
                 "billing_period": {
@@ -489,7 +489,7 @@ class TestBillingManager(BaseTest):
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_push": {},
-            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
+            "workflow_destinations": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},

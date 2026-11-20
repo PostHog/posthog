@@ -827,7 +827,7 @@ class BillingManager:
                 sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_push=usage_summary.get("workflow_push", {}),
-                workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
+                workflow_destinations=usage_summary.get("workflow_destinations", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
                 period=[
