@@ -229,16 +229,17 @@ describe('boundText', () => {
     })
 
     it.each([
-        ['a page with more after it', 50_000],
-        ['the last page', null],
-    ])('points the next body offset past only the body it keeps, on %s', (_, nextOffset) => {
-        const body = 'a line of the skill\n'.repeat(2_500)
+        ['a page with more after it', 'a line of the skill\n', 50_000],
+        ['the last page', 'a line of the skill\n', null],
+        ['a page of emoji, counted in code points', '🚀 launch step\n', 50_000],
+    ])('points the next body offset past only the body it keeps, on %s', (_, line, nextOffset) => {
+        const body = line.repeat(2_500)
         const value = { body, body_total_length: 200_000, body_next_offset: nextOffset }
 
         const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
 
-        const start = (nextOffset ?? value.body_total_length) - body.length
-        expect(bounded.body_next_offset).toBe(start + bounded.body.length)
+        const start = (nextOffset ?? value.body_total_length) - [...body].length
+        expect(bounded.body_next_offset).toBe(start + [...bounded.body].length)
     })
 
     it('keeps a JSON string result a JSON string', () => {
