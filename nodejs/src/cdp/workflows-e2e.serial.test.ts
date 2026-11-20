@@ -2264,8 +2264,8 @@ describe('Workflows E2E (postgres-v2)', () => {
                 deps
             )
             await (gated as any).refreshWatcherState()
-            // The old goal arrives as the backfill writes it, after the matcher's first read: created now, stamped
-            // with the workflow's last change. The next read, an incremental one, has to pick it up.
+            // The old goal arrives as the backfill writes it, after the matcher's first read, stamped with the
+            // workflow's last change. The next read has to pick it up.
             await recordGoal('old_goal', '30 days')
             await (gated as any).refreshWatcherState()
             const conversionCount = (): number =>

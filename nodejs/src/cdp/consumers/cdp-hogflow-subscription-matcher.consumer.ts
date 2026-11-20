@@ -82,18 +82,11 @@ const WATCHER_TEAMS_REFRESH_RETRY_MS = 30_000
 const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
 // When the last successful goals read is older than this, every event of a team with goals is looked up.
 const PINNED_GOALS_MAX_READ_AGE_MS = 5 * 60 * 1000
-const PINNED_GOALS_FULL_READ_INTERVAL_MS = 60 * 60 * 1000
-const PINNED_GOALS_READ_OVERLAP_MS = 10 * 60 * 1000
 // A worker can start a run on a flow version for a while after the save that replaced it.
 const PINNED_GOALS_WINDOW_MARGIN_MS = 24 * 60 * 60 * 1000
-// After a flow change, its team looks up every event until the replica the goals are read from shows the change.
-// It does so for at least this long, even when the replica already shows the change.
-const PINNED_GOALS_CHANGE_MIN_MS = 2 * 60 * 1000
-// And at most this long, so a change that leaves no newer flow row behind (a delete) does not keep the team there.
-const PINNED_GOALS_CHANGE_MAX_MS = 15 * 60 * 1000
-// Django stamps the save on its own clock, before the reload signal reaches this pod. This margin absorbs the
-// difference between the two clocks.
-const PINNED_GOALS_CLOCK_SKEW_MS = 10_000
+// After a flow change, its team looks up every event until a goals read that started this long after the change,
+// so the replica the goals are read from has caught up with the save.
+const PINNED_GOALS_CHANGE_WINDOW_MS = 2 * 60 * 1000
 // A read that takes longer stops holding up the rest of the tick, and no second read starts until it settles.
 const PINNED_GOALS_READ_TIMEOUT_MS = 20_000
 // Past this many goals, a team looks up every event rather than running each goal against it.
@@ -204,7 +197,6 @@ type FilterFirstMode = 'off' | 'shadow' | 'on'
 
 // eventNames: every event name the goal can match, or null when it can match any.
 type PinnedGoalEntry = { functionId: string; goal: PinnedConversionGoal; key: string; eventNames: Set<string> | null }
-type PinnedGoalRow = { teamId: number; entry: PinnedGoalEntry }
 
 // Past this, the rest of a batch is looked up without the check, so slow or numerous filters cannot hold the batch.
 const FILTER_FIRST_BUDGET_MS = 50
@@ -346,14 +338,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private watcherRefreshedAt = 0
     private pinnedGoalsMode: FilterFirstMode
     private postgres: PostgresRouter
-    // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by row and by team.
-    private pinnedGoalRows: Map<string, PinnedGoalRow> = new Map()
+    // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by team.
     private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
     private pinnedGoalsRead: Promise<void> | null = null
     private teamsOverGoalCap: Set<number> = new Set()
-    private pinnedGoalsCursor = 0
     private pinnedGoalsReadAt = 0
-    private pinnedGoalsFullReadAt = 0
     // Team -> when one of its flows changed, until a goals read has covered the change.
     private pinnedGoalChanges: Map<number, number> = new Map()
     // "on" and the goals have been read once. From then on the full watcher scan no longer runs.
@@ -1188,124 +1177,66 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return Date.now() - this.pinnedGoalsReadAt < PINNED_GOALS_MAX_READ_AGE_MS
     }
 
-    // Reads the goals stamped live since the last read, or every goal still within the longest conversion window
-    // once an hour, which drops older goals and deleted workflows. The overlap re-reads rows whose save committed
-    // after a later row's stamp.
+    // Reads every goal live within the longest conversion window, so older goals and deleted workflows drop out.
     private async refreshPinnedGoals(): Promise<void> {
         const startedAt = Date.now()
-        const full = startedAt - this.pinnedGoalsFullReadAt >= PINNED_GOALS_FULL_READ_INTERVAL_MS
         const windowStart = startedAt - MAX_CONVERSION_WINDOW_MINUTES * 60_000 - PINNED_GOALS_WINDOW_MARGIN_MS
-        const since = full ? windowStart : Math.max(windowStart, this.pinnedGoalsCursor - PINNED_GOALS_READ_OVERLAP_MS)
         const result = await this.postgres.query<{
-            id: string
             team_id: number
             hog_flow_id: string
             goal: PinnedConversionGoal
             event_names: string[] | null
-            last_live_at: Date
-            created_at: Date
         }>(
             PostgresUse.COMMON_READ,
             // One row past the cap is enough to know a team is over it, so no team can grow this read without bound.
-            `SELECT id, team_id, hog_flow_id, goal, event_names, last_live_at, created_at FROM (
-                 SELECT g.id, f.team_id, g.hog_flow_id, g.goal, g.event_names, g.last_live_at, g.created_at,
+            `SELECT team_id, hog_flow_id, goal, event_names FROM (
+                 SELECT f.team_id, g.hog_flow_id, g.goal, g.event_names,
                         row_number() OVER (PARTITION BY f.team_id ORDER BY g.last_live_at DESC) AS team_row
                  FROM workflows_hogflowconversiongoal g
                  JOIN posthog_hogflow f ON f.id = g.hog_flow_id
-                 WHERE g.last_live_at > $1 OR (g.created_at > $2 AND g.last_live_at > $3)
+                 WHERE g.last_live_at > $1
              ) goals
-             WHERE team_row <= $4`,
-            // A backfilled goal is created now but stamped with its workflow's last change.
-            [
-                new Date(since),
-                new Date(full ? windowStart : since),
-                new Date(windowStart),
-                PINNED_GOALS_MAX_PER_TEAM + 1,
-            ],
+             WHERE team_row <= $2`,
+            [new Date(windowStart), PINNED_GOALS_MAX_PER_TEAM + 1],
             'hogflowMatcherPinnedGoals'
         )
-        const rows = full ? new Map<string, PinnedGoalRow>() : this.pinnedGoalRows
-        if (full) {
-            this.teamsOverGoalCap = new Set()
-        }
-        let cursor = full ? windowStart : this.pinnedGoalsCursor
+        const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
+        const rowsPerTeam = new Map<number, number>()
         for (const row of result.rows) {
-            cursor = Math.max(cursor, new Date(row.last_live_at).getTime(), new Date(row.created_at).getTime())
-            if (!row.goal || typeof row.goal !== 'object' || this.teamsOverGoalCap.has(row.team_id)) {
+            rowsPerTeam.set(row.team_id, (rowsPerTeam.get(row.team_id) ?? 0) + 1)
+            if (!row.goal || typeof row.goal !== 'object') {
                 continue
             }
-            rows.set(row.id, {
-                teamId: row.team_id,
-                entry: {
-                    functionId: row.hog_flow_id,
-                    goal: row.goal,
-                    key: stableStringify(row.goal),
-                    eventNames: Array.isArray(row.event_names) ? new Set(row.event_names) : null,
-                },
-            })
+            const entry: PinnedGoalEntry = {
+                functionId: row.hog_flow_id,
+                goal: row.goal,
+                key: stableStringify(row.goal),
+                eventNames: Array.isArray(row.event_names) ? new Set(row.event_names) : null,
+            }
+            let entries = pinnedGoalsByTeam.get(row.team_id)
+            if (!entries) {
+                entries = new Map()
+                pinnedGoalsByTeam.set(row.team_id, entries)
+            }
+            const existing = entries.get(entry.key)
+            // Equal goals keep the version that matches any event name.
+            if (!existing || (existing.eventNames && entry.eventNames === null)) {
+                entries.set(entry.key, entry)
+            }
         }
-        if (full || result.rows.length > 0) {
-            // A team over the cap looks up every event, so its goals are not kept.
-            const rowsPerTeam = new Map<number, number>()
-            for (const { teamId } of rows.values()) {
-                rowsPerTeam.set(teamId, (rowsPerTeam.get(teamId) ?? 0) + 1)
+        // A team over the cap looks up every event, so its goals are not kept.
+        const teamsOverGoalCap = new Set<number>()
+        for (const [teamId, count] of rowsPerTeam) {
+            if (count > PINNED_GOALS_MAX_PER_TEAM) {
+                teamsOverGoalCap.add(teamId)
+                pinnedGoalsByTeam.delete(teamId)
             }
-            for (const [teamId, count] of rowsPerTeam) {
-                if (count > PINNED_GOALS_MAX_PER_TEAM) {
-                    this.teamsOverGoalCap.add(teamId)
-                }
-            }
-            for (const [id, { teamId }] of rows) {
-                if (this.teamsOverGoalCap.has(teamId)) {
-                    rows.delete(id)
-                }
-            }
-            const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
-            for (const { teamId, entry } of rows.values()) {
-                let entries = pinnedGoalsByTeam.get(teamId)
-                if (!entries) {
-                    entries = new Map()
-                    pinnedGoalsByTeam.set(teamId, entries)
-                }
-                const existing = entries.get(entry.key)
-                // Equal goals keep the version that matches any event name.
-                if (!existing || (existing.eventNames && entry.eventNames === null)) {
-                    entries.set(entry.key, entry)
-                }
-            }
-            this.pinnedGoalRows = rows
-            this.pinnedGoalsByTeam = pinnedGoalsByTeam
         }
-        this.pinnedGoalsCursor = cursor
+        this.pinnedGoalsByTeam = pinnedGoalsByTeam
+        this.teamsOverGoalCap = teamsOverGoalCap
         this.pinnedGoalsReadAt = startedAt
-        if (full) {
-            this.pinnedGoalsFullReadAt = startedAt
-        }
-        await this.expirePinnedGoalChanges(startedAt)
-    }
-
-    // A flow save commits its goals in the same transaction as the flow row, before the reload signal. Once the replica
-    // shows a flow save of the team from the signal's time, a goals read after that includes the save's goals.
-    private async expirePinnedGoalChanges(readStartedAt: number): Promise<void> {
-        const due = [...this.pinnedGoalChanges].filter(
-            ([, changedAt]) => readStartedAt - changedAt > PINNED_GOALS_CHANGE_MIN_MS
-        )
-        if (due.length === 0) {
-            return
-        }
-        const result = await this.postgres.query<{ team_id: number; updated_at: Date }>(
-            PostgresUse.COMMON_READ,
-            `SELECT team_id, MAX(updated_at) AS updated_at FROM posthog_hogflow WHERE team_id = ANY($1) GROUP BY team_id`,
-            [due.map(([teamId]) => teamId)],
-            'hogflowMatcherChangedTeams'
-        )
-        const replicatedAt = new Map(result.rows.map((row) => [row.team_id, new Date(row.updated_at).getTime()]))
-        for (const [teamId, changedAt] of due) {
-            const seen = replicatedAt.get(teamId)
-            if (
-                (seen !== undefined && seen >= changedAt - PINNED_GOALS_CLOCK_SKEW_MS) ||
-                readStartedAt - changedAt > PINNED_GOALS_CHANGE_MAX_MS
-            ) {
+        for (const [teamId, changedAt] of this.pinnedGoalChanges) {
+            if (startedAt - changedAt > PINNED_GOALS_CHANGE_WINDOW_MS) {
                 this.pinnedGoalChanges.delete(teamId)
             }
         }
