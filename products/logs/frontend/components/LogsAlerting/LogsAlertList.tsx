@@ -11,6 +11,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -66,7 +67,8 @@ export function LogsAlertDestinationTags({
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
+    const { alerts, alertsAccessDenied, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } =
+        useValues(logsAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -263,6 +265,15 @@ export function LogsAlertList(): JSX.Element {
             },
         },
     ]
+
+    if (alertsAccessDenied) {
+        return (
+            <AccessDenied
+                inline
+                reason="You do not have access to logs in this project, so you cannot see its alerts."
+            />
+        )
+    }
 
     return (
         <div className="space-y-2">
