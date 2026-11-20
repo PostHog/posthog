@@ -89,23 +89,31 @@ export class Runtime {
         return waitWithSignal(this.discovery, signal)
     }
 
+    private toolLibrary(): Promise<ApiToolLibrary> {
+        if (this.parent) {
+            return this.parent.toolLibrary()
+        }
+        const config = this.configuration()
+        this.library ??= import('./tool-library.mjs').then(({ createApiToolLibrary }) =>
+            createApiToolLibrary({
+                fetch: config.fetch,
+                onProjectSelected: (id, org) => {
+                    const projectId = Number(id)
+                    if (projectId !== (config.project?.projectId ?? this.selected?.projectId)) {
+                        this.active = { projectId, source: 'explicit', ...(org ? { organizationId: org } : {}) }
+                    } else {
+                        this.active = undefined
+                    }
+                },
+            })
+        )
+        return this.library
+    }
+
     async executeTool<T>(toolName: string, input: unknown, options: RequestOptions = {}): Promise<T> {
         return this.runWithDeadline(options, async (signal) => {
             const config = this.configuration()
-            this.library ??= import('./tool-library.mjs').then(({ createApiToolLibrary }) =>
-                createApiToolLibrary({
-                    fetch: config.fetch,
-                    onProjectSelected: (id, org) => {
-                        const projectId = Number(id)
-                        if (projectId !== (config.project?.projectId ?? this.selected?.projectId)) {
-                            this.active = { projectId, source: 'explicit', ...(org ? { organizationId: org } : {}) }
-                        } else {
-                            this.active = undefined
-                        }
-                    },
-                })
-            )
-            const library = await this.library
+            const library = await this.toolLibrary()
             const project = await this.project(signal)
             const result = await library.call(
                 toolName,

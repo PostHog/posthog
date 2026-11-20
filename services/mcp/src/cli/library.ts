@@ -41,7 +41,7 @@ import type {
     ApiToolValidation,
 } from './library-types'
 import { trackCliToolCall } from './tool-call-properties'
-import { type CatalogTools, getCliTools } from './tools'
+import { type CatalogTools, createCliToolRegistry } from './tools'
 
 const COMMAND_REFERENCE = 'CLI-style command string: search, schema or call.'
 
@@ -222,12 +222,11 @@ function catalogFrom(catalog: unknown): { status: ApiCatalogStatus; tools: Catal
 export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiToolLibrary {
     const { status, tools: catalog } = catalogFrom(options.catalog)
     const definitionOf = (name: string): ToolDefinition => catalog?.definitions[name] ?? getToolDefinition(name)
-    const tools = getCliTools({ aiConsentGiven: true, ...(catalog ? { catalog } : {}) })
-    const toolsWithoutAiConsent = tools.filter((tool) => definitionOf(tool.name).requires_ai_consent !== true)
-    const byName = new Map(tools.map((tool) => [tool.name, tool]))
-    const exec = staticExec(tools)
+    const registry = createCliToolRegistry({ aiConsentGiven: true, ...(catalog ? { catalog } : {}) })
+    let listing: Tool<ZodObjectAny> | undefined
+    const listingExec = (): Tool<ZodObjectAny> => (listing ??= staticExec(registry.all()))
     const find = (name: string): Tool<ZodObjectAny> => {
-        const tool = byName.get(name)
+        const tool = registry.get(name)
         if (!tool) {
             throw new Error(`Unknown tool: "${name}".`)
         }
@@ -270,12 +269,19 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
     }
 
     return {
-        tools: () => tools.map((tool) => summarize(tool, definitionOf)),
+        tools: () => registry.all().map((tool) => summarize(tool, definitionOf)),
 
-        catalog: () => status,
+        catalog: () => {
+            // `dropped` lists each downloaded entry that this build cannot read. Only an attempt
+            // to build an entry finds that, so the status of a downloaded catalog needs every tool.
+            if (catalog) {
+                registry.all()
+            }
+            return status
+        },
 
         async search(query: string): Promise<ApiSearchResult> {
-            const result = await runExec(exec, undefined, `search ${query}`)
+            const result = await runExec(listingExec(), undefined, `search ${query}`)
             if (Array.isArray(result)) {
                 return { names: result as string[], truncated: false }
             }
@@ -285,7 +291,7 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
 
         async schema(tool: string, fieldPath?: string): Promise<unknown> {
             find(tool)
-            return runExec(exec, undefined, `schema ${tool}${fieldPath ? ` ${fieldPath}` : ''}`)
+            return runExec(listingExec(), undefined, `schema ${tool}${fieldPath ? ` ${fieldPath}` : ''}`)
         },
 
         // The same rewrap and messages as `posthog-cli api call --dry-run`.
@@ -322,7 +328,7 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
             signals.run(callOptions?.signal, () =>
                 attempt(async () => {
                     callOptions?.signal?.throwIfAborted()
-                    find(name)
+                    const tool = find(name)
                     const context = await contextFor(connection)
                     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
                     if (definitionOf(name).requires_ai_consent && !aiConsentGiven) {
@@ -332,7 +338,7 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
                         })
                     }
                     const callExec = createExecTool(
-                        aiConsentGiven ? tools : toolsWithoutAiConsent,
+                        [tool],
                         context,
                         'PostHog tools',
                         COMMAND_REFERENCE,

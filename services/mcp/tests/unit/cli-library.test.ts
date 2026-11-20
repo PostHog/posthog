@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createApiToolLibrary, toApiToolError } from '@/cli/library'
 import {
@@ -10,6 +10,7 @@ import {
     PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 describe('CLI tool library', () => {
@@ -37,6 +38,36 @@ describe('CLI tool library', () => {
         expect(result.valid).toBe(valid)
         if (!result.valid) {
             expect(result.error).toContain('limit')
+        }
+    })
+
+    it('builds only the tool it validates and calls', async () => {
+        const anotherTool = vi.spyOn(GENERATED_TOOL_MAP, 'dashboard-get')
+        try {
+            const fetch = async (url: string | URL | Request): Promise<Response> =>
+                new URL(String(url)).pathname.endsWith('/feature_flags/')
+                    ? Response.json({ results: [], count: 0, next: null, previous: null })
+                    : Response.json({ id: 42, organization: 'org', scopes: ['*'] })
+            const fresh = createApiToolLibrary({ fetch })
+
+            expect(fresh.validate('feature-flag-get-all', { limit: 5 }).valid).toBe(true)
+            const called = await fresh.call(
+                'feature-flag-get-all',
+                {},
+                {
+                    apiKey: 'phx_test',
+                    host: 'https://app.example.com',
+                    projectId: '42',
+                    clientName: 'hog',
+                    clientVersion: '0.0.0',
+                },
+                false
+            )
+
+            expect(called).toMatchObject({ ok: true })
+            expect(anotherTool).not.toHaveBeenCalled()
+        } finally {
+            anotherTool.mockRestore()
         }
     })
 

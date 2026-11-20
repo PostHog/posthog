@@ -105,6 +105,18 @@ test('a Tasks proxy supplies the credential, preserves the route prefix and pins
     }
 })
 
+test('scoped clients for one project share the project and credential lookups', async () => {
+    const { fetch, calls } = fixture()
+    const client = createPostHogClient({ ...settings, fetch })
+    await client.project(42).featureFlags.list({})
+    const afterFirst = calls.length
+    await client.project(42).featureFlags.list({})
+    assert.deepEqual(
+        calls.slice(afterFirst).map(({ path }) => path),
+        ['/api/projects/42/feature_flags/']
+    )
+})
+
 test('signed writes bind confirmation to the client and project and consume it once', async () => {
     const { fetch, calls } = fixture()
     const client = createPostHogClient({ ...settings, fetch })
