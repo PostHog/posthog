@@ -33,11 +33,12 @@ people per bucket and since the edit.
     static cohort, leaves its edit without counts by properties. A value that ClickHouse rejects when the query runs,
     such as text compared with a number, leaves every edit without them.
 
-An event without the flag can take the value of the actor's last event with the flag at or before it: `$feature/<key>`
-on any event, or the response of a flag call. Server SDKs mostly send errors without the flag, so this is how their
-errors get a value. Only the events of the actors with a counted event are read, from `LAST_VALUE_LOOKBACK` before the
-range start but never from before the edit, because those events carry the old value. An actor without such an event
-gets no value.
+An event without the flag can take the value of the actor's last event with the flag at or before it. Server SDKs
+mostly send errors without the flag, and put `$feature/<key>` on their `$feature_flag_called` events, so this is how
+their errors get a value. Only the events of the actors with a counted event are read, and only the events that the
+exposure counts read: events, not `flag_evaluations`, in the range and from the edit on. So an actor with a last value
+is also in the exposure counts with that value, and a rate of errors over exposure compares the same people. An actor
+without such an event gets no value.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
@@ -84,8 +85,6 @@ QUERY_MAX_THREADS = 2
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
 PROPERTY_VALUE_ERROR_CODES = frozenset({6, 41, 53, 72, 427})
-
-LAST_VALUE_LOOKBACK = timedelta(hours=1)
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
@@ -418,22 +417,17 @@ def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Se
     )
 
 
-def last_values(
-    team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, counted_event: str
-) -> LastValues:
+def last_values(edits: Sequence[WatchedEdit], start: datetime, end: datetime, counted_event: str) -> LastValues:
     """For each edit, the flag value on the actor's last event with the flag at or before each `counted_event` in
     `[start, end)`, from the edit on. One join per kind of actor reads the events of every edit of that kind once."""
     edits_by_actor = _edits_by_actor(edits)
     if not edits_by_actor:
         return LastValues(joins=(), by_edit={})
-    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     by_edit: dict[str, LastValue] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
         actor = actor_of(group_type_index)
-        # Events before an edit carry the old value, so no edit reads a value from before it.
-        since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
         counted_actors = ast.SelectQuery(
             select=[actor.expr],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -448,43 +442,14 @@ def last_values(
         )
         reads = [(index, edit, read_flag(edit, {})) for index, edit in watched]
         flag_values = _value_scan(
-            actor_column=actor.expr,
-            table=("events",),
+            actor=actor,
             columns=[
                 _ValueColumns(index=index, edited_at=edit.edited_at, carried=read.with_flag, exposed=read.exposed)
                 for index, edit, read in reads
             ],
             keep=ast.Or(exprs=[read.with_flag for _, _, read in reads]),
-            present=actor.present,
             counted_actors=counted_actors,
-            since=since,
-            end=end,
-        )
-        flag_calls = _value_scan(
-            actor_column=calls.actor_column(group_type_index),
-            table=calls.table,
-            columns=[
-                _ValueColumns(
-                    index=index,
-                    edited_at=edit.edited_at,
-                    carried=_call_carries(edit, calls),
-                    exposed=parse_expr(
-                        "isNotNull({response}) AND {response} != 'false'", placeholders={"response": calls.response}
-                    ),
-                )
-                for index, edit in watched
-            ],
-            keep=parse_expr(
-                "{only_calls} AND {flag_key} IN {flag_keys}",
-                placeholders={
-                    "only_calls": calls.only_calls,
-                    "flag_key": calls.flag_key,
-                    "flag_keys": _constants(edit.flag_key for _, edit in watched),
-                },
-            ),
-            present=actor.present,
-            counted_actors=counted_actors,
-            since=since,
+            start=start,
             end=end,
         )
         subquery = ast.SelectQuery(
@@ -492,9 +457,7 @@ def last_values(
                 ast.Field(chain=["actor"]),
                 *[column for index, _ in watched for column in _value_changes(index)],
             ],
-            select_from=ast.JoinExpr(
-                table=ast.SelectSetQuery.create_from_queries([flag_values, flag_calls], "UNION ALL")
-            ),
+            select_from=ast.JoinExpr(table=flag_values),
             group_by=[ast.Field(chain=["actor"])],
         )
         joins.append(_join_by_actor(subquery, alias, actor))
@@ -509,17 +472,6 @@ def last_values(
                 ),
             )
     return LastValues(joins=tuple(joins), by_edit=by_edit)
-
-
-def _call_carries(edit: WatchedEdit, calls: FlagCalls) -> ast.Expr:
-    if {"true", "false"} & set(edit.variants):
-        # A flag call's response is text, so a variant named "true" or "false" reads the same as a boolean value.
-        return ast.Constant(value=False)
-    # A call without a response tells no value, as an event without the flag doesn't.
-    return parse_expr(
-        "{flag_key} = {key} AND isNotNull({response})",
-        placeholders={"flag_key": calls.flag_key, "key": ast.Constant(value=edit.flag_key), "response": calls.response},
-    )
 
 
 def _value_changes(index: int) -> list[ast.Alias]:
@@ -557,19 +509,17 @@ class _ValueColumns:
 
 def _value_scan(
     *,
-    actor_column: ast.Expr,
-    table: tuple[str, ...],
+    actor: Actor,
     columns: Sequence[_ValueColumns],
     keep: ast.Expr,
-    present: ast.Expr,
     counted_actors: ast.SelectQuery,
-    since: datetime,
+    start: datetime,
     end: datetime,
 ) -> ast.SelectQuery:
-    """One row per row of `table` that `keep` holds for, with whether it carries the flag of each edit, and the value."""
+    """One row per event that `keep` holds for, with whether it carries the flag of each edit, and the value."""
     return ast.SelectQuery(
         select=[
-            ast.Alias(alias="actor", expr=actor_column),
+            ast.Alias(alias="actor", expr=actor.expr),
             ast.Field(chain=["timestamp"]),
             *[
                 alias
@@ -586,15 +536,15 @@ def _value_scan(
                 )
             ],
         ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=list(table))),
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=parse_expr(
-            "timestamp >= {since} AND timestamp < {end} AND {present} AND {keep} AND {actor_column} IN {counted_actors}",
+            "timestamp >= {start} AND timestamp < {end} AND {present} AND {keep} AND {actor} IN {counted_actors}",
             placeholders={
-                "since": ast.Constant(value=since),
+                "start": ast.Constant(value=start),
                 "end": ast.Constant(value=end),
-                "present": present,
+                "present": actor.present,
                 "keep": keep,
-                "actor_column": actor_column,
+                "actor": actor.expr,
                 "counted_actors": clone_expr(counted_actors),
             },
         ),

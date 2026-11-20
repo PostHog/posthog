@@ -11,8 +11,6 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.exceptions import (
@@ -194,7 +192,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
 
     def test_an_error_without_the_flag_takes_the_value_of_the_last_event_before_it(self) -> None:
         def called(flag_key: str, response: bool) -> dict[str, Any]:
-            return {"$feature_flag": flag_key, "$feature_flag_response": response}
+            return {"$feature_flag": flag_key, "$feature_flag_response": response, f"$feature/{flag_key}": response}
 
         # HogQL hides the group of an event sent before the group type existed.
         create_group_type_mapping(
@@ -255,25 +253,24 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
             },
         )
 
-    def test_a_last_value_counts_from_the_edit_and_within_the_lookback_before_the_range(self) -> None:
+    def test_a_last_value_counts_only_from_the_range_start_and_the_edit(self) -> None:
         self._send(
             [
-                # After the earlier edit and within the lookback, but before the later edit.
+                # In the range and after the earlier edit, but before the later edit.
                 ("person-1", "$pageview", -10, {"$feature/new-checkout": True}),
-                ("person-1", "$exception", 50, {}),
-                # After the earlier edit, but before the lookback.
+                ("person-1", "$exception", 5, {}),
+                # After the earlier edit, but before the range, where the exposure counts don't read it.
                 ("person-2", "$pageview", -30, {"$feature/new-checkout": True}),
-                ("person-2", "$exception", 50, {}),
-                # After both edits and within the lookback.
-                ("person-3", "$pageview", 10, {"$feature/new-checkout": True}),
-                ("person-3", "$exception", 50, {}),
+                ("person-2", "$exception", 5, {}),
+                # In the range and after both edits.
+                ("person-3", "$pageview", 1, {"$feature/new-checkout": True}),
+                ("person-3", "$exception", 5, {}),
             ]
         )
         earlier = dataclasses.replace(BOOLEAN, id="earlier", edited_at=EDITED_AT - timedelta(minutes=90))
-        start = EDITED_AT + timedelta(minutes=40)
+        start = EDITED_AT - timedelta(minutes=20)
 
-        with patch.object(flag_window_query, "LAST_VALUE_LOOKBACK", timedelta(hours=1)):
-            errors = errors_by_bucket(self.team, [earlier, BOOLEAN], start, start + WINDOW, WINDOW)
+        errors = errors_by_bucket(self.team, [earlier, BOOLEAN], start, start + WINDOW, WINDOW)
 
         self.assertEqual(
             {edit_id: bucket.since_edit.by_last_value for edit_id, [bucket] in errors.items()},
@@ -304,33 +301,12 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual((since_edit.exposed_with_errors, since_edit.by_last_value), (1, None))
 
-    @parameterized.expand(
-        [
-            (f"{mode_name}_{response_name}", mode, response, expected)
-            for mode_name, mode in (
-                ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
-                ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
-            )
-            for response_name, response, expected in (
-                ("true", True, ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0)),
-                ("false", False, ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=1)),
-                ("no_response", None, ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=0)),
-            )
-        ]
-    )
-    def test_an_error_takes_the_value_of_a_flag_call_where_the_mode_keeps_every_flag_call(
-        self,
-        _name: str,
-        mode: FlagEvaluationsMode,
-        response: bool | None,
-        expected: ErrorsByLastValue,
-    ) -> None:
-        # A team on the native JSON events table reads flag calls from flag_evaluations on every mode.
-        calls_only_in_flag_evaluations = (
-            mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        )
+    def test_a_flag_call_only_in_flag_evaluations_gives_no_value(self) -> None:
+        # On this mode the flag calls of server SDKs reach flag_evaluations and not events, so the exposure counts
+        # don't count their people.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
         )
         create_group_type_mapping(
             team=self.team,
@@ -342,17 +318,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         calls = [("person-1", "new-checkout", {}), ("person-2", "org-beta", {"$group_0": "org-a"})]
         people = {distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]) for distinct_id, _, _ in calls}
         people["person-3"] = create_person(team=self.team, distinct_ids=["person-3"])
-        if not calls_only_in_flag_evaluations:
-            # The events copy carries a different response, so only a scan of flag_evaluations gives `expected`.
-            events_response = not response
-            for distinct_id, flag_key, properties in calls:
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=distinct_id,
-                    timestamp=EDITED_AT + timedelta(minutes=1),
-                    properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": events_response},
-                )
         for distinct_id, properties in (("person-1", {}), ("person-3", {"$group_0": "org-a"})):
             _create_event(
                 team=self.team,
@@ -369,34 +334,17 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 timestamp=EDITED_AT + timedelta(minutes=1),
                 distinct_id=distinct_id,
                 person_id=people[distinct_id].uuid,
-                response=response,
+                response=True,
                 properties=properties,
             )
         group = dataclasses.replace(BOOLEAN, id="group", flag_key="org-beta", group_type_index=0)
 
         errors = errors_by_bucket(self.team, [BOOLEAN, group], EDITED_AT, EDITED_AT + WINDOW, WINDOW)
 
+        nobody = ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=0)
         self.assertEqual(
             {edit_id: bucket.since_edit.by_last_value for edit_id, [bucket] in errors.items()},
-            {"boolean": expected, "group": expected},
-        )
-
-    def test_a_flag_call_tells_no_value_for_a_variant_named_like_a_boolean(self) -> None:
-        self._send(
-            [
-                (
-                    "person-1",
-                    "$feature_flag_called",
-                    1,
-                    {"$feature_flag": "odd-variants", "$feature_flag_response": "false"},
-                ),
-                ("person-1", "$exception", 2, {}),
-            ]
-        )
-        edit = dataclasses.replace(MULTIVARIATE, flag_key="odd-variants", variants=("false", "test"))
-
-        self.assertEqual(
-            self._since_edit(edit).by_last_value, ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=0)
+            {"boolean": nobody, "group": nobody},
         )
 
     def test_errors_in_the_watched_conditions_split_by_reason_and_by_properties(self) -> None:
