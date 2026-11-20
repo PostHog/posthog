@@ -108,3 +108,5 @@ The caches it counts are installation-scoped, so a row can record a hit on an en
 - [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): installation limits and the `x-ratelimit-*` headers.
 - [GitHub App endpoints](https://docs.github.com/en/rest/apps/apps): repository installation lookup and restricted installation tokens.
 - [Search](https://docs.github.com/en/rest/search/search): the search and code search limits per minute.
+
+Self-driving PR browsing (`signals_pr_browser`) searches the caller’s authored PRs and reads PR details and CI checks on `NORMAL`. Search pages are cached for one minute. Budget exhaustion returns a retryable unavailable response. PR monitoring (`signals_monitor_pr`) verifies the requested repository and PR on `NORMAL`; its periodic merge reconciliation uses `BATCH`.

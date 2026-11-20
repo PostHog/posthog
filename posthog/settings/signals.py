@@ -14,6 +14,10 @@ SIGNALS_SLACK_CHART_CACHE_SIGNING_KEYS: list[str] = get_list(os.getenv("SIGNALS_
 if (TEST or DEBUG) and not SIGNALS_SLACK_CHART_CACHE_SIGNING_KEYS:
     SIGNALS_SLACK_CHART_CACHE_SIGNING_KEYS = ["signals-slack-chart-cache-development-key"]
 
+SIGNALS_PR_BROWSER_CURSOR_SIGNING_KEYS: list[str] = get_list(os.getenv("SIGNALS_PR_BROWSER_CURSOR_SIGNING_KEYS", ""))
+if (TEST or DEBUG) and not SIGNALS_PR_BROWSER_CURSOR_SIGNING_KEYS:
+    SIGNALS_PR_BROWSER_CURSOR_SIGNING_KEYS = ["signals-pr-browser-cursor-development-key"]
+
 # Hosts a scout may point a Lighthouse audit at. An audit drives a real browser at a real page, so
 # this is an allowlist and not a blocklist. It holds our own marketing and docs site, which is
 # public: no credential ever has to reach the headless browser. The app hosts are absent on

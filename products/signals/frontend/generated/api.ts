@@ -37,7 +37,11 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonitorPRRequestApi,
+    MonitorPRResponseApi,
     MonthlyUsageApi,
+    PRBrowserOverviewApi,
+    PRBrowserPageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -163,6 +167,8 @@ import type {
     SignalsAnomaliesSearchRetrieveParams,
     SignalsMonthlyUsageParams,
     SignalsProcessingListParams,
+    SignalsPullRequestsListParams,
+    SignalsPullRequestsOverviewRetrieveParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
     SignalsReportPrChecksParams,
@@ -459,6 +465,26 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     })
 }
 
+export const getSignalsMonitorPrCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/monitor_pr/`
+}
+
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreate = async (
+    projectId: string,
+    monitorPRRequestApi: MonitorPRRequestApi,
+    options?: RequestInit
+): Promise<MonitorPRResponseApi> => {
+    return apiMutator<MonitorPRResponseApi>(getSignalsMonitorPrCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(monitorPRRequestApi),
+    })
+}
+
 export const getSignalsOnboardingListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/onboarding/`
 }
@@ -588,6 +614,63 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsPullRequestsListUrl = (projectId: string, params?: SignalsPullRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/pull_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/pull_requests/`
+}
+
+export const signalsPullRequestsList = async (
+    projectId: string,
+    params?: SignalsPullRequestsListParams,
+    options?: RequestInit
+): Promise<PRBrowserPageApi> => {
+    return apiMutator<PRBrowserPageApi>(getSignalsPullRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsPullRequestsOverviewRetrieveUrl = (
+    projectId: string,
+    params: SignalsPullRequestsOverviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/pull_requests/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/pull_requests/overview/`
+}
+
+export const signalsPullRequestsOverviewRetrieve = async (
+    projectId: string,
+    params: SignalsPullRequestsOverviewRetrieveParams,
+    options?: RequestInit
+): Promise<PRBrowserOverviewApi> => {
+    return apiMutator<PRBrowserOverviewApi>(getSignalsPullRequestsOverviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
