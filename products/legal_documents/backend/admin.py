@@ -1,102 +1,21 @@
-from typing import IO, Any, cast
+from typing import Any
 
-from django import forms
-from django.contrib import admin, messages
-from django.contrib.admin.utils import unquote
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.files.uploadedfile import UploadedFile
-from django.core.validators import FileExtensionValidator
-from django.db import IntegrityError, transaction
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
-from django.urls import URLPattern, path, reverse
+from django.contrib import admin
+from django.contrib.admin import ActionLocation
+from django.http import HttpRequest
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-import structlog
-
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.inline_registry import register_admin_inline
-from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.models.organization import Organization
-from posthog.storage import object_storage
 
-from . import logic
 from .models import LegalDocument
-from .storage import signed_pdf_storage_key
-
-logger = structlog.get_logger(__name__)
-
-# 25 MiB. PandaDoc-signed PDFs are ~100 KiB; counter-signed scans uploaded by sales
-# can be larger but rarely come close to this. Anything bigger is almost certainly
-# the wrong file.
-_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-
-
-class LegalDocumentAdminForm(forms.ModelForm):
-    """
-    Admin upload form for documents signed outside the PandaDoc flow (sales /
-    legal-ops dropping a counter-signed PDF). The PDF lives in object storage
-    under the same key the public download endpoint already serves from, so the
-    customer can download it via /api/.../legal_documents/{id}/download just
-    like a PandaDoc-originated row.
-    """
-
-    signed_pdf = forms.FileField(
-        required=True,
-        validators=[FileExtensionValidator(allowed_extensions=["pdf"])],
-        help_text="Counter-signed PDF (max 25 MiB). The row will be created with status='signed'.",
-    )
-
-    class Meta:
-        model = LegalDocument
-        fields = (
-            "organization",
-            "document_type",
-            "company_name",
-            "company_address",
-            "representative_email",
-        )
-
-    def clean_signed_pdf(self) -> UploadedFile:
-        pdf: UploadedFile = self.cleaned_data["signed_pdf"]
-        if pdf.size and pdf.size > _MAX_UPLOAD_BYTES:
-            raise ValidationError(f"PDF is too large ({pdf.size} bytes). Limit is {_MAX_UPLOAD_BYTES} bytes.")
-
-        # Browsers populate content_type from the multipart upload; we only reject
-        # obvious mismatches. The .pdf extension validator above is the primary check.
-        if pdf.content_type and pdf.content_type != "application/pdf":
-            raise ValidationError(f"File must be a PDF (got content-type {pdf.content_type!r}).")
-
-        return pdf
-
-
-# What a delete does depends on the row's status, and the signed case is the one
-# staff get wrong: `logic.delete_document` skips the PandaDoc void for signed rows,
-# and nothing restores the AI opt-out that a signed BAA applied.
-_SIGNED_DELETE_NOTE = (
-    "Deleting a signed document removes the PostHog record and the stored PDF. "
-    "It does not change the document in PandaDoc, because PandaDoc cannot void a completed document. "
-    "Delete or archive it in PandaDoc yourself. "
-    "For a BAA, the organization keeps AI data processing and AI training turned off after the delete. "
-    "An owner can turn them back on in organization settings."
-)
-
-_UNSIGNED_DELETE_NOTE = (
-    "Deleting a document that is out for signature voids its PandaDoc envelope. "
-    "PandaDoc tells the signer that the document is canceled, so the old signing link stops working."
-)
-
-_REFETCH_UNAVAILABLE_NOTE = (
-    "PandaDoc only serves a final PDF once a document is signed, and this document has no PandaDoc envelope "
-    "or is still out for signature. There is nothing to refetch."
-)
 
 
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
-    # FK to posthog.Organization — without this the add view renders a <select>
-    # of every org on Cloud, which times out. Autocomplete searches lazily via
-    # OrganizationAdmin.search_fields.
-    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",
@@ -116,12 +35,9 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     )
     ordering = ("-created_at",)
     show_full_result_count = False
-    change_form_template = "admin/legal_documents/legaldocument_change_form.html"
     list_select_related = ("organization", "created_by")
-    actions = ("resend_signing_email",)
 
-    # Change view stays read-only — customer-submitted content can't be quietly
-    # rewritten. The add view uses LegalDocumentAdminForm fields directly.
+    # Customer-submitted content stays read-only, so it can't be quietly rewritten.
     readonly_fields = (
         "id",
         "organization",
@@ -132,31 +48,10 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "status",
         "pandadoc_link",
         "download_link",
+        "staff_operations",
         "created_by",
         "created_at",
         "updated_at",
-    )
-
-    add_fieldsets = (
-        (
-            "Upload signed document",
-            {
-                "description": (
-                    "Use this form when a document was signed outside the PandaDoc flow "
-                    "(e.g., counter-signed offline, DocuSign, or an MSA negotiated by sales). "
-                    "The row is saved as 'signed' and the PDF goes to object storage at the "
-                    "same key the customer-facing download endpoint reads from."
-                ),
-                "fields": (
-                    "organization",
-                    "document_type",
-                    "company_name",
-                    "company_address",
-                    "representative_email",
-                    "signed_pdf",
-                ),
-            },
-        ),
     )
 
     fieldsets = (
@@ -170,6 +65,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                     "status",
                     "pandadoc_link",
                     "download_link",
+                    "staff_operations",
                 )
             },
         ),
@@ -189,219 +85,33 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         ),
     )
 
-    def get_fieldsets(self, request: HttpRequest, obj: LegalDocument | None = None) -> Any:
-        if obj is None:
-            return self.add_fieldsets
-        return self.fieldsets
-
-    def get_form(
-        self, request: HttpRequest, obj: LegalDocument | None = None, change: bool = False, **kwargs: Any
-    ) -> Any:
-        # Add view uses LegalDocumentAdminForm (with the required signed_pdf
-        # FileField). The change view falls back to Django's default ModelForm
-        # for the model — `signed_pdf` is a non-model class attribute, so it
-        # would otherwise be inherited by modelform_factory's subclass and
-        # block "Save" with a "This field is required" error even though the
-        # change view renders no upload widget.
-        if obj is None:
-            kwargs["form"] = LegalDocumentAdminForm
-        return super().get_form(request, obj, change, **kwargs)
-
-    def get_readonly_fields(
-        self, request: HttpRequest, obj: LegalDocument | None = None
-    ) -> tuple[str, ...] | list[str]:
-        # On the change view every customer-submitted field is read-only so it
-        # can't be quietly rewritten. On the add view (obj is None) the upload
-        # form needs the fields to be editable so return an empty tuple.
-        if obj is None:
-            return ()
-        return self.readonly_fields
-
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return bool(request.user and request.user.is_staff)
+        # Staff upload a document signed outside PandaDoc with the Upload signed document operation in
+        # PostHog Admin, which stores the PDF with the row. The old add URL redirects there.
+        return False
 
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
-        # Needed so admins can clear an existing row (the unique-per-org-per-type
-        # constraint blocks re-uploads otherwise). Best-effort S3 cleanup runs
-        # alongside the row delete.
-        return bool(request.user and request.user.is_staff)
+        # A delete must also remove PandaDoc's copy of a signed document and the AI opt-outs of a BAA, which the
+        # Delete document operation in PostHog Admin does. The old <id>/delete/ URL redirects there, and this keeps
+        # the raw delete view closed when that redirect is missing. A Django admin delete of an organization that
+        # has documents is refused too, because the cascade would skip the same cleanup.
+        return False
 
-    def save_model(self, request: HttpRequest, obj: LegalDocument, form: Any, change: bool) -> None:
-        if change:
-            super().save_model(request, obj, form, change)
-            return
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
+        actions = super().get_actions(request, action_location=action_location)
+        actions.pop("delete_selected", None)
+        return actions
 
-        # Add path: row + S3 upload happen together so we never leave a row
-        # pointing at a missing PDF (and never leave a PDF without a row). The
-        # PDF is written synchronously below, so it's archived from the start.
-        obj.status = LegalDocument.Status.SIGNED
-        obj.signed_pdf_stored = True
-        obj.created_by = request.user if request.user.is_authenticated else None
-        try:
-            with transaction.atomic():
-                obj.save()
-                pdf: UploadedFile = form.cleaned_data["signed_pdf"]
-                try:
-                    object_storage.write_stream(
-                        signed_pdf_storage_key(obj),
-                        cast(IO[bytes], pdf),
-                        extras={"ContentType": "application/pdf"},
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "legal_document_admin_upload_failed",
-                        document_id=str(obj.id),
-                        error=str(exc),
-                    )
-                    raise ValidationError(f"Failed to upload PDF to object storage: {exc}") from exc
-        except IntegrityError as exc:
-            # Surface the unique-per-org-per-type constraint as a form error
-            # instead of a 500.
-            raise ValidationError(
-                f"This organization already has a {obj.document_type}. Delete the existing row first."
-            ) from exc
-
-    @admin.action(description="Re-send PandaDoc signing email")
-    def resend_signing_email(self, request: HttpRequest, queryset: Any) -> None:
-        # Recovery path for envelopes stranded because the `document.draft`
-        # webhook that normally triggers the send was missed: the envelope was
-        # created but the signing email never went out. Re-dispatching the send
-        # (idempotent on PandaDoc's side) gets the signer their link without
-        # forcing a delete + regenerate. Signed rows and rows without an
-        # envelope have nothing to send.
-        sent = skipped = failed = 0
-        for document in queryset:
-            if document.status == LegalDocument.Status.SIGNED or not document.pandadoc_document_id:
-                skipped += 1
-            elif logic.send_pandadoc_envelope(document):
-                sent += 1
-            else:
-                failed += 1
-
-        if sent:
-            messages.success(request, f"Re-sent the signing email for {sent} document(s).")
-        if skipped:
-            messages.warning(request, f"Skipped {skipped} document(s): already signed or no PandaDoc envelope.")
-        if failed:
-            messages.error(
-                request,
-                f"Couldn't re-send {failed} document(s). PandaDoc may still be processing the template, or the "
-                "envelope is no longer sendable. Check the logs and try again shortly.",
-            )
-
-    @staticmethod
-    def _can_refetch_pdf(document: LegalDocument) -> bool:
-        # PandaDoc only has a final PDF for a completed envelope. Storing anything
-        # else would put an unsigned document behind the customer download link.
-        return document.status == LegalDocument.Status.SIGNED and bool(document.pandadoc_document_id)
-
-    def get_urls(self) -> list[URLPattern]:
-        # Custom route first: the admin's own `<path:object_id>/` catch-all
-        # would otherwise swallow it and redirect to the change page.
-        return [
-            path(
-                "<path:object_id>/refetch-pdf/",
-                self.admin_site.admin_view(self.refetch_pdf_view),
-                name=f"{self.opts.app_label}_{self.opts.model_name}_refetch_pdf",
-            ),
-            *super().get_urls(),
-        ]
-
-    def refetch_pdf_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
-        """
-        Pull the document PandaDoc serves right now and overwrite our stored
-        copy. Recovers a row whose archive job failed every retry, and refreshes
-        a copy that no longer matches PandaDoc (e.g., a counter-signature added
-        after we archived).
-        """
-        if request.method != "POST":
-            raise PermissionDenied
-        document = cast(LegalDocument | None, self.get_object(request, unquote(object_id)))
-        if document is None:
-            raise Http404
-        change_url = reverse(
-            f"admin:{self.opts.app_label}_{self.opts.model_name}_change",
-            args=[document.pk],
-            current_app=self.admin_site.name,
+    @admin.display(description="Staff operations")
+    def staff_operations(self, document: LegalDocument) -> SafeString:
+        return MovedToConsole.action(
+            "organization",
+            document.organization,
+            "legal-documents",
+            "Upload, refetch PDF, re-send signing email, delete",
         )
-
-        if not self._can_refetch_pdf(document):
-            messages.warning(request, _REFETCH_UNAVAILABLE_NOTE)
-            return HttpResponseRedirect(change_url)
-
-        if logic.download_and_store_signed_pdf(document):
-            logic.mark_signed_pdf_stored(document)
-            messages.success(request, "Refetched the PDF from PandaDoc. The stored copy now matches PandaDoc.")
-        else:
-            messages.error(
-                request,
-                "Could not refetch the PDF from PandaDoc. PandaDoc may be unreachable, or object storage may be "
-                "unavailable. The stored copy is unchanged. Check the logs and try again.",
-            )
-        return HttpResponseRedirect(change_url)
-
-    def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        # Shared helper voids the PandaDoc envelope, removes the S3 object,
-        # and deletes the row (firing the activity-log entry via
-        # ModelActivityMixin). The same helper backs the public DELETE
-        # endpoint — admin keeps the privilege of deleting signed rows by
-        # calling the helper directly rather than going through the facade.
-        logic.delete_document(obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
-        # Per-row delete (rather than queryset.delete()) so each row fires its
-        # own activity-log delete and so the shared helper can run its
-        # PandaDoc + S3 cleanup against each envelope individually.
-        for obj in queryset:
-            logic.delete_document(obj)
-
-    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
-        if not (is_cloud() or is_dev_mode()):
-            messages.warning(
-                request,
-                "Legal documents are only generated on PostHog Cloud. On self-hosted "
-                "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc integration is disabled.",
-            )
-        return super().changelist_view(request, extra_context=extra_context)
-
-    def change_view(
-        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
-    ) -> HttpResponse:
-        if not (is_cloud() or is_dev_mode()):
-            messages.warning(
-                request,
-                "Legal documents are only generated on PostHog Cloud. On self-hosted "
-                "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc integration is disabled.",
-            )
-        document = cast(LegalDocument | None, self.get_object(request, unquote(object_id)))
-        self._note_delete_behavior(request, document)
-        extra_context = {**(extra_context or {}), "refetch_pdf_url": self._refetch_pdf_url(document)}
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)
-
-    def _refetch_pdf_url(self, document: LegalDocument | None) -> str | None:
-        if document is None or not self._can_refetch_pdf(document):
-            return None
-        return reverse(
-            f"admin:{self.opts.app_label}_{self.opts.model_name}_refetch_pdf",
-            args=[document.pk],
-            current_app=self.admin_site.name,
-        )
-
-    def delete_view(
-        self, request: HttpRequest, object_id: str, extra_context: dict[str, Any] | None = None
-    ) -> HttpResponse:
-        self._note_delete_behavior(request, cast(LegalDocument | None, self.get_object(request, unquote(object_id))))
-        return super().delete_view(request, object_id, extra_context=extra_context)
-
-    def _note_delete_behavior(self, request: HttpRequest, document: LegalDocument | None) -> None:
-        if document is None:
-            return
-        if document.status == LegalDocument.Status.SIGNED:
-            messages.warning(request, _SIGNED_DELETE_NOTE)
-        else:
-            messages.info(request, _UNSIGNED_DELETE_NOTE)
 
     @admin.display(description="Organization", ordering="organization__name")
     def organization_link(self, document: LegalDocument) -> SafeString:
@@ -434,7 +144,6 @@ class LegalDocumentInline(admin.TabularInline):
     model = LegalDocument
     extra = 0
     show_change_link = True
-    template = "admin/legal_documents/edit_inline/tabular.html"
 
     fields = (
         "document_type",
@@ -446,6 +155,9 @@ class LegalDocumentInline(admin.TabularInline):
     )
     readonly_fields = fields
     can_delete = False
+
+    def has_add_permission(self, request: HttpRequest, obj: Organization | None = None) -> bool:
+        return False
 
     @admin.display(description="PandaDoc")
     def pandadoc_link(self, document: LegalDocument) -> str | SafeString:

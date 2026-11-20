@@ -19,7 +19,6 @@ const GROUPS_TOOLTIP = FRICTION_GROUP_ORDER.map(
     (group) => `${FRICTION_GROUP_LABELS[group]}: ${FRICTION_GROUP_DESCRIPTIONS[group]}.`
 ).join(' ')
 
-/** Authors by friction with their repository-wide ranks, whether the list shows everyone or one team. */
 export function AuthorFrictionTable({
     authors,
     rankedAuthorCount,
@@ -38,7 +37,6 @@ export function AuthorFrictionTable({
     maxScore: number
     loading: boolean
     sourceId: string | null
-    /** The 'owner/name' in scope, so an author link opens in the same repository. */
     repo: string | null
     emptyState: string
     dataAttr: string

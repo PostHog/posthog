@@ -8,6 +8,10 @@ from products.replay_vision.backend.temporal.sweep_types import AdvanceScannerWa
 @activity.defn
 @track_activity()
 def advance_scanner_watermark_activity(inputs: AdvanceScannerWatermarkInputs) -> None:
+    advance_scanner_watermark(inputs)
+
+
+def advance_scanner_watermark(inputs: AdvanceScannerWatermarkInputs) -> None:
     updates: dict[str, object] = {
         "last_swept_at": inputs.new_last_swept_at,
         "last_seen_session_id": inputs.new_last_seen_session_id,

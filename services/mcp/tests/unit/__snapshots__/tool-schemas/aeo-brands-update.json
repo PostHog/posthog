@@ -1,0 +1,36 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "aliases": {
+            "description": "Replaces the brand's other names. Names are trimmed, and repeated names are dropped.",
+            "items": {
+                "description": "One other name for the brand.",
+                "maxLength": 200,
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "id": {
+            "description": "The brand id (a UUID), from `aeo-brands-list`.",
+            "type": "string"
+        },
+        "kind": {
+            "description": "What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.\n\n* `own` - Own\n* `competitor` - Competitor\n* `publisher` - Publisher\n* `unknown` - Unknown",
+            "enum": ["own", "competitor", "publisher", "unknown"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Brand name as people say it.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "status": {
+            "description": "'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.\n\n* `suggested` - Suggested\n* `confirmed` - Confirmed\n* `ignored` - Ignored",
+            "enum": ["suggested", "confirmed", "ignored"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

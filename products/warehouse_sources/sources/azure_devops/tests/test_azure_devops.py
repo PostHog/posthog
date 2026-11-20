@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -12,14 +12,12 @@ from products.warehouse_sources.sources.azure_devops.azure_devops import (
     _INVALID_PAT_MESSAGE,
     _ORGANIZATION_NOT_FOUND_MESSAGE,
     _UNREACHABLE_MESSAGE,
-    AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
     CLASSIFICATION_NODE_DEPTH,
     TEST_RUN_WINDOW,
     AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
     _flatten_classification_nodes,
-    _format_datetime,
     _validate_organization,
     validate_credentials,
     wire_api_version,
@@ -47,20 +45,6 @@ class TestValidateOrganization:
             _validate_organization(value)
 
 
-class TestFormatDatetime:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
-        ],
-    )
-    def test_format_values(self, value, expected):
-        assert _format_datetime(value) == expected
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
@@ -72,18 +56,18 @@ class TestValidateCredentials:
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
-            assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
+            assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY) == expected
 
         assert network.requests_log[0].path == "/myorg/_apis/projects"
         assert network.requests_log[0].param("$top") == "1"
-        assert network.requests_log[0].param("api-version") == "7.2"
+        assert network.requests_log[0].param("api-version") == "7.1"
 
     @pytest.mark.parametrize("status_code", [429, 503])
     def test_validate_credentials_unexpected_status_names_the_status(self, status_code):
         # A throttled or Azure-side failure must not be reported as invalid credentials; the message
         # names the status and stays actionable.
         with scripted_network(always(ScriptedResponse(status=status_code))):
-            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY)
 
         assert is_valid is False
         assert str(status_code) in (error or "")
@@ -91,7 +75,7 @@ class TestValidateCredentials:
 
     def test_validate_credentials_rejects_bad_org_without_request(self):
         with scripted_network([]) as network:
-            assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
+            assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_LEGACY) == (
                 False,
                 _INVALID_ORGANIZATION_MESSAGE,
             )
@@ -99,7 +83,7 @@ class TestValidateCredentials:
 
     def test_validate_credentials_reports_unreachable_on_transport_error(self):
         with scripted_network(always(requests.ConnectionError("boom"))) as network:
-            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY)
 
         assert network.requests_log[0].path == "/myorg/_apis/projects"
         assert is_valid is False
@@ -542,7 +526,7 @@ class TestTestRunEndpoint:
         query = result.requests[1]
         min_last_updated = query.param("minLastUpdatedDate")
         max_last_updated = query.param("maxLastUpdatedDate")
-        assert min_last_updated == _format_datetime(since)
+        assert min_last_updated == since.strftime("%Y-%m-%dT%H:%M:%SZ")
         assert max_last_updated is not None
         window_start = datetime.fromisoformat(min_last_updated.replace("Z", "+00:00"))
         window_end = datetime.fromisoformat(max_last_updated.replace("Z", "+00:00"))
@@ -558,12 +542,13 @@ class TestAzureDevOpsSourceResponse:
 
 
 class TestApiVersionDispatch:
-    def test_wire_api_version_rejects_unknown_label(self):
+    @pytest.mark.parametrize("label", ["nope", "7.2"])
+    def test_wire_api_version_rejects_unknown_label(self, label):
         # A silent fallthrough would send no api-version and track whatever the vendor defaults to.
         with pytest.raises(ValueError):
-            wire_api_version("nope")
+            wire_api_version(label)
 
-    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
+    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1")])
     def test_get_rows_sends_pinned_api_version_on_the_wire(self, version, wire):
         result = _driver().run("projects", [_response({"value": []})], api_version=version)
 

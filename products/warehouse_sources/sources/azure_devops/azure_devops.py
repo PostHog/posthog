@@ -14,20 +14,20 @@ from products.warehouse_sources.sources.sdk import (
     UNVERSIONED_API_VERSION,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
 )
 
-# Source version labels. The legacy label predates versioning and keeps sending
-# api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.
+# Source version labels. The legacy label predates versioning and sends api-version 7.1, the
+# newest released version. Azure DevOps serves 7.2 only as a preview ("7.2-preview.N") and
+# rejects a plain "7.2" with a 400, so there is no 7.2 label.
 AZURE_DEVOPS_VERSION_LEGACY = UNVERSIONED_API_VERSION
-AZURE_DEVOPS_VERSION_7_2 = "7.2"
 
 # Source label → `api-version` query param actually sent on the wire.
 _WIRE_API_VERSION: dict[str, str] = {
     AZURE_DEVOPS_VERSION_LEGACY: "7.1",
-    AZURE_DEVOPS_VERSION_7_2: "7.2",
 }
 
 
@@ -90,16 +90,6 @@ def _validate_organization(organization: str) -> str:
     return org
 
 
-def _format_datetime(value: Any) -> str:
-    """Format an incremental cursor for Azure DevOps date-time filters (ISO 8601 UTC)."""
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
-
-
 def _parse_datetime(value: Any) -> Optional[datetime]:
     """Read an incremental cursor back into a datetime, or None when it isn't one."""
     if isinstance(value, datetime):
@@ -127,7 +117,7 @@ def _last_updated_windows(since: datetime, until: datetime) -> Iterator[LastUpda
     start = since
     while start < until:
         end = min(start + TEST_RUN_WINDOW, until)
-        yield LastUpdatedWindow(min_last_updated=_format_datetime(start), max_last_updated=_format_datetime(end))
+        yield LastUpdatedWindow(min_last_updated=format_datetime(start), max_last_updated=format_datetime(end))
         start = end
 
 
@@ -365,7 +355,7 @@ def get_rows(
         return response
 
     incremental_value = (
-        _format_datetime(db_incremental_field_last_value)
+        format_datetime(db_incremental_field_last_value)
         if should_use_incremental_field and db_incremental_field_last_value is not None
         else None
     )

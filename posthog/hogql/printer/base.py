@@ -54,6 +54,19 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
+_WIDTH_SUFFIXED_CONVERSION = re.compile(r"to(U?Int|Float|Decimal)(?:8|16|32|64|128|256)(OrNull|OrZero|OrDefault)?")
+
+
+def _width_suffixed_conversion_suggestion(name: str) -> str | None:
+    # The nearest lexical match for toInt8OrNull is countOrNull, so derive the name from the type family instead.
+    match = _WIDTH_SUFFIXED_CONVERSION.fullmatch(name)
+    if match is None:
+        return None
+    family = "Int" if match[1] in ("Int", "UInt") else match[1]
+    with_suffix = f"to{family}{match[2] or ''}"
+    return with_suffix if with_suffix in ALL_EXPOSED_FUNCTION_NAMES else f"to{family}"
+
+
 class BasePrinter(Visitor[str]):
     # NOTE: Call "prepare_and_print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
@@ -387,18 +400,18 @@ class BasePrinter(Visitor[str]):
             if node.window_exprs
             else None
         )
-        prewhere = self.visit(node.prewhere) if node.prewhere else None
-        where = self.visit(where) if where else None
+        prewhere = self._visit_filter_condition(node.prewhere) if node.prewhere else None
+        where_sql = self._visit_filter_condition(where) if where else None
         group_by: list[str] | None = None
         if node.group_by:
             if node.group_by_mode == "grouping_sets":
                 group_by = [self.visit(gs) for gs in node.group_by]
             else:
                 group_by = [self.visit(column) for column in node.group_by]
-        having = self.visit(node.having) if node.having else None
+        having = self._visit_filter_condition(node.having) if node.having else None
         if node.qualify is not None:
             self._assert_qualify_supported()
-        qualify = self.visit(node.qualify) if node.qualify else None
+        qualify = self._visit_filter_condition(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -423,7 +436,7 @@ class BasePrinter(Visitor[str]):
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
-            f"WHERE{space}" + where if where else None,
+            f"WHERE{space}" + where_sql if where_sql else None,
             (
                 self._render_group_by_all_clause()
                 if node.group_by_mode == "all"
@@ -730,7 +743,10 @@ class BasePrinter(Visitor[str]):
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
-        return self.visit(node.expr)
+        return self._visit_filter_condition(node.expr)
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        return self.visit(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         if node.op == ast.ArithmeticOperationOp.Add:
@@ -1148,6 +1164,12 @@ class BasePrinter(Visitor[str]):
             if cast_suggestion is not None:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{cast_suggestion}(...)'?"
+                )
+
+            width_suggestion = _width_suffixed_conversion_suggestion(node.name)
+            if width_suggestion is not None:
+                raise QueryError(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{width_suggestion}(...)'?"
                 )
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

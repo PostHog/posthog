@@ -29,6 +29,12 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
+
 export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
@@ -206,6 +212,29 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsCreateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
@@ -264,6 +293,12 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 export const subscriptionsUpdateBodyTitleMax = 100
 
 export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
 
 export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
@@ -442,6 +477,29 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsUpdateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
@@ -500,6 +558,12 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMin = 320
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMax = 4000
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMin = 200
+export const subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMax = 5000
 
 export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
@@ -683,6 +747,29 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         delivery_config: zod
             .object({
+                image_size: zod
+                    .object({
+                        width: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMin)
+                            .max(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneWidthMax)
+                            .nullish()
+                            .describe(
+                                'Output width in pixels, from 320 to 4000. Omit or use null for automatic width.'
+                            ),
+                        height: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMin)
+                            .max(subscriptionsPartialUpdateBodyDeliveryConfigOneImageSizeOneHeightMax)
+                            .nullish()
+                            .describe(
+                                'Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.'
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        'PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.'
+                    ),
                 post_all_insights_in_main_message: zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
@@ -721,3 +808,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ */
+export const SubscriptionsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
+})

@@ -17,6 +17,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalSourceConfig,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -200,6 +201,7 @@ class Command(BaseCommand):
             # Scout run-state, so the fleet cold-starts with no learned memory or stale runs.
             runs_deleted, _ = SignalScoutRun.all_teams.filter(team=team).delete()
             scratchpads_deleted, _ = SignalScratchpad.all_teams.filter(team=team).delete()
+            SignalScratchpadRevision.all_teams.filter(team=team).delete()
             profiles_deleted, _ = SignalProjectProfile.all_teams.filter(team=team).delete()
             emission_deleted, _ = SignalEmissionRecord.objects.filter(team=team).delete()
 

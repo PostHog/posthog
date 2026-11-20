@@ -6,8 +6,9 @@ import { BudgetExceededError } from '@/api/budget'
 import { markInsightViewed } from '@/api/insights'
 import { stableStringify } from '@/api/query'
 import { serverNow } from '@/api/serverClock'
-import { webOverviewQuery } from '@/api/webAnalytics'
 import { DEMO_READ_MS, demoActorsResponse } from '@/demo/views'
+import type { NavChrome } from '@/features/tabs/navPinStore'
+import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 import { ignoresRangeOverride } from '@/model/adapters/insightSnapshot'
 import { actorsFromResponse } from '@/model/adapters/webOverview'
@@ -23,7 +24,6 @@ import type {
     SavedRange,
     ViewEntry,
     ViewKind,
-    WebOverviewSnapshot,
 } from '@/model/views'
 
 import {
@@ -42,8 +42,6 @@ import {
     insightItemKey,
     insightQueryKey,
     tileTarget,
-    webOverviewItem,
-    webOverviewQueryKey,
 } from './items'
 import { useRecordRecentView, useVisibility } from './pinHooks'
 import {
@@ -53,17 +51,16 @@ import {
     dashboardOverride,
     rangeOverride,
     supportsCompare,
-    WEB_ANALYTICS_SAVED_RANGE,
-    webAnalyticsRange,
 } from './rangeOverride'
 import { rangeValues } from './rangePresets'
 import {
     dashboardRangeKey,
     insightRangeKey,
+    useViewCompareStore,
     useViewRange,
+    useViewRangeScope,
     useViewRangeStore,
     type ViewRange,
-    webAnalyticsRangeKey,
 } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshItem, useViewRefresh, type ViewRefresh } from './useViewRefresh'
@@ -93,7 +90,7 @@ export function itemErrorMessage(kind: ItemErrorKind): string {
 }
 
 /** `busy`: a read of the screen runs, such as after "Try again", so the screen shows its skeleton, not the error. */
-function viewState<T>(
+export function viewState<T>(
     data: T | undefined,
     error: ItemErrorKind | null,
     ready: boolean,
@@ -110,7 +107,7 @@ function viewState<T>(
     return ready ? connectionLoadingQuery<T>(offline, refetch) : loadingQuery()
 }
 
-interface Held<T> {
+export interface Held<T> {
     value: T | undefined
     /** True while `value` belongs to an earlier range. */
     held: boolean
@@ -120,7 +117,7 @@ interface Held<T> {
  * The last value a screen showed, kept while the value for a new range loads. The screen then keeps its header and
  * range control instead of falling back to the loading skeleton. An error for the new range drops the old value.
  */
-function useHeldWhileLoading<T>(identity: string, value: T | undefined, error: ItemErrorKind | null): Held<T> {
+export function useHeldWhileLoading<T>(identity: string, value: T | undefined, error: ItemErrorKind | null): Held<T> {
     const owner = useRef(identity)
     const last = useRef<T | undefined>(value)
     if (owner.current !== identity) {
@@ -147,30 +144,35 @@ export interface ViewOpenOptions {
     from: ViewEntry
     /** The pin's display mode when opened from a pin. */
     displayMode?: PinDisplayMode | null
+    /** `tab` when the screen is a navigation tab. A pushed view is `stack`. */
+    chrome?: NavChrome
+    /** The visit number from `useTabVisit`, so a tab that stays mounted counts each visit. */
+    visit?: number
 }
 
-/** Sends `mobile_view_opened` once per screen, with the age of the cached data at that moment. */
-function useViewOpenedEvent(
+/** Sends `mobile_view_opened` once per visit, with the age of the cached data at that moment. */
+export function useViewOpenedEvent(
     viewType: ViewKind,
     options: ViewOpenOptions,
     snapshots: () => readonly (Freshness | undefined)[]
 ): void {
-    const sent = useRef(false)
+    const sent = useRef<number | null>(null)
     const read = useRef(snapshots)
     read.current = snapshots
-    const { from, displayMode } = options
+    const { from, displayMode, chrome = 'stack', visit = 1 } = options
     useEffect(() => {
-        if (sent.current) {
+        if (sent.current === visit) {
             return
         }
-        sent.current = true
+        sent.current = visit
         trackViewOpened({
             viewType,
             from,
+            chrome,
             displayMode: displayMode ?? null,
             dataAgeSeconds: oldestAgeSeconds(read.current()),
         })
-    }, [viewType, from, displayMode])
+    }, [viewType, from, chrome, displayMode, visit])
 }
 
 /**
@@ -230,11 +232,11 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         queryKey: dashboardQueryKey(scope, dashboardRef, null),
         queryFn: skipToken,
     })
-    const rangeKey = dashboardRangeKey(context.dataScope, dashboardRef)
+    const rangeKey = dashboardRangeKey(useViewRangeScope(context.dataScope), dashboardRef)
     // The same choice and compare that `useViewRange` returns. The override comes first because the saved range can come
-    // from the override read: its snapshot outlives the saved-range snapshot when the user stays on a session range.
+    // from the override read, including on a cold start with a remembered range.
     const storedChoice = useViewRangeStore((state) => state.ranges[rangeKey] ?? null)
-    const storedCompare = useViewRangeStore((state) => state.compare[rangeKey] ?? false)
+    const storedCompare = useViewCompareStore((state) => state.compare[rangeKey] ?? false)
     const override = dashboardOverride(storedChoice, storedCompare)
     const overrideId = overrideKey(override)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `overrideId` stands for `override`.
@@ -334,7 +336,7 @@ export function useTileData(tile: Pick<DashboardTileState, 'itemKey' | 'queryKey
 }
 
 export interface InsightScreenOptions extends ViewOpenOptions {
-    /** Opened from a dashboard tile: reads with `from_dashboard` and shares the dashboard's session range. */
+    /** Opened from a dashboard tile: reads with `from_dashboard` and shares the dashboard's remembered range. */
     dashboardRef?: string | null
     /** The numeric id, when the caller knows it. */
     insightId?: number | null
@@ -363,6 +365,12 @@ export interface InsightScreenState {
     itemKey: string | null
 }
 
+function queryCompares(query: unknown): boolean {
+    const node = asRecord(query)
+    const source = asRecord(node?.source) ?? node
+    return asRecord(source?.compareFilter)?.compare === true
+}
+
 /**
  * The insight screen. It paints from the snapshot of the pin or tile it came from (the same cache entry), reads with
  * `blocking` when due, and sends `POST insights/viewed/` once per open. Compare runs `POST query/` with the response's
@@ -377,19 +385,12 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         ? client.getQueryData<DashboardSnapshot>(dashboardQueryKey(scope, dashboardRef, null))?.view.savedRange
         : undefined
     const saved = dashboardSaved?.dateFrom ? dashboardSaved : (baseSaved?.savedRange ?? NO_RANGE)
-    const savedCompare = Boolean(
-        (baseSaved?.query as { source?: { compareFilter?: { compare?: boolean } } } | undefined)?.source?.compareFilter
-            ?.compare
-    )
     // From a tile the insight shares the dashboard's range, but compare stays its own: dashboards send no compare.
-    const range = useViewRange(
-        dashboardRef ? dashboardRangeKey(context.dataScope, dashboardRef) : insightRangeKey(context.dataScope, shortId),
-        'insight',
-        saved,
-        savedCompare,
-        insightRangeKey(context.dataScope, shortId)
-    )
-    const choiceOverride = rangeOverride(range.choice)
+    const rangeScope = useViewRangeScope(context.dataScope)
+    const insightKey = insightRangeKey(rangeScope, shortId)
+    const rangeKey = dashboardRef ? dashboardRangeKey(rangeScope, dashboardRef) : insightKey
+    const choice = useViewRangeStore((state) => state.ranges[rangeKey] ?? null)
+    const choiceOverride = rangeOverride(choice)
     // A SQL insight without `{filters}` ignores the range, so it keeps its own cache entry.
     const ignoresOverride = baseSaved ? ignoresRangeOverride(baseSaved.query) : false
     const override = ignoresOverride ? null : choiceOverride
@@ -405,12 +406,14 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     // saved range takes the source of a saved-range read only, because `compareQuery` keeps that source's dates.
     const identity = `${context.identity}|insight:${shortId}|${dashboardRef ?? ''}`
     const lastBase = useHeldWhileLoading(identity, base, null)
-    const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.value : undefined)
-    // An insight saved with compare answers its saved range with both periods, so the retrieve shows them.
-    const savedCompareShown = savedCompare && range.compare && range.choice === null
+    const compareSource = base ?? baseSaved ?? (choice ? lastBase.value : undefined)
+    const savedCompare = queryCompares((baseSaved ?? compareSource)?.query)
+    const range = useViewRange(rangeKey, 'insight', saved, savedCompare, insightKey)
     const compareSupported = supportsCompare(compareSource?.query)
     const compareAvailable =
         compareSupported && compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
+    const savedCompareShown =
+        range.compare && compareAvailable && (choice === null ? savedCompare : queryCompares(base?.query))
     const compareBody =
         compareSource && ((range.compare && compareAvailable && !savedCompareShown) || (savedCompare && !range.compare))
             ? compareQuery(compareSource.query, range.choice, range.compare)
@@ -480,63 +483,6 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         refresh,
         queryKey: shown.value?.queryKey ?? currentKey,
         itemKey,
-    }
-}
-
-const HOURLY_FROM = new Set(['dStart', '-1dStart', '-1h', '-24h', '-48h'])
-
-export interface WebAnalyticsScreenState {
-    access: ViewsAccess
-    overview: QueryState<WebOverviewSnapshot>
-    error: ItemErrorKind | null
-    range: ViewRange
-    /** True while `overview` still shows the previous range because the new one has not loaded. */
-    rangeLoading: boolean
-    refresh: ViewRefresh
-}
-
-/** The web analytics overview: one `WebOverviewQuery` with compare on, as the web's overview tile sends it. */
-export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScreenState {
-    const context = useViewsContext()
-    const range = useViewRange(webAnalyticsRangeKey(context.dataScope), 'web_analytics', WEB_ANALYTICS_SAVED_RANGE)
-    const values = webAnalyticsRange(range.choice)
-    const query = webOverviewQuery({
-        dateFrom: values.date_from,
-        dateTo: values.date_to,
-        explicitDate: values.explicitDate,
-        compare: true,
-        interval: HOURLY_FROM.has(values.date_from) ? 'hour' : 'day',
-    })
-    const queryId = stableStringify(query)
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `queryId` stands for `query`.
-    const items = useMemo(() => [webOverviewItem(context.item, query)], [context.item, queryId])
-    const snapshot = useSnapshot<WebOverviewSnapshot>(webOverviewQueryKey(context.scope, query))
-    const refresh = useViewRefresh({
-        screen: 'web_analytics',
-        dataScope: context.dataScope,
-        screenKey: 'web',
-        items,
-        enabled: context.ready && !context.offline,
-        rangeKey: queryId,
-    })
-    const error = useItemError(items[0]?.key ?? null)
-    useRecordRecentView({ kind: 'web_analytics', ref: null, name: 'Web analytics' })
-    useViewOpenedEvent('web_analytics', options, () => [snapshot])
-    const shown = useHeldWhileLoading(`${context.identity}|web`, snapshot, error)
-    return {
-        access: context.access,
-        overview: viewState(
-            error && shown.value && !shown.value.lastRefreshAt ? undefined : shown.value,
-            error,
-            context.ready,
-            refresh.busy,
-            refresh.retry,
-            context.offline
-        ),
-        error,
-        range,
-        rangeLoading: shown.held,
-        refresh,
     }
 }
 

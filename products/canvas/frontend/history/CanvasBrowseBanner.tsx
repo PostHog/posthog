@@ -9,10 +9,10 @@ import { urls } from 'scenes/urls'
 import { canvasVersionByline } from './canvasHistoryLabels'
 import { canvasHistoryLogic } from './canvasHistoryLogic'
 
-/** The strip above a browsed version or draft: what it is, how to leave it, and how to make it live. */
+/** The strip above a browsed version or draft: what it is and how to leave it. */
 export function CanvasBrowseBanner(): JSX.Element | null {
     const { browseVersionId, browsedDraft, browsedVersion, versionLabels } = useValues(canvasHistoryLogic)
-    const { setBrowseVersion, requestConfirmation } = useActions(canvasHistoryLogic)
+    const { setBrowseVersion } = useActions(canvasHistoryLogic)
 
     if (!browseVersionId) {
         return null
@@ -53,16 +53,6 @@ export function CanvasBrowseBanner(): JSX.Element | null {
                     data-attr="canvas-browse-back"
                 >
                     {browsedDraft ? 'Back to live' : 'Back to latest'}
-                </Button>
-                <Button
-                    size="xs"
-                    variant="primary"
-                    onClick={() =>
-                        requestConfirmation({ kind: browsedDraft ? 'promote' : 'revert', versionId: browseVersionId })
-                    }
-                    data-attr={browsedDraft ? 'canvas-browse-promote' : 'canvas-browse-revert'}
-                >
-                    {browsedDraft ? 'Publish draft…' : 'Revert to this version…'}
                 </Button>
             </div>
         </div>

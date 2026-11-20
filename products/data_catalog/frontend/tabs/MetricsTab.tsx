@@ -22,13 +22,24 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
-import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { catalogExplainerLogic } from '../catalogExplainerLogic'
+import { compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { CatalogExplainer } from '../components/CatalogExplainer'
+import { CatalogSetupBanner } from '../components/CatalogSetupBanner'
 import { LifecycleStrip } from '../components/LifecycleStrip'
 import { MetricDescription } from '../components/MetricDescription'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
+import {
+    approveDisabledReason,
+    bulkApproveDisabledReason,
+    bulkBusyReason as bulkBusyReasonFor,
+    bulkSelectionDisabledReason,
+    deleteDisabledReason,
+    reloadDisabledReason as reloadDisabledReasonFor,
+    resolveMetricSelection,
+} from '../metricActionGuards'
+import { MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
 const STATUS_FILTER_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -44,12 +55,6 @@ const SPLIT_TABLE_PAGE_SIZE = 6
 
 const LOAD_FAILED = 'Could not load metrics. Reload the list to try again.'
 
-const OVER_CAP_REASON = `Select at most ${METRIC_BULK_MAX} metrics at a time`
-
-function isApprovable(metric: DataCatalogMetricApi): boolean {
-    return metric.status !== 'approved' && !metric.is_drifted
-}
-
 function StatusTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
@@ -63,12 +68,10 @@ function SourceTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     if (metric.created_source !== 'ai_generated') {
         return <span className="text-secondary">User</span>
     }
-    const confidencePercent = metric.confidence != null ? `${Math.round(metric.confidence * 100)}%` : 'unknown'
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <span>Confidence: {confidencePercent}</span>
                     {metric.ai_model && <span>Model: {metric.ai_model}</span>}
                     {metric.reasoning && <span>{metric.reasoning}</span>}
                 </div>
@@ -114,35 +117,10 @@ export function MetricsTab(): JSX.Element {
     } = useActions(metricsLogic)
 
     const reviewQueueEnabled = useFeatureFlag('DATA_CATALOG_REVIEW_QUEUE')
+    const { explainerDismissed } = useValues(catalogExplainerLogic)
 
-    const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
-    // Reload replaces the whole list and takes no breakpoint, so a load that resolves after a
-    // mutation would repaint pre-mutation rows (e.g. bring back rows a bulk delete just removed).
-    // Block it while any mutation is in flight; the view is authoritative again on the next load.
-    const reloadDisabledReason =
-        bulkBusyReason ?? (Object.values(actionsInFlight).some(Boolean) ? 'A metric action is running' : undefined)
-    const otherBulkActionReason = (self: BulkMetricAction): string | undefined =>
-        bulkActionInFlight && bulkActionInFlight !== self ? 'Another bulk action is running' : undefined
-
-    const bulkApproveDisabledReason = (approvableCount: number): string | undefined => {
-        if (approvableCount === 0) {
-            return 'Every selected metric is already approved or has drifted. Refresh a drifted metric first.'
-        }
-        if (approvableCount > METRIC_BULK_MAX) {
-            return OVER_CAP_REASON
-        }
-        return otherBulkActionReason('approve')
-    }
-
-    const bulkSelectionDisabledReason = (selectedCount: number, self: BulkMetricAction): string | undefined => {
-        if (selectedCount === 0) {
-            return 'The selected metrics are no longer available. Reload the list.'
-        }
-        if (selectedCount > METRIC_BULK_MAX) {
-            return OVER_CAP_REASON
-        }
-        return otherBulkActionReason(self)
-    }
+    const bulkBusyReason = bulkBusyReasonFor(bulkActionInFlight)
+    const reloadDisabledReason = reloadDisabledReasonFor(bulkActionInFlight, actionsInFlight)
 
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
         LemonDialog.open({
@@ -268,12 +246,7 @@ export function MetricsTab(): JSX.Element {
                                 <LemonButton
                                     fullWidth
                                     loading={inFlight}
-                                    disabledReason={
-                                        bulkBusyReason ??
-                                        (metric.is_drifted
-                                            ? 'This metric has drifted from its source insight. Refresh it first.'
-                                            : undefined)
-                                    }
+                                    disabledReason={approveDisabledReason(metric, bulkActionInFlight)}
                                     onClick={() => approveMetric(metric.name)}
                                 >
                                     Approve
@@ -292,7 +265,7 @@ export function MetricsTab(): JSX.Element {
                             <LemonButton
                                 fullWidth
                                 status="danger"
-                                disabledReason={bulkBusyReason ?? (inFlight ? 'Working' : undefined)}
+                                disabledReason={deleteDisabledReason(inFlight, bulkActionInFlight)}
                                 onClick={() => confirmDelete(metric)}
                             >
                                 Delete
@@ -353,7 +326,7 @@ export function MetricsTab(): JSX.Element {
                             <LemonButton
                                 fullWidth
                                 status="danger"
-                                disabledReason={bulkBusyReason ?? (inFlight ? 'Working' : undefined)}
+                                disabledReason={deleteDisabledReason(inFlight, bulkActionInFlight)}
                                 onClick={() => confirmDelete(metric)}
                             >
                                 Delete
@@ -387,10 +360,7 @@ export function MetricsTab(): JSX.Element {
             // than ctx.selectedRecords, which only covers the page on screen. Resolving by id also
             // drops any selected metric that has since left the table, e.g. one approved inline
             // that moved from the review queue to the approved table.
-            const selected = new Set(ctx.selectedKeys)
-            const selectedMetrics = tableMetrics.filter((metric) => selected.has(metric.id))
-            const approvableNames = selectedMetrics.filter(isApprovable).map((metric) => metric.name)
-            const selectedNames = selectedMetrics.map((metric) => metric.name)
+            const { selectedNames, approvableNames } = resolveMetricSelection(tableMetrics, ctx.selectedKeys)
             return (
                 <>
                     {withApprove && (
@@ -399,7 +369,7 @@ export function MetricsTab(): JSX.Element {
                             size="small"
                             data-attr="data-catalog-metrics-bulk-approve"
                             loading={bulkActionInFlight === 'approve'}
-                            disabledReason={bulkApproveDisabledReason(approvableNames.length)}
+                            disabledReason={bulkApproveDisabledReason(approvableNames.length, bulkActionInFlight)}
                             onClick={() => bulkApproveMetrics(approvableNames, ctx.clearSelection)}
                         >
                             Approve ({approvableNames.length})
@@ -418,7 +388,11 @@ export function MetricsTab(): JSX.Element {
                                 size="small"
                                 data-attr="data-catalog-metrics-bulk-change-owner"
                                 loading={bulkActionInFlight === 'change_owner'}
-                                disabledReason={bulkSelectionDisabledReason(selectedNames.length, 'change_owner')}
+                                disabledReason={bulkSelectionDisabledReason(
+                                    selectedNames.length,
+                                    'change_owner',
+                                    bulkActionInFlight
+                                )}
                             >
                                 Change owner
                             </LemonButton>
@@ -430,7 +404,7 @@ export function MetricsTab(): JSX.Element {
                         size="small"
                         data-attr="data-catalog-metrics-bulk-delete"
                         loading={bulkActionInFlight === 'delete'}
-                        disabledReason={bulkSelectionDisabledReason(selectedNames.length, 'delete')}
+                        disabledReason={bulkSelectionDisabledReason(selectedNames.length, 'delete', bulkActionInFlight)}
                         onClick={() => confirmBulkDelete(selectedNames, ctx.clearSelection)}
                     >
                         Delete
@@ -444,6 +418,8 @@ export function MetricsTab(): JSX.Element {
         <div className="@container flex flex-col gap-4">
             {/* The explainer describes agent behavior that ships with the review queue, so it shares its flag. */}
             {reviewQueueEnabled && <CatalogExplainer />}
+            {/* One onboarding notice at a time: the setup offer waits until the explainer is gone. */}
+            {(!reviewQueueEnabled || explainerDismissed) && <CatalogSetupBanner />}
             {reviewQueueEnabled && (
                 <LifecycleStrip counts={stageCounts} status={filters.status} onToggle={toggleStage} />
             )}
@@ -505,7 +481,7 @@ export function MetricsTab(): JSX.Element {
                                     <span>{`(${reviewQueue.length})`}</span>
                                 </h3>
                                 <span className="text-xs text-secondary">
-                                    Drifted metrics come first, then your proposals, then AI proposals by confidence.
+                                    Drifted metrics come first, then your proposals, then AI proposals.
                                 </span>
                             </div>
                             <LemonTable

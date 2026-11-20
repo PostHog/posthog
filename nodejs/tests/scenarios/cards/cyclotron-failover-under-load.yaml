@@ -1,0 +1,41 @@
+id: cyclotron-failover-under-load
+version: 1
+clock: real
+profile: synthetic
+seed: 6
+setup:
+    teams: 1
+drive:
+    for: 75m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+valves:
+    - valve: pg.failover
+      target: cyclotron
+      dose: {}
+      at: 15m
+      for: 30m
+convergeWithin: 15m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: resident_backlog_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: seconds_to_cluster_writer
+    - name: seconds_to_sql_writer
+    - name: seconds_to_first_probe_commit
+    - name: writer_unavailable_seconds
+    - name: queue_lag_peak_seconds
+    - name: drain_seconds
+    - name: pg_client_errors
+    - name: consumer_loop_errors
+    - name: failback_writer_unavailable_seconds
+    - name: failback_drain_seconds
+    - name: baseline_claims_per_second
+    - name: baseline_new_jobs_per_second

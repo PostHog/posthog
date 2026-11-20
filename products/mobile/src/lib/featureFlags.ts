@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import { useAuthStore } from '@/auth/authStore'
+import { useDataMode } from '@/demo/demoMode'
 
 import { hostKind } from './environment'
 
@@ -8,6 +9,8 @@ export const FEATURE_FLAGS = {
     modelScoreSort: 'mobile-inbox-model-score-sort',
     sessionReplay: 'mobile-session-replay',
     errorTracking: 'mobile-error-tracking',
+    replayVideo: 'mobile-replay-video',
+    replayFeed: 'mobile-replay-feed',
 } as const
 
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -33,6 +36,8 @@ const FORCED_FLAGS: ReadonlySet<string> = new Set(
 const LOCAL_DEVELOPMENT_FLAGS: ReadonlySet<FeatureFlagKey> = new Set([
     FEATURE_FLAGS.errorTracking,
     FEATURE_FLAGS.sessionReplay,
+    FEATURE_FLAGS.replayVideo,
+    FEATURE_FLAGS.replayFeed,
 ])
 
 export function setFeatureFlags(flags: Record<string, boolean | string>): void {
@@ -53,8 +58,10 @@ export function useFeatureFlag(key: FeatureFlagKey): boolean {
 }
 
 export function useMobileProductFlags(): { errors: boolean; replay: boolean } {
+    const replay = useFeatureFlag(FEATURE_FLAGS.sessionReplay)
+    const mode = useDataMode()
     return {
         errors: useFeatureFlag(FEATURE_FLAGS.errorTracking),
-        replay: useFeatureFlag(FEATURE_FLAGS.sessionReplay),
+        replay: replay || mode === 'demo',
     }
 }

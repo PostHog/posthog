@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
@@ -12,7 +13,7 @@ import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -171,6 +172,13 @@ export class ErrorTrackingServer implements NodeServer {
                     new TeamManagerComponent(container.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
                 )
                 .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
+                .add(
+                    'geoipService',
+                    new GeoIPServiceComponent(
+                        this.config.MMDB_FILE_LOCATION,
+                        geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT)
+                    )
+                )
         )
 
         const sharedServices = await sharedServicesScope.start()
@@ -185,11 +193,13 @@ export class ErrorTrackingServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const geoipService = sharedServices.container.geoipService
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // The same outputs instance backs the pipeline's emissions and the hog
         // transformer's monitoring (app_metrics + log_entries).

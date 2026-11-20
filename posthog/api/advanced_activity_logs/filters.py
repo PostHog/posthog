@@ -92,6 +92,23 @@ def _validate_detail_filter(field_path: Any, filter_config: Any) -> None:
             )
 
 
+def filters_match_change_values(filters: dict[str, Any]) -> bool:
+    """Whether the filters can match on logged change values (`changes[].before` / `changes[].after`)."""
+    if filters.get("search_text"):
+        return True
+    return any(
+        isinstance(filter_config, dict)
+        and filter_config.get("value") is not None
+        and _field_path_reaches_change_values(field_path)
+        for field_path, filter_config in (filters.get("detail_filters") or {}).items()
+    )
+
+
+def _field_path_reaches_change_values(field_path: str) -> bool:
+    # Array filters on `changes[]` search the whole serialized array, so any `changes` path can match values.
+    return field_path.split("[]")[0].split(".")[0] == "changes"
+
+
 class AdvancedActivityLogFilterManager:
     def apply_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         queryset = self._apply_date_filters(queryset, filters)

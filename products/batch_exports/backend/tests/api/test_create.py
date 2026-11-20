@@ -843,10 +843,6 @@ def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(
             {
                 "project_id": "test",
                 # Missing required `dataset_id`
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
             },
             "missing required field: 'dataset_id'",
         ),

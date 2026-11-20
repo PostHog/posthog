@@ -23,6 +23,10 @@ class SumoLogicEndpointConfig:
     path: str
     # Key in the response body holding the list of records. ``None`` means the body itself is the list.
     data_key: Optional[str] = None
+    # Key in the response body holding the continuation token of a "token" endpoint.
+    next_token_key: str = "next"
+    # "POST" token endpoints take `limit` and the `next` token in a JSON body instead of the query string.
+    method: Literal["GET", "POST"] = "GET"
     pagination: PaginationStyle = "token"
     page_size: int = 100
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
@@ -154,6 +158,31 @@ SUMO_LOGIC_ENDPOINTS: dict[str, SumoLogicEndpointConfig] = {
         name="content_folders",
         path="/v2/content/folders/{folder_id}",
         pagination="content_tree",
+    ),
+    "log_searches": SumoLogicEndpointConfig(
+        name="log_searches",
+        path="/v1/logSearches",
+        data_key="logSearches",
+        next_token_key="token",
+        # A webhook notification on a scheduled search carries a `payload` override that can embed
+        # the destination's credentials, as the monitor payload overrides do.
+        redact_nested_fields=frozenset({"payload"}),
+    ),
+    "metrics_searches": SumoLogicEndpointConfig(
+        name="metrics_searches",
+        path="/v2/metricsSearches",
+        data_key="metricsSearches",
+        # The default mode lists only the searches the key's user created.
+        extra_params={"mode": "allViewableByUser"},
+    ),
+    "ot_collectors": SumoLogicEndpointConfig(
+        name="ot_collectors",
+        path="/v1/otCollectors",
+        data_key="data",
+        method="POST",
+        # The base64 effective configuration YAML of a remotely managed collector can hold exporter
+        # credentials.
+        redact_fields=frozenset({"effectiveConfig"}),
     ),
     "health_events": SumoLogicEndpointConfig(
         name="health_events",

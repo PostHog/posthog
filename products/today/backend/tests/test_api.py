@@ -26,6 +26,7 @@ from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
 from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
@@ -501,6 +502,39 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 ("computing", ["k1", "k2"]),
                 ["k2", "k1"],
                 [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],
+            ),
+        )
+
+    def test_hidden_numbers_are_named_and_start_a_computation_without_them(self) -> None:
+        cache.clear()
+        Insight.objects.create(team=self.team, short_id="kept1", name="Sign-ups")
+        keys = ["insight:kept1", "insight:gone", "signup_event", "insight:kept1"]
+        with (
+            time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock,
+            patch(
+                "products.today.backend.logic.pulse_pins.get_key_metric_names", return_value={"signup_event": "Signups"}
+            ),
+        ):
+            self._get(_temporal())
+            clock.shift(timedelta(seconds=1))
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                saved = self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/hidden/", {"keys": keys}, format="json"
+                )
+                read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
+            connect = _temporal()
+            self._get(connect)
+
+        self.assertEqual(
+            (
+                saved.json()["hidden"],
+                read.json()["hidden"],
+                connect.return_value.start_workflow.call_args.args[1].hidden,
+            ),
+            (
+                [{"key": "insight:kept1", "name": "Sign-ups"}, {"key": "signup_event", "name": "Signups"}],
+                [{"key": "insight:kept1", "name": "Sign-ups"}, {"key": "signup_event", "name": "Signups"}],
+                ["insight:kept1", "insight:gone", "signup_event"],
             ),
         )
 

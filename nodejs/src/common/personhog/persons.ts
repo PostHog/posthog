@@ -44,6 +44,33 @@ export class PersonhogPropertiesSizeError extends Error {
     }
 }
 
+/** The leader refused an update whose properties nest past its limit; no retry can succeed. */
+export class PersonhogPropertiesDepthError extends Error {
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogPropertiesDepthError'
+    }
+}
+
+/** The leader cannot parse the person's stored row, and a retry reads the same row. */
+export class PersonhogUnprocessablePersonError extends Error implements HandledVerdict {
+    readonly isRetriable = false
+    readonly handledVerdict = 'unprocessable_person'
+
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogUnprocessablePersonError'
+    }
+}
+
 /**
  * The leader knows no such person: deleted, or merged into another. The
  * persons store redirects the ops to the survivor, so the retry layer files
@@ -102,8 +129,6 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
         uuid: proto.uuid,
         team_id: Number(proto.teamId),
         properties: parseJsonBytes(proto.properties) ?? {},
-        properties_last_updated_at: parseJsonBytes(proto.propertiesLastUpdatedAt) ?? {},
-        properties_last_operation: parseJsonBytes(proto.propertiesLastOperation) ?? null,
         created_at: epochMsToDateTime(proto.createdAt),
         version: Number(proto.version),
         is_identified: proto.isIdentified,
@@ -113,10 +138,7 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
 }
 
 /** An identity answer: no properties, because the partition leader owns them. */
-export type PersonIdentity = Omit<
-    InternalPerson,
-    'properties' | 'properties_last_updated_at' | 'properties_last_operation'
->
+export type PersonIdentity = Omit<InternalPerson, 'properties'>
 
 export function protoPersonToIdentity(proto: ProtoPerson): PersonIdentity {
     return {
@@ -230,6 +252,9 @@ export class PersonHogPersonOperations {
             if (error instanceof ConnectError && error.code === Code.NotFound) {
                 return null
             }
+            if (error instanceof ConnectError && error.code === Code.DataLoss) {
+                throw new PersonhogUnprocessablePersonError(error.rawMessage, teamId, personId)
+            }
             throw error
         }
     }
@@ -278,6 +303,9 @@ export class PersonHogPersonOperations {
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+                if (error.code === Code.InvalidArgument && error.rawMessage.includes('nesting limit')) {
+                    throw new PersonhogPropertiesDepthError(error.rawMessage, update.teamId, update.personId)
                 }
                 // Keyed on the metadata rather than the status code: the
                 // leader answers FAILED_PRECONDITION while the router hands

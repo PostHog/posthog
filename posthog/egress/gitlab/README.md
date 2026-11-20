@@ -28,6 +28,7 @@ Add a gate if one token starts to carry enough PostHog traffic to reach the gitl
 No lanes, because nothing is gated.
 `posthog/models/integration/gitlab.py` is the caller, with `source="integration"`.
 It creates, closes and searches issues, lists project members, lists projects and creates and reads merge requests.
+Workload identity looks up a gitlab.com project's ID and exact path with `source="workload_identity"`, through the team's own token first, then PostHog's shared token, or no token when the deployment has none, for public projects only.
 Error tracking code search in `products/error_tracking/backend/presentation/views/git_provider_file_link_resolver.py` still calls GitLab directly and has not moved here yet.
 
 ## Rate-limit headers
@@ -47,7 +48,7 @@ Callers pass an endpoint template, because a project path in a URL is customer d
 
 ## Auth
 
-The customer's access token in the `PRIVATE-TOKEN` header.
+The customer's access token in the `Authorization: Bearer` header. GitLab accepts that header for project, group, personal and OAuth tokens.
 No PostHog-owned credential.
 The caller validates the host before the call and never follows a redirect, because the token header would go to the redirect target.
 

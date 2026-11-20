@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import partial
+from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 
@@ -25,25 +25,26 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
 import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
+from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -51,7 +52,11 @@ from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
+from posthog.helpers.impersonation import (
+    end_impersonation,
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+)
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
@@ -65,16 +70,24 @@ from posthog.models.activity_logging.utils import (
     client_from_header,
     record_agent_intent,
 )
-from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
+from posthog.models.event.new_events_schema import (
+    NEW_EVENTS_SCHEMA_COOKIE,
+    NEW_EVENTS_SCHEMA_HEADER,
+    new_events_schema_for_request,
+)
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
-from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import find_action_team_id
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -468,12 +481,7 @@ class AutoProjectMiddleware:
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                if dashboard_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
+            if path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "notebooks":
@@ -498,6 +506,8 @@ class AutoProjectMiddleware:
         if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
             # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
             return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        if len(path_parts) >= 2 and path_parts[0] == "dashboard" and path_parts[1].isnumeric():
+            return find_dashboard_team_id(dashboard_id=int(path_parts[1]))
         return None
 
     def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
@@ -512,6 +522,11 @@ class AutoProjectMiddleware:
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            if not user.is_staff:
+                # A short_id is unique per team only, and no index starts with short_id, so a lookup across all
+                # teams reads the whole table. Staff keep the lookup across all teams, because can_switch_to_team
+                # suggests users to log in as when a staff user opens an object in a team they cannot access.
+                target_queryset = target_queryset.filter(team__in=user.teams)
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
@@ -533,14 +548,11 @@ class AutoProjectMiddleware:
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
 
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if (
-            not user_access_control.check_access_level_for_object(new_team, "member")
-            and user_permissions.team(new_team).effective_membership_level is None
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PROJECT, id=str(new_team.pk)),
+            action=AuthorizationAction.VIEW,
+            subject=Subject(user_id=user.pk),
         ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
@@ -552,13 +564,83 @@ class AutoProjectMiddleware:
         return True
 
 
+UNMATCHED_ROUTE = "unmatched"
+_PATH_CONVERTER = re.compile(r"<(?:\w+:)?(\w+)>")
+_REGEX_LEFTOVER = re.compile(r"[()\[\]*+|]")
+
+
+def _closing_paren(pattern: str, start: int) -> int:
+    depth = 0
+    in_class = False
+    i = start
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(pattern)
+
+
+@lru_cache(maxsize=8192)
+def route_template(route: str) -> str:
+    """Turn a resolver route into a readable, id-free template.
+
+    `^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/(?P<pk>[^/.]+)/?$`
+    becomes `api/projects/{project_id}/feature_flags/{pk}/`. The input comes from the URLconf,
+    never the request path, so the set of outputs is bounded by the number of URL patterns.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(route):
+        char = route[i]
+        if route.startswith("(?P<", i):
+            name = route[i + 4 : route.index(">", i)]
+            out.append("{" + name.removeprefix("parent_lookup_") + "}")
+            i = _closing_paren(route, i) + 1
+        elif route.startswith("(?:", i) and route[(end := _closing_paren(route, i)) + 1 : end + 2] == "?":
+            # Optional suffixes such as opt_slash_path's `(?:[?#].*)?` share the base route's label.
+            i = end + 2
+        elif char == "\\" and i + 1 < len(route):
+            out.append(route[i + 1])
+            i += 2
+        elif char in "^$" or (char == "?" and out and out[-1] == "/"):
+            i += 1
+        else:
+            out.append(char)
+            i += 1
+    template = _PATH_CONVERTER.sub(r"{\1}", "".join(out))
+    # DRF registers a `.json`-style format-suffix twin of every route; fold it into the base route.
+    template = template.replace(".{format}", "").replace("//", "/")
+    if not template or _REGEX_LEFTOVER.search(template):
+        return UNMATCHED_ROUTE
+    return template
+
+
+def request_route(request: HttpRequest) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or not match.route:
+        return UNMATCHED_ROUTE
+    return route_template(match.route)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
     # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
     # or "error" when the view raised before producing one — keeps error-path
     # latency from polluting success buckets while still recording it.
-    labelnames=["view", "method", "source", "access_method", "status_class"],
+    labelnames=["view", "route", "method", "source", "access_method", "status_class"],
     # Same buckets as django_prometheus' default so we line up with
     # django_http_requests_latency_seconds_by_view_method.
     buckets=(
@@ -624,6 +706,9 @@ class CHQueries:
             status_class = f"{response.status_code // 100}xx"
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
+            # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
+            if is_api_request and http_request_id and "X-Request-ID" not in response:
+                response["X-Request-ID"] = str(http_request_id)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
@@ -634,11 +719,13 @@ class CHQueries:
             return response
         finally:
             if is_api_request and (route := request.resolver_match) is not None:
+                api_route = request_route(request)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
+                    route=api_route,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -646,6 +733,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
+                record_scope_usage(request, route=api_route, status_class=status_class)
             reset_query_tags()
 
     def process_view(
@@ -1321,7 +1409,7 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                restore_original_login(request)
+                end_impersonation(request)
                 if request.path.startswith("/admin/"):
                     # Redirect to the intended admin page
                     return redirect(request.get_full_path())
@@ -1332,23 +1420,24 @@ class AutoLogoutImpersonateMiddleware:
 
 
 class NewEventsSchemaCookieMiddleware:
-    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+    """A staff person's requests read the events table their browser tab or their browser chose.
 
     The switch is per person, so one person can check a project on events_json, an impersonated one included,
     without switching the project for everyone. An impersonated session counts as staff because only staff can
-    start one.
+    start one. The tab's header wins over the browser's cookie, so two tabs can compare the two tables.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+        requested = request.headers.get(NEW_EVENTS_SCHEMA_HEADER) or request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE)
+        if requested not in ("0", "1"):
             return self.get_response(request)
         user = cast(User, request.user)
         if not (user.is_staff or is_impersonated_session(request)):
             return self.get_response(request)
-        with new_events_schema_for_request():
+        with new_events_schema_for_request(requested == "1"):
             return self.get_response(request)
 
 
@@ -1622,6 +1711,11 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
+        # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
+        # The library text gives the person no next step, so the login page shows its own copy for this code.
+        if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
+
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
@@ -1700,9 +1794,9 @@ def organization_block_page(organization: Organization) -> Optional[str]:
 class IPRestrictionsMiddleware(MiddlewareMixin):
     """Block requests from an IP that the caller's organization does not allow.
 
-    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
-    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
-    same check after their principal is resolved. Both use the cached organization restrictions and
+    Runs after `AuthenticationMiddleware` for session requests. Routed viewsets defer to
+    `IPRestrictionsPermission` so the check includes the view's team and organization overrides.
+    Both use the cached organization restrictions and
     `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
     verified IP is available.
     """
@@ -1719,6 +1813,19 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         try:
             enforce_ip_restrictions(request, getattr(request, "user", None))
         except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
             return JsonResponse(
                 {
                     "type": "authentication_error",
@@ -1879,7 +1986,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/logout/?$")),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through
-    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # `posthog.scopes.checks.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
     # resulting tokens can't grant write access. Tokens minted here are also tagged with
     # the impersonator and revoked when impersonation ends.
     ("POST", re.compile(r"^/oauth/authorize/?$")),
@@ -2040,5 +2147,5 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
         return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
-    restore_original_login(request)
+    end_impersonation(request)
     return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

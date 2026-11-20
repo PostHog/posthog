@@ -1,15 +1,21 @@
 from enum import StrEnum
 
+from django.db.models import QuerySet
+
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+from ..facade.contracts import MetricListFilters
 from ..facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
+from ..models import Metric, RelationshipProposal, TableCertification
 from .analytics import certification_target_name
 from .certifications import certifications_for_team
-from .metrics import metrics_for_team
+from .metrics import cached_denied_tables, metrics_for_team, metrics_visible_to_user
 from .relationships import relationships_for_team
 
 logger = structlog.get_logger(__name__)
@@ -34,6 +40,13 @@ class PendingGroup:
 
 
 @frozen
+class PendingReviewCounts:
+    metrics: int
+    relationships: int
+    certifications: int
+
+
+@frozen
 class TeamPendingReview:
     team_id: int
     team_name: str
@@ -42,7 +55,7 @@ class TeamPendingReview:
 
 
 def _metrics_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = metrics_for_team(team).filter(status=MetricStatus.PROPOSED)
+    proposed = _proposed_metrics(team)
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
         kind=PendingKind.METRICS,
@@ -52,8 +65,33 @@ def _metrics_group(team: Team, sample_size: int) -> PendingGroup:
     )
 
 
+def _proposed_metrics(team: Team) -> QuerySet[Metric]:
+    return metrics_for_team(team).filter(status=MetricStatus.PROPOSED)
+
+
+def _denied_tables_for_proposed_metrics(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    proposed_table_readers = _proposed_metrics(team).exclude(referenced_table_names=[])
+    return cached_denied_tables(
+        team,
+        user,
+        user_access_control,
+        referenced_tables_by_metric={
+            str(metric_id): sorted(table_names)
+            for metric_id, table_names in proposed_table_readers.values_list("id", "referenced_table_names")
+        },
+    )
+
+
+def _proposed_relationships(team: Team) -> QuerySet[RelationshipProposal]:
+    return relationships_for_team(team).filter(status=RelationshipStatus.PROPOSED)
+
+
+def _proposed_certifications(team: Team) -> QuerySet[TableCertification]:
+    return certifications_for_team(team).filter(status=CertificationStatus.PROPOSED)
+
+
 def _relationships_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = relationships_for_team(team).filter(status=RelationshipStatus.PROPOSED)
+    proposed = _proposed_relationships(team)
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
         kind=PendingKind.RELATIONSHIPS,
@@ -64,7 +102,7 @@ def _relationships_group(team: Team, sample_size: int) -> PendingGroup:
 
 
 def _certifications_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = certifications_for_team(team).filter(status=CertificationStatus.PROPOSED)
+    proposed = _proposed_certifications(team)
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
         kind=PendingKind.CERTIFICATIONS,
@@ -95,6 +133,22 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
         team_name=team.name,
         groups=groups,
         total=sum(group.count for group in groups),
+    )
+
+
+def pending_review_counts(team: Team, user: User, user_access_control: UserAccessControl) -> PendingReviewCounts:
+    """How many items wait in each review queue, as the caller's lists show them, up to ten minutes behind an access change."""
+    proposed_metrics = metrics_visible_to_user(
+        team,
+        user,
+        user_access_control,
+        MetricListFilters(status=MetricStatus.PROPOSED),
+        load_denied_tables=_denied_tables_for_proposed_metrics,
+    )
+    return PendingReviewCounts(
+        metrics=proposed_metrics.count(),
+        relationships=_proposed_relationships(team).count(),
+        certifications=_proposed_certifications(team).count(),
     )
 
 

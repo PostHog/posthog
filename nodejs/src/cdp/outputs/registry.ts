@@ -6,7 +6,17 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
-import { CDP_EVENTS_DLQ_OUTPUT, EMAIL_STATUS_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from './outputs'
+import {
+    CDP_EVENTS_DLQ_OUTPUT,
+    CDP_INTAKE_DLQ_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+    EMAIL_STATUS_OUTPUT,
+    SES_WEBHOOKS_OUTPUT,
+    WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
+} from './outputs'
 
 /**
  * Outputs the CDP deployments write to. Each output's topic + producer are
@@ -18,6 +28,11 @@ import { CDP_EVENTS_DLQ_OUTPUT, EMAIL_STATUS_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_O
  *   `clickhouse_app_metrics2` schema).
  * - `WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT` — warehouse source webhook payloads.
  * - `CDP_EVENTS_DLQ_OUTPUT` — events that matched a function but produced no invocation.
+ * - `CDP_INTAKE_DLQ_OUTPUT` — intake messages that can never insert as a job.
+ * - `CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT` + `CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT` — runs the routes accepted.
+ * - `CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT` + `CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT` — the same topics on the
+ *   CDP intake MSK cluster, for teams on the per-kind MSK lists.
+ * - `SES_WEBHOOKS_OUTPUT` — verified SES notifications, recorded by the cdp-ses-webhooks consumer.
  * - `EMAIL_STATUS_OUTPUT` — status changes of transactional emails.
  */
 export function createCdpOutputsRegistry() {
@@ -45,6 +60,30 @@ export function createCdpOutputsRegistry() {
         .register(CDP_EVENTS_DLQ_OUTPUT, {
             topicKey: 'CDP_EVENTS_DLQ_TOPIC',
             producerKey: 'CDP_EVENTS_DLQ_PRODUCER',
+        })
+        .register(CDP_INTAKE_DLQ_OUTPUT, {
+            topicKey: 'CDP_INTAKE_DLQ_TOPIC',
+            producerKey: 'CDP_INTAKE_DLQ_PRODUCER',
+        })
+        .register(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, {
+            topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
+            producerKey: 'CDP_INTAKE_PRODUCER',
+        })
+        .register(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, {
+            topicKey: 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            producerKey: 'CDP_INTAKE_PRODUCER',
+        })
+        .register(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, {
+            topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
+            producerKey: 'CDP_INTAKE_MSK_PRODUCER',
+        })
+        .register(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, {
+            topicKey: 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            producerKey: 'CDP_INTAKE_MSK_PRODUCER',
+        })
+        .register(SES_WEBHOOKS_OUTPUT, {
+            topicKey: 'CDP_SES_WEBHOOKS_TOPIC',
+            producerKey: 'CDP_SES_WEBHOOKS_PRODUCER',
         })
         .register(EMAIL_STATUS_OUTPUT, {
             topicKey: 'EMAIL_STATUS_TOPIC',

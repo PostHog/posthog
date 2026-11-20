@@ -17,27 +17,33 @@ class TestDetectExistingEmailTools(SimpleTestCase):
                 "spf_includes",
                 ["v=spf1 include:servers.mcsv.net include:sendgrid.net ~all"],
                 [],
-                False,
+                [],
                 ["Mailchimp", "SendGrid"],
             ),
-            ("not_spf", ["google-site-verification=include:sendgrid.net"], [], False, []),
-            ("dkim_cname", [], ["s1.domainkey.u123.wl.sendgrid.net."], False, ["SendGrid"]),
-            ("resend_dkim", [], [], True, ["Resend"]),
+            ("not_spf", ["google-site-verification=include:sendgrid.net"], [], [], []),
+            ("dkim_cname", [], ["s1.domainkey.u123.wl.sendgrid.net."], [], ["SendGrid"]),
+            ("resend_dkim", [], [], ["p=MIGfMA0GCSqGSIb3DQEB"], ["Resend"]),
+            ("revoked_or_wildcard_null_dkim_key", [], [], ["v=DKIM1; p="], []),
             (
                 "deduplicated",
                 ["v=spf1 include:spf.brevo.com ~all"],
                 ["b1.example-com.dkim.brevo.com."],
-                False,
+                [],
                 ["Brevo"],
             ),
         ]
     )
     def test_names_tools_from_dns(
-        self, _name: str, spf_records: list[str], dkim_targets: list[str], has_resend_dkim: bool, expected: list[str]
+        self,
+        _name: str,
+        spf_records: list[str],
+        dkim_targets: list[str],
+        resend_dkim_records: list[str],
+        expected: list[str],
     ) -> None:
         assert (
             detect_existing_email_tools(
-                spf_records=spf_records, dkim_targets=dkim_targets, has_resend_dkim=has_resend_dkim
+                spf_records=spf_records, dkim_targets=dkim_targets, resend_dkim_records=resend_dkim_records
             )
             == expected
         )

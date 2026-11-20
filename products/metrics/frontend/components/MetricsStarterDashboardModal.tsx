@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 
@@ -15,9 +15,18 @@ export function MetricsStarterDashboardModal(): JSX.Element {
         metricOptions,
         metricOptionsLoading,
         creating,
+        servicePanelsAvailable,
+        includeServicePanels,
     } = useValues(metricsStarterDashboardLogic)
-    const { closeModal, setDashboardName, setServiceName, setSelectedMetrics, createDashboard } =
-        useActions(metricsStarterDashboardLogic)
+    const {
+        closeModal,
+        setDashboardName,
+        setServiceName,
+        setSelectedMetrics,
+        setIncludeServicePanels,
+        createDashboard,
+    } = useActions(metricsStarterDashboardLogic)
+    const addsServicePanels = servicePanelsAvailable && includeServicePanels
 
     return (
         <LemonModal
@@ -42,7 +51,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                         disabledReason={
                             !dashboardName.trim()
                                 ? 'Name the dashboard'
-                                : !selectedMetrics.length
+                                : !selectedMetrics.length && !addsServicePanels
                                   ? 'Pick at least one metric'
                                   : undefined
                         }
@@ -86,6 +95,14 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                     placeholder="Pick the metrics to chart"
                     data-attr="metrics-starter-dashboard-metrics"
                 />
+                {servicePanelsAvailable ? (
+                    <LemonCheckbox
+                        checked={includeServicePanels}
+                        onChange={setIncludeServicePanels}
+                        label="Add request rate, error rate and latency per service, from your traces"
+                        data-attr="metrics-starter-dashboard-service-panels"
+                    />
+                ) : null}
             </div>
         </LemonModal>
     )

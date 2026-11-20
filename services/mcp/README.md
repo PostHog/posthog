@@ -222,6 +222,7 @@ Available features:
 | `batch_exports`          | Data pipelines                                                                                  |
 | `business_knowledge`     | Business knowledge                                                                              |
 | `canvas`                 | Canvas                                                                                          |
+| `code_review`            | PostHog Review                                                                                  |
 | `cohorts`                | [Cohorts](https://posthog.com/docs/data/cohorts)                                                |
 | `conversations`          | Conversations                                                                                   |
 | `core`                   | Core utilities (project switching, docs search)                                                 |
@@ -263,11 +264,9 @@ Available features:
 | `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
 | `replay_vision`          | Replay vision                                                                                   |
 | `reverse_proxy`          | Reverse proxy record management                                                                 |
-| `review_hog`             | ReviewHog                                                                                       |
 | `signals`                | [Signals](https://posthog.com/docs/self-driving)                                                |
 | `skills`                 | Skills                                                                                          |
 | `sql`                    | SQL query execution                                                                             |
-| `stamphog`               | Stamphog                                                                                        |
 | `streamlit_apps`         | Streamlit apps                                                                                  |
 | `subscriptions`          | Subscriptions                                                                                   |
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
@@ -281,7 +280,7 @@ Available features:
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
-To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions.json` (hand-written tools) and `schema/generated-tool-definitions.json` (tools generated from YAML).
 
 ### Learning and skills in cli mode
 
@@ -324,6 +323,15 @@ Individual `learn` responses stay below 44,000 characters; large references retu
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
 `consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
 
+### Skills in tools mode
+
+Tools mode lists a `learn` tool when skill discovery is enabled for the connection.
+The rules match cli mode: the `mcp-exec-skills` flag is on and the consumer is not `plugin` or `posthog-code`.
+Connections through the MCP store do not get the tool.
+The `features` and `tools` filters do not hide it, as with the tools marked `always_available`.
+Its `command` takes the skill commands above, with or without the leading `learn`, and serves them from the same catalog.
+The tools-mode `instructions` then tell the agent to search with `learn` before non-trivial PostHog work.
+
 Other clients keep the full inline command reference.
 
 ### Tool filtering
@@ -344,11 +352,39 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 
 The example above exposes all flag tools plus `dashboard-get`.
 
+### Resource filtering
+
+The server advertises its skills, docs, and UI apps as MCP resources, and some clients add every resource to their `@` file picker.
+Pass `resources` to choose which ones `resources/list` returns, or `none` to return none:
+
+```text
+https://mcp.posthog.com/mcp?resources=none
+https://mcp.posthog.com/mcp?resources=feature-flags,docs
+```
+
+```http
+x-posthog-mcp-resources: none
+```
+
+| Value              | Lists                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `none`             | No resources.                                                                               |
+| `skills`           | Every skill (`posthog://skills/…`).                                                         |
+| `<skill category>` | The skills in one category, such as `feature-flags` for `posthog://skills/feature-flags/…`. |
+| `docs`             | The docs resources (`posthog://docs/…`).                                                    |
+| `apps`             | The UI apps that render tool results (`ui://posthog/…`).                                    |
+
+Values are comma-separated and combined as a union, like `features`.
+Hyphens and underscores are equivalent, and a value that matches no resource adds nothing.
+The header wins when both the header and the query parameter are set.
+The filter changes only what the server lists: `resources/read` still serves every resource, so tools that render UI apps keep working.
+
 ### Server mode (tools vs cli)
 
 The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
+Cursor is moving to cli mode behind the `mcp-cursor-exec-mode` feature flag: a Cursor connection with the flag on gets the cli default, and one with the flag off keeps tools mode.
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
@@ -373,6 +409,28 @@ An explicit value always wins over the client auto-detection; any other value is
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
+
+### Business knowledge for your own agent
+
+Your own agent, with no PostHog user behind it, can search a project's business knowledge.
+Connect to `/mcp/business-knowledge` with a project secret API key (`phs_...`) that has the `business_knowledge:read` scope:
+
+```json
+{
+  "mcpServers": {
+    "business-knowledge": {
+      "url": "https://mcp.posthog.com/mcp/business-knowledge",
+      "headers": { "Authorization": "Bearer <your project secret API key>" }
+    }
+  }
+}
+```
+
+- The key decides the project and the region, so the URL takes no project ID. A `project_id` or `organization_id` sent with the request is ignored.
+- `/mcp/business-knowledge` accepts only project secret API keys, and every other `/mcp` path refuses them.
+- The connection lists six read-only tools: document search, document window, library list, library get, repository search, and repository file read. It reaches no other tool, whatever `features` or `tools` say.
+- These connections default to tools mode. Send `mode=cli` for the single `exec` tool.
+- Keep the key on your server. Anyone who has it can read all the business knowledge in the project, or one library when the key is limited to a library.
 
 ### Consumer attribution
 
@@ -456,7 +514,7 @@ Changes in the examples repo will be reflected on the next request.
 
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
-- `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
+- `schema/` - Tool definitions: hand-written `tool-definitions.json`, plus generated files such as `generated-tool-definitions.json`
 
 ### Development Commands
 
@@ -466,6 +524,7 @@ Changes in the examples repo will be reflected on the next request.
 - `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
 - `pnpm run format` - Format code with Oxfmt only
 - `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
+- `pnpm run build:cli:catalog` - Write the API tool catalog that the PostHog app serves to hog at `/api/cli/catalog.json`. The image build runs it, and so does `bin/start-backend` in the background, so local dev serves the catalog of your checkout
 
 ### Adding New Tools
 

@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
 import structlog
@@ -217,6 +217,25 @@ def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
         return None
 
 
+def _report_async_query_error(
+    err: Exception, query_json: dict, team_id: int, query_id: str, is_user_safe_error: bool
+) -> None:
+    from posthog.ph_client import has_filtered_sql_query
+
+    filtered_sql = has_filtered_sql_query(query_json)
+    logger.exception(
+        "Error processing query async",
+        team_id=team_id,
+        query_id=query_id,
+        error_type=type(err).__name__,
+        exc_info=not filtered_sql,
+    )
+    if not is_user_safe_error and not filtered_sql:
+        # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
+        # so don't report them to error tracking — only genuine server-side failures belong there.
+        capture_exception(err)
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -226,6 +245,7 @@ def execute_process_query(
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -240,6 +260,8 @@ def execute_process_query(
     user: Optional[User] = None
     if user_id:
         user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
+        if staff_rights_withheld:
+            user.withhold_staff_rights()
         is_staff_user = user.is_staff
     elif sharing_configuration_id:
         # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
@@ -286,6 +308,7 @@ def execute_process_query(
             user=user,
             is_query_service=is_query_service,
             analytics_props=analytics_props,
+            query_status=query_status,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -334,11 +357,7 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
-        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        if not is_user_safe_error:
-            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
-            # so don't report them to error tracking — only genuine server-side failures belong there.
-            capture_exception(err)
+        _report_async_query_error(err, query_json, team_id, query_id, is_user_safe_error)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
@@ -377,6 +396,7 @@ def enqueue_process_query_task(
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -449,8 +469,12 @@ def enqueue_process_query_task(
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     # Attached only when set: during a rolling deploy a worker still on the old task signature
     # rejects unknown kwargs, so an always-present kwarg would fail every async query, not just
-    # shared-link ones.
-    shared_kwargs = {"sharing_configuration_id": sharing_configuration_id} if sharing_configuration_id else {}
+    # the ones that need it.
+    optional_kwargs: dict[str, Any] = {}
+    if sharing_configuration_id:
+        optional_kwargs["sharing_configuration_id"] = sharing_configuration_id
+    if staff_rights_withheld:
+        optional_kwargs["staff_rights_withheld"] = True
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -460,7 +484,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        **shared_kwargs,
+        **optional_kwargs,
     )
 
     if _test_only_bypass_celery:

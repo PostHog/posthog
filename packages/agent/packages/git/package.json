@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "typescript": "^5.5.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "files": [
     "dist/**/*",

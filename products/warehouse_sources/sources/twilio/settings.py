@@ -7,6 +7,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # newer product APIs (Verify, Messaging Services, Conversations) each sit on their own subdomain.
 TWILIO_API_HOST = "https://api.twilio.com"
 TWILIO_VERIFY_HOST = "https://verify.twilio.com"
+TWILIO_MONITOR_HOST = "https://monitor.twilio.com"
 
 # The ceiling the legacy Account API documents and honors. The Verify API documents the same
 # ceiling but does not honor it: its error 60373 ("Invalid page size") puts the real range at 1-25.
@@ -22,6 +23,19 @@ def _datetime_field(name: str, nullable: bool = False) -> IncrementalField:
         "field_type": IncrementalFieldType.DateTime,
         "nullable": nullable,
     }
+
+
+@dataclass(frozen=True)
+class TwilioFanoutConfig:
+    # The endpoint listed first, one child request per parent row.
+    parent: str
+    # Placeholder in the child `path` that takes the parent row's `sid`.
+    resolve_param: str
+    # Parent field the incremental watermark filters on, so an incremental run fans out only over
+    # recent parents.
+    parent_incremental_field: str
+    # Parent count field. A parent row whose count is "0" has no children, so it gets no request.
+    parent_count_field: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -53,11 +67,15 @@ class TwilioEndpointConfig:
     # date; the Verify API takes an ISO 8601 GMT datetime.
     date_filter_format: Literal["date", "datetime"] = "date"
     # Twilio list endpoints that filter by date return rows newest-first and offer no ascending option.
-    sort_mode: SortMode = "asc"
+    sort_mode: Optional[SortMode] = "asc"
     # Rows per page. `None` sends no `PageSize` at all, leaving Twilio on its default of 50.
     page_size: Optional[int] = DEFAULT_PAGE_SIZE
     # Response fields dropped from every row before it reaches the warehouse.
     excluded_fields: tuple[str, ...] = ()
+    # Only APIs that reject filters older than a retention window set this. The filter value is
+    # clamped to the window.
+    max_lookback_days: Optional[int] = None
+    fanout: Optional[TwilioFanoutConfig] = None
 
 
 TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
@@ -154,6 +172,43 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         partition_key="date_created",
         # Twilio returns the live Auth Token of each subaccount in this list. It must not land in the warehouse.
         excluded_fields=("auth_token",),
+    ),
+    # MMS media per message. Messages without media get no request, and an incremental run walks
+    # only the messages sent since the watermark day.
+    "message_media": TwilioEndpointConfig(
+        name="message_media",
+        path="Messages/{message_sid}/Media.json",
+        response_key="media_list",
+        partition_key="date_created",
+        incremental_fields=[_datetime_field("date_created")],
+        # Rows of one series per message, so no order holds across the table.
+        sort_mode=None,
+        fanout=TwilioFanoutConfig(
+            parent="messages",
+            resolve_param="message_sid",
+            parent_incremental_field="date_sent",
+            parent_count_field="num_media",
+        ),
+    ),
+    # Debugger alerts (errors and warnings) from the Monitor API, which replaces the deprecated
+    # 2010-04-01 Notifications log. Twilio keeps alerts for 30 days and refuses older start dates.
+    # Like Verify, the page size stays at the server default, because the documented range is not
+    # proven against the live API.
+    "alerts": TwilioEndpointConfig(
+        name="alerts",
+        path="/v1/Alerts",
+        response_key="alerts",
+        base_url=TWILIO_MONITOR_HOST,
+        account_scoped=False,
+        partition_key="date_created",
+        incremental_fields=[_datetime_field("date_created")],
+        incremental_filter_params={"date_created": "StartDate"},
+        filter_operator="",
+        date_filter_format="datetime",
+        # The list order is not documented.
+        sort_mode=None,
+        page_size=None,
+        max_lookback_days=30,
     ),
     # Aggregated usage per category on the account. Records have no `sid`; each category appears once.
     "usage_records": TwilioEndpointConfig(

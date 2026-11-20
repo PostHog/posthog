@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     frozen,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -104,11 +105,7 @@ class AttioOffsetPaginator(BasePaginator):
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten the nested 'id' object into the root level."""
-    if "id" in item and isinstance(item["id"], dict):
-        id_obj = item.pop("id")
-        for key, value in id_obj.items():
-            item[key] = value
-    return item
+    return lift_nested(item, "id", on_clash="nested")
 
 
 def get_resource(name: str) -> EndpointResource:
@@ -172,7 +169,10 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         try:
             error_data = res.json()
             if error_data.get("code") == "missing_value":
-                return False, "Invalid Attio API key"
+                return (
+                    False,
+                    "Attio rejected your API key. Create a new API key in your Attio workspace settings, then reconnect.",
+                )
         except Exception:
             pass
         return False, f"HTTP {res.status_code}: {res.text}"

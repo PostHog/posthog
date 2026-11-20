@@ -4,7 +4,7 @@ import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { ScannerType } from '../replay_scanners/types'
@@ -63,7 +63,7 @@ const { line, area } = sparkPaths(SPARK)
  * preview rules in the `building-product-empty-states` skill.
  */
 export function ReplayVisionObservationPreview(_: { mode: ProductEmptyStateMode }): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className="flex flex-col gap-3">

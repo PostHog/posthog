@@ -1,8 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { Command } from './Command'
@@ -12,7 +9,7 @@ import { commandLogic } from './commandLogic'
 jest.setTimeout(20000)
 
 const findSearchInput = (): Promise<HTMLInputElement> =>
-    screen.findByPlaceholderText('Search or ask PostHog AI… try is:dashboard', {}, { timeout: 10000 })
+    screen.findByLabelText<HTMLInputElement>('Search', {}, { timeout: 10000 })
 
 describe('Command', () => {
     // Keeps the cold load of the lazy chunk out of the test. The lazy component still suspends on the first open.
@@ -20,10 +17,6 @@ describe('Command', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NEW_COMMAND_K_SEARCH], {
-            [FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]: true,
-        })
         commandLogic.mount()
     })
 

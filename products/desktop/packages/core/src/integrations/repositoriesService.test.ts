@@ -71,8 +71,8 @@ describe("RepositoriesService", () => {
 
     expect(client.refreshTeamRepository).toHaveBeenCalledTimes(2);
     expect(keys).toEqual([
-      { queryKey: ["integrations", "repositories", 1], exact: true },
-      { queryKey: ["integrations", "repositories", 2], exact: true },
+      { queryKey: ["integrations", "repositories", 1], exact: false },
+      { queryKey: ["integrations", "repositories", 2], exact: false },
       { queryKey: ["integrations", "repository-picker"], exact: false },
     ]);
   });

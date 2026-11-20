@@ -492,6 +492,12 @@ describe('heatmapToolbarMenuLogic', () => {
             'reloads the clickmap with the variant filter only when the event filter flag is $eventFilterEnabled',
             async ({ eventFilterEnabled, expectedProperties }) => {
                 jest.spyOn(toolbarPosthogJS, 'getFeatureFlag').mockReturnValue(eventFilterEnabled)
+                jest.spyOn(toolbarPosthogJS, 'onFeatureFlags').mockImplementation((callback) => {
+                    callback([], {})
+                    return () => {}
+                })
+                logic.unmount()
+                logic.mount()
                 await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
                     'getElementStatsSuccess',
                 ])
@@ -511,6 +517,22 @@ describe('heatmapToolbarMenuLogic', () => {
                 }
             }
         )
+
+        it('reloads the clickmap with a saved variant filter when the gate turns on later', async () => {
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsSuccess'])
+            await expectLogic(logic, () =>
+                logic.actions.setHeatmapVariantFilter({ flagKey: 'checkout', variant: 'test' })
+            ).toDispatchActions(['getElementStatsSuccess'])
+
+            await expectLogic(logic, () => logic.actions.setHeatmapVariantFilterGate(true)).toDispatchActions([
+                'getElementStatsSuccess',
+            ])
+
+            const lastCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+            expect(lastCall.properties).toContainEqual(
+                expect.objectContaining({ key: '$feature/checkout', value: 'test', type: 'event' })
+            )
+        })
 
         it('loads every remaining page when load all starts, and ends the run on the last page', async () => {
             jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({

@@ -48,6 +48,9 @@ class TestrailEndpointConfig:
     # partitions on `created_on` even though it syncs incrementally on `updated_on`. Only set for
     # endpoints whose records carry `created_on`; the rest stay unpartitioned.
     partition_key: Optional[str] = None
+    # For project-scoped listings of instance-wide records (one record comes back for every
+    # project it is enabled in), keep only the first row per `id`.
+    dedupe_across_projects: bool = False
 
 
 TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
@@ -166,6 +169,38 @@ TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
         method="get_case_types",
         scope="instance",
         response_key="case_types",
+        paginated=False,
+    ),
+    "case_fields": TestrailEndpointConfig(
+        name="case_fields",
+        method="get_case_fields",
+        scope="instance",
+        response_key="case_fields",
+        paginated=False,
+    ),
+    "result_fields": TestrailEndpointConfig(
+        name="result_fields",
+        method="get_result_fields",
+        scope="instance",
+        response_key="result_fields",
+        paginated=False,
+    ),
+    "templates": TestrailEndpointConfig(
+        name="templates",
+        method="get_templates",
+        scope="project",
+        response_key="templates",
+        paginated=False,
+        # Templates are defined instance-wide and enabled per project.
+        dedupe_across_projects=True,
+    ),
+    "configs": TestrailEndpointConfig(
+        name="configs",
+        method="get_configs",
+        scope="project",
+        response_key="configs",
+        # One row per configuration group (a group belongs to one project), with its
+        # configurations nested under `configs`.
         paginated=False,
     ),
 }

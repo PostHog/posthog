@@ -59,6 +59,10 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     set_attempts_before_this_execution,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
+    attach_history_lanes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_import_attempt_duration_metric,
@@ -66,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    KeptTableCorruptError,
     count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -84,6 +89,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
+    is_warehouse_bucket_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
@@ -116,6 +122,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
@@ -973,6 +980,13 @@ async def _import_data_with_reporting(
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 )
 
+            try:
+                await database_sync_to_async_pool(attach_history_lanes)(
+                    schema, source_response, destination_ids=list(model.destination_ids or [])
+                )
+            except IncrementalHistoryUnavailableError as e:
+                await _handle_import_error(job_inputs, logger, e)
+
             return await _run(
                 job_inputs=job_inputs,
                 source_response=source_response,
@@ -1147,6 +1161,13 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # The schema's settings or the source's shape rule out its history table, or the table that holds the only
+    # copy of its data is corrupt, so a retry fails the same way.
+    if isinstance(error, IncrementalHistoryUnavailableError | KeptTableCorruptError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
@@ -1230,14 +1251,15 @@ async def _handle_import_error(
     # Honor it by type so every REST-based source gets this benign, self-recovering failure logged
     # as a warning, rather than depending on each source separately listing "HTTP 429"/"HTTP 5xx"
     # in get_retryable_errors.
-    if isinstance(error, RESTClientRetryableError):
+    # `RetryableHTTPError` is the same contract for a bespoke client on `vendor_retry`.
+    if isinstance(error, RESTClientRetryableError | RetryableHTTPError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         if error.retry_after:
             # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
             raise NonReportableApplicationError(
                 error_msg,
-                type=RESTClientRetryableError.__name__,
+                type=type(error).__name__,
                 # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
                 next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
             ) from error
@@ -1275,7 +1297,9 @@ async def _handle_import_error(
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
     # Delta table. Not a PostHog defect and not a customer credential problem (see
     # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
-    if is_transient_object_store_error(error):
+    # The text check also catches our bucket's error after another exception type wrapped it, so
+    # the source's own patterns below never read its 403 body as a customer access denial.
+    if is_transient_object_store_error(error) or is_warehouse_bucket_error(error_msg):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error

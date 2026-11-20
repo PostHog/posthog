@@ -15,15 +15,15 @@
 # at every step, and /isolating-product-facade-contracts walks the migration.
 #
 # Once a product reaches the Isolated rung, regenerate this file and its line drops out.
+# A product in SKIP_WITHHELD (hogli_commands/product/isolation.py) stays here by DevEx decision.
 
 access_control
-actions
 ai_observability
 alerts
 analytics_platform
-annotations
 apm
 approvals
+authorization
 batch_exports
 billing_alerts
 business_knowledge
@@ -33,7 +33,6 @@ context_layer
 conversations
 dashboards
 data_catalog
-data_modeling
 data_quality
 data_tools
 data_warehouse
@@ -53,6 +52,7 @@ logs
 managed_migrations
 marketing_analytics
 mcp_analytics
+mcp_registry
 mcp_store
 notebooks
 notifications
@@ -64,6 +64,7 @@ reminders
 replay
 replay_vision
 revenue_analytics
+security
 signals
 skills
 slack_app

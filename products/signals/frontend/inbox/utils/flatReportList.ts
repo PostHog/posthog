@@ -1,3 +1,4 @@
+import { isMergeKeySortField } from '../filterOptions'
 import type { InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import {
     INBOX_REPORT_SECTION_KEYS,
@@ -6,11 +7,19 @@ import {
     SignalReport,
 } from '../types'
 import { compareSignalReports } from './reportOrdering'
+import { hasActiveReportPullRequest } from './reportPullRequests'
 
 /** One row of the flat Reports list: the report and the state whose response contributed it. */
 export interface MergedReportRow {
     report: SignalReport
     sectionKey: InboxReportSectionKey
+    /** The other loaded reports of the same plan that this row stands for, when plan layers collapse. */
+    collapsedReportIds?: string[]
+    /**
+     * The report whose place in the order a collapsed card took, when the card shows a different report.
+     * Order-dependent reads, such as where the unscored rows start, read this one.
+     */
+    slotReport?: SignalReport
 }
 
 /**
@@ -64,8 +73,8 @@ function mergeSortedSections(
  * The flat list's rows: the loaded rows of every selected state, deduplicated (a report can match
  * two states' filters, e.g. a PR'd report judged not actionable is in both Review and merge and the
  * staff Not actionable state; the first state in canonical order claims it), then ordered with the
- * same keys the server sorted each response by. The Recommended sort merges the responses by the
- * server's merge key instead, because the server orders each response by a score it does not send.
+ * same keys the server sorted each response by. The Recommended sort merges the
+ * responses by the server's merge key instead, because the server orders each response by a score it does not send.
  * Rows past a state's loaded page can sort below later-keyed rows from a shorter state until the
  * next page lands; the scroll sentinel keeps every selected state paging together.
  */
@@ -73,7 +82,15 @@ export function mergeReportRows(
     reportsBySection: Record<InboxReportSectionKey, SignalReport[]>,
     selectedSections: InboxReportSectionKey[],
     sortField: InboxSortField,
-    sortDirection: InboxSortDirection
+    sortDirection: InboxSortDirection,
+    {
+        collapsePlans = false,
+        selectedReportIds = [],
+    }: {
+        collapsePlans?: boolean
+        /** The selected reports, which keep their own card when their plan collapses. */
+        selectedReportIds?: readonly string[]
+    } = {}
 ): MergedReportRow[] {
     const seen = new Set<string>()
     const rowsBySection: MergedReportRow[][] = []
@@ -88,8 +105,79 @@ export function mergeReportRows(
         rowsBySection.push(sectionRows)
     }
     const compare = compareSignalReports(sortField, sortDirection)
-    if (sortField === 'recommended') {
-        return mergeSortedSections(rowsBySection, compare)
+    const rows = isMergeKeySortField(sortField)
+        ? mergeSortedSections(rowsBySection, compare)
+        : rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
+    return collapsePlans ? collapsePlanRows(rows, new Set(selectedReportIds)) : rows
+}
+
+/**
+ * The plan a row collapses into: the plan it is a layer of, or its own id when it is the plan. A plan
+ * keeps its own card when a layer's card would hide something it carries: its own pull request in
+ * flight, or a link outside the plan, such as the earlier report a recurrence came back after. Its
+ * layers do not inherit those links.
+ */
+function planKey(report: SignalReport): string | null {
+    const summary = report.link_summary
+    if (!summary?.plan || (summary.kind !== 'part_of' && summary.kind !== 'plan')) {
+        return null
     }
-    return rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
+    const carriesOwnWork =
+        hasActiveReportPullRequest(report) || summary.other_links.some((link) => link.kind !== 'part_of')
+    if (summary.kind === 'plan' && carriesOwnWork) {
+        return null
+    }
+    return summary.plan.id
+}
+
+/**
+ * The row a plan's card shows. A selected member comes first, so a lead layer that loads later never
+ * swaps a selected card out of the list, and out of the selection with it. Then the lead layer, the
+ * best-ranked loaded layer, and the plan itself.
+ */
+function planCard(group: MergedReportRow[], planId: string, selectedIds: ReadonlySet<string>): MergedReportRow {
+    const layers = group.filter((member) => member.report.id !== planId)
+    return (
+        group.find((member) => selectedIds.has(member.report.id)) ??
+        layers.find((member) => member.report.link_summary?.plan?.lead_step_id === member.report.id) ??
+        layers[0] ??
+        group[0]
+    )
+}
+
+/**
+ * Show each plan as one card, at the place of its best-ranked loaded row, so a plan never sorts below its
+ * strongest layer. Only loaded rows collapse, so a filter that matches some layers collapses over those,
+ * and a layer that arrives on a later page joins the card already shown.
+ */
+export function collapsePlanRows(
+    rows: MergedReportRow[],
+    selectedIds: ReadonlySet<string> = new Set()
+): MergedReportRow[] {
+    const groups = new Map<string, MergedReportRow[]>()
+    for (const row of rows) {
+        const key = planKey(row.report)
+        if (key) {
+            groups.set(key, [...(groups.get(key) ?? []), row])
+        }
+    }
+    const collapsed: MergedReportRow[] = []
+    for (const row of rows) {
+        const key = planKey(row.report)
+        const group = key ? groups.get(key) : undefined
+        if (!key || !group) {
+            collapsed.push(row)
+            continue
+        }
+        if (group[0] !== row) {
+            continue
+        }
+        const card = planCard(group, key, selectedIds)
+        collapsed.push({
+            ...card,
+            collapsedReportIds: group.filter((member) => member !== card).map((member) => member.report.id),
+            ...(card !== row ? { slotReport: row.report } : {}),
+        })
+    }
+    return collapsed
 }

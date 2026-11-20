@@ -1,14 +1,12 @@
 import uuid
 import datetime as dt
 
-import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models.health_issue import HealthIssue
 from posthog.models.utils import uuid7
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.rollups.tests.helpers import publish_rollup_days, window_ending_yesterday
@@ -20,39 +18,6 @@ from products.web_analytics.backend.temporal.health_checks.missing_session_id im
 )
 
 MODULE = "products.web_analytics.backend.temporal.health_checks.missing_session_id"
-
-
-@pytest.mark.parametrize(
-    "mock_rows, expected_teams",
-    [
-        ([], set()),
-        ([(42, 20_000, 6_000, 6_000, 5_000, 1_500)], {42}),
-        ([(1, 50_000, 40_000, 40_000, 10_000, 8_000), (3, 12_000, 800, 500, 3_000, 200)], {1, 3}),
-    ],
-    ids=["all_healthy", "single_team_unusable_session_ids", "multiple_teams_flagged"],
-)
-@patch(f"{MODULE}.execute_clickhouse_health_team_query")
-def test_detect_missing_session_id(mock_query: MagicMock, mock_rows: list, expected_teams: set) -> None:
-    mock_query.return_value = mock_rows
-
-    result = MissingSessionIdCheck().detect_from_events([1, 2, 3, 42])
-
-    assert set(result.keys()) == expected_teams
-    for team_id in expected_teams:
-        issues = result[team_id]
-        assert len(issues) == 1
-        assert issues[0].severity == HealthIssue.Severity.WARNING
-        assert "$session_id" in issues[0].payload["reason"]
-
-
-@patch(f"{MODULE}.execute_clickhouse_health_team_query")
-def test_reason_reports_share_and_splits_the_causes(mock_query: MagicMock) -> None:
-    mock_query.return_value = [(7, 20_000, 5_000, 3_000, 5_000, 1_250)]
-
-    reason = MissingSessionIdCheck().detect_from_events([7])[7][0].payload["reason"]
-
-    assert "25.0%" in reason
-    assert "3000 absent or not a UUID, 2000 not a UUIDv7" in reason
 
 
 @time_machine.travel("2026-10-29T12:00:00Z", tick=False)

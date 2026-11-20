@@ -245,15 +245,17 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         runHistoryMap: [
             {} as Record<string, DataWarehouseSavedQueryRunHistory[]>,
             {
                 loadRunHistory: async ({ viewIds }) => {
-                    const viewsToLoad = viewIds.filter((id) => !values.runHistoryMap[id])
+                    const inFlight: Set<string> = (cache.runHistoryInFlight ??= new Set<string>())
+                    const viewsToLoad = viewIds.filter((id) => !values.runHistoryMap[id] && !inFlight.has(id))
                     if (viewsToLoad.length === 0) {
                         return values.runHistoryMap
                     }
+                    viewsToLoad.forEach((id) => inFlight.add(id))
 
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
@@ -266,6 +268,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                             }
                         })
                     )
+                    viewsToLoad.forEach((id) => inFlight.delete(id))
 
                     const newMap = { ...values.runHistoryMap }
                     results.forEach(({ viewId, data }) => {
@@ -410,7 +413,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             actions.loadVisibleData()
         }
         if (!values.database) {
-            actions.loadDatabase()
+            actions.loadDatabase({ shallow: true })
         }
     }),
 ])

@@ -31,11 +31,11 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
+from products.ai_observability.backend.logic.message_utils import extract_text_from_messages
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
@@ -286,6 +286,11 @@ class TaggerUpdateSerializer(TaggerBaseWriteSerializer):
 class TaggerSerializer(TaggerBaseWriteSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
+    migrated_to_evaluation_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="The evaluation that replaced this tagger when it was migrated. Null until then.",
+    )
 
     class Meta(TaggerBaseWriteSerializer.Meta):
         fields = [
@@ -295,6 +300,7 @@ class TaggerSerializer(TaggerBaseWriteSerializer):
             "updated_at",
             "created_by",
             "deleted",
+            "migrated_to_evaluation_id",
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
@@ -313,6 +319,9 @@ class StableOrderingFilter(django_filters.OrderingFilter):
 class TaggerFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
+    migrated_to_evaluation_id = django_filters.UUIDFilter(
+        help_text="Only the tagger that was migrated to this evaluation"
+    )
     order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),

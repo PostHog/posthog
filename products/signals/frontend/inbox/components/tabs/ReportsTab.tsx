@@ -3,18 +3,23 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { isRankingSortField } from '../../filterOptions'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
+import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
+import { ReportListRequestContext, reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -58,6 +63,10 @@ interface SectionListState {
     reportsResponseLoading: boolean
     hasMore: boolean
     loadedRankingPill: boolean
+    loadedPersonalOrder: boolean
+    loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
 }
 
 /**
@@ -77,6 +86,10 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalOrder,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
@@ -89,6 +102,10 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalOrder,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     }
 }
 
@@ -115,8 +132,15 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        activeSourceProductFilter,
+        priorityFilter,
+        visibleStateFilter,
+        activeScope: scope,
+        isScopedToMe,
+        activeSortField,
+    } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -140,11 +164,14 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             return
         }
         firedRef.current = true
+        const totalCount = COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)
+        // Every first page carries the same status, sort and ranker, so the first loaded state stands for the list.
+        const served = COUNTED_SECTION_KEYS.map((key) => sections[key]).find((section) => section.isLoaded)
         captureInboxViewed({
             // pinned: analytics property. `tab` names the inbox page tab; dashboards group on it.
             tab: 'reports',
             reports: COUNTED_SECTION_KEYS.flatMap((key) => sections[key].reports),
-            totalCount: COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0),
+            totalCount,
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
@@ -152,6 +179,11 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
+            personalRankingStatus: served?.loadedPersonalRankingStatus ?? null,
+            // The counts cover every counted state, so they are the For you count when nothing else narrows them.
+            forYouReportCount: isScopedToMe && !hasActiveFilters ? totalCount : null,
+            sortField: served?.loadedContext?.sortField ?? activeSortField,
+            rankerId: served?.loadedRanker ?? null,
         })
     }, [
         listVisible,
@@ -162,6 +194,8 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         priorityFilter,
         visibleStateFilter,
         scope,
+        isScopedToMe,
+        activeSortField,
     ])
 }
 
@@ -175,15 +209,19 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     rankingPill,
+    personalSort,
     timestampField,
     hideOwnClaim,
+    showTags,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     rankingPill: boolean
+    personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
+    showTags: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -192,8 +230,10 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 rankingPill={rankingPill}
+                personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
+                showTags={showTags}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -208,6 +248,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     }
     if (scope === INBOX_SCOPE_FOR_YOU) {
         return 'No reports suggested for you yet. Switch the scope to see the entire project.'
+    }
+    if (scope === INBOX_SCOPE_NEEDS_YOU) {
+        return 'No reports are waiting on your input or claimed by you.'
     }
     if (scope === INBOX_SCOPE_CLAIMED_BY_YOU) {
         return "You haven't claimed any reports. Open a report and select I'm on it to claim it."
@@ -226,11 +269,18 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const { selectedReportIds } = useValues(inboxBulkActionsLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        visibleStateFilter,
+        activeScope: scope,
+        activeSortField,
+        activeSortDirection,
+        tagFilterAvailable,
+    } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
@@ -261,15 +311,22 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+        collapsePlans: linkStrips,
+        selectedReportIds,
+    })
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
-        activeSortField === 'recommended' && selectedSections.some((key) => sections[key].loadedRankingPill)
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
+    // The Recommended sort shows the personal order to the users of one flag arm.
+    const personalOrder =
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
-        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        ? rows.findIndex(({ report, slotReport }) => rankingSortScore(slotReport ?? report, rankingSortField) === null)
         : -1
-    useReportImpressions(rows, selectedSections)
+    useReportImpressions(rows, selectedSections, linkStrips)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
 
@@ -431,8 +488,10 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 rankingPill={rankingPill}
+                                personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                showTags={tagFilterAvailable}
                             />
                         </Fragment>
                     ))}

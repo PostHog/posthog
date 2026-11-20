@@ -13,6 +13,8 @@ import {
     IconScreen,
     IconShare,
     IconTrash,
+    IconRedo,
+    IconUndo,
 } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
@@ -23,12 +25,17 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { slugify } from 'lib/utils/strings'
+import { AnalyticsCollectionDialogHost } from 'scenes/analytics/AnalyticsCollectionDialogHost'
+import { AnalyticsCollectionMenuBarItems } from 'scenes/analytics/AnalyticsCollectionMenuBarItems'
+import { ShareToSpaceTarget } from 'scenes/analytics/analyticsShareLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardTemplateForExport } from 'scenes/dashboard/dashboardUtils'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
@@ -43,11 +50,11 @@ import {
     SceneMenuBarMenu,
     SceneMenuBarPopover,
     SceneMenuBarSeparator,
+    SceneMenuBarShortcut,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -73,7 +80,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const {
         dashboard,
         dashboardMode,
-        layoutEditMode,
         canEditDashboard,
         isSavingTags,
         isPinned,
@@ -81,10 +87,20 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
         currentDashboardVariables,
+        effectiveRefreshFilters,
         tiles,
         apiUrl,
+        undoLayoutDisabledReason,
+        redoLayoutDisabledReason,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const {
+        setDashboardMode,
+        updateDashboardTags,
+        togglePinned,
+        setTerraformModalOpen,
+        undoLayoutChange,
+        redoLayoutChange,
+    } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -95,7 +111,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     const { user } = useValues(userLogic)
-    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
@@ -108,6 +123,10 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     }
 
     const canShowDelete = canEditDashboard
+    // Collections exist only in the Today navigation.
+    const collectionTarget: ShareToSpaceTarget | null = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+        ? { type: 'dashboard', ref: String(dashboard.id), name: dashboard.name || 'Untitled dashboard' }
+        : null
     // Creating an export requires editor access to the export resource.
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
@@ -132,11 +151,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
           ? 'Template data is not ready yet. Try again in a moment.'
           : undefined
 
-    const openInsightsInNewTabsDisabled = layoutEditMode
-        ? 'Cannot open insights when editing dashboard'
-        : tiles.length === 0
-          ? 'Dashboard has no insights'
-          : undefined
+    const openInsightsInNewTabsDisabled = tiles.length === 0 ? 'Dashboard has no insights' : undefined
 
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always
@@ -144,247 +159,292 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const showMetadataMenu = true
 
     return (
-        <SceneMenuBar>
-            {showFileMenu && (
-                <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                    {showCreateMenu && (
-                        <>
-                            <SceneMenuBarSubMenu label="Create">
-                                <SceneMenuBarItem
-                                    onClick={() => createNotebookFromDashboard(dashboard)}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-create-notebook`}
-                                >
-                                    <IconNotebook />
-                                    Notebook from dashboard
-                                </SceneMenuBarItem>
-                                {tiles.length > 0 && (
+        <>
+            <SceneMenuBar>
+                {showFileMenu && (
+                    <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                        {showCreateMenu && (
+                            <>
+                                <SceneMenuBarSubMenu label="Create">
                                     <SceneMenuBarItem
-                                        onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                        onClick={() => createNotebookFromDashboard(dashboard)}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-create-notebook`}
                                     >
-                                        <IconBell />
-                                        Subscription
+                                        <IconNotebook />
+                                        Notebook from dashboard
+                                    </SceneMenuBarItem>
+                                    {tiles.length > 0 && (
+                                        <SceneMenuBarItem
+                                            onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                        >
+                                            <IconBell />
+                                            Subscription
+                                        </SceneMenuBarItem>
+                                    )}
+                                </SceneMenuBarSubMenu>
+                                <SceneMenuBarSeparator />
+                            </>
+                        )}
+                        {canEditDashboard && tiles.length > 0 && (
+                            <>
+                                <DashboardAddTileSubMenu />
+                                <DashboardCustomizeSubMenu />
+                            </>
+                        )}
+                        {(tiles.length > 0 || dashboard.is_shared) && (
+                            <SceneMenuBarItem
+                                disabled={!!sharingDisabledReason}
+                                tooltip={sharingDisabledReason ?? undefined}
+                                onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                data-attr={`${RESOURCE_TYPE}-menubar-share`}
+                            >
+                                <IconShare />
+                                {dashboard.is_shared ? 'Sharing settings' : 'Share or embed'}
+                            </SceneMenuBarItem>
+                        )}
+                        {(tiles.length > 0 || dashboard.is_shared) && <SceneMenuBarSeparator />}
+                        <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                        {collectionTarget && (
+                            <AnalyticsCollectionMenuBarItems target={collectionTarget} dataAttrKey={RESOURCE_TYPE} />
+                        )}
+                        {canCopyToProject && (
+                            <SceneMenuBarItem
+                                onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                                data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </SceneMenuBarItem>
+                        )}
+                        <SceneMenuBarItem
+                            opensFloatingUi
+                            onClick={() => setTerraformModalOpen(true)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </SceneMenuBarItem>
+                        <SceneMenuBarItem
+                            onClick={() => {
+                                tiles.forEach((tile) => {
+                                    if (tile.insight?.short_id == null) {
+                                        return
+                                    }
+                                    const url = urls.insightView(
+                                        tile.insight.short_id,
+                                        dashboard.id,
+                                        currentDashboardVariables,
+                                        effectiveEditBarFilters,
+                                        tile?.filters_overrides
+                                    )
+                                    newInternalTab(url)
+                                })
+                                setScenePanelOpen(false)
+                            }}
+                            disabled={!!openInsightsInNewTabsDisabled}
+                            data-attr={`${RESOURCE_TYPE}-menubar-open-insights`}
+                        >
+                            <IconGraph />
+                            Open insights in new tabs
+                        </SceneMenuBarItem>
+                        {canEditDashboard && (
+                            <SceneMenuBarSubMenu label="Export">
+                                {[
+                                    { format: ExporterFormat.PNG, label: 'PNG' },
+                                    { format: ExporterFormat.PDF, label: 'PDF' },
+                                ].map(({ format, label }) => (
+                                    <SceneMenuBarItem
+                                        key={format}
+                                        disabled={!!exportAccessControlDisabledReason}
+                                        tooltip={exportAccessControlDisabledReason ?? undefined}
+                                        onClick={() =>
+                                            startExport({
+                                                export_format: format,
+                                                dashboard: dashboard.id,
+                                                export_context: {
+                                                    path: apiUrl(),
+                                                    variables_override: currentDashboardVariables,
+                                                    filters_override: effectiveRefreshFilters,
+                                                },
+                                            })
+                                        }
+                                        data-attr={`${RESOURCE_TYPE}-menubar-export-${label.toLowerCase()}`}
+                                    >
+                                        <IconDownload />
+                                        {label}
+                                    </SceneMenuBarItem>
+                                ))}
+                                {user?.is_staff && (
+                                    <SceneMenuBarItem
+                                        onClick={() =>
+                                            startExport({
+                                                export_format: ExporterFormat.JSON,
+                                                export_context: {
+                                                    localData: JSON.stringify(
+                                                        dashboardTemplateForExport(asDashboardTemplate)
+                                                    ),
+                                                    filename: `dashboard-${slugify(
+                                                        dashboard?.name || 'nameless dashboard'
+                                                    )}.json`,
+                                                    mediaType: ExporterFormat.JSON,
+                                                },
+                                            })
+                                        }
+                                        data-attr={`${RESOURCE_TYPE}-menubar-export-json`}
+                                    >
+                                        <IconDownload />
+                                        JSON (staff)
                                     </SceneMenuBarItem>
                                 )}
                             </SceneMenuBarSubMenu>
-                            <SceneMenuBarSeparator />
-                        </>
-                    )}
-                    {canEditDashboard && tiles.length > 0 && (
-                        <>
-                            <DashboardAddTileSubMenu />
-                            <DashboardCustomizeSubMenu />
-                        </>
-                    )}
-                    {(tiles.length > 0 || dashboard.is_shared) && (
+                        )}
+                        {canShowDelete && (
+                            <>
+                                <SceneMenuBarSeparator />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Dashboard}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={dashboard.user_access_level}
+                                >
+                                    {({ disabledReason }) => (
+                                        <SceneMenuBarItem
+                                            variant="destructive"
+                                            disabled={!!disabledReason}
+                                            onClick={() => showDeleteDashboardModal(dashboard.id)}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                        >
+                                            <IconTrash />
+                                            Delete dashboard
+                                        </SceneMenuBarItem>
+                                    )}
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </SceneMenuBarMenu>
+                )}
+                {showEditMenu && (
+                    <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                        {canEditDashboard && (
+                            <>
+                                <SceneMenuBarItem
+                                    onClick={() => undoLayoutChange()}
+                                    disabled={!!undoLayoutDisabledReason}
+                                    tooltip={undoLayoutDisabledReason ?? undefined}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-undo-layout`}
+                                >
+                                    <IconUndo />
+                                    Undo layout change
+                                    <SceneMenuBarShortcut>
+                                        <RenderKeybind keybind={[keyBinds.undo]} minimal />
+                                    </SceneMenuBarShortcut>
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    onClick={() => redoLayoutChange()}
+                                    disabled={!!redoLayoutDisabledReason}
+                                    tooltip={redoLayoutDisabledReason ?? undefined}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-redo-layout`}
+                                >
+                                    <IconRedo />
+                                    Redo layout change
+                                    <SceneMenuBarShortcut>
+                                        <RenderKeybind keybind={[keyBinds.redo]} minimal />
+                                    </SceneMenuBarShortcut>
+                                </SceneMenuBarItem>
+                                <SceneMenuBarSeparator />
+                            </>
+                        )}
                         <SceneMenuBarItem
-                            disabled={!!sharingDisabledReason}
-                            tooltip={sharingDisabledReason ?? undefined}
-                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                            data-attr={`${RESOURCE_TYPE}-menubar-share`}
-                        >
-                            <IconShare />
-                            {dashboard.is_shared ? 'Sharing settings' : 'Share or embed'}
-                        </SceneMenuBarItem>
-                    )}
-                    {(tiles.length > 0 || dashboard.is_shared) && <SceneMenuBarSeparator />}
-                    <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                    {canCopyToProject && (
-                        <SceneMenuBarItem
-                            onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
-                            data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                            opensFloatingUi
+                            onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                         >
                             <IconCopy />
-                            Copy to another project
+                            Duplicate
                         </SceneMenuBarItem>
-                    )}
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={() => setTerraformModalOpen(true)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-terraform`}
-                    >
-                        <IconCode2 />
-                        Manage with Terraform
-                    </SceneMenuBarItem>
-                    <SceneMenuBarItem
-                        onClick={() => {
-                            tiles.forEach((tile) => {
-                                if (tile.insight?.short_id == null) {
-                                    return
-                                }
-                                const url = urls.insightView(
-                                    tile.insight.short_id,
-                                    dashboard.id,
-                                    currentDashboardVariables,
-                                    effectiveEditBarFilters,
-                                    tile?.filters_overrides
-                                )
-                                newInternalTab(url)
-                            })
-                            setScenePanelOpen(false)
-                        }}
-                        disabled={!!openInsightsInNewTabsDisabled}
-                        data-attr={`${RESOURCE_TYPE}-menubar-open-insights`}
-                    >
-                        <IconGraph />
-                        Open insights in new tabs
-                    </SceneMenuBarItem>
-                    {canEditDashboard && (
-                        <SceneMenuBarSubMenu label="Export">
+                        {canEditDashboard && hasDashboardColors && tiles.length > 0 && (
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
-                                onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.PNG,
-                                        dashboard: dashboard.id,
-                                        export_context: {
-                                            path: apiUrl(),
-                                            variables_override: currentDashboardVariables,
-                                        },
-                                    })
-                                }
-                                data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
+                                opensFloatingUi
+                                onClick={() => showInsightColorsModal(dashboard.id)}
+                                data-attr={`${RESOURCE_TYPE}-menubar-customize-colors`}
                             >
-                                <IconDownload />
-                                PNG
+                                <IconPalette />
+                                Customize colors
                             </SceneMenuBarItem>
-                            {user?.is_staff && (
-                                <SceneMenuBarItem
-                                    onClick={() =>
-                                        startExport({
-                                            export_format: ExporterFormat.JSON,
-                                            export_context: {
-                                                localData: JSON.stringify(
-                                                    dashboardTemplateForExport(asDashboardTemplate)
-                                                ),
-                                                filename: `dashboard-${slugify(
-                                                    dashboard?.name || 'nameless dashboard'
-                                                )}.json`,
-                                                mediaType: ExporterFormat.JSON,
-                                            },
-                                        })
+                        )}
+                        {canSaveProjectDashboardTemplate && (
+                            <SceneMenuBarItem
+                                opensFloatingUi
+                                onClick={() => {
+                                    if (asDashboardTemplate) {
+                                        dashboardTemplateModalLogic.actions.openCreate(asDashboardTemplate)
                                     }
-                                    data-attr={`${RESOURCE_TYPE}-menubar-export-json`}
-                                >
-                                    <IconDownload />
-                                    JSON (staff)
-                                </SceneMenuBarItem>
-                            )}
-                        </SceneMenuBarSubMenu>
-                    )}
-                    {canShowDelete && (
-                        <>
-                            <SceneMenuBarSeparator />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Dashboard}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={dashboard.user_access_level}
+                                }}
+                                disabled={saveTemplateDisabled}
+                                tooltip={saveTemplateTooltip}
+                                data-attr={`${RESOURCE_TYPE}-menubar-save-as-template`}
                             >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        disabled={!!disabledReason}
-                                        onClick={() => showDeleteDashboardModal(dashboard.id)}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                                    >
-                                        <IconTrash />
-                                        Delete dashboard
-                                    </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
-                        </>
-                    )}
-                </SceneMenuBarMenu>
-            )}
-            {showEditMenu && (
-                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                    >
-                        <IconCopy />
-                        Duplicate
-                    </SceneMenuBarItem>
-                    {canEditDashboard && hasDashboardColors && tiles.length > 0 && (
-                        <SceneMenuBarItem
-                            opensFloatingUi
-                            onClick={() => showInsightColorsModal(dashboard.id)}
-                            data-attr={`${RESOURCE_TYPE}-menubar-customize-colors`}
+                                <IconScreen />
+                                Save as dashboard template
+                            </SceneMenuBarItem>
+                        )}
+                        <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
+                        {/* Toggle group — separated from regular Edit actions */}
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarCheckboxItem
+                            checked={isPinned}
+                            onCheckedChange={() => togglePinned()}
+                            data-attr={`${RESOURCE_TYPE}-menubar-pin`}
                         >
-                            <IconPalette />
-                            Customize colors
-                        </SceneMenuBarItem>
-                    )}
-                    {canSaveProjectDashboardTemplate && (
-                        <SceneMenuBarItem
-                            opensFloatingUi
-                            onClick={() => {
-                                if (asDashboardTemplate) {
-                                    dashboardTemplateModalLogic.actions.openCreate(asDashboardTemplate)
-                                }
+                            Pinned
+                        </SceneMenuBarCheckboxItem>
+                        <SceneMenuBarCheckboxItem
+                            checked={dashboardMode === DashboardMode.Fullscreen}
+                            onCheckedChange={(checked) => {
+                                setDashboardMode(
+                                    checked ? DashboardMode.Fullscreen : null,
+                                    DashboardEventSource.SceneCommonButtons
+                                )
                             }}
-                            disabled={saveTemplateDisabled}
-                            tooltip={saveTemplateTooltip}
-                            data-attr={`${RESOURCE_TYPE}-menubar-save-as-template`}
+                            data-attr={`${RESOURCE_TYPE}-menubar-fullscreen`}
                         >
-                            <IconScreen />
-                            Save as dashboard template
-                        </SceneMenuBarItem>
-                    )}
-                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
-                    {/* Toggle group — separated from regular Edit actions */}
-                    <SceneMenuBarSeparator />
-                    <SceneMenuBarCheckboxItem
-                        checked={isPinned}
-                        onCheckedChange={() => togglePinned()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-pin`}
+                            Fullscreen
+                        </SceneMenuBarCheckboxItem>
+                    </SceneMenuBarMenu>
+                )}
+                {showMetadataMenu && (
+                    <SceneMenuBarPopover
+                        label="Metadata"
+                        dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
+                        contentClassName="w-80 p-2 flex flex-col gap-2"
                     >
-                        Pinned
-                    </SceneMenuBarCheckboxItem>
-                    <SceneMenuBarCheckboxItem
-                        checked={dashboardMode === DashboardMode.Fullscreen}
-                        onCheckedChange={(checked) => {
-                            setDashboardMode(
-                                checked ? DashboardMode.Fullscreen : null,
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }}
-                        data-attr={`${RESOURCE_TYPE}-menubar-fullscreen`}
-                    >
-                        Fullscreen
-                    </SceneMenuBarCheckboxItem>
-                </SceneMenuBarMenu>
-            )}
-            {showMetadataMenu && (
-                <SceneMenuBarPopover
-                    label="Metadata"
-                    dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
-                    contentClassName="w-80 p-2 flex flex-col gap-2"
-                >
-                    <SceneTagsCombobox
-                        onSave={(t) => updateDashboardTags(t)}
-                        canEdit={canEditDashboard}
-                        tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
-                        dataAttrKey={RESOURCE_TYPE}
-                        loading={isSavingTags}
-                    />
-                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                    {showMetalytics && (
-                        <Button
-                            type="button"
-                            left
-                            onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                            data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                        >
-                            <IconPulse />
-                            View metalytics
-                        </Button>
-                    )}
-                </SceneMenuBarPopover>
-            )}
-        </SceneMenuBar>
+                        <SceneTagsCombobox
+                            onSave={(t) => updateDashboardTags(t)}
+                            canEdit={canEditDashboard}
+                            tags={dashboard?.tags}
+                            dataAttrKey={RESOURCE_TYPE}
+                            loading={isSavingTags}
+                        />
+                        <SceneActivityIndicator
+                            at={dashboard?.created_at}
+                            by={dashboard?.created_by}
+                            prefix="Created"
+                        />
+                        {showMetalytics && (
+                            <Button
+                                type="button"
+                                left
+                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                            >
+                                <IconPulse />
+                                View metalytics
+                            </Button>
+                        )}
+                    </SceneMenuBarPopover>
+                )}
+            </SceneMenuBar>
+            {collectionTarget && <AnalyticsCollectionDialogHost target={collectionTarget} />}
+        </>
     )
 }

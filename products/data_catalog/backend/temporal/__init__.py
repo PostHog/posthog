@@ -1,3 +1,22 @@
-from .weekly_digest import ACTIVITIES, WORKFLOWS
+from typing import TYPE_CHECKING
+
+from .effectiveness import (
+    ACTIVITIES as EFFECTIVENESS_ACTIVITIES,
+    WORKFLOWS as EFFECTIVENESS_WORKFLOWS,
+)
+from .usage_scan import (
+    ACTIVITIES as USAGE_SCAN_ACTIVITIES,
+    WORKFLOWS as USAGE_SCAN_WORKFLOWS,
+)
+from .weekly_digest import (
+    ACTIVITIES as DIGEST_ACTIVITIES,
+    WORKFLOWS as DIGEST_WORKFLOWS,
+)
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+WORKFLOWS = [*DIGEST_WORKFLOWS, *USAGE_SCAN_WORKFLOWS, *EFFECTIVENESS_WORKFLOWS]
+ACTIVITIES: list[ActivityDefinition] = [*DIGEST_ACTIVITIES, *USAGE_SCAN_ACTIVITIES, *EFFECTIVENESS_ACTIVITIES]
 
 __all__ = ["ACTIVITIES", "WORKFLOWS"]

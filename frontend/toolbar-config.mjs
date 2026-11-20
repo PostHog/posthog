@@ -362,6 +362,11 @@ function buildToolbarExtensionManifest() {
         host_permissions: ['http://*/*', 'https://*/*'],
         web_accessible_resources: [{ resources: ['content.css', 'assets/*'], matches: ['http://*/*', 'https://*/*'] }],
         side_panel: { default_path: 'panel.html' },
+        // The PostHog app asks whether the extension is installed, and asks it to open an authorized URL. Only the cloud
+        // app hosts, because a sender also sets the extension's PostHog host.
+        externally_connectable: {
+            matches: ['https://us.posthog.com/*', 'https://eu.posthog.com/*', 'https://app.posthog.com/*'],
+        },
         // 116 is the first release with `sidePanel.setPanelBehavior`, which opens the panel from the toolbar button.
         minimum_chrome_version: '116',
         background: { service_worker: 'background.js' },

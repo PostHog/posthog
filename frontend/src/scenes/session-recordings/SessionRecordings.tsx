@@ -18,13 +18,14 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { NEW_REPLAY_LAYOUTS, ReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -44,21 +45,20 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { SCENE_PLAYLIST_LOGIC_PROPS, humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 
-const REPLAY_LAYOUT_LABELS: Record<ReplayLayout, string> = {
+const STAFF_REPLAY_LAYOUT_LABELS: Partial<Record<ReplayLayout, string>> = {
     classic: 'Legacy',
     compact: 'Compact',
     youtube: 'YouTube',
-    landing: 'Landing',
 }
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { watchLayoutOffered, replayLayout, canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
+    const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
     const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -68,41 +68,30 @@ function Header(): JSX.Element {
         <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
-                    {canOverrideLayout ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={staffLayoutOverride ?? 'flag'}
-                            onChange={(value) => setStaffLayoutOverride(value === 'flag' ? null : value)}
-                            options={[
-                                {
-                                    value: 'flag' as const,
-                                    label: 'Flag',
-                                    tooltip: 'Follow the feature flag',
-                                    'data-attr': 'replay-layout-override-flag',
-                                },
-                                {
-                                    value: 'classic' as const,
-                                    label: 'Legacy',
-                                    'data-attr': 'replay-layout-override-classic',
-                                },
-                                ...NEW_REPLAY_LAYOUTS.map((layout) => ({
+                    <span className="flex">
+                        {canOverrideLayout ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout}
+                                onChange={setStaffLayoutOverride}
+                                options={STAFF_REPLAY_LAYOUTS.map((layout) => ({
                                     value: layout,
-                                    label: REPLAY_LAYOUT_LABELS[layout],
+                                    label: STAFF_REPLAY_LAYOUT_LABELS[layout] ?? layout,
                                     'data-attr': `replay-layout-override-${layout}`,
-                                })),
-                            ]}
-                        />
-                    ) : watchLayoutOffered ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={replayLayout === 'classic' ? 'classic' : 'new'}
-                            onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
-                            options={[
-                                { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
-                                { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
-                            ]}
-                        />
-                    ) : null}
+                                }))}
+                            />
+                        ) : watchLayoutOffered ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout === 'classic' ? 'classic' : 'new'}
+                                onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
+                                options={[
+                                    { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
+                                    { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
+                                ]}
+                            />
+                        ) : null}
+                    </span>
                     <LiveRecordingsCount />
                     <ScenePanel>
                         <ScenePanelActionsSection>
@@ -199,9 +188,10 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
     // The promo waits until the field guide banner is closed so the two never stack
     const { isDismissed: isFieldGuideDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+    const { isHobby } = useValues(preflightLogic)
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isDismissed || !isFieldGuideDismissed) {
+    if (isHobby || isDismissed || !isFieldGuideDismissed) {
         return null
     }
 
@@ -321,7 +311,7 @@ const ReplayPageTabs: ReplayTab[] = [
 export function SessionRecordingsPageTabs(): JSX.Element | null {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { replayLayout } = useValues(playerSettingsLogic)
-    if (tab === ReplayTabs.Home && isNewReplayLayout(replayLayout)) {
+    if (isNewReplayLayout(replayLayout)) {
         return null
     }
     return (
@@ -344,17 +334,32 @@ export function SessionRecordingsPageTabs(): JSX.Element | null {
     )
 }
 
+function ReplayTitleSection(): JSX.Element {
+    const { tab } = useValues(sessionReplaySceneLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const collectionsUnderRecordings = tab === ReplayTabs.Playlists && isNewReplayLayout(replayLayout)
+    const replayName = sceneConfigurations[Scene.Replay].name
+    return (
+        <SceneTitleSection
+            name={collectionsUnderRecordings ? humanFriendlyTabName(tab) : replayName}
+            resourceType={{
+                type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
+            }}
+            forceBackTo={
+                collectionsUnderRecordings
+                    ? { key: Scene.Replay, name: replayName, path: urls.replay(ReplayTabs.Home) }
+                    : undefined
+            }
+            actions={<Header />}
+        />
+    )
+}
+
 export function SessionsRecordings(): JSX.Element {
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="h-full">
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.Replay].name}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
-                    }}
-                    actions={<Header />}
-                />
+                <ReplayTitleSection />
                 <SessionRecordingsPageTabs />
                 <MainPanel />
             </SceneContent>

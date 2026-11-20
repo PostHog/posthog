@@ -4,6 +4,7 @@ import structlog
 
 from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
 from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_INVALID_REPORT_ERROR,
@@ -48,6 +49,21 @@ _UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right n
 _MISSING_VENDOR_NUMBER = (
     "Add your vendor number in the source settings to sync sales and subscription reports. "
     "You can find it in App Store Connect under Payments and Financial Reports."
+)
+
+_APPLE_HOST_CONNECTION_ERROR = "HTTPSConnectionPool(host='api.appstoreconnect.apple.com'"
+
+APP_STORE_CONNECT_SERVER_ERROR_MESSAGE = (
+    "App Store Connect had an internal error, so this sync run did not finish. "
+    "This is on Apple's side, and the next sync runs on schedule."
+)
+APP_STORE_CONNECT_RATE_LIMITED_MESSAGE = (
+    "App Store Connect is rate limiting requests for this API key, so this sync run did not finish. "
+    "The next sync runs on schedule."
+)
+APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE = (
+    "App Store Connect kept failing PostHog's requests, so this sync run did not finish. "
+    "This is usually on Apple's side, and the next sync runs on schedule."
 )
 
 
@@ -155,6 +171,8 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         # Match the stable status text plus the base host, not the per-request path and cursor.
         return {
             "401 Client Error: Unauthorized for url: https://api.appstoreconnect.apple.com": "App Store Connect rejected your API key. Check the issuer ID, key ID and private key, or generate a new key, then reconnect.",
+            # A 403 because the account has an unaccepted Apple agreement. Not a role problem.
+            APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR: APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
             # A 403 on the analytics report request create. Apple gates it on Admin, not the read
             # roles. Kept before the read message so the create case never inherits the read wording.
             APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR: APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
@@ -185,9 +203,19 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         # Error" prefixes from the status code alone, not the vendor's reason text, so they're
         # stable to match on (see mailchimp/convex sources for the same pattern).
         return {
-            "HTTPSConnectionPool(host='api.appstoreconnect.apple.com'",
+            _APPLE_HOST_CONNECTION_ERROR,
             "Server Error",
             "429 Client Error",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a run that outlasts Temporal's retries stores the raw status line or urllib3
+        # pool dump, which names the request URL with the customer's app ID. The shared map already
+        # covers 502/503/504 but not 500, which is how Apple answers during its own outages.
+        return {
+            "500 Server Error": APP_STORE_CONNECT_SERVER_ERROR_MESSAGE,
+            "429 Client Error": APP_STORE_CONNECT_RATE_LIMITED_MESSAGE,
+            _APPLE_HOST_CONNECTION_ERROR: APP_STORE_CONNECT_NOT_ANSWERING_MESSAGE,
         }
 
     def get_schemas(

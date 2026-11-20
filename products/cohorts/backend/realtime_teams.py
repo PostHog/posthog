@@ -25,6 +25,9 @@ GrantLevel = Literal[RealtimeCohortLevel.PROCESSING, RealtimeCohortLevel.SERVING
 
 _backfill_triggers_suppressed: ContextVar[bool] = ContextVar("cohort_backfill_triggers_suppressed", default=False)
 
+# How long a web process can read an access row as it was before a write.
+ACCESS_SNAPSHOT_TTL = timedelta(seconds=30)
+
 
 def _matches_every_team(raw_allowlist: str) -> bool:
     raw_allowlist = raw_allowlist.strip()
@@ -80,7 +83,7 @@ def realtime_allowlist_matches(team_id: int) -> bool:
 # Cohort saves and every row of the cohort list read this, so it is cached per process rather than
 # queried per call. `cache_for` is off under tests, so a test reads the rows it wrote. It keeps `off`
 # rows, because `team_honors_readiness_stamps` must tell a revoked team from one that never had a row.
-@cache_for(timedelta(seconds=30))
+@cache_for(ACCESS_SNAPSHOT_TTL)
 def _access_rows() -> dict[int, RealtimeCohortTeamAccess]:
     return {row.team_id: row for row in RealtimeCohortTeamAccess.objects.all()}
 
@@ -100,6 +103,11 @@ def realtime_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
     """
     if realtime_allowlist_matches(team_id):
         return RealtimeCohortLevel.SERVING
+    return access_row_level(team_id, fresh=fresh)
+
+
+def access_row_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
+    """The level the team's access row grants, without `REALTIME_COHORT_TEAM_ALLOWLIST`."""
     row = _access_row(team_id, fresh=fresh)
     return RealtimeCohortLevel(row.level) if row is not None else RealtimeCohortLevel.OFF
 

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -9,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+import { externalDataSourcesSyncStateRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
@@ -16,6 +18,9 @@ import { sourceManagementLogic } from '../sourceManagementLogic'
 jest.mock('lib/api')
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseTablesList: jest.fn(),
+}))
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataSourcesSyncStateRetrieve: jest.fn(),
 }))
 jest.mock('~/queries/query')
 
@@ -49,6 +54,7 @@ describe('sourceManagementLogic', () => {
             tables: {},
             joins: [],
         } as DatabaseSchemaQueryResponse)
+        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockResolvedValue({ fingerprint: 'fp-1' })
     })
 
     afterEach(() => {
@@ -217,6 +223,33 @@ describe('sourceManagementLogic', () => {
     })
 
     it.each([
+        ['nothing is loaded yet', 'none', [false]],
+        ['a shallow schema is already loaded', 'shallow-loaded', []],
+        ['a consumer starts a full load in the same mount', 'full-alongside', [undefined]],
+    ])('loads the schema without fields on mount when %s', async (_, setup, expectedIncludeFields) => {
+        databaseLogic.mount()
+        if (setup === 'shallow-loaded') {
+            await databaseLogic.asyncActions.loadDatabase({ shallow: true })
+            ;(performQuery as jest.Mock).mockClear()
+        }
+
+        jest.useFakeTimers()
+        try {
+            logic.mount()
+            if (setup === 'full-alongside') {
+                databaseLogic.actions.loadDatabase()
+            }
+            jest.runOnlyPendingTimers()
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect((performQuery as jest.Mock).mock.calls.map(([query]) => query.includeFields)).toEqual(
+            expectedIncludeFields
+        )
+    })
+
+    it.each([
         ['no linked tables', [], ['orders', 'users', 'events']],
         ['one linked table', ['t-orders'], ['users', 'events']],
         ['all but one table linked', ['t-orders', 't-users'], ['events']],
@@ -253,5 +286,43 @@ describe('sourceManagementLogic', () => {
         expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
         // The sources list shows its self-managed section only while one of these tables is left.
         expect(logic.values.hasSelfManagedTables).toBe(expected.length > 0)
+    })
+    const unchanged = (): Promise<{ fingerprint: string }> => Promise.resolve({ fingerprint: 'fp-1' })
+
+    it.each([
+        ['the sync state is unchanged', unchanged, (): void => {}, false],
+        ['the sync state changed', () => Promise.resolve({ fingerprint: 'fp-2' }), (): void => {}, true],
+        ['the sync state is unavailable', () => Promise.reject(new Error('offline')), (): void => {}, true],
+        [
+            'an optimistic update replaced the list',
+            unchanged,
+            (): void => {
+                logic.actions.loadSourcesSuccess({ ...logic.values.dataWarehouseSources!, results: [] })
+            },
+            true,
+        ],
+        ['the last list request failed', unchanged, (): void => logic.actions.loadSourcesFailure('boom'), true],
+    ])('decides whether a poll refetches the sources list when %s', async (_, nextState, changeList, refetches) => {
+        router.actions.push('/data-management/sources')
+        logic.mount()
+        // The list loads at once on mount; the first poll pairs it with a fingerprint.
+        expect(logic.values.dataWarehouseSourcesLoading).toBe(true)
+        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
+        logic.actions.pollSources()
+        await expectLogic(logic)
+            .toDispatchActions(['loadSourcesSuccess', 'setFingerprintedSources'])
+            .toMatchValues({ fingerprintedSources: expect.objectContaining({ fingerprint: 'fp-1' }) })
+        changeList()
+        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(nextState)
+
+        logic.actions.pollSources()
+
+        if (refetches) {
+            await expectLogic(logic).toDispatchActions(['loadSources'])
+        } else {
+            await expectLogic(logic)
+                .toDispatchActions(['scheduleSourcesPoll'])
+                .toNotHaveDispatchedActions(['loadSources'])
+        }
     })
 })

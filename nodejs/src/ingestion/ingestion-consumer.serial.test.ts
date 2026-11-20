@@ -13,6 +13,7 @@ import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -796,72 +797,57 @@ describe('IngestionConsumer', () => {
         })
     })
 
-    describe('event batching', () => {
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(infra)
+    describe('usage records', () => {
+        let usageIngester: IngestionConsumer | undefined
+        let ingest: jest.SpyInstance<Promise<UsageRecordInput[]>, [UsageRecordInput[]]> | undefined
+
+        afterEach(async () => {
+            ingest?.mockRestore()
+            await usageIngester?.stop()
+            usageIngester = undefined
         })
 
-        it('should validate historical_migration flag based on timestamp age', async () => {
-            const ingestionTime = fixedTime // Now = ingestion time
-            const oldEventTime = ingestionTime.minus({ hours: 50 }) // Event happened 50 hours ago (>48 hours)
-            const recentEventTime = ingestionTime.minus({ hours: 24 }) // Event happened 24 hours ago (<48 hours)
+        it('bills a flagged migration under the migration keys and an unflagged late event as usual', async () => {
+            infra.config.USAGE_INGESTION_ADDR = 'localhost:1'
+            infra.config.USAGE_INGESTION_REPORT_TEAMS = '*'
+            usageIngester = await createIngestionConsumer(infra)
+            const ingestSpy = jest
+                .spyOn(UsageIngestionClient.prototype, 'ingest')
+                .mockImplementation((records) => Promise.resolve(records))
+            ingest = ingestSpy
 
-            const events = [
-                createEvent({
-                    distinct_id: 'user-old-event',
-                    event: 'old-event',
-                    timestamp: oldEventTime.toISO()!, // Event time in the event payload
-                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
-                }),
-                createEvent({
-                    distinct_id: 'user-recent-event',
-                    event: 'recent-event',
-                    timestamp: recentEventTime.toISO()!, // Event time in the event payload
-                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
-                }),
-            ]
+            // Capture time differs from the mocked clock, so a lost `now` header cannot pass as the flush fallback.
+            const captureTime = fixedTime.minus({ minutes: 5 })
+            // Different days, so the record ID prefix shows which event each record came from.
+            const migratedAt = fixedTime.minus({ hours: 50 })
+            const lateAt = fixedTime.minus({ hours: 74 })
+            const [migrated, late] = createKafkaMessages([
+                createEvent({ distinct_id: 'migrated', timestamp: migratedAt.toISO()!, now: captureTime.toISO()! }),
+                createEvent({ distinct_id: 'late', timestamp: lateAt.toISO()!, now: captureTime.toISO()! }),
+            ])
+            migrated.headers!.push({ historical_migration: Buffer.from('true') })
 
-            // Create messages with different event timestamps but same ingestion time (now)
-            // The validate-historical-migration step compares: now - timestamp >= 48 hours
-            const messages: Message[] = [
-                {
-                    ...createKafkaMessage(events[0], team.api_token),
-                    headers: [
-                        { token: Buffer.from(team.api_token) },
-                        { distinct_id: Buffer.from('user-old-event') },
-                        { timestamp: Buffer.from(oldEventTime.toISO()!) }, // Event time (when it actually happened)
-                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
-                        { historical_migration: Buffer.from('true') },
-                    ],
-                },
-                {
-                    ...createKafkaMessage(events[1], team.api_token),
-                    headers: [
-                        { token: Buffer.from(team.api_token) },
-                        { distinct_id: Buffer.from('user-recent-event') },
-                        { timestamp: Buffer.from(recentEventTime.toISO()!) }, // Event time (when it actually happened)
-                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
-                        { historical_migration: Buffer.from('true') },
-                    ],
-                },
-            ]
+            const { backgroundTask } = await usageIngester.handleKafkaBatch([migrated, late])
+            await backgroundTask
 
-            await ingester.handleKafkaBatch(messages)
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-
-            expect(eventsTopicMessages).toHaveLength(2)
-
-            // Old event should have historical_migration: true (>48 hours)
-            const oldEventMessage = eventsTopicMessages.find((m) => m.value.event === 'old-event')
-            expect(oldEventMessage).toBeDefined()
-            expect(oldEventMessage?.value.historical_migration).toBe(true)
-
-            // Recent event should not have historical_migration set (<48 hours, defaults to false)
-            const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
-            expect(recentEventMessage).toBeDefined()
-            expect(recentEventMessage?.value.historical_migration).toBeUndefined()
+            const record = (usageKey: string, day: DateTime) => ({
+                teamId: team.id,
+                usageKey,
+                unit: 'events',
+                quantity: 1,
+                timestampMs: captureTime.toMillis(),
+                recordId: expect.stringMatching(new RegExp(`^${day.toISODate()}:[0-9a-f]{32}$`)),
+            })
+            const sent = ingestSpy.mock.calls.flatMap(([records]) => records)
+            expect(sent).toHaveLength(4)
+            expect(sent).toEqual(
+                expect.arrayContaining([
+                    record('historical_migration_events', migratedAt),
+                    record('historical_migration_enhanced_person_events', migratedAt),
+                    record('events', lateAt),
+                    record('enhanced_person_events', lateAt),
+                ])
+            )
         })
     })
 

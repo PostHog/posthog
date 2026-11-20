@@ -6,7 +6,7 @@ import {
     ConfusionByCutoffApi,
     OnlinePerformanceRowApi,
 } from './generated/api.schemas'
-import { modelQuality } from './modelQuality'
+import { formatAuc, isLiftAtCeiling, liftCeilingNote, modelQuality } from './modelQuality'
 import { eventName } from './pipelineQuestion'
 import {
     PredictionSegmentDefinition,
@@ -65,11 +65,22 @@ export interface AccuracyStat {
     tooltip: string
 }
 
+function liftDetail(row: OnlinePerformanceRowApi, lift: number | null, atCeiling: boolean): string {
+    if (row.n_positive === 0) {
+        return 'No one did it'
+    }
+    if (lift == null) {
+        return 'Not measured'
+    }
+    return atCeiling ? 'Near the maximum' : 'Against everyone'
+}
+
 /** The four headline stats for the champion's newest checked date. Each stat names that date. */
 export function accuracyStats(row: OnlinePerformanceRowApi, target: string): AccuracyStat[] {
     const date = `scored on ${dayjs(row.prediction_date).format('MMM D')}`
     // Lift has no meaning when no one did the target, and the backend reports 0 then.
     const lift = row.n_positive > 0 ? row.lift_at_10 : null
+    const liftAtCeiling = lift != null && isLiftAtCeiling(lift, 0.1, row.base_rate)
     const quality = modelQuality({
         holdoutAuc: null,
         realizedAuc: row.realized_auc,
@@ -82,20 +93,15 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
             key: 'ranking',
             label: 'Ranking',
             value: quality?.verdict ?? '—',
-            detail: quality ? `AUC ${quality.auc.toFixed(2)}, ${date}` : `No AUC, ${date}`,
+            detail: quality ? `AUC ${formatAuc(quality.auc)}, ${date}` : `No AUC, ${date}`,
             tooltip: `How well the model ranked people who did ${eventName(target)} above people who did not. Realized AUC 0.5 is a coin flip and 1 is a perfect ranking.`,
         },
         {
             key: 'lift',
             label: 'Top 10% lift',
             value: lift != null ? `${lift.toFixed(1)}×` : '—',
-            detail:
-                row.n_positive === 0
-                    ? `No one did it, ${date}`
-                    : lift != null
-                      ? `Against everyone, ${date}`
-                      : `Not measured, ${date}`,
-            tooltip: `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.`,
+            detail: `${liftDetail(row, lift, liftAtCeiling)}, ${date}`,
+            tooltip: `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.${liftAtCeiling ? ` ${liftCeilingNote(0.1, row.base_rate)}` : ''}`,
         },
         {
             key: 'rate',
@@ -260,7 +266,7 @@ export function accuracyTrend(
 export function formatTrendValue(metric: AccuracyTrendMetric, value: number, precise = false): string {
     switch (metric) {
         case 'ranking':
-            return value.toFixed(precise ? 3 : 2)
+            return precise ? value.toFixed(3) : formatAuc(value)
         case 'lift':
             return `${value.toFixed(1)}×`
         default:

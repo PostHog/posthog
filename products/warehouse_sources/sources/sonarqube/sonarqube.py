@@ -2,7 +2,7 @@ import json
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -19,8 +19,10 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.sdk.internals import Batcher
 from products.warehouse_sources.sources.sonarqube.settings import (
     ISSUES_MAX_RESULTS,
+    METRIC_KEYS_PER_REQUEST,
     PAGE_SIZE,
     SONARQUBE_ENDPOINTS,
+    UNSUPPORTED_METRIC_TYPES,
     SonarqubeEndpointConfig,
 )
 
@@ -54,6 +56,11 @@ ISSUES_MAX_PAGES = ISSUES_MAX_RESULTS // PAGE_SIZE
 # fail non-retryably if it's ever breached. 50M rows is far beyond any real instance.
 MAX_PAGES = 100_000
 
+# Analysis dates are the scanner's start time, but an analysis only becomes visible once the server has
+# processed it, which can be minutes later. Re-read a day before the watermark so a late analysis whose
+# date sits just below it is not skipped; merge dedupes the overlap on the primary key.
+HISTORY_LOOKBACK = timedelta(days=1)
+
 # SonarQube Cloud is a separate product from the self-hosted Server this source targets, with its
 # own source. Its list endpoints require an `organization` parameter we never send, so every page
 # returns a 400. Both region hosts, and any subdomain of them.
@@ -63,6 +70,11 @@ SONARQUBE_CLOUD_ERROR = (
     "This URL points to SonarQube Cloud, which this source cannot read. "
     "Connect it with the Sonar Cloud source instead, which asks for your organization key."
 )
+
+
+# The message SonarQube answers with a 404 for an endpoint it does not serve, for example
+# /api/project_pull_requests/list on Community Build.
+UNKNOWN_URL_ERROR = "Unknown url"
 
 
 class SonarqubeRetryableError(Exception):
@@ -76,6 +88,11 @@ class SonarqubeResumeConfig:
     # For the issues re-windowing: the `createdAfter` value of the window in progress. None for the
     # simple (non-windowed) endpoints and for an issues sync that hasn't re-windowed yet.
     created_after: str | None = None
+    # For the per-project fan-out endpoints: the project and metric chunk the next page belongs to.
+    project_key: str | None = None
+    metric_chunk: int | None = None
+    # For the issue changelog: the last issue on `next_page` whose changelog was read.
+    issue_key: str | None = None
 
 
 def normalize_base_url(host: str) -> str:
@@ -276,12 +293,12 @@ def _iter_simple(
                 f"SonarQube {config.name} exceeded the {MAX_PAGES}-page safety cap; the server keeps "
                 "reporting more results. Check the configured server URL."
             )
-        params = {**config.extra_params, "p": page, "ps": PAGE_SIZE}
+        params = {**config.extra_params, "p": page, "ps": PAGE_SIZE} if config.paginated else config.extra_params
         data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
         pages_fetched += 1
         items = data.get(config.response_key, [])
         page_index, page_size, total = _extract_paging(data)
-        has_more = bool(items) and page_index * page_size < total
+        has_more = config.paginated and bool(items) and page_index * page_size < total
 
         for item in items:
             batcher.batch(item)
@@ -297,16 +314,23 @@ def _iter_simple(
         page += 1
 
 
-def _iter_windowed_issues(
+@dataclasses.dataclass(frozen=True)
+class _IssuePage:
+    items: list[dict[str, Any]]
+    # The `createdAfter` window and page that produced these items, for resume state.
+    created_after: str | None
+    page: int
+
+
+def _iter_issue_pages(
     session: requests.Session,
     base_url: str,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[SonarqubeResumeConfig],
     config: SonarqubeEndpointConfig,
-    initial_created_after: str | None,
-) -> Iterator[Any]:
+    created_after: str | None,
+    page: int,
+) -> Iterator[_IssuePage]:
     """Page /api/issues/search ascending by creation date, re-windowing past the 10,000-result cap.
 
     Within one `createdAfter` window SonarQube only serves the first 10,000 results (p*ps<=10000).
@@ -314,12 +338,6 @@ def _iter_windowed_issues(
     again. `createdAfter` is inclusive, so boundary issues re-appear across windows — merge dedupes
     them on the primary key. Sorting ascending keeps the incremental watermark advancing monotonically.
     """
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    created_after = resume.created_after if resume is not None and resume.created_after else initial_created_after
-    page = resume.next_page if resume is not None and resume.next_page else 1
-    if resume is not None and (resume.created_after or (resume.next_page and resume.next_page > 1)):
-        logger.debug(f"SonarQube: resuming issues from createdAfter={created_after}, page={page}")
-
     pages_fetched = 0
     while True:
         last_creation_date: str | None = None
@@ -345,12 +363,7 @@ def _iter_windowed_issues(
                 creation_date = item.get("creationDate")
                 if creation_date:
                     last_creation_date = creation_date
-                batcher.batch(item)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    resumable_source_manager.save_state(
-                        SonarqubeResumeConfig(next_page=page, created_after=created_after)
-                    )
+            yield _IssuePage(items=items, created_after=created_after, page=page)
 
             if not items or page_index * page_size >= total:
                 # Fetched every result the server will return for this window and there is no
@@ -376,6 +389,313 @@ def _iter_windowed_issues(
         page = 1
 
 
+def _iter_windowed_issues(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[SonarqubeResumeConfig],
+    config: SonarqubeEndpointConfig,
+    initial_created_after: str | None,
+) -> Iterator[Any]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    created_after = resume.created_after if resume is not None and resume.created_after else initial_created_after
+    page = resume.next_page if resume is not None and resume.next_page else 1
+    if resume is not None and (resume.created_after or (resume.next_page and resume.next_page > 1)):
+        logger.debug(f"SonarQube: resuming issues from createdAfter={created_after}, page={page}")
+
+    for issue_page in _iter_issue_pages(session, base_url, headers, logger, config, created_after, page):
+        for item in issue_page.items:
+            batcher.batch(item)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                resumable_source_manager.save_state(
+                    SonarqubeResumeConfig(next_page=issue_page.page, created_after=issue_page.created_after)
+                )
+
+
+def _iter_issue_changelog(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SonarqubeResumeConfig],
+    config: SonarqubeEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the changelog of every issue, walking the issues the same way the issues table does.
+
+    The state staged before each issue's rows names the issues page and that issue, so a resumed
+    run reads the page again and starts after the last issue written.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    created_after = resume.created_after if resume is not None else None
+    page = resume.next_page if resume is not None and resume.next_page else 1
+    skip_through = resume.issue_key if resume is not None else None
+    if skip_through:
+        logger.debug(f"SonarQube: resuming {config.name} after issue {skip_through}, page={page}")
+
+    issues = SONARQUBE_ENDPOINTS["issues"]
+    for issue_page in _iter_issue_pages(session, base_url, headers, logger, issues, created_after, page):
+        # Nothing is held yet, so the run can hand off before the page's changelog requests.
+        resumable_source_manager.safe_point()
+        items = [item for item in issue_page.items if isinstance(item, dict) and item.get("key")]
+        if skip_through is not None:
+            keys = [item["key"] for item in items]
+            # An issue deleted since the last attempt cannot be located, so its page is read again.
+            if skip_through in keys:
+                items = items[keys.index(skip_through) + 1 :]
+            skip_through = None
+
+        for issue in items:
+            issue_key = issue["key"]
+            try:
+                data = _fetch_page(session, _build_url(base_url, config.path, {"issue": issue_key}), headers, logger)
+            except requests.HTTPError as error:
+                # The issue was deleted after we listed it.
+                if error.response is None or error.response.status_code != 404:
+                    raise
+                logger.info(f"SonarQube: issue {issue_key} not found for {config.name}; skipping it")
+                data = {}
+            rows = [
+                {"issue": issue_key, "project": issue.get("project"), "changeIndex": index, **change}
+                for index, change in enumerate(data.get(config.response_key) or [])
+                if isinstance(change, dict)
+            ]
+            resumable_source_manager.save_state(
+                SonarqubeResumeConfig(
+                    next_page=issue_page.page, created_after=issue_page.created_after, issue_key=issue_key
+                )
+            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+
+def _iter_list(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SonarqubeResumeConfig],
+    config: SonarqubeEndpointConfig,
+) -> Iterator[dict[str, Any]]:
+    """Read every item of a paged list endpoint that the fan-out needs before its first row."""
+    page = 1
+    while True:
+        if page > MAX_PAGES:
+            raise ValueError(
+                f"SonarQube {config.name} exceeded the {MAX_PAGES}-page safety cap; the server keeps "
+                "reporting more results. Check the configured server URL."
+            )
+        params = {**config.extra_params, "p": page, "ps": PAGE_SIZE}
+        data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+        # Nothing is yielded or held yet, so the run can hand off between these requests.
+        resumable_source_manager.safe_point()
+        items = data.get(config.response_key) or []
+        yield from (item for item in items if isinstance(item, dict))
+        page_index, page_size, total = _extract_paging(data)
+        if not items or page_index * page_size >= total:
+            return
+        page += 1
+
+
+def _measure_rows(project_key: str, component: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "project": project_key,
+            "component": component.get("key"),
+            "componentName": component.get("name"),
+            "qualifier": component.get("qualifier"),
+            "path": component.get("path"),
+            "language": component.get("language"),
+            "metric": measure.get("metric"),
+            "value": measure.get("value"),
+            "bestValue": measure.get("bestValue"),
+            # New-code values come back under `period` instead of `value`.
+            "periodValue": (measure.get("period") or {}).get("value"),
+        }
+        for measure in component.get("measures") or []
+        if isinstance(measure, dict)
+    ]
+
+
+def _fanout_params(
+    config: SonarqubeEndpointConfig, project_key: str, metric_keys: list[str], page: int, history_from: str | None
+) -> dict[str, Any]:
+    assert config.fanout is not None
+    params: dict[str, Any] = {**config.extra_params}
+    params.update(dict.fromkeys(config.fanout.project_params, project_key))
+    if config.fanout.kind == "component_measures":
+        params["metricKeys"] = ",".join(metric_keys)
+    elif config.fanout.kind == "measures_history":
+        params["metrics"] = ",".join(metric_keys)
+    if history_from and config.supports_incremental:
+        params["from"] = history_from
+    if config.paginated:
+        params.update({"p": page, "ps": config.fanout.page_size})
+    return params
+
+
+@dataclasses.dataclass(frozen=True)
+class _FanoutPage:
+    rows: list[dict[str, Any]]
+    has_more: bool
+
+
+def _fanout_page(config: SonarqubeEndpointConfig, project_key: str, data: dict[str, Any], page: int) -> _FanoutPage:
+    """Return the rows of one fan-out page and whether the server reports another page."""
+    assert config.fanout is not None
+    kind = config.fanout.kind
+    if kind == "quality_gate_status":
+        status = data.get(config.response_key)
+        return _FanoutPage(
+            rows=[{"projectKey": project_key, **status}] if isinstance(status, dict) else [], has_more=False
+        )
+
+    items = [item for item in data.get(config.response_key) or [] if isinstance(item, dict)]
+    rows: list[dict[str, Any]]
+    if kind == "hotspots":
+        rows = items
+    elif kind == "project_rows":
+        rows = [{"project": project_key, **item} for item in items]
+    elif kind == "component_measures":
+        # The base component (the project itself) repeats on every page; take it from the first.
+        base = data.get("baseComponent")
+        rows = _measure_rows(project_key, base) if page == 1 and isinstance(base, dict) else []
+        for component in items:
+            rows.extend(_measure_rows(project_key, component))
+    else:
+        rows = [
+            {"project": project_key, "metric": measure.get("metric"), "date": point["date"], "value": point["value"]}
+            for measure in items
+            for point in measure.get("history") or []
+            # A point with no value means the metric was not computed in that analysis.
+            if isinstance(point, dict) and point.get("date") and point.get("value") is not None
+        ]
+    page_index, page_size, total = _extract_paging(data)
+    return _FanoutPage(rows=rows, has_more=bool(items) and page_index * page_size < total)
+
+
+def _history_from(value: Any) -> str:
+    if isinstance(value, datetime | date):
+        value = value - HISTORY_LOOKBACK
+    return _format_created_after(value)
+
+
+def _iter_project_fanout(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SonarqubeResumeConfig],
+    config: SonarqubeEndpointConfig,
+    history_from: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Run an endpoint once per project, and once per metric chunk for the measures endpoints.
+
+    Each page is yielded as it arrives, with the position of the next page staged before it, so a
+    resumed run starts at the page after the last one written.
+    """
+    fanout = config.fanout
+    assert fanout is not None
+    projects = SONARQUBE_ENDPOINTS["projects"]
+    project_keys = [
+        item["key"]
+        for item in _iter_list(session, base_url, headers, logger, resumable_source_manager, projects)
+        if item.get("key")
+    ]
+    metric_chunks: list[list[str]] = [[]]
+    if fanout.kind in ("component_measures", "measures_history"):
+        metric_keys = [
+            item["key"]
+            for item in _iter_list(
+                session, base_url, headers, logger, resumable_source_manager, SONARQUBE_ENDPOINTS["metrics"]
+            )
+            if item.get("key") and item.get("type") not in UNSUPPORTED_METRIC_TYPES
+        ]
+        metric_chunks = [
+            metric_keys[i : i + METRIC_KEYS_PER_REQUEST] for i in range(0, len(metric_keys), METRIC_KEYS_PER_REQUEST)
+        ]
+    if not project_keys or not metric_chunks:
+        return
+
+    positions = [
+        (project_index, chunk_index)
+        for project_index in range(len(project_keys))
+        for chunk_index in range(len(metric_chunks))
+    ]
+    start, page = 0, 1
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.project_key:
+        if resume.project_key in project_keys:
+            start = positions.index(
+                (project_keys.index(resume.project_key), min(resume.metric_chunk or 0, len(metric_chunks) - 1))
+            )
+            page = resume.next_page or 1
+            logger.debug(f"SonarQube: resuming {config.name} from project={resume.project_key}, page={page}")
+        else:
+            logger.warning(
+                f"SonarQube: project {resume.project_key} to resume {config.name} from is gone; starting over"
+            )
+
+    index = start
+    while index < len(positions):
+        project_index, chunk_index = positions[index]
+        project_key = project_keys[project_index]
+        pages_fetched = 0
+        while True:
+            if pages_fetched >= MAX_PAGES:
+                raise ValueError(
+                    f"SonarQube {config.name} exceeded the {MAX_PAGES}-page safety cap for project "
+                    f"{project_key}; the server keeps reporting more results. Check the configured server URL."
+                )
+            params = _fanout_params(config, project_key, metric_chunks[chunk_index], page, history_from)
+            try:
+                data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+            except requests.HTTPError as error:
+                if error.response is None or error.response.status_code != 404:
+                    raise
+                if UNKNOWN_URL_ERROR in str(error):
+                    # This edition of SonarQube does not serve the endpoint, for any project.
+                    logger.warning(f"SonarQube: this server does not serve {config.path}; {config.name} stays empty")
+                    return
+                # The project was deleted after we listed it.
+                logger.info(f"SonarQube: project {project_key} not found for {config.name}; skipping it")
+                fanout_page = _FanoutPage(rows=[], has_more=False)
+                index = (project_index + 1) * len(metric_chunks) - 1
+            else:
+                fanout_page = _fanout_page(config, project_key, data, page)
+            rows, has_more = fanout_page.rows, fanout_page.has_more
+            pages_fetched += 1
+            if has_more and fanout.max_pages is not None and page >= fanout.max_pages:
+                logger.warning(
+                    f"SonarQube: {config.name} for project {project_key} has more than "
+                    f"{fanout.max_pages * fanout.page_size} results; the server serves no more than that"
+                )
+                has_more = False
+
+            if has_more:
+                page += 1
+            else:
+                index += 1
+                page = 1
+            if index < len(positions):
+                next_project_index, next_chunk_index = positions[index]
+                resumable_source_manager.save_state(
+                    SonarqubeResumeConfig(
+                        project_key=project_keys[next_project_index], metric_chunk=next_chunk_index, next_page=page
+                    )
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            if not has_more:
+                break
+
+
 def get_rows(
     host: str,
     token: str,
@@ -388,9 +708,24 @@ def get_rows(
     config = SONARQUBE_ENDPOINTS[endpoint]
     base_url = normalize_base_url(host)
     headers = _headers(token)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     session = make_tracked_session(redact_values=(token,), allow_redirects=False)
 
+    if config.per_issue:
+        yield from _iter_issue_changelog(session, base_url, headers, logger, resumable_source_manager, config)
+        return
+
+    if config.fanout is not None:
+        history_from = (
+            _history_from(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value
+            else None
+        )
+        yield from _iter_project_fanout(
+            session, base_url, headers, logger, resumable_source_manager, config, history_from
+        )
+        return
+
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     if config.windowed_incremental:
         initial_created_after = (
             _format_created_after(db_incremental_field_last_value)
@@ -431,7 +766,9 @@ def sonarqube_source(
         ),
         primary_keys=config.primary_keys,
         # Issues are fetched ascending by creation date, so the watermark advances safely per batch.
-        sort_mode="asc",
+        # The measures history and project analyses are ordered per project only, so they are not one
+        # ordered series.
+        sort_mode="asc" if config.windowed_incremental else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

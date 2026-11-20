@@ -1,3 +1,5 @@
+from .access import KnowledgeAccessViewSet
+from .keys import KnowledgeKeyViewSet
 from .libraries import KnowledgeLibraryViewSet
 from .playground import BusinessKnowledgePlaygroundChatViewSet
 from .repositories import BusinessKnowledgeRepositoriesViewSet
@@ -10,8 +12,10 @@ __all__ = [
     "BusinessKnowledgeRepositoriesViewSet",
     "BusinessKnowledgeSandboxViewSet",
     "BusinessKnowledgeSettingsViewSet",
+    "KnowledgeAccessViewSet",
     "KnowledgeDocumentViewSet",
     "KnowledgeGapSuggestionViewSet",
+    "KnowledgeKeyViewSet",
     "KnowledgeLibraryViewSet",
     "KnowledgeSourceViewSet",
 ]

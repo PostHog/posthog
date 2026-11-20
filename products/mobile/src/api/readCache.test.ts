@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/react-query'
-
 import type { StringStorage } from '@/lib/secureStorage'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { cacheable } from '@/model/adapters/readCache'
 import { webOverviewSnapshot } from '@/model/adapters/webOverview'
+import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
 import { ApiError } from './client'
 import { persistReadCache } from './readCache'
 import { inboxCacheKey } from './readCacheKeys'
@@ -65,6 +65,48 @@ describe('bounded offline read cache', () => {
         expect(restored.getQueryData(key)).toEqual({ ...aggregate, restoredFromDevice: true })
         expect(restored.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
         expect(restored.getQueryCache().getAll()).toHaveLength(1)
+        restarted.stop()
+    })
+
+    it('restores Live aggregates per audience without persisting event identities', async () => {
+        const store = new ReadCacheStore(memoryStorage())
+        const source = client()
+        const subscription = persistReadCache(source, store, scope, () => true)
+        await subscription.ready
+        const dataReadAt = Date.now() - 60000
+        const prefix = ['views', scope.host, 1, 'live'] as const
+        const snapshots = [
+            [[...prefix, 'all'], 12],
+            [[...prefix, 'web'], 8],
+            [[...prefix, 'mobile'], 4],
+            [[...prefix, 'all', 'exclude-internal'], 6],
+        ] as const
+        for (const [key, usersOnline] of snapshots) {
+            source.setQueryData(key, {
+                dataReadAt,
+                snapshot: {
+                    ...EMPTY_LIVE_SNAPSHOT,
+                    preference: key[4],
+                    usersOnline,
+                    events: [{ distinctId: 'private-person' }],
+                },
+            })
+        }
+        await subscription.flush()
+        subscription.stop()
+        const restored = new QueryClient({ defaultOptions: { queries: { gcTime: 30 * 60_000 } } })
+        const restarted = persistReadCache(restored, store, scope, () => true)
+        await restarted.ready
+        await jest.advanceTimersByTimeAsync(31 * 60_000)
+        for (const [key, usersOnline] of snapshots) {
+            expect(restored.getQueryData(key)).toEqual({
+                dataReadAt,
+                restoredFromDevice: true,
+                snapshot: { ...EMPTY_LIVE_SNAPSHOT, preference: key[4], usersOnline, events: null },
+            })
+        }
+        await store.evictAccountViews(scope.account, scope.host)
+        expect(await store.load(scope)).toEqual([])
         restarted.stop()
     })
 

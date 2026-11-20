@@ -109,8 +109,8 @@ jobs:
             !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
             needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
-        # Covers two bounded build attempts plus the post-build image-boot verification before
-        # dispatch.
+        # Covers two bounded build attempts plus the post-build image-boot verification and the
+        # frontend asset publish to three buckets before dispatch.
         timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -393,6 +393,159 @@ jobs:
                           python manage.py check
                       '
 
+            # The pages in this image name content-hashed files that browsers fetch from the CDN, and the
+            # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
+            # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
+            # path rolls it out. An upload error fails the job, and with it every dispatch. The pushed image
+            # is the only correct source: the sourcemap stage rewrites the JS after the frontend build
+            # stage, so only the final image's dist matches what pods serve.
+            #
+            # Only files named Name-HASH.ext, with an uppercase content hash after the last hyphen, are
+            # published: a new hash is a new key, so an older run finishing late changes nothing. The
+            # pattern accepts the two hash shapes the build emits, 8 characters from esbuild and S plus
+            # 10 hex digits from the stable chunk names. A looser pattern also takes fixed-name files such
+            # as terminal/jq-COPYING.txt, and the upload below never updates a name that exists. The
+            # fixed-name files (SDK bundles, the toolbar, index.html) are fetched by name, so the Argo
+            # upload hook keeps writing those as the pods roll, never ahead of them.
+            - name: Extract the frontend build from the image
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              env:
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  container=$(docker create "$IMAGE")
+                  docker cp "$container:/code/frontend/dist" "$RUNNER_TEMP/frontend-dist"
+                  docker rm "$container" > /dev/null
+                  staging="$RUNNER_TEMP/frontend-dist-immutable"
+                  mkdir -p "$staging"
+                  cd "$RUNNER_TEMP/frontend-dist"
+                  find . -type f -regextype posix-extended \
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-([A-Z0-9]{8}|S[0-9A-F]{10})\.[a-z0-9]+$' \
+                      ! -name '*.map' > "$RUNNER_TEMP/hashed.txt"
+                  while IFS= read -r f; do
+                      rel="${f#./}"
+                      mkdir -p "$staging/$(dirname "$rel")"
+                      cp "$f" "$staging/$rel"
+                  done < "$RUNNER_TEMP/hashed.txt"
+                  count=$(wc -l < "$RUNNER_TEMP/hashed.txt")
+                  echo "$count content-hashed files"
+                  if [ "$count" -eq 0 ]; then
+                      echo "::error::No content-hashed files found in the image's frontend/dist, so nothing can be published."
+                      exit 1
+                  fi
+                  # The build has thousands of small files, and each publish step has a short timeout.
+                  # More parallel requests than the AWS CLI default of 10 keep each upload well inside it.
+                  aws configure set default.s3.max_concurrent_requests 50
+
+            # The extract step leaves out every .map file, so a retained sourcemap stays private.
+            # The upload never replaces an object that exists, so that these credentials cannot change a
+            # file that browsers already load. This has two limits:
+            # - A skipped object can hold bytes that differ from the file in this image. Only the stable
+            #   chunk names (-S plus 10 hex digits) and the hashed assets come from the final bytes. The
+            #   build minifies a default chunk after esbuild names it, and the sourcemap stage writes the
+            #   release id of the commit into it, under the same name.
+            # - The upload does not compare a skipped object with the local file.
+            # The deploy hook in the charts repository copies every file with overwrite before the pods
+            # roll, which corrects both. That hook must stay until every published name comes from its
+            # final bytes and the publish checks each skipped object against the local file.
+            # The build marker is written last, so that a reader can take it as proof that every file
+            # above is in the bucket. No deploy step reads it, so the pods do not wait for it.
+            #
+            # Each environment publishes only once its role variable is set, so the publish rolls out one
+            # bucket at a time and a missing variable skips the bucket instead of blocking every deploy.
+            # A step timeout keeps a stalled upload from eating the job's whole budget.
+            - name: Assume the dev static-assets role
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to dev
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
+              env:
+                  BUCKET: posthog-cloud-dev-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            - name: Assume the prod-us static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to prod-us
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
+              env:
+                  BUCKET: posthog-cloud-prod-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            - name: Assume the prod-eu static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE }}
+                  aws-region: eu-central-1
+            - name: Publish frontend assets to prod-eu
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
+              env:
+                  BUCKET: posthog-cloud-prod-eu-central-1-static-assets
+              run: |
+                  set -euo pipefail
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            # The role action exports its session keys to the job environment, where they stay until the
+            # job ends. No later step uses AWS, so the steps below must not hold write access to the buckets.
+            - name: Drop the static-assets credentials
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              run: |
+                  {
+                      echo "AWS_ACCESS_KEY_ID="
+                      echo "AWS_SECRET_ACCESS_KEY="
+                      echo "AWS_SESSION_TOKEN="
+                  } >> "$GITHUB_ENV"
+
             - name: get deployer token
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -428,6 +581,7 @@ jobs:
                         - 'products/batch_exports/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -447,6 +601,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -454,12 +609,25 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        # MCPA_TASK_QUEUE defaults to the general-purpose queue, and prod runs no
+                        # separate MCP analytics worker, so this worker runs intent clustering.
+                        - 'products/mcp_analytics/backend/**'
+                        - 'posthog/temporal/mcp_analytics/**'
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
                         - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
                         - 'products/today/backend/**'
+                        - 'products/messaging/backend/facade/contracts.py'
+                        - 'products/messaging/backend/facade/temporal.py'
+                        - 'products/messaging/backend/models/**'
+                        - 'products/messaging/backend/provider_imports/**'
+                        - 'products/messaging/backend/services/customerio_client.py'
+                        - 'products/messaging/backend/services/customerio_config.py'
+                        - 'products/messaging/backend/services/customerio_import_service.py'
+                        - 'products/messaging/backend/services/suppression.py'
+                        - 'products/messaging/backend/temporal/**'
                         - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
@@ -468,6 +636,7 @@ jobs:
                         - 'posthog/temporal/ai_observability/**'
                         - 'posthog/temporal/llm_analytics/**'
                         - 'products/product_analytics/backend/temporal/**'
+                        - 'products/experiments/backend/temporal/timeseries/**'
                         - 'posthog/temporal/delete_persons/**'
                         - 'posthog/temporal/delete_teams/**'
                         - 'posthog/temporal/ingestion_acceptance_test/**'
@@ -477,9 +646,15 @@ jobs:
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
                         - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/temporal/cimd_provisioning_review/**'
+                        - 'posthog/api/oauth/provisioning_review.py'
+                        - 'posthog/api/oauth/provisioning_review_slack.py'
+                        - 'posthog/models/oauth_provisioning_review.py'
+                        - 'posthog/egress/firecrawl/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -488,6 +663,7 @@ jobs:
                         - 'products/experiments/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -497,18 +673,22 @@ jobs:
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
                       billing:
                         - 'ee/billing/**'
+                        - 'posthog/entitlements/**'
+                        - 'posthog/temporal/entitlement_reactions/**'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
                         - 'posthog/temporal/salesforce_enrichment/**'
                         - 'posthog/temporal/usage_report/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -525,6 +705,7 @@ jobs:
                         - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -540,6 +721,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -549,6 +731,7 @@ jobs:
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -558,6 +741,7 @@ jobs:
                         - '.github/workflows/container-images-cd.yml'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -579,6 +763,7 @@ jobs:
                         - 'posthog/temporal/schedule.py'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -593,6 +778,7 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -604,6 +790,7 @@ jobs:
                         - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -612,6 +799,7 @@ jobs:
                       # import analysis in check_python_changes_analytics_platform_temporal_worker.
                       analyticsPlatform:
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -626,6 +814,7 @@ jobs:
                         - 'products/llm_analytics/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -636,6 +825,7 @@ jobs:
                         - '!products/managed_warehouse/backend/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -654,7 +844,7 @@ jobs:
                       dataWarehouseCdpProducer:
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
@@ -663,6 +853,7 @@ jobs:
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -687,6 +878,7 @@ jobs:
                         - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -697,6 +889,7 @@ jobs:
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -705,7 +898,7 @@ jobs:
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
                         - '!products/managed_warehouse/backend/tests/temporal/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
@@ -726,6 +919,7 @@ jobs:
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -739,6 +933,7 @@ jobs:
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -943,7 +1138,7 @@ jobs:
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+            - name: Trigger Self-driving Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
@@ -1621,11 +1816,6 @@ jobs:
               shell: bash
               run: bash .github/scripts/ordered-image-release.sh tag
 
-            - name: Warn when ordered image alias tag is unavailable
-              if: ${{ steps.ordered-release.outputs.tag == '' }}
-              shell: bash
-              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
-
             - name: Install ordered image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 1
@@ -1657,12 +1847,10 @@ jobs:
               run: bash .github/scripts/ordered-image-release.sh publish
 
             - name: Fail when the ordered image alias is missing
-              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
               env:
-                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
-              run: |
-                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
-                  exit 1
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"
 
     shared_image_channels:
         name: Publish eligible shared-image channels
@@ -1735,7 +1923,7 @@ jobs:
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl
-                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":4,"concurrency":2,"channelMs":300000,"totalMs":720000}'
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":40,"concurrency":8,"channelMs":300000,"totalMs":720000}'
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}

@@ -57,8 +57,9 @@ const hasFlagKey = ({ event }: EventToEmit<string>): boolean => {
     return typeof flagKey === 'string' && flagKey !== ''
 }
 
-// Mirrors FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py. Change both together.
-const FLAG_EVALUATIONS_TTL_DAYS = 92
+// Mirror of ttl_days in posthog/models/flag_evaluations/crosslang/flag_evaluations.json. Edit that file first.
+// A test in fork-flag-evaluations-step.test.ts fails while the two differ.
+export const FLAG_EVALUATIONS_TTL_DAYS = 92
 const DAY_MS = 24 * 60 * 60 * 1000
 
 // The table's TTL expires a row dated D at the start of day D + FLAG_EVALUATIONS_TTL_DAYS.

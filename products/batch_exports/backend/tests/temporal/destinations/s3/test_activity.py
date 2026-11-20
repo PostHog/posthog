@@ -34,6 +34,22 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+# Codecs run on the bytes the file writer produces, whatever the model, so every model runs once per
+# file format and every remaining codec runs once with the events model.
+MODEL_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [("Parquet", "zstd"), ("JSONLines", "gzip")]
+FILE_FORMAT_COMPRESSION_MODEL_CASES = [
+    *(
+        (file_format, compression, model)
+        for model in TEST_S3_MODELS
+        for file_format, compression in MODEL_FILE_FORMAT_COMPRESSIONS
+    ),
+    *(
+        (file_format, compression, BatchExportEventsModel())
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+        if (file_format, compression) not in MODEL_FILE_FORMAT_COMPRESSIONS
+    ),
+]
+
 
 async def test_get_s3_integration_rejects_wrong_kind(ateam):
     """An integration whose kind is neither aws-s3 nor s3-compatible can't be resolved as an S3 one.
@@ -80,8 +96,9 @@ async def test_insert_into_s3_activity_fails_without_an_integration(activity_env
     assert result.error.type == "MissingIntegrationError"
 
 
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
-@pytest.mark.parametrize("model", TEST_S3_MODELS)
+@pytest.mark.parametrize(
+    ("file_format", "compression", "model"), FILE_FORMAT_COMPRESSION_MODEL_CASES, indirect=["compression"]
+)
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
     bucket_name,

@@ -12,6 +12,7 @@ import { MCPToolCallApi } from '../generated/api.schemas'
 import { DateFilter, mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import { CreateFixTaskButton } from '../tool-quality/CreateFixTaskButton'
 import { MCPErrorContext, formatCapturedJson, formatErrorContext } from '../tool-quality/errorContext'
+import { MCPToolCallRowShell } from './MCPToolCallRowShell'
 import { formatDuration, formatRelativeOffset } from './utils'
 
 function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorContext {
@@ -20,6 +21,8 @@ function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorCont
         errorType: toolCall.error_type || 'unknown',
         errorStatus: toolCall.error_status || undefined,
         errorMessage: toolCall.error_message || undefined,
+        errorCode: toolCall.error_code || undefined,
+        errorField: toolCall.error_field || undefined,
         timestamp: toolCall.timestamp,
         intent: toolCall.intent || undefined,
         sessionId,
@@ -28,7 +31,17 @@ function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorCont
     }
 }
 
-function CapturedJson({ label, json, property }: { label: string; json: string; property: string }): JSX.Element {
+function CapturedJson({
+    label,
+    json,
+    property,
+    names = [],
+}: {
+    label: string
+    json: string
+    property: string
+    names?: readonly string[]
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold text-secondary">{label}</span>
@@ -42,6 +55,10 @@ function CapturedJson({ label, json, property }: { label: string; json: string; 
                 >
                     {formatCapturedJson(json)}
                 </CodeSnippet>
+            ) : names.length > 0 ? (
+                <span className="text-xs text-secondary">
+                    Values not captured. Argument names: <span className="font-mono">{names.join(', ')}</span>
+                </span>
             ) : (
                 <span className="text-xs text-secondary">Not captured. The SDK sends this as {property}.</span>
             )}
@@ -49,13 +66,33 @@ function CapturedJson({ label, json, property }: { label: string; json: string; 
     )
 }
 
+function FailureDetails({ toolCall }: { toolCall: MCPToolCallApi }): JSX.Element | null {
+    const details = [
+        toolCall.error_code ? `Code ${toolCall.error_code}` : null,
+        toolCall.error_field ? `Argument ${toolCall.error_field}` : null,
+    ].filter(Boolean)
+    return details.length > 0 ? (
+        <div className="text-[11px] text-secondary font-mono pl-5 break-all">{details.join(' · ')}</div>
+    ) : null
+}
+
 function MCPToolCallDetails({ toolCall, sessionId }: { toolCall: MCPToolCallApi; sessionId: string }): JSX.Element {
     const failure = toolCall.is_error && toolCall.tool_name ? errorContext(toolCall, sessionId) : null
 
     return (
         <div className="flex flex-col gap-2 pl-5 pt-1">
-            <CapturedJson label="Arguments" json={toolCall.parameters} property="$mcp_parameters" />
+            <CapturedJson
+                label="Arguments"
+                json={toolCall.parameters}
+                property="$mcp_parameters"
+                names={toolCall.input_keys}
+            />
             <CapturedJson label="Result" json={toolCall.response} property="$mcp_response" />
+            {toolCall.llm_model ? (
+                <span className="text-xs text-secondary">
+                    Model: <span className="font-mono">{toolCall.llm_model}</span>
+                </span>
+            ) : null}
             <div className="flex flex-wrap items-center gap-1">
                 {toolCall.event_id ? (
                     <LemonButton
@@ -85,6 +122,19 @@ function MCPToolCallDetails({ toolCall, sessionId }: { toolCall: MCPToolCallApi;
     )
 }
 
+// A resolved exec `call` already carries the inner tool's name; other commands stay `exec`.
+function execCommandLabel({ tool_name, exec_verb, exec_target_tool }: MCPToolCallApi): string | null {
+    if (tool_name !== 'exec' || !exec_verb) {
+        return null
+    }
+    if (exec_verb === 'unrecognized') {
+        return 'unrecognized command'
+    }
+    return exec_target_tool === 'unrecognized'
+        ? `${exec_verb} unknown tool`
+        : [exec_verb, exec_target_tool].filter(Boolean).join(' ')
+}
+
 function MCPToolCallTitle({ toolCall, dateFilter }: { toolCall: MCPToolCallApi; dateFilter: DateFilter }): JSX.Element {
     return (
         <div className="flex items-center gap-1.5 min-w-0">
@@ -104,6 +154,9 @@ function MCPToolCallTitle({ toolCall, dateFilter }: { toolCall: MCPToolCallApi; 
             ) : (
                 <span className="font-mono font-semibold truncate">unknown</span>
             )}
+            {execCommandLabel(toolCall) ? (
+                <span className="font-mono text-secondary truncate">{execCommandLabel(toolCall)}</span>
+            ) : null}
             {toolCall.is_error ? (
                 <LemonTag type="danger" size="small">
                     error
@@ -126,11 +179,7 @@ export function MCPToolCallRow({
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     return (
-        <li
-            className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 ${
-                toolCall.is_error ? 'border-danger border-l-2' : 'border-primary border-l-2 border-l-accent/60'
-            }`}
-        >
+        <MCPToolCallRowShell isError={toolCall.is_error}>
             <div className="flex items-center justify-between gap-2 text-xs">
                 <MCPToolCallTitle toolCall={toolCall} dateFilter={dateFilter} />
                 <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
@@ -155,8 +204,9 @@ export function MCPToolCallRow({
             {toolCall.is_error && toolCall.error_message ? (
                 <div className="text-xs text-danger font-mono pl-5 break-all">{toolCall.error_message}</div>
             ) : null}
+            {toolCall.is_error ? <FailureDetails toolCall={toolCall} /> : null}
 
             {expanded ? <MCPToolCallDetails toolCall={toolCall} sessionId={sessionId} /> : null}
-        </li>
+        </MCPToolCallRowShell>
     )
 }

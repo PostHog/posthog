@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "docs_text": {
+            "description": "Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url.",
+            "type": "string"
+        },
+        "docs_url": {
+            "anyOf": [
+                {
+                    "format": "uri",
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy."
+        },
+        "source_name": {
+            "default": "",
+            "description": "Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

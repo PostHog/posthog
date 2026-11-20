@@ -2,6 +2,7 @@ import csv
 from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -32,6 +33,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     WarehouseSourceCredentialsStore,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views.external_data_source.shared_credentials import (
     shared_credentials_conflict_response,
@@ -42,6 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.job
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.workflows.backend.facade.testing import create_workflow_for_test
+
+# These tests check the stored credentials, so raw saves keep their inputs as they are.
+pytestmark = pytest.mark.raw_warehouse_source_credentials
+
 
 PG_FIELDS: dict[str, Any] = {
     "host": "db.example.com",
@@ -100,7 +106,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     def _create(self, source: ExternalDataSource, fields: dict[str, Any]) -> int:
         reference = WarehouseSourceCredentialsStore.create(source, fields)
-        SourceInputsStore.save(source, SourceInputsStore.load(source))
+        SourceInputsStore.write_credentials_reference(source, reference)
         assert reference.legacy_id is not None
         return reference.legacy_id
 
@@ -177,7 +183,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("inputs_save", lambda source: SourceInputsStore.save(source, {"schema": "other"}), True),
             ("model_save", lambda source: source.save(), True),
             # A sync holds an old copy of its source, so a runtime write must not move the pointer.
             ("runtime_write", lambda source: SourceInputsStore.update_runtime(source, {"cdc_slot_name": "s"}), False),
@@ -634,7 +639,8 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         ]
     )
     def test_reference_detection_in_inputs(self, _name: str, inputs: dict[str, Any] | None, expected: bool) -> None:
-        source = self._source()
+        # A Custom source has no credentials row or column, so its reads return `job_inputs` as stored.
+        source = self._source(ExternalDataSourceType.CUSTOM)
         source.job_inputs = inputs
         source.save()
 
@@ -746,27 +752,32 @@ class TestWarehouseSourceUsageProvider(BaseTest):
             self.team.id, external_id="pg", config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
         )
 
-    @parameterized.expand(
-        [
-            ("credentials_column", None, "prod", "Postgres (prod)"),
-            ("oauth_pointer_without_prefix", "linear_integration_id", None, "Postgres"),
-        ]
-    )
-    def test_the_sdk_reports_a_source_that_points_at_the_row(
-        self, _name: str, inputs_key: str | None, prefix: str | None, name: str
-    ) -> None:
+    @parameterized.expand([("with_prefix", "prod", "Postgres (prod)"), ("without_prefix", None, "Postgres")])
+    def test_the_sdk_reports_a_source_that_points_at_the_row(self, _name: str, prefix: str | None, name: str) -> None:
         row = self._row()
-        pointer: dict[str, Any] = (
-            {"job_inputs": {inputs_key: str(row.id)}}
-            if inputs_key
-            else {"job_inputs": {}, "credentials_integration_id": str(row.id)}
-        )
-        source = self._source(prefix=prefix, **pointer)
-        self._source(deleted=True, **pointer)
+        source = self._source({}, prefix=prefix, credentials_integration_id=str(row.id))
+        self._source({}, deleted=True, credentials_integration_id=str(row.id))
 
         assert IntegrationManager.any.with_source_rows().usages(self.team.id, row.id) == [
             IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
         ]
+
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_the_sdk_reports_a_destination_that_writes_through_the_row(self, _name: str, deleted: bool) -> None:
+        row = IntegrationManager.postgresql.credentials.create(self.team.id, external_id="pg", config={})
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Reporting",
+            integration_id=row.id,
+            deleted=deleted,
+        )
+
+        assert IntegrationManager.any.usages(self.team.id, row.id) == (
+            []
+            if deleted
+            else [IntegrationUsage(type="warehouse_destination", id=str(destination.id), name="Reporting")]
+        )
 
     def test_delete_of_a_used_row_raises_and_keeps_the_row(self) -> None:
         row = self._row()

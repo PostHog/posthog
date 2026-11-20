@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 import { toast } from 'react-toastify'
 
-import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Button, Checkbox, Field, FieldLabel, Input, Text } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -16,6 +18,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ChartDisplayCategory, EditorFilterProps, RetentionPeriod, RetentionType } from '~/types'
 
 import { getRetentionPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'
+import { QuillEditorSelect } from 'products/product_analytics/frontend/insights/editor/QuillEditorSelect'
 import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'
@@ -35,12 +38,22 @@ const actionsTaxonomicGroupTypes = [
     TaxonomicFilterGroupType.DataWarehouse,
 ]
 
+const periodOptions = dateOptions.map((period) => ({
+    value: period,
+    label: dateOptionPlurals[period] || period,
+}))
+
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateLocalCustomBracket, addCustomBracket, removeCustomBracket } = useActions(
         retentionLogic(insightProps)
     )
+    const quillSurface = useQuillSurface()
     const { period, retentionCustomBrackets } = retentionFilter || {}
+
+    const onPeriodChange = (value: RetentionPeriod | null): void => {
+        updateInsightFilter({ period: value ? value : undefined })
+    }
 
     const getBracketLabel = (index: number): string => {
         const numericBrackets = localCustomBrackets.map((b) => {
@@ -70,6 +83,66 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
     }
 
     const totalRange = (retentionCustomBrackets || []).reduce((acc: number, val: number) => acc + val, 0)
+    const removeDisabledReason = localCustomBrackets.length === 1 ? 'You must have at least one bracket' : undefined
+    const addDisabledReason =
+        localCustomBrackets.length >= MAX_BRACKETS ? 'You have reached the maximum number of brackets' : undefined
+
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div>Bracket By</div>
+                    <QuillEditorSelect
+                        value={period ?? RetentionPeriod.Day}
+                        onChange={onPeriodChange}
+                        options={periodOptions}
+                    />
+                </div>
+                {localCustomBrackets.map((bracket, index) => {
+                    if (index >= MAX_BRACKETS) {
+                        return null
+                    }
+                    return (
+                        <div key={index} className="flex flex-wrap items-center gap-2">
+                            <div className="w-24">
+                                {index + 1}
+                                {getOrdinalSuffix(index + 1)} Bracket
+                            </div>
+                            <Input
+                                type="number"
+                                className="w-20"
+                                value={typeof bracket === 'number' && !Number.isNaN(bracket) ? bracket : ''}
+                                min={1}
+                                onChange={(event) => updateLocalCustomBracket(index, event.currentTarget.valueAsNumber)}
+                            />
+                            <Button
+                                variant="destructive-outline"
+                                size="icon"
+                                aria-label="Remove bracket"
+                                tooltip="Remove bracket"
+                                onClick={() => removeCustomBracket(index)}
+                                disabledReason={removeDisabledReason}
+                            >
+                                <IconTrash />
+                            </Button>
+                            {getBracketLabel(index) && <div>{getBracketLabel(index)}</div>}
+                        </div>
+                    )
+                })}
+                <div>
+                    <Button onClick={() => addCustomBracket()} disabledReason={addDisabledReason}>
+                        <IconPlus />
+                        Add another bracket
+                    </Button>
+                </div>
+                {totalRange > MAX_RANGE && (
+                    <Text size="xs" variant="destructive" className="m-0">
+                        Total range is too large.
+                    </Text>
+                )}
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -77,13 +150,8 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                 <div>Bracket By</div>
                 <LemonSelect
                     value={period ?? RetentionPeriod.Day}
-                    onChange={(value): void => {
-                        updateInsightFilter({ period: value ? value : undefined })
-                    }}
-                    options={dateOptions.map((period) => ({
-                        value: period,
-                        label: dateOptionPlurals[period] || period,
-                    }))}
+                    onChange={onPeriodChange}
+                    options={periodOptions}
                     dropdownMatchSelectWidth={false}
                 />
             </div>
@@ -111,7 +179,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                             size="small"
                             status="danger"
                             onClick={() => removeCustomBracket(index)}
-                            disabledReason={localCustomBrackets.length === 1 && 'You must have at least one bracket'}
+                            disabledReason={removeDisabledReason}
                         />
                         {getBracketLabel(index) && <div>{getBracketLabel(index)}</div>}
                     </div>
@@ -122,9 +190,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                     icon={<IconPlusSmall />}
                     size="small"
                     onClick={() => addCustomBracket()}
-                    disabledReason={
-                        localCustomBrackets.length >= MAX_BRACKETS && 'You have reached the maximum number of brackets'
-                    }
+                    disabledReason={addDisabledReason}
                 >
                     Add another bracket
                 </LemonButton>
@@ -138,8 +204,51 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
+    const quillSurface = useQuillSurface()
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
+
+    const setUseCustomBrackets = (checked: boolean): void => {
+        updateInsightFilter({ retentionCustomBrackets: checked ? [1, 3, 5] : undefined })
+    }
+
+    const onRetentionTypeChange = (value: string): void =>
+        updateInsightFilter({ retentionType: value as RetentionType })
+
+    const onTotalIntervalsBlur = ({ target }: React.FocusEvent<HTMLInputElement>): void => {
+        let newValue = Number(target.value)
+        if (newValue > 31) {
+            // See if just the first two numbers are under 31 (when someone mashed keys)
+            newValue = Number(target.value.substring(0, 2))
+            if (newValue > 31) {
+                newValue = 10
+            }
+            toast.warn(
+                <>
+                    The maximum number of {dateOptionPlurals[period || 'Day']} is <strong>31</strong>
+                </>
+            )
+        }
+        target.value = newValue.toString()
+        updateInsightFilter({ totalIntervals: (newValue || 0) + 1 })
+        if (!dateRange) {
+            // if we haven't updated date range before changing interval type
+            // set date range
+            updateDateRange({
+                date_from: `-7${(period ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
+                date_to: `now`,
+            })
+        }
+    }
+
+    const onPeriodChange = (value: RetentionPeriod | null): void => {
+        updateInsightFilter({ period: value ? value : undefined })
+        // reset date range when we change interval type
+        updateDateRange({
+            date_from: `-7${(value ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
+            date_to: `now`,
+        })
+    }
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
@@ -165,28 +274,40 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 flagCallsFromFlagEvaluations
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
-            <LemonSelect
-                options={Object.entries(retentionOptions).map(([key, value]) => ({
-                    value: key,
-                    label: value,
-                    labelInMenu: (
-                        <div className="flex items-center justify-between w-full">
-                            <Tooltip
-                                placement="right"
-                                title={retentionOptionDescriptions[key as keyof typeof retentionOptionDescriptions]}
-                            >
-                                <div className="flex items-center gap-1">
-                                    <span>{value}</span>
-                                    <IconInfo className="info-indicator" />
-                                </div>
-                            </Tooltip>
-                        </div>
-                    ),
-                }))}
-                value={retentionType}
-                onChange={(value): void => updateInsightFilter({ retentionType: value as RetentionType })}
-                dropdownMatchSelectWidth={false}
-            />
+            {quillSurface ? (
+                <QuillEditorSelect
+                    value={retentionType ?? null}
+                    onChange={onRetentionTypeChange}
+                    options={Object.entries(retentionOptions).map(([key, value]) => ({
+                        value: key,
+                        label: value,
+                        tooltip: retentionOptionDescriptions[key as keyof typeof retentionOptionDescriptions],
+                    }))}
+                />
+            ) : (
+                <LemonSelect
+                    options={Object.entries(retentionOptions).map(([key, value]) => ({
+                        value: key,
+                        label: value,
+                        labelInMenu: (
+                            <div className="flex items-center justify-between w-full">
+                                <Tooltip
+                                    placement="right"
+                                    title={retentionOptionDescriptions[key as keyof typeof retentionOptionDescriptions]}
+                                >
+                                    <div className="flex items-center gap-1">
+                                        <span>{value}</span>
+                                        <IconInfo className="info-indicator" />
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        ),
+                    }))}
+                    value={retentionType}
+                    onChange={onRetentionTypeChange}
+                    dropdownMatchSelectWidth={false}
+                />
+            )}
 
             <div>and then returned to perform</div>
             <SeriesActionFilter
@@ -203,73 +324,64 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 flagCallsFromFlagEvaluations
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
-            <div className="flex items-center gap-2">
+            <div className={quillSurface ? 'flex flex-wrap items-center gap-2' : 'flex items-center gap-2'}>
                 {!retentionCustomBrackets ? (
-                    <Fragment>
-                        <div>during the next</div>
-                        <LemonInput
-                            type="number"
-                            className="ml-2 w-20"
-                            defaultValue={(totalIntervals ?? 7) - 1}
-                            min={1}
-                            max={31}
-                            onBlur={({ target }) => {
-                                let newValue = Number(target.value)
-                                if (newValue > 31) {
-                                    // See if just the first two numbers are under 31 (when someone mashed keys)
-                                    newValue = Number(target.value.substring(0, 2))
-                                    if (newValue > 31) {
-                                        newValue = 10
-                                    }
-                                    toast.warn(
-                                        <>
-                                            The maximum number of {dateOptionPlurals[period || 'Day']} is{' '}
-                                            <strong>31</strong>
-                                        </>
-                                    )
-                                }
-                                target.value = newValue.toString()
-                                updateInsightFilter({ totalIntervals: (newValue || 0) + 1 })
-                                if (!dateRange) {
-                                    // if we haven't updated date range before changing interval type
-                                    // set date range
-                                    updateDateRange({
-                                        date_from: `-7${(period ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
-                                        date_to: `now`,
-                                    })
-                                }
-                            }}
-                        />
-                        <LemonSelect
-                            value={period ?? RetentionPeriod.Day}
-                            onChange={(value): void => {
-                                updateInsightFilter({ period: value ? value : undefined })
-                                // reset date range when we change interval type
-                                updateDateRange({
-                                    date_from: `-7${(value ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
-                                    date_to: `now`,
-                                })
-                            }}
-                            options={dateOptions.map((period) => ({
-                                value: period,
-                                label: dateOptionPlurals[period] || period,
-                            }))}
-                            dropdownMatchSelectWidth={false}
-                        />
-                    </Fragment>
+                    quillSurface ? (
+                        <Fragment>
+                            <div>during the next</div>
+                            <Input
+                                type="number"
+                                className="w-20"
+                                defaultValue={(totalIntervals ?? 7) - 1}
+                                min={1}
+                                max={31}
+                                onBlur={onTotalIntervalsBlur}
+                            />
+                            <QuillEditorSelect
+                                value={period ?? RetentionPeriod.Day}
+                                onChange={onPeriodChange}
+                                options={periodOptions}
+                            />
+                        </Fragment>
+                    ) : (
+                        <Fragment>
+                            <div>during the next</div>
+                            <LemonInput
+                                type="number"
+                                className="ml-2 w-20"
+                                defaultValue={(totalIntervals ?? 7) - 1}
+                                min={1}
+                                max={31}
+                                onBlur={onTotalIntervalsBlur}
+                            />
+                            <LemonSelect
+                                value={period ?? RetentionPeriod.Day}
+                                onChange={onPeriodChange}
+                                options={periodOptions}
+                                dropdownMatchSelectWidth={false}
+                            />
+                        </Fragment>
+                    )
                 ) : null}
             </div>
-            <LemonCheckbox
-                label="Use custom return ranges"
-                checked={retentionCustomBrackets !== undefined}
-                onChange={(checked) => {
-                    if (checked) {
-                        updateInsightFilter({ retentionCustomBrackets: [1, 3, 5] })
-                    } else {
-                        updateInsightFilter({ retentionCustomBrackets: undefined })
-                    }
-                }}
-            />
+            {quillSurface ? (
+                <Field orientation="horizontal" className="gap-2">
+                    <Checkbox
+                        id="retention-custom-brackets"
+                        checked={retentionCustomBrackets !== undefined}
+                        onCheckedChange={setUseCustomBrackets}
+                    />
+                    <FieldLabel htmlFor="retention-custom-brackets" className="font-normal">
+                        Use custom return ranges
+                    </FieldLabel>
+                </Field>
+            ) : (
+                <LemonCheckbox
+                    label="Use custom return ranges"
+                    checked={retentionCustomBrackets !== undefined}
+                    onChange={setUseCustomBrackets}
+                />
+            )}
             {retentionCustomBrackets !== undefined ? <CustomBrackets insightProps={insightProps} /> : null}
         </div>
     )
