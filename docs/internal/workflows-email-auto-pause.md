@@ -70,6 +70,12 @@ An exempt workflow is judged on its own sends only, never on its project's.
 An id that is not a UUID in the 8-4-4-4-12 form, in either case, stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
 
+A workflow whose every email step is transactional (`message_category_type` is `transactional`, the same rule the quota check uses) is never paused automatically.
+Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach with `mode="transactional"`.
+Its warning email says it is not paused automatically and that staff can pause it by hand.
+Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
+A workflow with one marketing email step is judged like any other.
+
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
 ## Known limits

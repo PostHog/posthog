@@ -328,6 +328,61 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
 
+    @parameterized.expand(
+        [
+            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], ["transactional"]),
+            (
+                "transactional_breach_beside_a_quiet_sibling",
+                ["transactional"],
+                (300, 60),
+                (8, 1),
+                [],
+                ["transactional"],
+            ),
+            (
+                "sibling_breach_beside_a_quiet_transactional_workflow",
+                ["transactional"],
+                (1, 1),
+                (300, 60),
+                ["sibling"],
+                [],
+            ),
+            ("one_marketing_step_makes_it_pausable", ["transactional", "marketing"], (300, 60), None, ["mixed"], []),
+        ]
+    )
+    def test_a_transactional_workflow_is_warned_instead_of_paused(
+        self,
+        _name: str,
+        categories: list[str],
+        own_seed: tuple[int, int],
+        sibling_seed: tuple[int, int] | None,
+        paused: list[str],
+        warned_transactional: list[str],
+    ):
+        self.flow.actions = [
+            {"id": f"email_{index}", "type": "function_email", "config": {"message_category_type": category}}
+            for index, category in enumerate(categories)
+        ]
+        self.flow.save()
+        own_name = "transactional" if categories == ["transactional"] else "mixed"
+        names = {str(self.flow.id): own_name}
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team)
+        names[str(sibling.id)] = "sibling"
+        self._seed(sent=own_seed[0], hard_bounces=own_seed[1])
+        if sibling_seed is not None:
+            self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
+
+        self._sweep()
+
+        for flow in (self.flow, sibling):
+            flow.refresh_from_db()
+        assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
+        assert [
+            names[call.kwargs["hog_flow_id"]]
+            for call in self.warning_email.call_args_list
+            if call.kwargs["transactional"]
+        ] == warned_transactional
+
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
         self._seed(sent=50, at=self.now - timedelta(hours=2))
