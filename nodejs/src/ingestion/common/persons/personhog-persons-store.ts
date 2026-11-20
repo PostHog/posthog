@@ -963,7 +963,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 namedIds,
                 affected,
                 invalid || opIdReused ? 'merge_refused' : 'merge_no_verdict',
-                invalid || notApplied !== null
+                !opIdReused && (invalid || notApplied !== null)
             )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
@@ -1140,7 +1140,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** Lanes are kept, because the ops of a destroyed person reach the survivor through the redirect. */
     private purgeAfterMerge(
         teamId: number,
         distinctIds: string[],

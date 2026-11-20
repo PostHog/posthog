@@ -667,6 +667,11 @@ describe('PersonhogPersonsStore', () => {
                 rejectedWith(Code.FailedPrecondition, { 'x-semantic-refusal': 'op_id_reused' }),
                 undefined,
             ],
+            [
+                'a reused op id refusal whose status code a hop remapped',
+                rejectedWith(Code.InvalidArgument, { 'x-semantic-refusal': 'op_id_reused' }),
+                undefined,
+            ],
             ['a verdict with an errored source', answeredWith([{ outcome: 'error' }]), undefined],
             ['a verdict with an outcome this build cannot name', answeredWith([{ outcome: 'unknown' }]), undefined],
             ['a merged verdict that names no source person', answeredWith([{ outcome: 'merged' }]), undefined],
