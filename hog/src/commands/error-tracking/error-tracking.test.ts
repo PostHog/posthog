@@ -397,6 +397,27 @@ describe('hog error-tracking upload', () => {
         ])
     })
 
+    test('--dry-run reports a JavaScript bundle it skips once when a Hermes map is uploaded with it', async () => {
+        const composed = 'android/hbc/index.android.bundle.hbc.composed.map'
+        const folder = project({
+            ...HERMES_BUILD,
+            [composed]: HERMES_BUILD[composed]!.replace('{', '{"chunk_id":"0b9f3c55-6a1e-4f43-9d9a-3a1f2c7e8b10",'),
+            'web/a.js': 'a();\n//# sourceMappingURL=a.js.map\n',
+            'web/a.js.map': '{"version":3,',
+        })
+
+        const result = await runHog(['et', 'upload', '--dry-run', 'android/hbc', 'web'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json(UploadOutput).skipped).toEqual([
+            { path: expect.stringMatching(/web\/a\.js$/), reason: expect.stringContaining('failed to read sourcemap') },
+        ])
+    })
+
     test('upload fails when Hermes bundles have no composed maps', async () => {
         const { 'android/hbc/index.android.bundle.hbc.composed.map': _composed, ...metroOnly } = HERMES_BUILD
         const folder = project(metroOnly)
