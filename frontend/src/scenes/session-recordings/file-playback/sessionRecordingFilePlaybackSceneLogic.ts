@@ -20,8 +20,72 @@ import {
     type sessionRecordingDataCoordinatorLogicType,
 } from '../player/sessionRecordingDataCoordinatorLogic'
 import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
+import { parseEncodedSnapshots } from '../player/snapshot-processing/process-all-snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
+import {
+    ExportedSessionRecordingFileRawHeader,
+    ExportedViewport,
+    ExportedSessionRecordingFileV1,
+    ExportedSessionRecordingFileV2,
+    LoadedSessionRecordingFile,
+} from './types'
+
+const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
+// One parse call joins its decompressed blocks into one string, so a whole large session would pass the browser's string length limit.
+const RAW_EXPORT_BLOCKS_PER_PARSE = 50
+
+export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
+    bytes.byteLength >= RAW_EXPORT_MAGIC.byteLength && RAW_EXPORT_MAGIC.every((byte, i) => bytes[i] === byte)
+
+export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promise<LoadedSessionRecordingFile> => {
+    const headerEnd = bytes.indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
+    if (headerEnd === -1) {
+        throw new Error('File does not have a valid header')
+    }
+    const header: ExportedSessionRecordingFileRawHeader = JSON.parse(
+        new TextDecoder().decode(bytes.subarray(RAW_EXPORT_MAGIC.byteLength, headerEnd))
+    )
+    if (header.version !== '2026-11-raw') {
+        throw new Error(`Unsupported export version ${header.version}`)
+    }
+
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    const registerWindowId = createWindowIdRegistry()
+    const snapshots: RecordingSnapshot[] = []
+    let offset = headerEnd + 1
+    let blockCount = 0
+    while (offset < bytes.byteLength) {
+        const groupStart = offset
+        for (let i = 0; i < RAW_EXPORT_BLOCKS_PER_PARSE && offset < bytes.byteLength; i++) {
+            if (offset + 4 > bytes.byteLength || offset + 4 + view.getUint32(offset) > bytes.byteLength) {
+                throw new Error('File is truncated')
+            }
+            offset += 4 + view.getUint32(offset)
+            blockCount++
+        }
+        snapshots.push(
+            ...(await parseEncodedSnapshots(
+                bytes.subarray(groupStart, offset),
+                header.session_id,
+                undefined,
+                registerWindowId
+            ))
+        )
+    }
+    if (blockCount !== header.block_count) {
+        throw new Error(`File has ${blockCount} blocks but its header lists ${header.block_count}`)
+    }
+    if (!snapshots.length) {
+        throw new Error('File contains no snapshots')
+    }
+
+    return {
+        id: header.session_id,
+        person: header.person,
+        snapshots: snapshots.sort((a, b) => a.timestamp - b.timestamp),
+        viewports: header.viewports,
+    }
+}
 
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
     const data = JSON.parse(fileData) as ExportedSessionRecordingFileV1 | ExportedSessionRecordingFileV2
@@ -102,7 +166,7 @@ export interface sessionRecordingFilePlaybackSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     fileId: string
     playerProps: SessionRecordingPlayerProps
-    sessionRecording: ExportedSessionRecordingFileV2['data'] | null
+    sessionRecording: LoadedSessionRecordingFile | null
     sessionRecordingLoading: boolean
 }
 
@@ -125,6 +189,7 @@ export interface sessionRecordingFilePlaybackSceneLogicActions {
             id: string
             person: PersonType | undefined
             snapshots: RecordingSnapshot[]
+            viewports?: ExportedViewport[]
         } | null,
         payload?: File
     ) => {
@@ -132,6 +197,7 @@ export interface sessionRecordingFilePlaybackSceneLogicActions {
             id: string
             person: PersonType | undefined
             snapshots: RecordingSnapshot[]
+            viewports?: ExportedViewport[]
         } | null
         payload?: File
     }
@@ -175,24 +241,15 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
 
     loaders(({ actions }) => ({
         sessionRecording: {
-            __default: null as ExportedSessionRecordingFileV2['data'] | null,
+            __default: null as LoadedSessionRecordingFile | null,
             loadFromFile: async (file: File) => {
                 try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => {
-                            resolve(e.target?.result as string)
-                        }
-                        filereader.onerror = (e) => {
-                            reject(e)
-                        }
-                        filereader.readAsText(file)
-                    })
-
-                    const data = parseExportedSessionRecording(loadedFile)
-
+                    const bytes = new Uint8Array(await file.arrayBuffer())
+                    const data = isRawExportedSessionRecording(bytes)
+                        ? await parseRawExportedSessionRecording(bytes)
+                        : parseExportedSessionRecording(new TextDecoder().decode(bytes)).data
                     actions.reportRecordingLoadedFromFile({ success: true })
-                    return data.data
+                    return data
                 } catch (error) {
                     actions.reportRecordingLoadedFromFile({ success: false, error: `${error}` })
                     lemonToast.error(`File import failed: ${error}`)
