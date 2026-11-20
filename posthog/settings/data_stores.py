@@ -828,6 +828,12 @@ CACHES["task_artifact_preview"] = {
 CACHES["codex_login"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "CONNECTION_FACTORY": "posthog.caching.codex_login_connection_factory.CodexLoginConnectionFactory",
+        "SOCKET_CONNECT_TIMEOUT": 1,
+        "SOCKET_TIMEOUT": 1,
+    },
 }
 
 # Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.

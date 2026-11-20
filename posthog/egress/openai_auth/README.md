@@ -26,6 +26,8 @@ Cache failures before token exchange retry the task up to three times, after the
 
 After token exchange, cancellation-state reads and status publication each have three attempts, two seconds apart. Tokens stay in worker memory while the read retries. Status publication runs after the token transaction commits. Neither retry repeats token exchange, and a publication failure does not mark the committed connection as failed.
 
+The login cache uses a separate connection pool with one-second connect and read timeouts. The final cancellation-state read stays under the user lock to serialize it with cancellation. Its two retry waits can add four seconds to the lock hold time.
+
 ## Rate-limit headers
 
 None documented, so the domain declares no gauges.
