@@ -60071,7 +60071,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
