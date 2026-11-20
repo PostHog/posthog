@@ -921,6 +921,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/dashboard_v2/query_batch/?$",
             ]
         ),
     )

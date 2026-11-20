@@ -16,7 +16,7 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope
+from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope, QueryBatchLanguage
 
 GRID_COLUMNS = 12
 MAX_TEXT_TILE_LENGTH = 4000
@@ -293,3 +293,26 @@ class DashboardExtras:
     share_token: str | None
     is_shared: bool
     quick_filter_ids: list[str] | None
+
+
+@frozen
+class QueryBatchTarget:
+    """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
+    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`."""
+
+    ref_id: str
+    language: QueryBatchLanguage
+    query: str
+
+
+@frozen
+class QueryBatchInput:
+    """One query of a batch. `date_from` and `date_to` are expressions like `now-7d` and `now`."""
+
+    target: QueryBatchTarget
+    date_from: str
+    date_to: str
+    variables: dict[str, Any] | None = None
+    interval: str | None = None
+    swr: bool = False
+    cache_only: bool = False
