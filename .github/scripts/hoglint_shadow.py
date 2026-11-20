@@ -565,11 +565,12 @@ class ShadowReport:
     row on a changed line is a warning, and an advisory row on a changed line is a notice, because
     it never blocks."""
 
-    def __init__(self, output: str, stderr: str, status: int, changed: ChangedLines) -> None:
+    def __init__(self, output: str, stderr: str, status: int, changed: ChangedLines, base: str | None = None) -> None:
         self.view = FullView(output)
         self.stderr = stderr
         self.status = status
         self.changed = changed
+        self.base = base
 
     def own_rows(self) -> list[Row]:
         return [row for row in self.view.rows() if self.changed.covers(row)]
@@ -608,20 +609,36 @@ class ShadowReport:
         first = " ".join(lines[:2]) if len(lines) > 1 and lines[0].endswith(":") else (lines or ["no output"])[0]
         return f"hoglint did not run (exit {self.status}): {first}"
 
-    def summary(self) -> str:
-        intro = "hoglint fails this check on the rows under **From this PR: blocks**."
+    def intro(self, blocks: bool) -> str:
+        """What hoglint's exit means for this check. A non-zero exit with no row in the blocking
+        section comes from a line elsewhere in the log, such as a stale ledger line or a failed
+        level claim."""
+        command = f"hoglint compare --base {self.base}" if self.base else "hoglint check"
+        exited = f"`{command}` exited {self.status}"
+        if self.status == 0:
+            return f"{exited}: nothing blocks."
         if not self.view.is_report():
-            return "\n".join([intro, "", *fenced([self.did_not_run()]), ""])
+            return f"{exited}."
+        if blocks:
+            return f"{exited}. It fails this check on the rows under **From this PR: blocks**."
+        return (
+            f"{exited}, and no row under **From this PR: blocks** explains it. "
+            "Look in the log for a stale ledger line, a failed level claim or a new unknown."
+        )
+
+    def summary(self) -> str:
+        if not self.view.is_report():
+            return "\n".join([self.intro(blocks=False), "", *fenced([self.did_not_run()]), ""])
+        compare = self.compare_sections(advisory=False)
+        own = self.own_rows()
         parts = [
-            intro,
+            self.intro(blocks=bool(compare or own)),
             "",
             "**From this PR: blocks**",
             "",
             "hoglint blocks the rows in this section.",
             "",
         ]
-        compare = self.compare_sections(advisory=False)
-        own = self.own_rows()
         if compare:
             parts += [*fenced(compare), ""]
         if own:
@@ -704,7 +721,7 @@ def run_hook(args: argparse.Namespace) -> int:
 
 def report_findings(args: argparse.Namespace, changed: ChangedLines) -> None:
     output, stderr = read(args.output), read(args.stderr)
-    report = ShadowReport(output, stderr, args.status, changed)
+    report = ShadowReport(output, stderr, args.status, changed, args.base)
     print("::group::hoglint output")
     # hoglint prints the PR's paths as they are, and a path may hold a line break followed by a
     # workflow command, so the runner reads no command until the echo ends.
