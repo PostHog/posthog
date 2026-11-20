@@ -19,6 +19,7 @@ from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_K
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 from products.signals.backend.scout_harness.tools.scratchpad import (
     DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
+    ScratchpadConflictError,
     ScratchpadEntry,
     _clamp_search_limit,
     _project_content,
@@ -233,12 +234,27 @@ class ScoutTrialStore:
             for entry in result[: _clamp_search_limit(limit)]
         ]
 
-    def remember(self, *, key: str, content: str, expires_at: datetime | None = None) -> ScratchpadEntry:
+    def remember(
+        self,
+        *,
+        key: str,
+        content: str,
+        expires_at: datetime | None = None,
+        if_updated_at: datetime | None = None,
+    ) -> ScratchpadEntry:
         _validate_entry(key=key, content=content, expires_at=expires_at)
         snapshot = self._memory_snapshot()
 
         def change(state: _TrialState) -> ScratchpadEntry:
             existing = self._merge_memory(snapshot, state).get(key)
+            if if_updated_at is not None and (
+                existing is None
+                or existing.updated_at is None
+                or datetime.fromisoformat(existing.updated_at) != if_updated_at
+            ):
+                raise ScratchpadConflictError(
+                    key=key, current_updated_at=existing.updated_at if existing is not None else None
+                )
             now = timezone.now().isoformat()
             entry = (
                 replace(

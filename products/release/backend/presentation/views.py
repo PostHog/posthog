@@ -91,6 +91,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             organization_id=self.team.organization_id,
             distinct_id=str(user.distinct_id),
             email=email,
+            for_area=self.action == "catalog_flags",
         )
         if not enabled:
             raise PermissionDenied("Releases are not enabled for this project.")

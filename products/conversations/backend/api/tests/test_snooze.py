@@ -12,8 +12,9 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog
-from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.api.internal import CONVERSATIONS_TICKETS_PURPOSE
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
@@ -180,8 +181,8 @@ class TestExternalTicketSnoozeAPI(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["conversations_enabled", "secret_api_token"])
+        self.team.save(update_fields=["conversations_enabled"])
+        _, self.secret_token = create_project_secret_api_key(self.team, label="snooze", scopes=["support_ticket:read"])
         self.client = APIClient()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -191,9 +192,14 @@ class TestExternalTicketSnoozeAPI(BaseTest):
             status=Status.NEW,
         )
         self.url = f"/api/conversations/external/ticket/{self.ticket.id}"
+        self.internal_url = f"/api/projects/{self.team.id}/internal/conversations/tickets/{self.ticket.id}"
 
     def _auth(self):
-        return {"HTTP_AUTHORIZATION": f"Bearer {self.team.secret_api_token}"}
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.secret_token}"}
+
+    def _internal_auth(self):
+        claims = {"team_id": self.team.id, "ticket_id": str(self.ticket.id)}
+        return {"HTTP_AUTHORIZATION": f"Bearer {CONVERSATIONS_TICKETS_PURPOSE.mint(claims)}"}
 
     def test_get_returns_snoozed_until(self):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -211,7 +217,7 @@ class TestExternalTicketSnoozeAPI(BaseTest):
     def test_patch_set_snoozed_until(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
         response = self.client.patch(
-            self.url, {"snoozed_until": snooze_time}, content_type="application/json", **self._auth()
+            self.internal_url, {"snoozed_until": snooze_time}, content_type="application/json", **self._internal_auth()
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -223,7 +229,9 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         self.ticket.status = Status.ON_HOLD
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
-        response = self.client.patch(self.url, {"snoozed_until": None}, content_type="application/json", **self._auth())
+        response = self.client.patch(
+            self.internal_url, {"snoozed_until": None}, content_type="application/json", **self._internal_auth()
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.ticket.refresh_from_db()
@@ -231,7 +239,9 @@ class TestExternalTicketSnoozeAPI(BaseTest):
 
     def test_patch_snooze_auto_sets_on_hold(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
-        self.client.patch(self.url, {"snoozed_until": snooze_time}, content_type="application/json", **self._auth())
+        self.client.patch(
+            self.internal_url, {"snoozed_until": snooze_time}, content_type="application/json", **self._internal_auth()
+        )
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.ON_HOLD)
@@ -241,7 +251,9 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         self.ticket.status = Status.ON_HOLD
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
-        self.client.patch(self.url, {"snoozed_until": None}, content_type="application/json", **self._auth())
+        self.client.patch(
+            self.internal_url, {"snoozed_until": None}, content_type="application/json", **self._internal_auth()
+        )
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.OPEN)
@@ -249,10 +261,10 @@ class TestExternalTicketSnoozeAPI(BaseTest):
     def test_patch_snooze_with_explicit_status_respects_status(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
         self.client.patch(
-            self.url,
+            self.internal_url,
             {"snoozed_until": snooze_time, "status": "pending"},
             content_type="application/json",
-            **self._auth(),
+            **self._internal_auth(),
         )
 
         self.ticket.refresh_from_db()
@@ -260,7 +272,9 @@ class TestExternalTicketSnoozeAPI(BaseTest):
 
     def test_patch_snooze_logs_activity(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
-        self.client.patch(self.url, {"snoozed_until": snooze_time}, content_type="application/json", **self._auth())
+        self.client.patch(
+            self.internal_url, {"snoozed_until": snooze_time}, content_type="application/json", **self._internal_auth()
+        )
 
         activity = ActivityLog.objects.filter(
             team_id=self.team.id,
@@ -281,7 +295,7 @@ class TestExternalTicketSnoozeAPI(BaseTest):
 
     def test_patch_invalid_snoozed_until(self):
         response = self.client.patch(
-            self.url, {"snoozed_until": "not-a-date"}, content_type="application/json", **self._auth()
+            self.internal_url, {"snoozed_until": "not-a-date"}, content_type="application/json", **self._internal_auth()
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

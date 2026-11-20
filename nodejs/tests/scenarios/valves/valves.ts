@@ -47,6 +47,7 @@ export interface Valves {
     start(entries: ValveEntry[], context: ValveContext): Promise<void>
     releaseAll(): Promise<void>
     timeline(): ValveTimelineEntry[]
+    refusal: AbortSignal
 }
 
 export const roleKill: ValveDefinition = {
@@ -153,6 +154,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
+    const refusals = new AbortController()
     let releasing: Promise<void> | undefined
 
     const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
@@ -221,6 +223,9 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             journal()
             if (!observed) {
                 record.error ??= 'applied but not observed'
+                if (actuation.refused?.()) {
+                    refusals.abort({ ...record })
+                }
             } else if (
                 entry.when &&
                 definition.strandsRunningJobs &&
@@ -267,5 +272,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })()),
 
         timeline: () => entries.map((entry) => ({ ...entry })),
+
+        refusal: refusals.signal,
     }
 }

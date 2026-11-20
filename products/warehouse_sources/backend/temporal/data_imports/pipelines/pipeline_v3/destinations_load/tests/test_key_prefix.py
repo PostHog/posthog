@@ -8,6 +8,9 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.azure_blob import (
     AzureBlobDestinationWriter,
 )
@@ -47,13 +50,20 @@ def _ctx(prefix: str | None, run_started_at: dt.datetime | None = STARTED, **con
             dt.datetime(2026, 3, 5, 1, 0, tzinfo=dt.timezone(dt.timedelta(hours=2))),
             "2026/03/04/charges/run-a1/",
         ),
-        ("{year}/{foo}/", STARTED, "{year}/{foo}/charges/run-a1/"),
         ("{year}/{table}/", None, "{year}/{table}/charges/run-a1/"),
     ],
-    ids=["no_prefix", "plain", "date_and_table", "time", "utc", "unknown_variable", "no_start_time"],
+    ids=["no_prefix", "plain", "date_and_table", "time", "utc", "no_start_time"],
 )
 def test_run_object_prefix(prefix: str | None, run_started_at: dt.datetime | None, expected: str) -> None:
     assert run_object_prefix(_ctx(prefix, run_started_at)) == expected
+
+
+@pytest.mark.parametrize(
+    "prefix", ["{year}/{foo}/", "{year:>9}", "{0}/"], ids=["unknown_variable", "format_spec", "positional"]
+)
+def test_a_prefix_the_renderer_rejects_is_a_configuration_error(prefix: str) -> None:
+    with pytest.raises(DestinationConfigurationError, match="key prefix"):
+        run_object_prefix(_ctx(prefix))
 
 
 class LocalAzureBlobWriter(AzureBlobDestinationWriter):

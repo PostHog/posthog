@@ -1,11 +1,18 @@
 import typing
+from contextlib import nullcontext
 
 import pytest
+from unittest.mock import patch
 
+from django.test import override_settings
+
+from posthog.models.event.new_events_schema import EVENTS_TABLE_ROLLOUT_FLAG, EVENTS_TABLE_SELF_SERVE_FLAG
+from posthog.models.instance_setting import override_instance_config
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
+    apply_hogql_batch_export_modifier_defaults,
     create_hogql_context_for_batch_export,
     load_hogql_modifiers,
     validate_hogql_query_for_batch_export,
@@ -156,6 +163,43 @@ def test_context_without_hogql_defaults_keeps_the_project_timezone(team) -> None
     context = create_hogql_context_for_batch_export(team)
 
     assert context.modifiers.convertToProjectTimezone is True
+
+
+@pytest.mark.parametrize(
+    "instance_setting,flag_on,export_modifiers,expected",
+    [
+        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", None, None, False),
+        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", None, None, False),
+        (None, EVENTS_TABLE_ROLLOUT_FLAG, None, False),
+        (None, EVENTS_TABLE_SELF_SERVE_FLAG, None, False),
+        (None, None, {"useNewEventsSchema": True}, True),
+    ],
+    ids=["global-setting", "staff-list", "rollout-flag", "project-opt-in", "export-modifier"],
+)
+def test_only_the_export_modifier_moves_an_export_to_the_new_events_table(
+    team,
+    instance_setting: str | None,
+    flag_on: str | None,
+    export_modifiers: dict[str, typing.Any] | None,
+    expected: bool,
+) -> None:
+    team.modifiers = {"useNewEventsSchema": True}
+    setting_value = True if instance_setting == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" else str(team.pk)
+    with (
+        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+        override_instance_config(instance_setting, setting_value) if instance_setting else nullcontext(),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=True),
+        patch(
+            "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == flag_on,
+        ),
+    ):
+        context = create_hogql_context_for_batch_export(
+            team,
+            modifiers=apply_hogql_batch_export_modifier_defaults(team, load_hogql_modifiers(export_modifiers)),
+        )
+
+        assert context.uses_new_events_schema() is expected
 
 
 def test_load_hogql_modifiers_rejects_invalid_values() -> None:

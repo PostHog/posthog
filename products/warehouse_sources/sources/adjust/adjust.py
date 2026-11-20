@@ -36,7 +36,7 @@ _APP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 class AdjustRetryableError(Exception):
-    """Transient upstream failure (429 / 5xx) that survived the tracked session's own retries."""
+    """Transient upstream failure (408 / 429 / 5xx) that survived the tracked session's own retries."""
 
     pass
 
@@ -128,7 +128,9 @@ def _error_message(response: requests.Response) -> str:
 def _get_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # 408 is a transient request timeout on Adjust's side; retry it like 429/5xx rather than
+    # treating it as a bad request the client sent.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise AdjustRetryableError(f"Adjust API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
@@ -312,7 +314,7 @@ def validate_credentials(api_token: str, app_tokens: str | None = None) -> bool:
 
     response = _get_session(api_token).get(f"{REPORT_URL}?{urlencode(params)}", timeout=30)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise AdjustRetryableError(f"Adjust API error (retryable): status={response.status_code}")
     if response.status_code == 200:
         return True
