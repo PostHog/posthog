@@ -38,6 +38,20 @@ function trackedEmails(count: number): string {
     return `${count === 1 ? 'email' : 'emails'} with open tracking`
 }
 
+// A paused, dry-run, or missing scout never checks, and a workflow that can't turn suggestions on never gets there.
+export function showSuggestionReadiness(
+    optimization: HogFlowOptimizationApi | null,
+    turnOnDisabledReason: string | undefined
+): optimization is HogFlowOptimizationApi {
+    if (!optimization) {
+        return false
+    }
+    if (!optimization.enabled) {
+        return !turnOnDisabledReason && ['running', 'not_running'].includes(optimization.scout_status)
+    }
+    return optimization.scout_status === 'running'
+}
+
 export function suggestionReadiness(
     optimization: HogFlowOptimizationApi | null,
     now: Dayjs = dayjs()

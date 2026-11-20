@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { HogFlowOptimizationApi } from '../../generated/api.schemas'
-import { suggestionReadiness } from './suggestionReadiness'
+import { showSuggestionReadiness, suggestionReadiness } from './suggestionReadiness'
 
 const NOW = dayjs('2026-11-20T15:00:00Z')
 
@@ -134,5 +134,16 @@ describe('suggestionReadiness', () => {
             (step) => step.key === 'check'
         )
         expect(check?.detail).toEqual('Last checked 6 hours ago.')
+    })
+
+    test.each([
+        ['on, scout running', { enabled: true, scout_status: 'running' }, undefined, true],
+        ['on, no scout', { enabled: true, scout_status: 'not_running' }, undefined, false],
+        ['on, scout paused', { enabled: true, scout_status: 'paused_by_user' }, undefined, false],
+        ['on, scout in dry run', { enabled: true, scout_status: 'dry_run' }, undefined, false],
+        ['off, no scout yet', { enabled: false, scout_status: 'not_running' }, undefined, true],
+        ['off, switch disabled', { enabled: false, scout_status: 'not_running' }, 'Publish first', false],
+    ] as const)('shows the card when %s: %s', (_name, status, disabledReason, shown) => {
+        expect(showSuggestionReadiness({ ...optimization({}), ...status }, disabledReason)).toBe(shown)
     })
 })

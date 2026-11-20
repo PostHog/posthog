@@ -5,7 +5,7 @@ import { IconCheckCircle, IconCircleDashed, IconClock } from '@posthog/icons'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { ReadinessStep, suggestionReadiness } from './suggestionReadiness'
+import { ReadinessStep, showSuggestionReadiness, suggestionReadiness } from './suggestionReadiness'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 const STEP_STATE_LABELS: Record<ReadinessStep['state'], string> = {
@@ -51,12 +51,7 @@ export function WorkflowSuggestionsReadiness({
     compact?: boolean
 }): JSX.Element | null {
     const { optimization, turnOnDisabledReason } = useValues(workflowProposalsLogic({ id }))
-    // A paused scout or one in dry run has its own notice, and a workflow that cannot turn suggestions on gets
-    // no timeline it can never reach.
-    const scoutCanFile =
-        optimization?.scout_status === 'running' ||
-        (optimization?.scout_status === 'not_running' && !optimization.enabled)
-    if (!optimization || !scoutCanFile || (!optimization.enabled && turnOnDisabledReason)) {
+    if (!showSuggestionReadiness(optimization, turnOnDisabledReason)) {
         return null
     }
     const readiness = suggestionReadiness(optimization)
