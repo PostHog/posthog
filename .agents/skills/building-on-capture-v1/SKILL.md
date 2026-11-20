@@ -108,6 +108,28 @@ These apply to the legacy handlers and to the v1 handlers.
 - **The AI lane is the `$ai_` event name prefix** (`is_ai_event`). The analytics endpoint sends those events to the AI topic, and the AI endpoint drops any other name as `misrouted_event`. A new route by event name changes both endpoints, the quota check, the README and the public docs together.
 - **Metric labels have a small, fixed set of values.** Never a token, a team id, a distinct id or an event name.
 
+## Model a v1 endpoint on the analytics endpoint
+
+`/i/v1/analytics/events` ([`analytics/handler.rs`](../../../rust/capture/src/v1/analytics/handler.rs)) is the reference for a v1 endpoint.
+An endpoint that is added to v1 or moved to v1 later, such as AI or replay, meets the same requirements. Its payload can differ where its data differs.
+The legacy endpoints and the OTel endpoint are not models for a v1 endpoint.
+
+What the analytics endpoint has that legacy analytics capture does not. The [v1 README](../../../rust/capture/src/v1/README.md) has the full contract:
+
+- **Required headers.** `Authorization: Bearer`, `PostHog-Sdk-Info`, `PostHog-Attempt`, `PostHog-Request-Id`, `PostHog-Request-Timestamp`, `Content-Type: application/json` and `User-Agent`. Legacy capture reads the token from the body and requires none of them.
+- **Standard compression only.** `Content-Encoding` is `gzip`, `deflate`, `br` or `zstd`. Legacy capture also accepts lz-string and base64 bodies.
+- **One batch shape with strict event fields.** `event`, `uuid`, `distinct_id` and `timestamp` are JSON strings. Legacy capture treats `uuid` and `timestamp` as optional and accepts any JSON value as `distinct_id`.
+- **Settings in `options`,** with a type check on each one capture knows.
+- **One result for each event:** `ok`, `drop`, `warning` or `retry`, with a public `details` reason. A sender resends only the `retry` events.
+- **Status codes with one meaning each:** 400, 401, 402, 413 and 415 for the request, 408 and 5xx with `Retry-After`, and never 429.
+
+**The v1 endpoint rejects input that legacy capture accepts.** Keep these checks, and tell senders that move from legacy about them:
+
+- The whole request fails with 400 for a missing required header, a body that is not valid JSON, an empty or invalid batch, or an invalid `uuid`. It fails with 415 for another `Content-Type` or `Content-Encoding`.
+- One event drops for a missing or too long `event` name, a missing or too large `distinct_id` (legacy capture cuts it to 200 characters), a bad `timestamp`, `properties` that is not an object, or an option value capture cannot read (`invalid_options`).
+- A later copy of a uuid in the same batch is dropped and counted in `duplicates_dropped`.
+- An event that is not `$ai_*` drops on the AI endpoint with `misrouted_event`.
+
 ## Change capture v1 code
 
 - Keep every per-event failure a per-event result. Only the cases in the README's "Response" section fail the whole request.
