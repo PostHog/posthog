@@ -273,6 +273,15 @@ class TestReadSignature(SimpleTestCase):
 
         assert read_signature(parse_select(sql)) is None
 
+    def test_large_placeholder_list_hashed_for_every_source_exceeds_the_work_budget(self):
+        sources = " CROSS JOIN ".join(f"events AS e{i}" for i in range(40))
+        query = parse_select(
+            f"SELECT count() FROM {sources} WHERE timestamp >= {{bound}}",
+            placeholders={"bound": ast.Constant(value=[1] * 100_000)},
+        )
+
+        assert read_signature(query) is None
+
     def test_wide_condition_scanned_for_every_source_exceeds_the_work_budget(self):
         sources = " CROSS JOIN ".join(f"events AS e{i}" for i in range(100))
         condition = " OR ".join(f"e0.properties.p{i} = {i}" for i in range(2000))

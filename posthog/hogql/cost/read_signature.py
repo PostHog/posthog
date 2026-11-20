@@ -55,9 +55,20 @@ class _Budget:
             raise _BudgetExceeded
 
     def spend_on_constant(self, node: ast.Constant) -> None:
-        # A long literal costs its length to copy and hash, so it is charged by size as well as by node.
-        if isinstance(node.value, str | bytes):
-            self.spend(len(node.value) // _BYTES_PER_UNIT)
+        # A large literal costs its size to copy and hash, so it is charged by size as well as by node. A
+        # placeholder can put a whole list or dict in one constant, so containers are charged per item.
+        pending: list[object] = [node.value]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, str | bytes):
+                self.spend(len(value) // _BYTES_PER_UNIT)
+            elif isinstance(value, dict):
+                self.spend(len(value))
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            elif isinstance(value, list | tuple | set | frozenset):
+                self.spend(len(value))
+                pending.extend(value)
 
 
 def _digest(text: str, length: int) -> str:
