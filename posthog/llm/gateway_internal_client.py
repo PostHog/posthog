@@ -114,8 +114,7 @@ def get_wallet(team_id: int) -> Wallet:
 
 
 def add_credit(team_id: int, org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> CreditResult:
-    # The gateway funds by organization: the credit lands on the balance every
-    # team of the organization spends from.
+    # Credits the organization balance that all of its teams spend from.
     url, token = _config()
     try:
         response = httpx.post(
