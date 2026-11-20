@@ -35,7 +35,7 @@ from django_redis.exceptions import ConnectionInterrupted
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
@@ -210,8 +210,8 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
     return _team_by_id(team_id, memo)
 
 
-def _organization_deactivated(organization_id: Any) -> bool:
-    return Organization.objects.filter(pk=organization_id, is_active=False).exists()
+def _organization_deactivated(team_id: Any) -> bool:
+    return Team.objects.filter(pk=team_id, organization__is_active=False).exists()
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -295,7 +295,7 @@ def _policy_for_credential(
     if team is None:
         return HyperCacheStoreMissing()
 
-    if _organization_deactivated(team.organization_id):
+    if _organization_deactivated(team.id):
         return HyperCacheStoreMissing()
 
     project_token = team.api_token
@@ -416,6 +416,8 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.
     gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    if _organization_deactivated(policy["team_id"]):
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
 def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
