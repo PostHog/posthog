@@ -1,5 +1,5 @@
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
-import { Decompress as ZstdDecompress } from 'fzstd'
+import { Decompress as ZstdDecompress, decompress as zstdDecompressSync } from 'fzstd'
 import { EventType, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { ReplayTelemetry } from '../telemetry'
@@ -95,6 +95,10 @@ function zstdDecompressWithLimit(raw: Uint8Array, limit: number, overLimit: () =
     }
     if (contentSize > limit) {
         throw overLimit()
+    }
+    // A checked declared size bounds the one-shot decoder's allocation. Streaming a large frame is far slower.
+    if (contentSize > 0) {
+        return zstdDecompressSync(raw)
     }
     // Streaming lets a frame that declares no size stop as soon as its output passes the limit.
     const chunks: Uint8Array[] = []
