@@ -71,6 +71,7 @@ from ..facade.api import (
     run_duration_histogram_query,
     run_impact_query,
     run_latency_heatmap_query,
+    run_latency_percentiles_query,
     run_service_health_query,
     run_symbol_stats_query,
     service_health_byte_cap_message,
@@ -382,6 +383,35 @@ class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
             "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the "
             "window appears in at least one row, so the full x axis can be derived from the response."
         ),
+    )
+
+
+class _TracingLatencyPercentilesRequestSerializer(serializers.Serializer):
+    query = _TracingTimeseriesQueryBodySerializer(help_text="The latency-percentiles query to execute.")
+
+
+class _TracingLatencyPercentilesRowSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="ISO 8601 UTC start of the time bucket.")
+    count = serializers.IntegerField(
+        help_text=(
+            "Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the "
+            "matching spans in the window hold neither. 0 for a bucket with no such spans."
+        )
+    )
+    p50_ns = serializers.IntegerField(
+        allow_null=True, help_text="Median duration in nanoseconds. Null when count is 0."
+    )
+    p95_ns = serializers.IntegerField(
+        allow_null=True, help_text="95th percentile duration in nanoseconds. Null when count is 0."
+    )
+    p99_ns = serializers.IntegerField(
+        allow_null=True, help_text="99th percentile duration in nanoseconds. Null when count is 0."
+    )
+
+
+class _TracingLatencyPercentilesResponseSerializer(serializers.Serializer):
+    results = _TracingLatencyPercentilesRowSerializer(
+        many=True, help_text="One row per time bucket in the window, ordered by time, on the sparkline's time axis."
     )
 
 
@@ -1859,6 +1889,34 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
             root_spans=query_data.get("rootSpans", True),
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_TracingLatencyPercentilesRequestSerializer,
+        responses={200: _TracingLatencyPercentilesResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="latency-percentiles", required_scopes=["tracing:read"])
+    def latency_percentiles(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = self._query_body(request.data)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_percentiles_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            filter_group=filter_group,
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
