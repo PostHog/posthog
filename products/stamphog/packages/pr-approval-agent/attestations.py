@@ -1,7 +1,7 @@
 """Lift deny categories for the files that a CI check named in the policy vouches for.
 
-A policy `attestations` entry names a check run, the GitHub App that publishes it, the deny
-categories it may lift, and the paths it may lift them for. The engine knows nothing about what
+A policy `attestations` entry names a check run, the GitHub App or the default-branch workflow that
+publishes it, the deny categories it may lift, and the paths it may lift them for. The engine knows nothing about what
 a check proves, so a new kind of check needs a policy entry and no engine change.
 
 The publisher embeds the files it vouched for in the check summary as a marker:
@@ -18,7 +18,11 @@ server's confirmation that the default branch still holds every pinned object
 (`pinned_blobs_current` on the check run). A proof from an older publisher, or one made before a rule
 it read changed, therefore lifts nothing. An issuer entry whose manifest is missing or invalid has no
 required keys and lifts nothing. The list form carries no identity, so it lifts only when the entry
-does not pin its publisher.
+does not pin its publisher and names no workflow.
+
+A workflow entry reads only the check run that the server built from the publisher's signed result
+(`WORKFLOW_PROOF_KEY`). It needs `pinned_blobs_current` even without pins of its own, because the
+server checks there that the run executed the workflow file the default branch holds.
 
 Each of these lifts nothing: a run from another App, a non-success conclusion, no marker or more
 than one, a path outside the entry's `paths`, a file not in the diff.
@@ -31,6 +35,11 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from policy import Attestation
+
+# The server sets this key on a check run it built from a workflow publisher's signed result, after it
+# verified the token, the publishing job and the code the run executed. GitHub never sends it, so a
+# check run that carries it came from the server. The backend's `workflow_proofs.py` writes the same key.
+WORKFLOW_PROOF_KEY = "stamphog_workflow_proof"
 
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\[.*?\]|\{.*?\})\s*-->", re.DOTALL)
 
@@ -111,6 +120,20 @@ def pending_check_names(pending: Iterable[Attestation]) -> str:
     return " and ".join(f"`{attestation.check}`" for attestation in pending)
 
 
+def pending_entry(attestation: Attestation) -> dict:
+    """What the server needs to poll for a pending check: its name and who may publish it."""
+    if attestation.workflow:
+        return {
+            "check": attestation.check,
+            "app_id": None,
+            "name": attestation.name,
+            "workflow": attestation.workflow,
+            "job": attestation.job,
+            "events": list(attestation.events),
+        }
+    return {"check": attestation.check, "app_id": attestation.app_id}
+
+
 def _attested_files(
     attestation: Attestation, check_runs: list[dict], pr_paths: set[str], reviewed: ReviewedHead
 ) -> set[str]:
@@ -156,7 +179,8 @@ def _proven_files(check_run: dict, attestation: Attestation, reviewed: ReviewedH
     except json.JSONDecodeError:
         return None
     if isinstance(payload, list):
-        if attestation.pins_publisher:
+        # A workflow's signed list names no PR, so it could be posted again on any head.
+        if attestation.pins_publisher or attestation.workflow:
             return None
         return _string_set(payload)
     if not isinstance(payload, dict):
@@ -174,8 +198,10 @@ def _proven_files(check_run: dict, attestation: Attestation, reviewed: ReviewedH
         required = attestation.required_pins
         if not required or not isinstance(blobs, dict) or not set(required) <= set(blobs):
             return None
-        if check_run.get("pinned_blobs_current") is not True:
-            return None
+    # The server sets this on a workflow's result whether or not the entry pins more, because the
+    # workflow file itself must be the one the run executed and the one the default branch holds.
+    if (attestation.pins_publisher or attestation.workflow) and check_run.get("pinned_blobs_current") is not True:
+        return None
     return _string_set(payload.get("files"))
 
 
@@ -185,15 +211,22 @@ def _string_set(value: object) -> set[str] | None:
     return {item for item in value if isinstance(item, str)}
 
 
+def _published_by(check_run: dict, attestation: Attestation) -> bool:
+    """True when the entry's own publisher made this check run.
+
+    An App entry trusts the App GitHub names. A workflow entry trusts only a check run the server
+    built from a result the publishing job signed, because any job can post a check run under any name.
+    """
+    if check_run.get("name") != attestation.check:
+        return False
+    if attestation.workflow:
+        return check_run.get(WORKFLOW_PROOF_KEY) == attestation.name
+    return (check_run.get("app") or {}).get("id") == attestation.app_id
+
+
 def _latest_completed(check_runs: list[dict], attestation: Attestation) -> dict | None:
-    """The newest completed run of the entry's check from its App, tolerating duplicates from re-runs."""
-    completed = [
-        cr
-        for cr in check_runs
-        if cr.get("name") == attestation.check
-        and (cr.get("app") or {}).get("id") == attestation.app_id
-        and cr.get("status") == "completed"
-    ]
+    """The newest completed run of the entry's check from its publisher, tolerating duplicates from re-runs."""
+    completed = [cr for cr in check_runs if _published_by(cr, attestation) and cr.get("status") == "completed"]
     if not completed:
         return None
     # The publisher sets `completed_at`, so only the id, which GitHub assigns in creation order, orders runs.

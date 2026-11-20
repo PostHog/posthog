@@ -121,6 +121,7 @@ export type FakeCloudOptions = {
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
+        runnerStatusReason?: unknown
         journalsIntent?: boolean
     }
     probe?: 'lost' | 'timedOut'
@@ -130,7 +131,7 @@ export type FakeCloudOptions = {
     shortValuesOf?: 'Maximum' | 'Average'
     unknownTimestampOf?: 'Maximum' | 'Average'
     omitsCapacityStatus?: boolean
-    liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
+    liveReaderAcu?: { maxima: (number | null)[]; averages?: number[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
 
@@ -272,6 +273,7 @@ export class FakeCloud implements Aws {
                 expiresAt,
                 stackName: cluster,
                 readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+                readerMinAcu: PROFILE.readerAcu.min,
             },
         }
     }
@@ -518,7 +520,12 @@ export class FakeCloud implements Aws {
 
     private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
         const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
-        const statusReason = status === 'passed' ? '' : `the card ended ${status}`
+        const statusReason =
+            this.options.card && 'runnerStatusReason' in this.options.card
+                ? this.options.card.runnerStatusReason
+                : status === 'passed'
+                  ? ''
+                  : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
         const timeline: ValveTimelineEntry[] =
             failoverAt === undefined
@@ -619,12 +626,12 @@ export class FakeCloud implements Aws {
     }
 
     private liveCapacity(Stat: string): { at: number; value: number | undefined }[] {
-        const { maxima, lagMinutes = 0 } = this.options.liveReaderAcu!
+        const { maxima, averages, lagMinutes = 0 } = this.options.liveReaderAcu!
         const now = this.options.now().getTime()
         const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
-            value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],
+            value: max === null ? undefined : { Maximum: max, Average: averages?.[i] ?? max, SampleCount: 60 }[Stat],
         }))
     }
 

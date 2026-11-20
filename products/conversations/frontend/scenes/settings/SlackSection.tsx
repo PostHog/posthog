@@ -13,15 +13,23 @@ import {
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillSlackSection } from '../../components/QuillSlackSection/QuillSlackSection'
+import { confirmRemoveSlackBot, slackChannelOptions } from './slackSettingsHelpers'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function SlackSection(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillSlackSection />
+    }
+
     return (
         <SceneSection
             title="SupportHog Slack bot"
@@ -133,10 +141,7 @@ function SlackChannelSection(): JSX.Element {
                             <LemonInputSelect
                                 mode="multiple"
                                 value={slackChannelIds}
-                                options={slackChannels.map((c) => ({
-                                    key: c.id,
-                                    label: `#${c.name ?? c.id}`,
-                                }))}
+                                options={slackChannelOptions(slackChannels)}
                                 onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
                                 placeholder="Select channels"
@@ -196,10 +201,7 @@ function SlackChannelSection(): JSX.Element {
                                     <LemonInputSelect
                                         mode="single"
                                         value={slackAlertChannelId ? [slackAlertChannelId] : []}
-                                        options={slackChannels.map((c) => ({
-                                            key: c.id,
-                                            label: `#${c.name ?? c.id}`,
-                                        }))}
+                                        options={slackChannelOptions(slackChannels)}
                                         onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
                                         loading={slackChannelsLoading}
                                         disabled={currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)}
@@ -300,19 +302,7 @@ function SlackChannelSection(): JSX.Element {
                             status="danger"
                             size="small"
                             disabledReason={adminRestrictionReason}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Remove SupportHog bot?',
-                                    description:
-                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Remove',
-                                        onClick: disconnectSlack,
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
+                            onClick={() => confirmRemoveSlackBot(disconnectSlack)}
                         >
                             Remove SupportHog bot
                         </LemonButton>

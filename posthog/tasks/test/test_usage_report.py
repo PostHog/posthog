@@ -50,9 +50,11 @@ from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.usage_ingestion.billing_usage_records import SHARDED_BILLING_USAGE_RECORDS_TABLE
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     MCP_ANALYTICS_EVENT_METRICS,
+    USAGE_REPORT_QUEUE_MAX_DEPTH,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -67,6 +69,7 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
     _UsageRecordRow,
+    _wait_for_usage_reports_queue,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -89,7 +92,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
+from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService, usage_counter_window
 from posthog.utils import get_previous_day
 
 from products.ai_observability.backend.facade.limits import get_ai_event_limits
@@ -130,6 +133,42 @@ def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> N
 
     assert capture_report.acks_late is True
     assert capture_report.reject_on_worker_lost is True
+
+
+class _FakeBrokerClient:
+    def __init__(self, *depths: int) -> None:
+        self.depths = list(depths)
+        self.keys_read: list[str] = []
+
+    def llen(self, key: str) -> int:
+        self.keys_read.append(key)
+        return self.depths.pop(0) if len(self.depths) > 1 else self.depths[0]
+
+
+@patch("posthog.tasks.usage_report.time.sleep")
+def test_wait_for_usage_reports_queue_waits_until_the_queue_drains(_mock_sleep: MagicMock) -> None:
+    broker = _FakeBrokerClient(
+        USAGE_REPORT_QUEUE_MAX_DEPTH + 500, USAGE_REPORT_QUEUE_MAX_DEPTH + 1, USAGE_REPORT_QUEUE_MAX_DEPTH
+    )
+
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue(max_wait_seconds=600) is True
+
+    assert broker.keys_read == ["usage_reports"] * 3
+
+
+def test_wait_for_usage_reports_queue_gives_up_when_the_queue_does_not_drain() -> None:
+    broker = _FakeBrokerClient(USAGE_REPORT_QUEUE_MAX_DEPTH + 1)
+
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue(max_wait_seconds=0) is False
+
+
+@patch("posthog.tasks.usage_report.get_celery_broker_client")
+def test_wait_for_usage_reports_queue_gives_up_when_the_depth_cannot_be_read(mock_broker_client: MagicMock) -> None:
+    mock_broker_client.return_value.llen.side_effect = ConnectionError("broker unavailable")
+
+    assert _wait_for_usage_reports_queue(max_wait_seconds=600) is False
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -3450,7 +3489,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def setUp(self) -> None:
         Team.objects.all().delete()
         super().setUp()
-        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        run_clickhouse_statement_in_parallel(
+            [TRUNCATE_APP_METRICS2_TABLE_SQL, f"TRUNCATE TABLE IF EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}"]
+        )
 
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")
@@ -3500,6 +3541,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
+        window = usage_counter_window(period.start)
+        last_second = window.end - timedelta(milliseconds=500)
         all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
@@ -3541,7 +3584,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             {**base_record, "team_id": 4, "record_id": "invocation-b", "quantity": 3},
             {**base_record, "usage_key": "workflow_emails_sent", "quantity": 90},
             {**base_record, "timestamp": period.start - timedelta(days=1), "quantity": 100},
-            {**base_record, "record_id": "at-end", "timestamp": period.end, "quantity": 500},
+            {**base_record, "record_id": "last-second", "timestamp": last_second, "quantity": 40},
+            {**base_record, "record_id": "next-day", "timestamp": window.end, "quantity": 500},
         ]
         sync_execute(
             """
@@ -3552,11 +3596,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             records,
         )
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
-            plan = UsageCounterService().resolve_plan(period, complete=True)
-        counter_report = UsageCounterService().fetch_report(period, plan=plan)
+            plan = UsageCounterService().resolve_plan(window, complete=True)
+        counter_report = UsageCounterService().fetch_report(window, plan=plan)
         assert counter_report.counter_comparisons is not None
         assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
-            3: {str(self.org_1.id): 7},
+            3: {str(self.org_1.id): 47},
             4: {str(self.org_1.id): 3},
         }
         list(
@@ -3569,7 +3613,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
         assert with_shadow["cdp_billable_invocations_in_period"] == 8
         assert with_shadow["counter_comparisons"] == {
-            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 10}
+            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 50}
         }
 
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -5906,6 +5950,55 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         mock_client.group_identify.assert_not_called()
         assert mock_client.capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
+
+    @parameterized.expand([("queue_drains", True), ("queue_stuck", False)])
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
+    @patch("posthog.tasks.usage_report._wait_for_usage_reports_queue")
+    @patch("posthog.tasks.usage_report.capture_report")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_waits_for_the_queue_until_it_stops_draining(
+        self,
+        _name: str,
+        queue_drains: bool,
+        mock_get_sqs_producer: MagicMock,
+        mock_client: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_wait: MagicMock,
+    ) -> None:
+        mock_wait.return_value = queue_drains
+        for _ in range(2):
+            Team.objects.create(organization=Organization.objects.create())
+
+        send_all_org_usage_reports(dry_run=False)
+
+        published = mock_capture_report.delay.call_count
+        assert published >= 3
+        assert mock_wait.call_count == (published if queue_drains else 1)
+
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS", 0)
+    @patch("posthog.tasks.usage_report.time.sleep", side_effect=AssertionError("waited past the total wait budget"))
+    @patch("posthog.tasks.usage_report.capture_report")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_stops_pacing_once_the_total_wait_budget_is_spent(
+        self,
+        mock_get_sqs_producer: MagicMock,
+        mock_client: MagicMock,
+        mock_capture_report: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        broker = _FakeBrokerClient(USAGE_REPORT_QUEUE_MAX_DEPTH + 1)
+        for _ in range(2):
+            Team.objects.create(organization=Organization.objects.create())
+
+        with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+            send_all_org_usage_reports(dry_run=False)
+
+        assert broker.keys_read == ["usage_reports"]
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

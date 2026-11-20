@@ -57,6 +57,7 @@ import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
 import { OptionalHeaderFieldRow } from './OptionalHeaderFieldRow'
+import { EmailPersonPreview } from './preview/EmailPersonPreview'
 import { QuillEmailHeaderFields } from './QuillEmailHeaderFields'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import {
@@ -864,32 +865,38 @@ function NativeEmailTemplaterForm({
 }
 
 function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
-    const { emailTemplate } = useValues(emailTemplaterLogic)
+    const { emailTemplate, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen } = useActions(emailTemplaterLogic)
+    const personPreviewEnabled = useFeatureFlag('WORKFLOWS_EMAIL_PERSON_PREVIEW')
 
     return (
         <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
-            {({ value }: ChildFunctionProps) => (
-                <>
-                    <div
-                        className={clsx(
-                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
-                            buttonsAt === 'bottom' ? 'items-end' : 'items-center',
-                            // Persistent start buttons while empty; hover-reveal once there is content
-                            value || emailTemplate.text
-                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
-                                : 'opacity-100'
-                        )}
-                    >
-                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                        {/* A plain-text-only email has no html, so content is judged on every shape */}
-                        <EmailPreviewOverlayButtons
-                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                        />
-                    </div>
+            {({ value }: ChildFunctionProps) =>
+                personPreviewEnabled && templatingEngine === 'liquid' && (value || emailTemplate.text) ? (
+                    <EmailPersonPreview html={value} text={emailTemplate.text} onEdit={() => setIsModalOpen(true)} />
+                ) : (
+                    <>
+                        <div
+                            className={clsx(
+                                'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                                buttonsAt === 'bottom' ? 'items-end' : 'items-center',
+                                // Persistent start buttons while empty; hover-reveal once there is content
+                                value || emailTemplate.text
+                                    ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
+                                    : 'opacity-100'
+                            )}
+                        >
+                            <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                            {/* A plain-text-only email has no html, so content is judged on every shape */}
+                            <EmailPreviewOverlayButtons
+                                hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                            />
+                        </div>
 
-                    <EmailBodyPreview html={value} text={emailTemplate.text} />
-                </>
-            )}
+                        <EmailBodyPreview html={value} text={emailTemplate.text} />
+                    </>
+                )
+            }
         </LemonField>
     )
 }
