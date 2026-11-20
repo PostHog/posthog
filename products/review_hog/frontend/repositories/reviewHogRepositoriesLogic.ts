@@ -615,6 +615,12 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                 if (saved) {
                     // pinned: analytics event name, renaming breaks dashboards
                     posthog.capture('review hog repository reviews changed', reviews)
+                    if (reviews.review_drafts !== entry.review_drafts) {
+                        // pinned: analytics event name from before the reviews select, renaming breaks dashboards
+                        posthog.capture('review hog repository drafts changed', {
+                            review_drafts: reviews.review_drafts,
+                        })
+                    }
                 }
             },
             setRepositoryDeepReviews: async ({ entry, deepReviewGatedPrs }) => {
