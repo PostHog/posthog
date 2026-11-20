@@ -82,8 +82,8 @@ describe('tool-search', () => {
         })
 
         it.each([
-            ['a repeat count above the cap', '(ab){1000}', /repeats more than 100 times/],
-            ['a program above the cap', '(?s)' + '.{100}'.repeat(15) + '\\x00', /too complex/],
+            ['nested repeats that expand past the cap', '((?:' + 'ab'.repeat(30) + '){10}){100}', /repeats too much/],
+            ['a program above the cap', '(?s)(?:..){600}', /too complex/],
         ])('refuses %s before it runs over the catalog', (_case, pattern, message) => {
             expect(() => searchToolsRegex(TOOLS, pattern)).toThrow(message)
         })
