@@ -735,7 +735,6 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             LOGS_REDIS_HOST: redis7
-            # The node image runs as production, which defaults this to TLS, but redis7 is plaintext
             LOGS_REDIS_TLS: 'false'
             # Hog log transformations: function health state lives on CDP redis, and
             # encrypted function inputs need the salt keys (same as error tracking above)
