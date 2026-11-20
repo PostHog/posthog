@@ -6,7 +6,10 @@ import { buildReportImplementationPrompt } from 'products/signals/frontend/inbox
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type { SignalReport } from 'products/signals/frontend/inbox/types'
 import { parsePrUrlParts, safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
-import { primaryReportPullRequest } from 'products/signals/frontend/inbox/utils/reportPullRequests'
+import {
+    type ReportPullRequest,
+    primaryReportPullRequest,
+} from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { PullRequestLinkApi } from 'products/today/frontend/generated/api.schemas'
 
 import { shortDate } from './todayProse'
@@ -27,6 +30,8 @@ interface TodayNextStepContext {
     solutionNamesPullRequest: boolean
     slotClaimed: boolean
     runningTask: { taskId: string; runId: string } | null
+    /** The pull request in view when the report has several. Defaults to the primary one. */
+    pullRequest?: ReportPullRequest
 }
 
 const START: TodayPrimaryAction = { kind: 'start' }
@@ -68,8 +73,7 @@ function alreadyAddressed(context: TodayNextStepContext): TodayNextStep {
     }
 }
 
-function pullRequestStep(report: SignalReport): TodayNextStep | null {
-    const pullRequest = primaryReportPullRequest(report)
+function pullRequestStep(report: SignalReport, pullRequest = primaryReportPullRequest(report)): TodayNextStep | null {
     const url = safeHttpUrl(pullRequest.url ?? '')
     if (!url) {
         return null
@@ -112,7 +116,7 @@ function pickedUpStep(report: SignalReport, context: TodayNextStepContext): Toda
 }
 
 export function todayNextStep(report: SignalReport, context: TodayNextStepContext): TodayNextStep {
-    const step = pullRequestStep(report) ?? pickedUpStep(report, context)
+    const step = pullRequestStep(report, context.pullRequest) ?? pickedUpStep(report, context)
     if (step) {
         return step
     }

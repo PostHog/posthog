@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -28,8 +28,18 @@ function MeasureWithSeries({
         dataNodeCollectionId: `report-metrics-${props.report.id}`,
         autoLoad: true,
     }
-    const { response } = useValues(dataNodeLogic(seriesProps))
-    return <ReportMeasureStage {...props} metricPoints={response ? reportMetricSeriesPoints(response) : null} />
+    const logic = dataNodeLogic(seriesProps)
+    const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
+    return (
+        <ReportMeasureStage
+            {...props}
+            metricPoints={response ? reportMetricSeriesPoints(response) : null}
+            metricLoading={responseLoading}
+            metricFailed={!!responseError}
+            onMetricRetry={() => loadData('force_blocking')}
+        />
+    )
 }
 
 /** The Measure stage with the primary metric loaded. A report with no metric query shows the checks only. */

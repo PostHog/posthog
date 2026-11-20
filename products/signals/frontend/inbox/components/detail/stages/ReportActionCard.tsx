@@ -19,7 +19,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SignalReport, SignalReportArtefact } from '../../../types'
 import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../../utils/reportPresentation'
-import { primaryReportPullRequest, ReportPullRequest, reportPullRequests } from '../../../utils/reportPullRequests'
+import { ReportPullRequest, reportPullRequests } from '../../../utils/reportPullRequests'
 import { parseReportSummary } from '../../../utils/reportSummary'
 import { CommitContent } from '../artefactTypes'
 import { ReportStageProse } from './ReportStageProse'
@@ -56,15 +56,18 @@ function workState(
 export function ReportActionCard({
     report,
     artefacts,
+    selectedPullRequest,
     children,
 }: {
     report: SignalReport
     artefacts: SignalReportArtefact[]
+    /** The pull request picked in the details, which falls back to the primary one. */
+    selectedPullRequest: ReportPullRequest
     /** Shown under the proposed change, such as a tracker issue note. */
     children?: ReactNode
 }): JSX.Element {
     const [detailsOpen, setDetailsOpen] = useState(false)
-    const pullRequest = reportPullRequests(report).length > 0 ? primaryReportPullRequest(report) : null
+    const pullRequest = reportPullRequests(report).length > 0 ? selectedPullRequest : null
     const pullRequestUrl = safeHttpUrl(pullRequest?.url)
     const pullRequestParts = pullRequestUrl ? parsePrUrlParts(pullRequestUrl) : null
     const commits = artefacts

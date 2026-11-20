@@ -5,8 +5,8 @@ import { Item, ItemActions, ItemContent, ItemTitle, Text, cn } from '@posthog/qu
 
 import { SignalNode } from 'scenes/debug/signals/types'
 
+import { SignalCard } from '../../../SignalCard'
 import { getSourceProductMeta } from '../../badges/sourceProductIcons'
-import { ReportStageProse } from './ReportStageProse'
 
 /**
  * The first sentence of a signal, so a row states one finding and the rest waits behind the click.
@@ -66,8 +66,9 @@ export function ReportEvidenceRow({ signal }: { signal: SignalNode }): JSX.Eleme
                 </ItemActions>
             </Item>
             {expanded && (
-                <div id={detailId} className="px-2 pb-3">
-                    <ReportStageProse markdown={signal.content} tone="muted" size="xs" />
+                <div id={detailId} className="px-2 pb-2">
+                    {/* The per-source card carries the replay player, issue row and links that verify the finding. */}
+                    <SignalCard signal={signal} />
                 </div>
             )}
         </div>

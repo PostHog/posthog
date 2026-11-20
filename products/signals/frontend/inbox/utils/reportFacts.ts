@@ -1,7 +1,7 @@
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 
 import { reportStatusLabel } from '../components/badges/SignalReportStatusBadge'
-import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
+import { EnrichedReviewer, INBOX_SCOPE_ENTIRE_PROJECT, InboxScope, SignalReport, SignalReportStatus } from '../types'
 
 type FactReport = Pick<
     SignalReport,
@@ -112,6 +112,24 @@ export function groupForYou<Row extends { report: Parameters<typeof isForYouRepo
         forYou: rows.filter(({ report }) => isForYouReport(report, currentUserUuid)),
         others: rows.filter(({ report }) => !isForYouReport(report, currentUserUuid)),
     }
+}
+
+/**
+ * The Quill list leads with the "For you" group only when the whole project is in the list. Report navigation
+ * walks the list in this order too, so Previous and Next match what the person saw.
+ */
+export function inboxListGroups<Row extends { report: Parameters<typeof isForYouReport>[0] }>(
+    rows: Row[],
+    {
+        todayRailNav,
+        scope,
+        hasActiveFilters,
+        currentUserUuid,
+    }: { todayRailNav: boolean; scope: InboxScope; hasActiveFilters: boolean; currentUserUuid: string | null }
+): { forYou: Row[]; others: Row[] } {
+    return todayRailNav && scope === INBOX_SCOPE_ENTIRE_PROJECT && !hasActiveFilters
+        ? groupForYou(rows, currentUserUuid)
+        : { forYou: [], others: rows }
 }
 
 const FOR_YOU_STATUSES: SignalReportStatus[] = [SignalReportStatus.READY, SignalReportStatus.PENDING_INPUT]

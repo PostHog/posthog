@@ -35,7 +35,7 @@ export function QuillReportStages({
     measureDetails,
     executeNote,
 }: { report: SignalReport } & QuillReportStageSlots): JSX.Element {
-    const { reportSignals, reportArtefacts, reportChecks } = useValues(
+    const { reportSignals, reportArtefacts, reportChecks, selectedPullRequest } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
@@ -76,7 +76,12 @@ export function QuillReportStages({
                 </ReportSpecStage>
             </TabsContent>
             <TabsContent value="execute">
-                <ReportExecuteStage report={report} artefacts={artefacts} note={executeNote}>
+                <ReportExecuteStage
+                    report={report}
+                    artefacts={artefacts}
+                    selectedPullRequest={selectedPullRequest}
+                    note={executeNote}
+                >
                     {executeDetails}
                 </ReportExecuteStage>
             </TabsContent>

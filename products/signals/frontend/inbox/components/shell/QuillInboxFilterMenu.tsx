@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    Button,
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     FilterCheckboxSubMenu,
     FilterClearItem,
     FilterMenuTrigger,
     FilterOption,
     FilterRadioSubMenu,
+    FilterSubMenu,
 } from '@posthog/quill'
 
 import { userLogic } from 'scenes/userLogic'
@@ -16,7 +20,6 @@ import { userLogic } from 'scenes/userLogic'
 import {
     INBOX_CREATED_WINDOW_OPTIONS,
     INBOX_MODEL_SORT_OPTIONS,
-    INBOX_PERSONAL_SORT_OPTION,
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
     inboxSortOptionKey,
@@ -70,6 +73,47 @@ function sourceSelection(value: string): InboxSourceSelection | null {
     return { kind: kind as InboxSourceSelection['kind'], value: rest.join(':') }
 }
 
+function SourceChoicesStatus(): JSX.Element | null {
+    const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
+    const { loadSourceConfigs } = useActions(signalSourcesLogic)
+    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs } = useActions(scoutFleetLogic)
+
+    const sourcesFailed = sourceConfigs === null && !sourceConfigsLoading
+    const scoutsFailed = scoutConfigs === null && !scoutConfigsLoading
+    if ((sourceConfigs === null && sourceConfigsLoading) || (scoutConfigs === null && scoutConfigsLoading)) {
+        return (
+            <div role="status" className="px-2 py-1.5 text-xs text-muted-foreground">
+                Loading sources and scouts…
+            </div>
+        )
+    }
+    if (!sourcesFailed && !scoutsFailed) {
+        return null
+    }
+    const failedLists = sourcesFailed && scoutsFailed ? 'sources and scouts' : sourcesFailed ? 'sources' : 'scouts'
+    return (
+        <div className="flex items-center justify-between gap-2 p-2 text-xs text-muted-foreground">
+            {`Couldn't load the ${failedLists}.`}
+            <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                    if (sourcesFailed) {
+                        loadSourceConfigs()
+                    }
+                    if (scoutsFailed) {
+                        loadScoutConfigs()
+                    }
+                }}
+                data-attr="inbox-source-filter-retry"
+            >
+                Try again
+            </Button>
+        </div>
+    )
+}
+
 function changed<Value>(before: readonly Value[], after: readonly Value[]): Value[] {
     return [...before.filter((value) => !after.includes(value)), ...after.filter((value) => !before.includes(value))]
 }
@@ -81,7 +125,6 @@ export function QuillInboxFilterMenu(): JSX.Element {
         activeSortField,
         activeSortDirection,
         modelSortAvailable,
-        personalSortAvailable,
         visibleStateFilter,
         priorityFilter,
         sourceProductFilter,
@@ -110,11 +153,7 @@ export function QuillInboxFilterMenu(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const { isStaff } = useValues(inboxSceneLogic)
 
-    const sortOptions = [
-        ...INBOX_SORT_OPTIONS,
-        ...(personalSortAvailable ? [INBOX_PERSONAL_SORT_OPTION] : []),
-        ...(modelSortAvailable ? INBOX_MODEL_SORT_OPTIONS : []),
-    ]
+    const sortOptions = [...INBOX_SORT_OPTIONS, ...(modelSortAvailable ? INBOX_MODEL_SORT_OPTIONS : [])]
     const stateOptions: FilterOption<InboxReportSectionKey>[] = selectedFlatListSections([], isStaff).map((key) => ({
         value: key,
         label: INBOX_REPORT_SECTION_LABEL[key],
@@ -218,14 +257,24 @@ export function QuillInboxFilterMenu(): JSX.Element {
                     />
                 )}
                 {sourceFilterAvailable && (
-                    <FilterRadioSubMenu
+                    <FilterSubMenu
                         label="Source"
-                        options={sourceOptions}
-                        value={selectedSource}
-                        defaultValue={ALL_SOURCES}
-                        onChange={(value) => setSourceFilter(sourceSelection(value))}
+                        value={sourceOptions.find((option) => option.value === selectedSource)?.label ?? ''}
+                        active={selectedSource !== ALL_SOURCES}
                         dataAttr="inbox-source-filter"
-                    />
+                    >
+                        <DropdownMenuRadioGroup
+                            value={selectedSource}
+                            onValueChange={(value) => setSourceFilter(sourceSelection(value as string))}
+                        >
+                            {sourceOptions.map((option) => (
+                                <DropdownMenuRadioItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </DropdownMenuRadioItem>
+                            ))}
+                        </DropdownMenuRadioGroup>
+                        <SourceChoicesStatus />
+                    </FilterSubMenu>
                 )}
                 <FilterClearItem
                     active={hasActiveFilters}

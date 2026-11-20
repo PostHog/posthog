@@ -490,6 +490,15 @@ export interface reportListLogicActions {
     setReportClaimedFinished: (reportId: string) => {
         reportId: string
     }
+    setReportClaimedSuccess: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -666,6 +675,11 @@ export const reportListLogic = kea<reportListLogicType>([
             takeover,
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
+        setReportClaimedSuccess: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+            report,
+            claimed,
+            surface,
+        }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -1380,6 +1394,7 @@ export const reportListLogic = kea<reportListLogicType>([
             } else {
                 actions.setReportAssignee(report.id, outcome.updated.assignee)
             }
+            actions.setReportClaimedSuccess(report, claimed, surface)
         },
     })),
 

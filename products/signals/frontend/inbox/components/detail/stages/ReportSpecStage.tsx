@@ -1,6 +1,6 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
-import { Skeleton, Text } from '@posthog/quill'
+import { Button, Skeleton, Text } from '@posthog/quill'
 
 import { SignalNode } from 'scenes/debug/signals/types'
 
@@ -11,6 +11,10 @@ import { ReportImpactCards } from './ReportImpactCards'
 import { ReportStageDetails } from './ReportStageDetails'
 import { ReportStageProse } from './ReportStageProse'
 import { ReportStageSectionTitle } from './ReportStageSectionTitle'
+
+// A report can hold thousands of signals and the endpoint returns all of them, so rows mount a page at a time.
+const EVIDENCE_PREVIEW_COUNT = 5
+const EVIDENCE_PAGE_SIZE = 20
 
 /** What is wrong and why it matters: the problem, the figures that size it, and the evidence behind it. */
 export function ReportSpecStage({
@@ -30,7 +34,10 @@ export function ReportSpecStage({
     const problem = sectionBody('problem')
     const impact = sectionBody('impact')
     const primaryMetric = report.metrics?.find((metric) => metric.role === 'primary') ?? null
+    const [shownCount, setShownCount] = useState(EVIDENCE_PREVIEW_COUNT)
     const evidence = [...(signals ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    const shownEvidence = evidence.slice(0, shownCount)
+    const nextPageCount = Math.min(evidence.length - shownEvidence.length, EVIDENCE_PAGE_SIZE)
 
     return (
         <div className="flex flex-col gap-8">
@@ -74,11 +81,24 @@ export function ReportSpecStage({
                         No signals are attached to this report yet.
                     </Text>
                 ) : (
-                    <div className="-mx-2 flex flex-col">
-                        {evidence.map((signal) => (
-                            <ReportEvidenceRow key={signal.signal_id} signal={signal} />
-                        ))}
-                    </div>
+                    <>
+                        <div className="-mx-2 flex flex-col">
+                            {shownEvidence.map((signal) => (
+                                <ReportEvidenceRow key={signal.signal_id} signal={signal} />
+                            ))}
+                        </div>
+                        {nextPageCount > 0 && (
+                            <Button
+                                variant="link-muted"
+                                size="sm"
+                                className="-ms-2 self-start"
+                                onClick={() => setShownCount(shownEvidence.length + nextPageCount)}
+                                data-attr="inbox-report-evidence-show-more"
+                            >
+                                {`Show ${nextPageCount} more`}
+                            </Button>
+                        )}
+                    </>
                 )}
             </section>
             <ReportStageDetails>{children}</ReportStageDetails>

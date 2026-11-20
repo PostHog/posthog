@@ -4,8 +4,6 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userLogic } from 'scenes/userLogic'
 
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
@@ -29,7 +27,7 @@ import {
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
-import { groupForYou } from '../../utils/reportFacts'
+import { inboxListGroups } from '../../utils/reportFacts'
 import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
@@ -348,10 +346,12 @@ export function ReportsTab(): JSX.Element {
     })
     // The Quill list shows the reports for the person as their own group, and only when the whole project is
     // in the list. The rows take that order here, so range selection and impressions follow what is on screen.
-    const groups =
-        todayRailNav && scope === INBOX_SCOPE_ENTIRE_PROJECT && !hasActiveFilters
-            ? groupForYou(mergedRows, user?.uuid ?? null)
-            : { forYou: [], others: mergedRows }
+    const groups = inboxListGroups(mergedRows, {
+        todayRailNav,
+        scope,
+        hasActiveFilters,
+        currentUserUuid: user?.uuid ?? null,
+    })
     const rows = [...groups.forYou, ...groups.others]
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =

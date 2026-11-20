@@ -20,7 +20,6 @@ import {
     discussQuestionProperties,
     parseInboxReportLinkSource,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
-import type { InboxReportActionSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type { ReportDiscussionIntent } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
@@ -478,7 +477,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             '',
             {
                 setDraft: (_, { draft }) => draft,
-                askAboutReport: () => '',
             },
         ],
     }),
@@ -667,6 +665,8 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 if (!report || !question || values.askingAi) {
                     return
                 }
+                // The draft clears here and not in a reducer, so a question that cannot be sent stays in the box.
+                actions.setDraft('')
                 captureInboxReportAction({
                     report,
                     actionType: 'discuss',

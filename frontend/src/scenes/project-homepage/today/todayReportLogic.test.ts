@@ -201,6 +201,32 @@ describe('todayReportLogic', () => {
         expect(reportGet).toHaveBeenCalledTimes(fetches)
     })
 
+    test.each([
+        { pageStatus: 500, draftAfterAsk: 'Why is checkout failing?' },
+        { pageStatus: 200, draftAfterAsk: '' },
+    ])(
+        'asking with a page load status of $pageStatus leaves the draft as "$draftAfterAsk"',
+        async ({ pageStatus, draftAfterAsk }) => {
+            const report = makeReport({ status: SignalReportStatus.READY })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/': () => [200, report],
+                    '/api/projects/:team_id/today/reports/:id/page/': () => [pageStatus, PAGE],
+                },
+            })
+            initKeaTests()
+            const logic = todayReportLogic({ reportId: report.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setDraft('Why is checkout failing?')
+            logic.actions.askAboutReport('Why is checkout failing?', 'detail_pane')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.draft).toEqual(draftAfterAsk)
+        }
+    )
+
     test('a report change from another surface shows without a new fetch', async () => {
         const report = makeReport({ status: SignalReportStatus.READY })
         const reportGet = jest.fn(() => [200, report])

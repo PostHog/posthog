@@ -148,13 +148,22 @@ export interface inboxTriageLogicActions {
     setReportClaimed: (
         report: SignalReport,
         claimed: boolean,
-        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        surface: InboxReportActionSurface,
         takeover?: boolean | undefined
     ) => {
         claimed: boolean
         report: SignalReport
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: InboxReportActionSurface
         takeover: boolean
+    } // reportListLogic
+    setReportClaimedSuccess: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
     } // reportListLogic
     unassignMe: (
         reportId: string,
@@ -282,6 +291,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'resolveReport',
                 'unassignMe',
                 'setReportClaimed',
+                'setReportClaimedSuccess',
                 'removeReport',
                 'loadReportsSuccess',
                 'loadMoreReportsSuccess',
@@ -542,14 +552,23 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 // is why the next report is pinned by id and not left to take this index.
                 const next = values.nextReport
                 actions.setReportClaimed(report, true, 'triage_mode')
-                toast.success({
-                    title: 'You claimed this report',
-                    action: { label: 'Undo', onClick: () => actions.setReportClaimed(report, false, 'triage_mode') },
-                })
                 if (next) {
                     actions.goToReport(next.id, values.currentIndex + 1)
                 }
                 prefetchNearEnd()
+            },
+            // The list logic shows the error when a claim fails. Undo waits for the saved claim, so the release
+            // can't reach the server before the claim it undoes.
+            setReportClaimedSuccess: ({ report, claimed, surface }) => {
+                if (claimed && surface === 'triage_mode') {
+                    toast.success({
+                        title: 'You claimed this report',
+                        action: {
+                            label: 'Undo',
+                            onClick: () => actions.setReportClaimed(report, false, 'triage_mode'),
+                        },
+                    })
+                }
             },
             unclaimCurrent: () => {
                 const report = values.currentReport

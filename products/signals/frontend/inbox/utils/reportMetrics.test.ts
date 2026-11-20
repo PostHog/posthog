@@ -14,6 +14,7 @@ import {
     reportMetricChartType,
     reportNeedsMetricRefresh,
     reportMetricFilterCount,
+    reportMetricGoalUnit,
     reportMetricRowParts,
     reportMetricSeriesPoints,
     reportMetricUnitWord,
@@ -213,6 +214,21 @@ describe('reportMetrics', () => {
         ['a whitespace-only unit', { kind: 'affected_users', unit: '  ', value_format: 'count' } as const, 'users'],
     ])('names the row unit from %s', (_name, metric, expected) => {
         expect(reportMetricUnitWord(metric)).toBe(expected)
+    })
+
+    test.each([
+        ['an hourly goal per bucket', 'hour', 'per_interval', 'events per hour'],
+        ['a goal per bucket with no interval', undefined, 'per_interval', 'events per day'],
+        ['a goal for the whole window', 'hour', 'whole_window', 'events'],
+    ] as const)('labels %s', (_name, interval, goalGrain, expected) => {
+        const metric = {
+            kind: 'occurrences',
+            unit: null,
+            value_format: 'count',
+            goal_grain: goalGrain,
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [], interval } },
+        } as const
+        expect(reportMetricGoalUnit(metric, null)).toBe(expected)
     })
 
     test.each([

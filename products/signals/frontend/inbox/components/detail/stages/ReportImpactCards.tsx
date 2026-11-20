@@ -8,15 +8,11 @@ import type { ReportMetricApi } from 'products/signals/frontend/generated/api.sc
 import {
     formatReportMetricParts,
     reportMetricChartType,
+    reportMetricGoalUnit,
     reportMetricUnitWord,
     reportMetricWindowLabel,
 } from '../../../utils/reportMetrics'
 import { ReportStageProse } from './ReportStageProse'
-
-function goalUnit(metric: ReportMetricApi, unit: string | null): string {
-    const word = unit ?? reportMetricUnitWord(metric)
-    return metric.goal_grain === 'per_interval' ? `${word} per day`.trim() : word
-}
 
 /**
  * The two figures a reader weighs a report by: the result the fix should produce, and what was
@@ -49,7 +45,7 @@ export function ReportImpactCards({
                                 {goal.value}
                             </span>
                             <Text size="sm" variant="muted" render={<span />}>
-                                {goalUnit(metric, goal.unit)}
+                                {reportMetricGoalUnit(metric, goal.unit)}
                             </Text>
                             {metric.role === 'primary' && <Badge variant="info">Primary</Badge>}
                         </div>

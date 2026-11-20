@@ -12,11 +12,16 @@ import { TodayReportTitle } from 'scenes/project-homepage/today/TodayReportTitle
 import { userLogic } from 'scenes/userLogic'
 
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport } from '../../types'
 import { isReportClaimable } from '../../utils/reportClaim'
+import { deriveHeadline } from '../../utils/reportPresentation'
 import { hasActiveReportPullRequest } from '../../utils/reportPullRequests'
 import { QuillReportFacts } from '../detail/QuillReportFacts'
 import { QuillReportSourceIcons } from '../detail/QuillReportSourceIcons'
+import { ReportGithubConnection } from '../detail/ReportGithubConnection'
+import { ReportRepositorySelection } from '../detail/ReportRepositorySelection'
+import { ReportStageProse } from '../detail/stages/ReportStageProse'
 
 const CLOSED_EVIDENCE_ROWS = 2
 
@@ -52,13 +57,101 @@ function KeyButton({
     )
 }
 
+function CreatePrKeyButton({ report }: { report: SignalReport }): JSX.Element {
+    const { createPrDisabledReason, implementationDisabledReason } = useValues(inboxTriageLogic)
+    const { createPrForCurrent } = useActions(inboxTriageLogic)
+    const {
+        disabledReason: githubDisabledReason,
+        repairNeeded,
+        repositoryRequired,
+        selectedRepository,
+    } = useValues(reportGithubAccessLogic({ report, surface: 'triage_mode' }))
+    return (
+        <KeyButton
+            label="Create PR"
+            shortcut="C"
+            onClick={createPrForCurrent}
+            // A repair opens the GitHub connection on click, so it leaves the button enabled.
+            disabledReason={
+                createPrDisabledReason ??
+                (repairNeeded ? null : githubDisabledReason) ??
+                implementationDisabledReason ??
+                (repositoryRequired && !selectedRepository ? 'Select a repository to continue.' : null)
+            }
+            dataAttr="inbox-triage-create-pr"
+        />
+    )
+}
+
+function GithubRecovery({ report }: { report: SignalReport }): JSX.Element {
+    const { isCreatingPr } = useValues(inboxTriageLogic)
+    const logic = reportGithubAccessLogic({ report, surface: 'triage_mode' })
+    const { repositoryRequired, failed, loading } = useValues(logic)
+    const { retryAccess, setConnectionOpen } = useActions(logic)
+    return (
+        <>
+            {repositoryRequired && (
+                <ReportRepositorySelection
+                    report={report}
+                    surface="triage_mode"
+                    onConnect={() => setConnectionOpen(true)}
+                    integrationDisabledReason={isCreatingPr ? 'Starting implementation' : undefined}
+                />
+            )}
+            {failed && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <Text size="xs" variant="muted" render={<span />}>
+                        Couldn't check GitHub access.
+                    </Text>
+                    <Button
+                        variant="outline"
+                        onClick={retryAccess}
+                        loading={loading}
+                        data-attr="inbox-triage-retry-github"
+                    >
+                        Retry GitHub check
+                    </Button>
+                </div>
+            )}
+            <ReportGithubConnection report={report} surface="triage_mode" />
+        </>
+    )
+}
+
+function ReportLoadFailed({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
+    const logic = todayReportLogic({ reportId: report.id })
+    const { pageLoading, fullReportLoading } = useValues(logic)
+    const { loadPage, loadFullReport } = useActions(logic)
+    const summary = expanded ? report.summary : deriveHeadline(report.summary)
+    return (
+        <div className="flex flex-col gap-3">
+            {summary && <ReportStageProse markdown={summary} />}
+            <div className="flex flex-wrap items-center gap-2">
+                <Text size="xs" variant="muted" render={<span />}>
+                    Couldn't load the full report. Try again, or open the report.
+                </Text>
+                <Button
+                    variant="outline"
+                    onClick={() => {
+                        loadFullReport()
+                        loadPage()
+                    }}
+                    loading={pageLoading || fullReportLoading}
+                    data-attr="inbox-triage-retry-report"
+                >
+                    Try again
+                </Button>
+            </div>
+        </div>
+    )
+}
+
 /** The triage card: the top of the report page, a count line, and the first evidence. It has no primary button. */
 export function QuillTriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
     const { user } = useValues(userLogic)
-    const { canCreatePr, createPrDisabledReason, implementationDisabledReason } = useValues(inboxTriageLogic)
-    const { claimCurrent, resolveCurrent, dismissCurrent, createPrForCurrent, toggleExpanded, openCurrent } =
-        useActions(inboxTriageLogic)
-    const { page, shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
+    const { canCreatePr } = useValues(inboxTriageLogic)
+    const { claimCurrent, resolveCurrent, dismissCurrent, toggleExpanded, openCurrent } = useActions(inboxTriageLogic)
+    const { page, reportFailed, shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
     const myUuid = user?.uuid ?? null
     const reviewers = report.suggested_reviewer_count ?? 0
     const evidence = expanded ? shownEvidence : shownEvidence.slice(0, CLOSED_EVIDENCE_ROWS)
@@ -77,6 +170,7 @@ export function QuillTriageCard({ report, expanded }: { report: SignalReport; ex
                     <TodayReportTitle report={report} />
                 </header>
                 {page && <TodayReportAbstract report={report} />}
+                {!page && reportFailed && <ReportLoadFailed report={report} expanded={expanded} />}
                 <Text size="xs" variant="muted" render={<div />} className="flex flex-wrap items-center gap-x-1.5">
                     {page && (
                         <>
@@ -100,6 +194,7 @@ export function QuillTriageCard({ report, expanded }: { report: SignalReport; ex
                         ))}
                     </div>
                 )}
+                {canCreatePr && <GithubRecovery report={report} />}
             </div>
             <footer className="QuillTriage__keys">
                 {isReportClaimable(report, myUuid) && (
@@ -107,15 +202,7 @@ export function QuillTriageCard({ report, expanded }: { report: SignalReport; ex
                 )}
                 <KeyButton label="Resolve" shortcut="R" onClick={resolveCurrent} dataAttr="inbox-triage-resolve" />
                 <KeyButton label="Dismiss" shortcut="A" onClick={dismissCurrent} dataAttr="inbox-triage-dismiss" />
-                {canCreatePr && (
-                    <KeyButton
-                        label="Create PR"
-                        shortcut="C"
-                        onClick={createPrForCurrent}
-                        disabledReason={createPrDisabledReason ?? implementationDisabledReason}
-                        dataAttr="inbox-triage-create-pr"
-                    />
-                )}
+                {canCreatePr && <CreatePrKeyButton report={report} />}
                 <span className="flex-1" />
                 <KeyButton
                     plain

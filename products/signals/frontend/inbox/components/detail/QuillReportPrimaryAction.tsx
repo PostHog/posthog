@@ -10,7 +10,7 @@ import { SignalReport } from '../../types'
 
 /** The one primary action of the report. It follows the state of the work, not the stage in view. */
 export function QuillReportPrimaryAction({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportTaskToOpen, implementationSlotClaim } = useValues(
+    const { reportTaskToOpen, implementationSlotClaim, selectedPullRequest } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const { createPrDisabledReason, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
@@ -21,6 +21,7 @@ export function QuillReportPrimaryAction({ report }: { report: SignalReport }): 
         solutionNamesPullRequest: page?.solution_names_pull_request ?? false,
         slotClaimed: implementationSlotClaim !== null,
         runningTask: task?.latest_run ? { taskId: task.id, runId: task.latest_run.id } : null,
+        pullRequest: selectedPullRequest,
     })
 
     if (reportState !== 'open' || !primary) {

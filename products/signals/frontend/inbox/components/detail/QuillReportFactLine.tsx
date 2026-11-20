@@ -47,7 +47,7 @@ export function QuillReportFactLine({
                 <QuillReportSourceIcons report={report} className="TodayReportHeader__icon me-1" />
                 {report.scout_name && (
                     <>
-                        <span className="whitespace-nowrap" data-attr="inbox-report-scout">
+                        <span className="max-w-full min-w-0 break-words" data-attr="inbox-report-scout">
                             {`Scout: ${prettifyScoutSkillName(report.scout_name)}`}
                         </span>
                         <Separator />

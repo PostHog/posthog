@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { SignalReport, SignalReportArtefact } from '../../../types'
-import { reportPullRequests } from '../../../utils/reportPullRequests'
+import { ReportPullRequest, reportPullRequests } from '../../../utils/reportPullRequests'
 import { ReportActionCard } from './ReportActionCard'
 import { ReportStageDetails } from './ReportStageDetails'
 import { ReportStageSectionTitle } from './ReportStageSectionTitle'
@@ -10,11 +10,13 @@ import { ReportStageSectionTitle } from './ReportStageSectionTitle'
 export function ReportExecuteStage({
     report,
     artefacts,
+    selectedPullRequest,
     note,
     children,
 }: {
     report: SignalReport
     artefacts: SignalReportArtefact[]
+    selectedPullRequest: ReportPullRequest
     /** Shown inside the action card, under the proposed change. */
     note?: ReactNode
     /** The detail lines of this stage. */
@@ -28,7 +30,7 @@ export function ReportExecuteStage({
                 <ReportStageSectionTitle>
                     {workStarted ? 'Implementation' : 'Recommended action'}
                 </ReportStageSectionTitle>
-                <ReportActionCard report={report} artefacts={artefacts}>
+                <ReportActionCard report={report} artefacts={artefacts} selectedPullRequest={selectedPullRequest}>
                     {note}
                 </ReportActionCard>
             </section>

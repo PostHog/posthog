@@ -1,5 +1,6 @@
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 
 import { reportWorkKind, startDisabledReason, todayNextStep } from './todayNextStep'
 
@@ -15,6 +16,13 @@ const CLAIMED_BY_TASK = makeReport({
         claim_id: 'c1',
         responsible_user: null,
     },
+})
+
+const TWO_PULL_REQUESTS = makeReport({
+    pull_requests: [
+        { url: 'https://github.com/example/web/pull/1', state: 'open', merged: false },
+        { url: 'https://github.com/example/web/pull/2', state: 'open', merged: false },
+    ] as unknown as SignalReport['pull_requests'],
 })
 
 describe('todayNextStep', () => {
@@ -72,6 +80,17 @@ describe('todayNextStep', () => {
             runningTask,
         })
         expect({ primary, note }).toEqual(expected)
+    })
+
+    test('reviews the pull request in view rather than the primary one', () => {
+        const { primary } = todayNextStep(TWO_PULL_REQUESTS, {
+            namedPullRequest: null,
+            solutionNamesPullRequest: false,
+            slotClaimed: false,
+            runningTask: null,
+            pullRequest: reportPullRequests(TWO_PULL_REQUESTS)[1],
+        })
+        expect(primary).toEqual({ kind: 'review', url: 'https://github.com/example/web/pull/2', label: 'Review PR #2' })
     })
 
     test.each([

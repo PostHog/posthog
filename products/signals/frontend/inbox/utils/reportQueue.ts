@@ -1,9 +1,12 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../logics/reportListLogic'
 import { INBOX_REPORT_SECTION_KEYS, InboxReportSectionKey, SignalReport } from '../types'
 import { mergeReportRows, selectedFlatListSections } from './flatReportList'
+import { inboxListGroups } from './reportFacts'
 
 export interface InboxReportQueue {
     position: number
@@ -34,7 +37,8 @@ export function inboxReportQueue(reportId: string): InboxReportQueue | null {
     if (!filterValues) {
         return null
     }
-    const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
+    const user = userLogic.findMounted()?.values.user
+    const isStaff = user?.is_staff ?? false
     const selectedSections = selectedFlatListSections(filterValues.visibleStateFilter, isStaff)
     const sectionValues = (sectionKey: InboxReportSectionKey): { reports: SignalReport[]; count: number | null } => {
         const values = reportListLogic.findMounted({
@@ -52,9 +56,15 @@ export function inboxReportQueue(reportId: string): InboxReportQueue | null {
         filterValues.activeSortField,
         filterValues.activeSortDirection
     )
+    const groups = inboxListGroups(rows, {
+        todayRailNav: !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        scope: filterValues.activeScope,
+        hasActiveFilters: filterValues.hasActiveFilters,
+        currentUserUuid: user?.uuid ?? null,
+    })
     const total = selectedSections.reduce((sum, sectionKey) => sum + (sectionValues(sectionKey).count ?? 0), 0)
     return reportQueuePosition(
-        rows.map((row) => row.report.id),
+        [...groups.forYou, ...groups.others].map((row) => row.report.id),
         total,
         reportId
     )

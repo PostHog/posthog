@@ -12,28 +12,18 @@ import {
     formatReportMetricParts,
     formatReportMetricValue,
     reportMetricChartType,
+    reportMetricGoalUnit,
+    reportMetricInterval,
     ReportMetricSeriesPoints,
-    reportMetricUnitWord,
 } from '../../../utils/reportMetrics'
-import { monitoringChartMarkers, monitoringChartPoints } from '../../../utils/reportMonitoringChart'
+import { monitoringChartMarkers, monitoringChartPoints, monitoringOutcome } from '../../../utils/reportMonitoringChart'
 import { ReportObservationChart } from '../ReportObservationChart'
 
-/** The total of the buckets that start after the fix shipped, and the first of them. Null when none has started. */
-function sinceTheFix(
-    points: ReportMetricSeriesPoints,
-    monitoringStartedAt: string
-): { total: number; from: string } | null {
-    const firstAfter = points.labels.findIndex((label) => dayjs(label).isAfter(monitoringStartedAt))
-    if (firstAfter === -1) {
-        return null
-    }
-    const total = points.values.slice(firstAfter).reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0)
-    return { total, from: points.labels[firstAfter] }
-}
+const SUB_DAY_INTERVALS = new Set(['second', 'minute', 'hour'])
 
 /**
  * The metric the fix should move, charted across the release, beside the result the report expects.
- * The figure under the target is a count from the chart, not a verdict: the follow-up checks give that.
+ * The figure under the target is read from the chart, not a verdict: the follow-up checks give that.
  */
 export function ReportOutcomeCard({
     metric,
@@ -45,22 +35,35 @@ export function ReportOutcomeCard({
     monitoringStartedAt: string
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
+    const interval = reportMetricInterval(metric)
     // The chart compares its inputs by identity, so they are built once per data change, not per render.
     const chart = useMemo(() => {
         const now = Date.now()
+        const chartPoints = monitoringChartPoints(points, now, timezone)
         return {
-            points: monitoringChartPoints(points, now, timezone),
+            points: chartPoints,
             markers: monitoringChartMarkers(
                 points.labels,
                 { referencePeriodMinutes: 0, startedAt: monitoringStartedAt },
                 now,
                 timezone
             ),
+            observed: monitoringOutcome({
+                metric,
+                points: chartPoints,
+                startedAt: monitoringStartedAt,
+                interval,
+                now,
+                timezone,
+            }),
         }
-    }, [points, monitoringStartedAt, timezone])
+    }, [metric, points, monitoringStartedAt, interval, timezone])
     const goal = formatReportMetricParts(metric, metric.goal_value)
-    const unitWord = reportMetricUnitWord(metric)
-    const observed = sinceTheFix(points, monitoringStartedAt)
+    const observed = chart.observed
+    const observedValue = observed ? (formatReportMetricValue(metric, observed.value) ?? String(observed.value)) : null
+    const observedFrom = observed
+        ? dayjs(observed.from).format(SUB_DAY_INTERVALS.has(interval) ? 'MMM D, HH:mm' : 'MMM D')
+        : null
 
     return (
         <Card size="sm" data-attr="inbox-report-outcome-card">
@@ -69,7 +72,7 @@ export function ReportOutcomeCard({
                     metric={metric}
                     points={chart.points}
                     type={reportMetricChartType(metric)}
-                    interval="day"
+                    interval={interval}
                     markers={chart.markers}
                 />
                 <div className="flex flex-col gap-1.5 border-border @2xl:border-s @2xl:ps-4">
@@ -82,9 +85,7 @@ export function ReportOutcomeCard({
                                 {goal.value}
                             </span>
                             <Text size="sm" variant="muted" render={<span />}>
-                                {metric.goal_grain === 'per_interval'
-                                    ? `${goal.unit ?? unitWord} per day`
-                                    : (goal.unit ?? unitWord)}
+                                {reportMetricGoalUnit(metric, goal.unit)}
                             </Text>
                         </div>
                     )}
@@ -94,12 +95,14 @@ export function ReportOutcomeCard({
                     {observed && (
                         <Text size="xs" variant="muted" render={<p className="m-0" />} className="flex gap-1.5">
                             <Dot
-                                variant={observed.total === 0 ? 'success' : 'warning'}
+                                variant={observed.value === 0 ? 'success' : 'warning'}
                                 aria-hidden
                                 className="mt-1 self-start"
                             />
                             <span>
-                                {`${formatReportMetricValue(metric, observed.total) ?? observed.total} since ${dayjs(observed.from).format('MMM D')}, the first full day after the fix merged`}
+                                {observed.aggregation === 'total'
+                                    ? `${observedValue} since ${observedFrom}, the first full ${interval} after the fix merged`
+                                    : `${observedValue} per ${interval} on average since ${observedFrom}, the first full ${interval} after the fix merged`}
                             </span>
                         </Text>
                     )}
