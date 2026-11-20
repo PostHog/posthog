@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 
 import { EXIT_FAILURE, HogError, wrapFailure } from '@/core/errors'
@@ -43,14 +42,15 @@ export const containerHash = (upload: SymbolSetContainer): string =>
 
 type Hashed = SymbolSetContainer & { hash: string }
 
-async function containerBytes(upload: SymbolSetContainer): Promise<Uint8Array> {
+// A container on disk is read as it is sent, so an upload holds none of it in memory.
+function containerBody(upload: SymbolSetContainer): Uint8Array | Blob {
     if ('data' in upload) {
         return upload.data
     }
     if (upload.file === null) {
         throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
     }
-    return readFile(upload.file)
+    return Bun.file(upload.file)
 }
 
 export type UploadStatus = 'uploaded' | 'already_present' | 'too_large'
@@ -428,11 +428,9 @@ export class SymbolSetClient {
         await withRetries(this.runtime, fallback ? 4 : 3, async () => {
             const useFallback = fallback !== undefined && (this.preferFallback || primaryTransportErrors >= 2)
             const target = useFallback ? fallback! : primary
-            // Read for each attempt and dropped after it, so only the containers in flight are in memory.
-            const data = await containerBytes(upload)
             let response: Response
             try {
-                response = await this.send(data, target)
+                response = await this.send(containerBody(upload), containerSize(upload), target)
             } catch (error) {
                 if (useFallback) {
                     fallbackTransportErrors++
@@ -460,12 +458,16 @@ export class SymbolSetClient {
         })
     }
 
-    private send(data: Uint8Array, target: Target): Promise<Response> {
+    private send(body: Uint8Array | Blob, size: number, target: Target): Promise<Response> {
         if (target.kind === 'put') {
+            const file = body instanceof Blob
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
-                body: data as BodyInit,
-                timeoutMs: transferTimeout(data.length),
+                // A file as the body would add a Content-Type header. Its stream needs the length, or
+                // the request goes out chunked, which object storage refuses.
+                body: file ? body.stream() : (body as BodyInit),
+                headers: file ? { 'Content-Length': String(size) } : undefined,
+                timeoutMs: transferTimeout(size),
                 skipRateLimit: true,
             })
         }
@@ -474,11 +476,11 @@ export class SymbolSetClient {
             form.append(key, value)
         }
         // SeaweedFS and MinIO need a filename on the file part.
-        form.append('file', new Blob([data as BlobPart]), 'file')
+        form.append('file', body instanceof Blob ? body : new Blob([body as BlobPart]), 'file')
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            timeoutMs: transferTimeout(data.length),
+            timeoutMs: transferTimeout(size),
             skipRateLimit: true,
         })
     }
