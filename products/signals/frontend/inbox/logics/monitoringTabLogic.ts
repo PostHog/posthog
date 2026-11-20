@@ -18,9 +18,15 @@ export const MONITORING_CONNECTIONS: MonitoringConnection[] = ['assigned', 'sugg
 export interface MonitoringScope {
     everyone: boolean
     connections: MonitoringConnection[]
+    /** Only reports with evidence the fix is not working: off-track readings, or closed after Monitoring. */
+    needsAttention?: boolean
 }
 
-export const DEFAULT_MONITORING_SCOPE: MonitoringScope = { everyone: false, connections: MONITORING_CONNECTIONS }
+export const DEFAULT_MONITORING_SCOPE: MonitoringScope = {
+    everyone: false,
+    connections: MONITORING_CONNECTIONS,
+    needsAttention: false,
+}
 
 const PAGE_LIMIT = 100
 const METRIC_REFRESH_PAGE_SIZE = 20
@@ -138,10 +144,18 @@ export type monitoringTabLogicType = MakeLogicType<
 export function monitoringListParams(
     scope: MonitoringScope,
     offset = 0
-): { view: string; connected?: string; limit: number; offset: number; include_source_metadata: boolean } {
+): {
+    view: string
+    connected?: string
+    needs_attention?: boolean
+    limit: number
+    offset: number
+    include_source_metadata: boolean
+} {
     return {
         view: 'monitoring_recent',
         ...(scope.everyone ? {} : { connected: scope.connections.join(',') }),
+        ...(scope.needsAttention ? { needs_attention: true } : {}),
         limit: PAGE_LIMIT,
         offset,
         include_source_metadata: false,

@@ -154,18 +154,21 @@ describe('monitoringTimeline', () => {
     })
 
     test.each([
-        [{ everyone: true, connections: ['assigned' as const] }, undefined],
+        [{ everyone: true, connections: ['assigned' as const] }, undefined, false],
         [
             { everyone: false, connections: ['assigned' as const, 'suggested_reviewer' as const] },
             'assigned,suggested_reviewer',
+            false,
         ],
-    ])('list params for scope %o', (scope, connected) => {
+        [{ everyone: true, connections: [], needsAttention: true }, undefined, true],
+    ])('list params for scope %o', (scope, connected, needsAttention) => {
         expect(monitoringListParams(scope)).toEqual({
             view: 'monitoring_recent',
             limit: 100,
             offset: 0,
             include_source_metadata: false,
             ...(connected ? { connected } : {}),
+            ...(needsAttention ? { needs_attention: true } : {}),
         })
     })
 })
