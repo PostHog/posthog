@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.redis import get_client
 from posthog.storage.team_llm_gateway_quota_cache import (
@@ -115,15 +117,19 @@ class TestLLMGatewayQuotaTasks(BaseTest):
         assert blob is not None
         self.assertTrue(blob["org_deactivated"])
 
+    @parameterized.expand([("projection_raises", ConnectionError("redis down")), ("projection_writes_nothing", None)])
     @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
-    def test_a_failed_projection_on_deactivation_queues_a_retry(self, mock_settings: MagicMock) -> None:
+    def test_deactivation_always_queues_a_follow_up_projection(
+        self, _name: str, projection_error: Exception | None, mock_settings: MagicMock
+    ) -> None:
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         queued: list[str] = []
         with (
             self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
             patch(
                 "posthog.tasks.team_llm_gateway_quota.project_org_quota",
-                side_effect=ConnectionError("redis down"),
+                side_effect=projection_error,
+                return_value=0,
             ),
             patch(
                 "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
