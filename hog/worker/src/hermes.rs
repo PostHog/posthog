@@ -3,32 +3,16 @@
 
 use anyhow::Result;
 use posthog_symbol_data::{write_symbol_data, HermesMap};
-use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::{
-    node,
-    pair::SourceMapContent,
-    upload::{content_hash, write_container},
-};
-
-const CONTAINER_PREFIX: &str = "map";
-const CONTAINER_EXTENSION: &str = "symbolset";
+use crate::{node, pair::SourceMapContent, upload::Container};
 
 pub struct MapFile {
     pub path: PathBuf,
     pub content: SourceMapContent,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Built {
-    content_hash: String,
-    size: usize,
-    path: Option<String>,
 }
 
 pub fn load(path: &Path) -> Result<MapFile, String> {
@@ -70,23 +54,9 @@ impl MapFile {
     }
 }
 
-pub fn build(id: usize, map: MapFile, folder: Option<&Path>) -> Result<Built> {
-    let container = write_symbol_data(HermesMap {
+pub fn build(map: MapFile, folder: Option<&Path>) -> Result<Container> {
+    let bytes = write_symbol_data(HermesMap {
         sourcemap: String::from_utf8(map.content.serialize()?)?,
     })?;
-
-    let path = match folder {
-        Some(folder) => {
-            let path = folder.join(format!("{CONTAINER_PREFIX}-{id}.{CONTAINER_EXTENSION}"));
-            write_container(&path, &container)?;
-            Some(path.to_string_lossy().into_owned())
-        }
-        None => None,
-    };
-
-    Ok(Built {
-        content_hash: content_hash([&container]),
-        size: container.len(),
-        path,
-    })
+    Container::write(&bytes, folder)
 }
