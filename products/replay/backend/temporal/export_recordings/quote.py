@@ -218,7 +218,10 @@ def current_cost(quote: Quote) -> QuoteCost:
     if quote.session_ids_key:
         content = object_storage.read(quote.session_ids_key) or ""
         session_ids = [line for line in content.splitlines() if line]
-    usage = measure_usage(quote.team_id, quote.date_from, quote.date_to, session_ids, datetime.now(UTC))
+    # The quote's own time keeps its Glacier IR forecast, which already covers its validity and the run.
+    usage = measure_usage(
+        quote.team_id, quote.date_from, quote.date_to, session_ids, datetime.fromisoformat(quote.created_at)
+    )
     return price(usage, max_parallel_shards=quote.max_parallel_shards, cross_region=quote.cross_region)
 
 

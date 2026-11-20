@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -361,6 +362,36 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             50,
         )
 
+    def test_an_unchanged_quote_keeps_its_price_as_days_pass(self) -> None:
+        day = self.day.date().isoformat()
+        # A 90d block at 20.5 days old, outside the quote's Glacier IR horizon today but inside it a day later.
+        file_ms = int((datetime.now(UTC) - timedelta(days=20, hours=12)).timestamp() * 1000)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s7",
+            distinct_id="d-s7",
+            first_timestamp=self.day + timedelta(hours=2),
+            last_timestamp=self.day + timedelta(hours=2, seconds=30),
+            block_urls=[
+                f"s3://replay-bucket/session_recordings/90d/{file_ms}-00000000000000aa?range=bytes=0-999999999"
+            ],
+            block_first_timestamps=[self.day + timedelta(hours=2)],
+            block_last_timestamps=[self.day + timedelta(hours=2, seconds=30)],
+            ensure_analytics_event_in_session=False,
+        )
+        quote = create_quote(
+            team_id=self.team.pk,
+            date_from=day,
+            date_to=day,
+            session_ids=None,
+            region="us-east-1",
+            cross_region=False,
+            max_parallel_shards=1,
+        )
+
+        with time_machine.travel(datetime.now(UTC) + timedelta(days=1), tick=False):
+            assert current_cost(quote) == quote.cost
+
     def test_a_session_ingested_after_the_quote_raises_the_current_cost(self) -> None:
         day = self.day.date().isoformat()
         quote = create_quote(
@@ -483,10 +514,10 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
 
     async def fetch(*_: Any, **__: Any) -> bytes:
         nonlocal in_flight, peak
+        # A block counts from its fetch until the consumer has written it.
         in_flight += 1
         peak = max(peak, in_flight)
         await asyncio.sleep(0)
-        in_flight -= 1
         return b"x" * 100
 
     client = MagicMock()
@@ -495,7 +526,15 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
     budget = ByteBudget(300)
 
     async def drain(session: SessionRow) -> int:
-        return len([data async for data in fetch_blocks_in_order(client, session, 1, budget)])
+        nonlocal in_flight
+        count = 0
+        async for _ in fetch_blocks_in_order(client, session, 1, budget):
+            # A slow write: the block stays in memory while other sessions run.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            in_flight -= 1
+            count += 1
+        return count
 
     assert await asyncio.gather(*(drain(s) for s in sessions)) == [4, 4]
     assert peak <= 3

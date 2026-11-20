@@ -540,33 +540,35 @@ def block_size(block: Block) -> int:
 async def fetch_blocks_in_order(
     client: RecordingApiClient, session: SessionRow, team_id: int, budget: ByteBudget
 ) -> AsyncGenerator[bytes]:
-    """Yield the session's blocks in order, with up to BLOCK_CONCURRENCY fetches in flight within the byte budget."""
-    pending: collections.deque[tuple[asyncio.Task[bytes], int]] = collections.deque()
+    """Yield the session's blocks in order, with up to BLOCK_CONCURRENCY fetches in flight within the byte budget.
 
-    async def take_oldest() -> bytes:
-        task, size = pending.popleft()
-        try:
-            return await task
-        finally:
-            await budget.give_back(size)
+    A block's bytes stay reserved until the consumer asks for the next block, so they cover the write too.
+    """
+    pending: collections.deque[tuple[asyncio.Task[bytes], int]] = collections.deque()
+    held = 0
 
     try:
         for block in session.blocks or []:
             size = block_size(block)
             # Drain this session's own queue before waiting, so sessions never wait on each other in a cycle.
             while pending and (len(pending) == BLOCK_CONCURRENCY or not budget.try_take(size)):
-                yield await take_oldest()
+                task, held = pending.popleft()
+                yield await task
+                await budget.give_back(held)
+                held = 0
             if not pending:
                 await budget.take(size)
             pending.append((asyncio.create_task(fetch_block(client, block, session, team_id)), size))
         while pending:
-            yield await take_oldest()
+            task, held = pending.popleft()
+            yield await task
+            await budget.give_back(held)
+            held = 0
     finally:
         for task, _ in pending:
             task.cancel()
         await asyncio.gather(*(task for task, _ in pending), return_exceptions=True)
-        for _, size in pending:
-            await budget.give_back(size)
+        await budget.give_back(held + sum(size for _, size in pending))
 
 
 async def export_session(
