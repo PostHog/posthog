@@ -20,7 +20,6 @@ class PeopleImportRecorder:
         storage.read.side_effect = lambda key, missing_ok=False: self.stored.get(key)
         storage.iter_keys.side_effect = lambda prefix: [key for key in list(self.stored) if key.startswith(prefix)]
         storage.delete_objects.side_effect = lambda keys: [self.stored.pop(key) for key in keys] and []
-        # Every event sent, in order.
         self.events: list[dict[str, Any]] = []
         for target, kwargs in (
             ("products.workflows.backend.services.people_import.object_storage", {"new": storage}),

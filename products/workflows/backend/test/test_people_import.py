@@ -271,6 +271,26 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             **kwargs,
         )
 
+    def _clickhouse_members(self, cohort_id: int) -> set[str]:
+        rows = sync_execute(
+            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort_id},
+        )
+        return {str(row[0]) for row in rows}
+
+    def _stage_ada_after_a_fill_with_bea(self) -> tuple[ProviderContactsResult, set[str]]:
+        people = [
+            create_person(team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"})
+            for name in ("ada", "bea")
+        ]
+        flush_persons_and_events()
+        first = self._stage(["ada@example.com", "bea@example.com"])
+        assert first.cohort_id is not None
+        provider_contacts.fill_contacts_cohort(
+            self.team.id, first.cohort_id, first.storage_prefix, first.chunks, created_by_id=self.user.id
+        )
+        return self._stage(["ada@example.com"]), {str(person.uuid) for person in people}
+
     @parameterized.expand(
         [
             # Cy left the list and Bea unsubscribed.
@@ -313,11 +333,7 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             self.team.id, first.cohort_id, again.storage_prefix, again.chunks, created_by_id=self.user.id
         )
 
-        in_clickhouse = sync_execute(
-            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": self.team.id, "cohort_id": first.cohort_id},
-        )
-        assert {row[0] for row in in_clickhouse} == {people[name].uuid for name in members}
+        assert self._clickhouse_members(first.cohort_id) == {str(people[name].uuid) for name in members}
         assert Cohort.objects.get(id=first.cohort_id).count == len(members)
         assert filled == ContactsCohortFilled(members=len(members), removed=3 - len(members))
 
@@ -334,24 +350,19 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
         capture.assert_not_called()
 
     def test_a_cohort_deleted_while_the_list_was_sent_is_left_alone(self) -> None:
-        create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "ada@example.com"})
-        flush_persons_and_events()
-        staged = self._stage(["ada@example.com"])
+        staged, members = self._stage_ada_after_a_fill_with_bea()
         assert staged.cohort_id is not None
         Cohort.objects.filter(id=staged.cohort_id).update(deleted=True)
 
-        with (
-            patch.object(provider_contacts, "replace_static_cohort_members") as replace,
-            self.assertRaises(ContactsCohortGone),
-        ):
+        with self.assertRaises(ContactsCohortGone):
             provider_contacts.fill_contacts_cohort(
                 self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
             )
 
-        replace.assert_not_called()
+        assert self._clickhouse_members(staged.cohort_id) == members
 
     def test_a_cohort_deleted_after_the_check_still_keeps_its_members(self) -> None:
-        staged = self._stage(["ada@example.com"])
+        staged, members = self._stage_ada_after_a_fill_with_bea()
         assert staged.cohort_id is not None
         live = get_cohort_ref(team_id=self.team.id, cohort_id=staged.cohort_id)
         Cohort.objects.filter(id=staged.cohort_id).update(deleted=True)
@@ -359,19 +370,16 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
         # The cohort is deleted between the check and the write.
         with (
             patch.object(provider_contacts, "get_cohort_ref", return_value=live),
-            patch("products.cohorts.backend.facade.api.remove_static_cohort_members") as remove,
             self.assertRaises(Cohort.DoesNotExist),
         ):
             provider_contacts.fill_contacts_cohort(
                 self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
             )
 
-        remove.assert_not_called()
+        assert self._clickhouse_members(staged.cohort_id) == members
 
     def test_the_cohort_keeps_its_members_when_the_creator_lost_edit_access_to_it(self) -> None:
-        create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "ada@example.com"})
-        flush_persons_and_events()
-        staged = self._stage(["ada@example.com"])
+        staged, members = self._stage_ada_after_a_fill_with_bea()
         assert staged.cohort_id is not None
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -383,15 +391,12 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             team=self.team, resource="cohort", resource_id=str(staged.cohort_id), access_level="viewer"
         )
 
-        with (
-            patch.object(provider_contacts, "replace_static_cohort_members") as replace_here,
-            self.assertRaises(ContactsImportAccessLost),
-        ):
+        with self.assertRaises(ContactsImportAccessLost):
             provider_contacts.fill_contacts_cohort(
                 self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
             )
 
-        replace_here.assert_not_called()
+        assert self._clickhouse_members(staged.cohort_id) == members
 
     @patch.object(provider_contacts, "capture_batch_internal")
     def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
@@ -413,7 +418,6 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             provider_contacts.import_contact_chunk(
                 self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
             )
-        # Temporal's retry of the part sends only what capture never acknowledged.
         outcome = provider_contacts.import_contact_chunk(
             self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
         )

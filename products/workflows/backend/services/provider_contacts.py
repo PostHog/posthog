@@ -176,7 +176,6 @@ class _Creator:
 
 
 def _require_creator(team_id: int, user_id: int | None) -> None:
-    # The parts are written minutes or hours after the list was staged, so access is checked again for each.
     creator = _check_creator(team_id, user_id)
     if isinstance(creator, ProviderContactsResult):
         raise ContactsImportAccessLost(" ".join(creator.notes))
