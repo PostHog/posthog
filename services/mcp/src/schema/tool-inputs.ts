@@ -949,8 +949,6 @@ export const PathCleaningRulesUpdateSchema = z.object({
         .max(50)
         .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
     sample_paths: z
-        // Bounded because preview cost scales with total path length; the work budget in
-        // updatePathCleaning.ts bounds each call, not these limits.
         .array(z.string().max(2048))
         .max(25)
         .optional()

@@ -58,18 +58,14 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
     return rules.map((rule, index) => ({ ...rule, order: index }))
 }
 
-// RE2 compiles `{n}` by copying its operand n times, so a short pattern can expand into a program
-// large enough to block the event loop while it compiles. The estimate refuses that expansion
-// before RE2JS.compile allocates it, and programSize() checks the real program afterwards.
+// RE2 copies a `{n}` operand n times, so a short pattern can compile slowly enough to block the event loop.
 const MAX_PROGRAM_SIZE = 1000
-// One search costs up to program size × capture groups × the input it scans, and replaceAll starts a
-// new search after every match, so a preview with many matches can cost path length squared × that.
+// replaceAll searches again after every match, so preview cost can grow with path length squared.
 const PREVIEW_WORK_BUDGET = 20_000_000
 
 const COUNTED_REPEAT = /\{(\d+)(?:,(\d*))?\}/y
 const GROUP_PREFIX = /\(\?(?:P?<[^>]*>|[a-zA-Z-]*:?)/y
 
-/** Approximates the RE2 instruction count, multiplying each counted repeat's operand as the compiler does. */
 function estimateProgramSize(regex: string): number {
     const frames = [{ size: 0, last: 0, capturing: false }]
     let i = 0
@@ -87,7 +83,6 @@ function estimateProgramSize(regex: string): number {
             continue
         }
         if (char === '(') {
-            // Flags and non-capturing groups compile to no instructions; a capturing group adds two.
             GROUP_PREFIX.lastIndex = i
             const groupPrefix = GROUP_PREFIX.exec(regex)?.[0] ?? '('
             frames.push({ size: 0, last: 0, capturing: groupPrefix === '(' || groupPrefix.endsWith('>') })
@@ -297,8 +292,7 @@ function compileForPreview(rules: PathCleaningRule[]): CompiledRule[] {
         try {
             return [{ alias: rule.alias, re: compilePathCleaningRegex(rule.regex) }]
         } catch {
-            // Stored rules did not pass this tool's validation, so the preview leaves out one that
-            // RE2 rejects or the caps refuse instead of failing the call.
+            // Stored rules skipped this tool's validation, so a rule RE2 refuses is left out of the preview.
             return []
         }
     })

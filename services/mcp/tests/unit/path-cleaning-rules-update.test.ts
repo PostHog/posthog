@@ -296,12 +296,10 @@ describe('path-cleaning-rules-update handler', () => {
             sample_paths: ['/price/500'],
             confirm: false,
         })
-        // Not "/price/$&" or "/price/": re2 replacement syntax treats $ as a literal.
         expect(result.sample_preview).toEqual([{ path: '/price/500', before: '/price/500', after: '/price/$amount' }])
     })
 
     it('reflects a (?i) inline-flag rule in the preview instead of dropping it', async () => {
-        // (?i) is re2 syntax that a JS RegExp rejects, so an accepted rule must not vanish from before/after.
         const context = createMockContext({ currentFilters: [] })
         const result = await updatePathCleaningHandler(context, {
             operations: [{ action: 'append', alias: '/user/<id>', regex: '(?i)/USER/[0-9]+' }],
