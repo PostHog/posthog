@@ -151,6 +151,8 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
 _SEGMENT = r"(?!(?:this|size|first|last)\b)[A-Za-z_][A-Za-z0-9_]*"
 _ALLOWED_TAG = re.compile(rf"\{{\{{ *{_SEGMENT}(?:\.{_SEGMENT})* *\}}\}}(?!\}})")
 _HELD = re.compile("[\x02\x03]")
+_SCRIPT = re.compile(r"<script\b", re.IGNORECASE)
+_UNCLOSED_TAG = re.compile(r"<[^<>]*(?:<|$)")
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
 _ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"<>]*[<>][^"]*"|'[^'<>]*[<>][^']*')""")
 
@@ -178,6 +180,11 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     # A `<` or `>` in a quoted value hides where the tag ends from the checks below.
     if _ANGLE_IN_QUOTED_VALUE.search(text):
         return "have a < or > inside a quoted attribute value"
+    # Email clients don't run scripts, and the browser's rules for where a script ends are too subtle to check here.
+    if _SCRIPT.search(text):
+        return "sit in a template with a script"
+    if _UNCLOSED_TAG.search(text):
+        return "have an HTML tag that never closes"
     if _has_unclosed_block(text):
         return "have a comment, style, script or head block that never closes"
     if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
