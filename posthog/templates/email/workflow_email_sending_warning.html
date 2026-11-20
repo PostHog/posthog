@@ -11,7 +11,7 @@
     </p>
     {% if transactional %}
         <p>
-            This workflow sends transactional email, so we don't pause it automatically. If this rate reaches <b>{{ pause_rate }}</b> or more, our team may pause it by hand to protect delivery for your project and every other PostHog customer sharing our sending reputation.
+            This workflow sends transactional email, so we don't pause it automatically. At <b>{{ pause_rate }}</b> or more, our team may pause it by hand to protect delivery for your project and every other PostHog customer sharing our sending reputation.
         </p>
     {% else %}
         <p>
