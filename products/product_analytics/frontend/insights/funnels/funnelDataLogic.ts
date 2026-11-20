@@ -317,6 +317,7 @@ export interface funnelDataLogicValues {
         average_conversion_time: number | null
         breakdown?: BreakdownKeyType | undefined
         breakdown_value?: BreakdownKeyType | undefined
+        breakdownIndex: number
         breakdowns?: BreakdownKeyType[] | undefined
         colorIndex: number
         compare: boolean | undefined
@@ -549,6 +550,7 @@ export interface funnelDataLogicMeta {
             average_conversion_time: number | null
             breakdown?: BreakdownKeyType | undefined
             breakdown_value?: BreakdownKeyType | undefined
+            breakdownIndex: number
             breakdowns?: BreakdownKeyType[] | undefined
             colorIndex: number
             compare: boolean | undefined
@@ -1384,10 +1386,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         compare_label?: 'current' | 'previous'
                         compare?: boolean
                     }
+                    const colorIndex = colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0
                     return {
                         ...step,
                         seriesIndex: index,
-                        colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
+                        colorIndex,
+                        breakdownIndex: colorIndex,
                         id: index,
                         compare: stepWithCompare.compare_label != null ? true : stepWithCompare.compare,
                     }

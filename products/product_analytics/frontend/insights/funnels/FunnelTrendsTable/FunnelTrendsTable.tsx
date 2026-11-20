@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonColorButton, LemonTag } from '@posthog/lemon-ui'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
@@ -16,7 +16,8 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
+import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
@@ -29,6 +30,7 @@ import { QuillFunnelTrendsTable } from './QuillFunnelTrendsTable'
 export type FunnelTrendSeries = {
     id: number
     colorIndex: number
+    breakdownIndex: number
     data: number[]
     days: string[]
     labels: string[]
@@ -48,7 +50,7 @@ function unwrapBreakdownValue(breakdownValue: BreakdownKeyType | undefined): Bre
 }
 
 export function FunnelTrendsTable(): JSX.Element | null {
-    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const {
         indexedSteps,
         incompletenessOffsetFromEnd,
@@ -58,7 +60,9 @@ export function FunnelTrendsTable(): JSX.Element | null {
         querySource,
         insightData,
         interval,
+        disableFunnelBreakdownBaseline,
     } = useValues(funnelDataLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -121,10 +125,20 @@ export function FunnelTrendsTable(): JSX.Element | null {
         })
     )
 
-    // getFunnelsColor positions colors by `order`, which trend rows don't carry. Feed
-    // colorIndex into that slot so each series gets the same color as its line in the chart.
     const rowColor = (row: FunnelTrendSeries): string =>
-        getFunnelsColor({ ...row, order: row.colorIndex } as unknown as FunnelStepWithConversionMetrics)
+        getFunnelsColor(row as unknown as FlattenedFunnelStepByBreakdown)
+    const onChangeColor = disableFunnelBreakdownBaseline
+        ? undefined
+        : (row: FunnelTrendSeries): void =>
+              // The modal reads the breakdown as an array, but trend rows can carry a bare value
+              // (e.g. a cohort name). The customization key unwraps single-item arrays, so it's unchanged.
+              openModal({
+                  ...row,
+                  breakdown_value:
+                      row.breakdown_value == null || Array.isArray(row.breakdown_value)
+                          ? row.breakdown_value
+                          : [row.breakdown_value],
+              } as unknown as FlattenedFunnelStepByBreakdown)
 
     if (quillSurface) {
         return (
@@ -134,6 +148,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
                 loading={insightLoading}
                 seriesLabel={seriesLabel}
                 rowColor={rowColor}
+                onChangeColor={onChangeColor}
                 onOpenPersons={canOpenPersonModal ? openModalForCell : undefined}
             />
         )
@@ -177,10 +192,22 @@ export function FunnelTrendsTable(): JSX.Element | null {
             title: 'Series',
             key: 'series',
             render: (_, row) => (
-                <span className="font-medium inline-flex items-center gap-2">
-                    {seriesLabel(row)}
-                    {row.compare_label && <LemonTag>{capitalizeFirstLetter(row.compare_label)}</LemonTag>}
-                </span>
+                <div className="flex justify-between items-center gap-2">
+                    <span className="font-medium inline-flex items-center gap-2">
+                        {seriesLabel(row)}
+                        {row.compare_label && <LemonTag>{capitalizeFirstLetter(row.compare_label)}</LemonTag>}
+                    </span>
+                    {onChangeColor && (
+                        <LemonColorButton
+                            onClick={() => onChangeColor(row)}
+                            color={rowColor(row)}
+                            type="tertiary"
+                            size="small"
+                            disabledReason={editingDisabledReason}
+                            data-attr="funnel-trends-series-color"
+                        />
+                    )}
+                </div>
             ),
         },
         ...periodColumns,
