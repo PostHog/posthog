@@ -680,12 +680,14 @@ def update_owned_copy(
     rescheduled: bool = False,
     at: datetime | None = None,
     first_enabled_at: datetime | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
     next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
     it wrote any history row of its own, so the platform's row of the same change is no later.
     `first_enabled_at` is when the source row was first turned on, which the copy takes.
+    `created_by_id` is the row's creator, which the copy's checks run as.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -699,6 +701,7 @@ def update_owned_copy(
         rescheduled=rescheduled,
         at=at,
         first_enabled_at=first_enabled_at,
+        created_by_id=created_by_id,
     )
 
 

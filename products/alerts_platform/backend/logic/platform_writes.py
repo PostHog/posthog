@@ -433,11 +433,13 @@ def update_owned_copy(
     rescheduled: bool = False,
     at: datetime | None = None,
     first_enabled_at: datetime | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
     copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is.
-    `first_enabled_at` is when the source row was first turned on, which the copy takes."""
+    `first_enabled_at` is when the source row was first turned on, which the copy takes.
+    `created_by_id` is the row's creator, which the copy's checks run as."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -458,6 +460,11 @@ def update_owned_copy(
                 first_enabled_at=first_enabled_at
             )
             configuration.first_enabled_at = first_enabled_at
+        if created_by_id is not None and configuration.created_by_id != created_by_id:
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration.id).update(
+                created_by_id=created_by_id
+            )
+            configuration.created_by_id = created_by_id
         control_plane.announce_after_commit(pending)
         destination_handoff.hand_over_after_commit(before)
         _record_change(
