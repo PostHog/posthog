@@ -361,10 +361,14 @@ impl Converter<'_> {
             HogLiteral::Boolean(b) => Ok(JsValue::Bool(*b)),
             HogLiteral::Number(n) => Ok(JsValue::Number(n.to_float())),
             HogLiteral::String(s) => Ok(JsValue::String(self.text(s)?)),
-            HogLiteral::Callable(_) | HogLiteral::Closure(_) => Ok(self
-                .vm
-                .closure_json(literal)
-                .map_or(JsValue::Null, |json| closure_object(&json))),
+            HogLiteral::Callable(_) | HogLiteral::Closure(_) => {
+                let Some(json) = self.vm.closure_json(literal) else {
+                    return Ok(JsValue::Null);
+                };
+                // The object copies the name of the function, and the program chooses that name.
+                self.charge(json.to_string().len())?;
+                Ok(closure_object(&json))
+            }
             HogLiteral::Array(items) | HogLiteral::Tuple(items) => items
                 .iter()
                 .map(|item| self.convert(item))

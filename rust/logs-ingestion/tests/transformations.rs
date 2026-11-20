@@ -649,3 +649,13 @@ async fn patterns_of_a_transformation_stay_in_the_bounded_regex_cache() {
     run_one(function(MATCH_BODY, "{}", None), vec![record("api")]).await;
     assert!(transformation_regexes().contains("zzq-17-[a-z]+", false));
 }
+
+// fun zzname() { return 1 }; let a := zzname; 9 times: a := [a, a]; print(a); return record
+const PRINT_MANY_CLOSURES: &str = r#"["_H", 1, 52, "zzname", 0, 0, 3, 33, 1, 38, 53, 0, 36, 0, 33, 0, 33, 9, 36, 2, 15, 40, 17, 36, 1, 36, 1, 43, 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -24, 35, 36, 1, 2, "print", 1, 35, 32, "record", 1, 1, 38, 35, 35]"#;
+
+#[tokio::test]
+async fn the_names_of_printed_closures_count_toward_the_size_limit() {
+    let long_name = PRINT_MANY_CLOSURES.replace("zzname", &"n".repeat(32 * 1024));
+    let records = run_one(function(&long_name, "{}", None), vec![record("api")]).await;
+    assert!(failed(&records[0]));
+}
