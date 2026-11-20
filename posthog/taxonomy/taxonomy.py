@@ -2788,6 +2788,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tool calls made by the LLM in this generation.",
             "examples": ["2"],
         },
+        "$ai_tool_result_count": {
+            "label": "AI Tool Result Count (LLM)",
+            "description": "The number of tool results sent to the LLM in this generation's input, which are the results of the tools it called in the previous generation.",
+            "examples": ["2"],
+        },
+        "$ai_tool_error_count": {
+            "label": "AI Tool Error Count (LLM)",
+            "description": "How many of the tool results sent to the LLM in this generation were errors.",
+            "examples": ["1"],
+        },
+        "$ai_tool_results": {
+            "label": "AI Tool Results (LLM)",
+            "description": "The names of the tools whose results were sent to the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_errors": {
+            "label": "AI Tool Errors (LLM)",
+            "description": "The names of the tools whose results sent to the LLM in this generation were errors.",
+            "examples": ["search_docs"],
+        },
+        "$ai_tools_unknown": {
+            "label": "AI Unknown Tools Called (LLM)",
+            "description": "Tools the LLM called in this generation that are not in the tools it was given. Usually a capability the agent is missing.",
+            "examples": ["send_email"],
+        },
+        "$ai_tool_intent": {
+            "label": "AI Tool Call Intent (LLM)",
+            "description": "The text the LLM wrote alongside its tool calls in this generation, which usually says why it called them.",
+            "examples": ["Let me look up that invoice."],
+        },
         "$ai_is_error": {
             "label": "AI Is Error (LLM)",
             "description": "Whether this AI event resulted in an error.",

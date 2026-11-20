@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { escapeRegex } from 'lib/utils/actions'
@@ -178,6 +179,66 @@ export function AIObservabilityTools(): JSX.Element {
                                 {renderSortableColumnTitle('total_calls', 'Total calls')}
                             </Tooltip>
                         ),
+                    },
+                    results: {
+                        renderTitle: () => (
+                            <Tooltip title="Tool results sent back to the model. A result arrives in the generation after the call, and some SDKs don't send results at all.">
+                                {renderSortableColumnTitle('results', 'Results')}
+                            </Tooltip>
+                        ),
+                    },
+                    failures: {
+                        renderTitle: () => (
+                            <Tooltip title="Results that were errors">
+                                {renderSortableColumnTitle('failures', 'Failures')}
+                            </Tooltip>
+                        ),
+                    },
+                    failure_pct: {
+                        renderTitle: () => (
+                            <Tooltip title="Failures as a share of results. Empty when no results were captured for this tool.">
+                                {renderSortableColumnTitle('failure_pct', 'Failure rate')}
+                            </Tooltip>
+                        ),
+                        render: function RenderFailurePct(x) {
+                            if (x.value === null || x.value === undefined) {
+                                return <span className="text-muted">–</span>
+                            }
+                            const pct = Number(x.value)
+                            return <span className={pct >= 10 ? 'text-danger font-semibold' : undefined}>{pct}%</span>
+                        },
+                    },
+                    undefined_calls: {
+                        renderTitle: () => (
+                            <Tooltip title="Calls to this tool when it wasn't in the tools the agent defined. These usually point to a tool the agent is missing.">
+                                {renderSortableColumnTitle('undefined_calls', 'Undefined calls')}
+                            </Tooltip>
+                        ),
+                        render: function RenderUndefinedCalls(x) {
+                            const count = Number(x.value)
+                            if (!count) {
+                                return <span className="text-muted">–</span>
+                            }
+                            return <LemonTag type="warning">{count}</LemonTag>
+                        },
+                    },
+                    latest_intent: {
+                        renderTitle: () => (
+                            <Tooltip title="What the model wrote alongside its most recent call to this tool">
+                                Latest intent
+                            </Tooltip>
+                        ),
+                        render: function RenderLatestIntent(x) {
+                            if (!x.value) {
+                                return <span className="text-muted">–</span>
+                            }
+                            const intent = String(x.value)
+                            return (
+                                <Tooltip title={intent}>
+                                    <span className="block max-w-80 truncate">{intent}</span>
+                                </Tooltip>
+                            )
+                        },
                     },
                     traces: {
                         renderTitle: () => (

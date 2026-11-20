@@ -167,6 +167,11 @@ export const aiObservabilityToolsLogic = kea<aiObservabilityToolsLogicType>([
                     columns: [
                         'tool',
                         'total_calls',
+                        'failure_pct',
+                        'failures',
+                        'results',
+                        'undefined_calls',
+                        'latest_intent',
                         'traces',
                         'users',
                         'sessions',
