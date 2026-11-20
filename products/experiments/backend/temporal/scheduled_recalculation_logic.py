@@ -13,17 +13,26 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 
+from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+    ExperimentExposuresQueryRunner,
+    build_experiment_exposure_query,
+)
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.recalculation import active_recalculation_filter, get_active_recalculation
+from products.experiments.backend.temporal.timeseries.utils import recalculation_hour_filter
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 
@@ -33,10 +42,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 SCHEDULED_RECALCULATION_FEATURE_FLAG = "experiments-scheduled-recalculation"
-
-# Matches the daily timeseries discovery in posthog/temporal/experiments/activities.py, so both
-# systems agree on which experiments are worth computing.
-EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 # An experiment younger than this has too little data for the queries to be worth their cost.
 MIN_EXPERIMENT_AGE = timedelta(hours=12)
@@ -139,10 +144,6 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     Candidates come oldest scheduled run first, so an experiment that the workflow deferred
     yesterday starts before the ones that ran.
     """
-    # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
-    # activities.py, which imports back into products.experiments.backend.facade.timeseries.
-    from posthog.temporal.experiments.utils import recalculation_hour_filter  # noqa: PLC0415 — breaks that cycle
-
     now = timezone.now()
     hour = now.hour
 
@@ -156,7 +157,7 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
             # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
             # status alone would select one that collects no new data.
             feature_flag__active=True,
-            start_date__gte=now - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+            start_date__gte=daily_calculation_start_cutoff(now),
             start_date__lte=now - MIN_EXPERIMENT_AGE,
         )
         .values_list("id", "team_id", "team__organization_id")
@@ -282,10 +283,6 @@ def _recent_recalculations(
 
 def _active_run_skips(experiment_ids: list[int]) -> dict[int, SkipDecision]:
     """The newest active run of each experiment, in one query across teams."""
-    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, so a
-    # module-level import here closes a cycle back into a partially initialized module.
-    from products.experiments.backend.recalculation import active_recalculation_filter  # noqa: PLC0415
-
     rows = (
         # Unscoped because the experiments belong to many teams. The filter on the discovered ids
         # keeps the read to those experiments' rows.
@@ -416,10 +413,6 @@ def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecis
     reaps an abandoned row in the background, so an unbounded check would lock the experiment out
     of every later scheduled run.
     """
-    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, so a
-    # module-level import here closes a cycle back into a partially initialized module.
-    from products.experiments.backend.recalculation import get_active_recalculation  # noqa: PLC0415 — breaks that cycle
-
     scoped = ExperimentMetricsRecalculation.objects.for_team(team_id)
 
     active = get_active_recalculation(experiment)
@@ -439,14 +432,6 @@ def count_total_exposures(experiment: Experiment) -> int:
     The `$multiple` bucket holds entities that saw more than one variant, so it is not a
     variant's audience and does not count toward the threshold.
     """
-    from posthog.clickhouse.query_tagging import Product, tags_context
-    from posthog.hogql_queries.query_runner import ExecutionMode
-
-    from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-        ExperimentExposuresQueryRunner,
-        build_experiment_exposure_query,
-    )
-
     query = build_experiment_exposure_query(experiment)
     with tags_context(
         product=Product.EXPERIMENTS, team_id=experiment.team_id, org_id=str(experiment.team.organization_id)

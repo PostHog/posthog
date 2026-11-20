@@ -231,6 +231,51 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
         assert admitted == [(True, True, 5), (False, True, 5)]
         assert count_configurations(team_id=self.team.id, source_kind=SourceKind.LOGS) == 1
 
+    @parameterized.expand(
+        [
+            ("fixed_cadence_kind", None, None, (5, None)),
+            ("fixed_cadence_kind_asked_for_another", None, 60, None),
+            ("chosen_minute_cadence", {1: None, 10080: "week"}, 1, (1, None)),
+            ("chosen_calendar_cadence", {1: None, 10080: "week"}, 10080, (10080, "week")),
+            ("chosen_cadence_left_out", {1: None, 10080: "week"}, None, (5, None)),
+            ("cadence_the_kind_lacks", {1: None, 10080: "week"}, 15, None),
+        ]
+    )
+    def test_a_native_create_is_admitted_and_stored_at_the_cadence_it_gets(
+        self,
+        _name: str,
+        check_intervals: dict[int, str | None] | None,
+        requested: int | None,
+        stored: tuple[int, str | None] | None,
+    ) -> None:
+        admitted: list[int | None] = []
+
+        def admit(*, check_interval_minutes: int | None, **_: object) -> None:
+            admitted.append(check_interval_minutes)
+
+        assert self.spec.native is not None
+        spec = replace(self.spec, admit=admit, native=replace(self.spec.native, check_intervals=check_intervals))
+        with (
+            patch(_SOURCE_CONFIGS, return_value=spec),
+            team_scope(self.team.id),
+            pytest.raises(InvalidPlatformAlertEdit) if stored is None else nullcontext(),
+        ):
+            platform_writes.create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.LOGS,
+                edit=_edit(check_interval_minutes=requested),
+                created_by_id=self.user.id,
+            )
+
+        with team_scope(self.team.id):
+            stored_cadences = list(
+                PlatformAlertConfiguration.objects.values_list("check_interval_minutes", "recurrence_unit")
+            )
+        assert (admitted, stored_cadences) == (
+            [] if stored is None else [stored[0]],
+            [] if stored is None else [stored],
+        )
+
     @parameterized.expand([("native_kind", False), ("kind_whose_source_rows_have_a_delete_hook", True)])
     def test_deleting_a_firing_native_alert_resolves_by_its_own_id_before_its_destinations_go(
         self, _name: str, with_source_delete: bool
@@ -255,7 +300,7 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
         assert deleted
         source_delete.assert_not_called()
         assert calls == [str(configuration_id), "destinations removed"]
-        self.remove_destinations.assert_called_once_with(team_id=self.team.id, configuration_id=configuration_id)
+        self.remove_destinations.assert_called_once_with(team_id=self.team.id, alert_id=configuration_id)
         with team_scope(self.team.id):
             assert not PlatformAlertConfiguration.objects.filter(id=configuration_id).exists()
 

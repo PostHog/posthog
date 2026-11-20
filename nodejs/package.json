@@ -55,6 +55,7 @@
         "generate:ingestion-worker-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.ingestion-worker.yaml --path ingestion/worker . && cd ../nodejs && eslint --fix src/common/generated/ingestion-worker && oxlint -c .oxlintrc.nodejs.json --fix src/common/generated/ingestion-worker && prettier --write src/common/generated/ingestion-worker",
         "generate:usage-ingestion-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.usage-ingestion.yaml --path usage_ingestion . && cd ../nodejs && eslint --fix src/common/generated/usage-ingestion && oxlint -c .oxlintrc.nodejs.json --fix src/common/generated/usage-ingestion && prettier --write src/common/generated/usage-ingestion",
         "update-ai-costs": "ts-node src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts",
+        "check:ai-costs": "tsc --noEmit -p tsconfig.costs-check.json && jest --config jest.config.js --runInBand src/ingestion/pipelines/ai/costs",
         "gen:ingestion-warning-types": "ts-node src/ingestion/common/scripts/generate-ingestion-warning-types.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
         "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"
@@ -68,6 +69,7 @@
         "@aws-sdk/client-sts": "^3.975.0",
         "@aws-sdk/credential-provider-node": "^3.972.1",
         "@aws-sdk/lib-storage": "^3.723.0",
+        "@aws-sdk/s3-request-presigner": "^3.975.0",
         "@babel/core": "^7.29.7",
         "@babel/plugin-transform-react-jsx": "^7.29.7",
         "@babel/preset-env": "^7.29.7",
@@ -139,7 +141,7 @@
         "p-limit": "3.1.0",
         "pg": "^8.23.0",
         "pino": "^10.4.0",
-        "posthog-node": "5.67.0",
+        "posthog-node": "6.0.4",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^15.1.3",
         "puppeteer": "^24.3.0",
@@ -156,6 +158,7 @@
         "undici-types": "7.3.0",
         "uuid": "^11.1.1",
         "xml-js": "^1.6.11",
+        "yaml": "catalog:",
         "zod": "^4.3.6"
     },
     "devDependencies": {

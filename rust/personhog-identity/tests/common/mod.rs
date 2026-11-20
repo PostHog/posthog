@@ -89,9 +89,8 @@ impl TestContext {
         let insert_sql = format!(
             r#"
             INSERT INTO {}
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version)
-            VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
             RETURNING id
             "#,
             self.tables.person
@@ -162,9 +161,8 @@ impl TestContext {
         sqlx::query(
             r#"
             INSERT INTO posthog_person
-                (id, created_at, properties, properties_last_updated_at,
-                 properties_last_operation, team_id, is_identified, uuid, version)
-            VALUES ($1, now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $2, false,
+                (id, created_at, properties, team_id, is_identified, uuid, version)
+            VALUES ($1, now(), '{}'::jsonb, $2, false,
                     gen_random_uuid(), 0)
             "#,
         )

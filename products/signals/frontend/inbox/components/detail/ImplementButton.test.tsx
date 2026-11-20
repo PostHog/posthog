@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -51,12 +52,20 @@ describe('ImplementButton', () => {
     let createPrFromReport: jest.Mock
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                    next: null,
+                },
+            },
+        })
         initKeaTests()
         window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
-        jest.mocked(captureInboxReportAction).mockClear()
+        jest.mocked(captureInboxReportAction).mockReset()
         jest.mocked(copyToClipboard).mockClear()
     })
 
@@ -75,6 +84,10 @@ describe('ImplementButton', () => {
 
     it('starts a PostHog agent from the main button without opening the options', async () => {
         const user = userEvent.setup()
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(captureInboxReportAction).mockImplementation(
+            jest.requireActual('../../inboxAnalytics').captureInboxReportAction
+        )
         render(<ImplementButton report={makeReport()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
@@ -83,12 +96,96 @@ describe('ImplementButton', () => {
         await waitFor(() =>
             expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+        expect(
+            capture.mock.calls.filter(([, properties]) => properties?.action_type === 'implementation_button_clicked')
+        ).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    action_type: 'implementation_button_clicked',
+                    surface: 'detail_pane',
+                    button_action: 'implement',
+                    button_position: 'body',
+                }),
+                undefined,
+            ],
+        ])
+        expect(
+            jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
+                .extra
+        ).toEqual({
             has_feedback: false,
             claim_step: 'start',
             opened_from_link: false,
         })
     })
+
+    it.each([
+        ['detail_pane', false],
+        ['triage_mode', false],
+        ['detail_pane', true],
+    ] as const)(
+        'offers a repository after automatic resolution fails from %s (retry loading: %s)',
+        async (surface, retryLoading) => {
+            let repositoriesFailed = retryLoading
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: [{ id: 1, kind: 'github', display_name: 'Example' }],
+                        next: null,
+                    },
+                    '/api/projects/:team_id/integrations/1/github_repos/': () =>
+                        repositoriesFailed
+                            ? [503, { detail: 'Try again.' }]
+                            : {
+                                  repositories: [{ id: 1, name: 'app', full_name: 'example/app' }],
+                                  has_more: false,
+                              },
+                },
+            })
+            const user = userEvent.setup()
+            const report = { ...makeReport(), repo_slug: null }
+            render(<ImplementButton report={report} surface={surface} />)
+
+            await user.click(
+                screen.getByTestId(surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr')
+            )
+            expect(createPrFromReport).toHaveBeenCalledWith(report, undefined)
+            expect(screen.queryByTestId('select-github-repository')).not.toBeInTheDocument()
+            createPrFromReport.mockClear()
+
+            const access = reportGithubAccessLogic({ report, surface })
+            await expectLogic(access, () => access.actions.requireRepositorySelection()).toFinishAllListeners()
+            await screen.findByText('Select a repository to implement this report')
+            expect(createPrFromReport).not.toHaveBeenCalled()
+            expect(screen.getByTestId('inbox-report-create-pr-submit')).toHaveAttribute('aria-disabled', 'true')
+            await user.type(
+                screen.getByPlaceholderText('Add instructions for the PostHog agent (optional)'),
+                'Keep the API{Enter}'
+            )
+            expect(createPrFromReport).not.toHaveBeenCalled()
+
+            if (retryLoading) {
+                await screen.findByText('Could not load repositories. Try again.')
+                repositoriesFailed = false
+                await user.click(screen.getAllByText('Retry')[0])
+                await waitFor(() =>
+                    expect(screen.queryByText('Could not load repositories. Try again.')).not.toBeInTheDocument()
+                )
+            }
+            await user.click(screen.getByTestId('select-github-repository'))
+            await user.click(await screen.findByText('example/app'))
+            await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+
+            expect(createPrFromReport).toHaveBeenCalledWith(report, 'Keep the API', 'example/app')
+            expect(captureInboxReportAction).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    actionType: 'github_access_recovery',
+                    extra: { stage: 'repository_selected', outcome: undefined },
+                })
+            )
+        }
+    )
 
     it('opens the implementation choices when a link asks for them', async () => {
         const user = userEvent.setup()
@@ -110,7 +207,10 @@ describe('ImplementButton', () => {
         await waitFor(() =>
             expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+        expect(
+            jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
+                .extra
+        ).toEqual({
             has_feedback: false,
             claim_step: 'start',
             opened_from_link: true,
@@ -233,37 +333,64 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).toHaveBeenCalledTimes(1)
     })
 
-    it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
-        'opens the existing %s task instead of starting another',
-        async (status) => {
-            const user = userEvent.setup()
-            const report = makeReport()
-            const detail = inboxReportDetailLogic({ reportId: report.id, report })
-            detail.mount()
-            await expectLogic(detail).toFinishAllListeners()
-            const task = mockTask('implementation-task', status)
-            detail.actions.loadReportTasksSuccess([
-                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
-            ])
-            render(
-                <ImplementButton
-                    report={report}
-                    reportTaskToOpen={detail.values.reportTaskToOpen}
-                    implementationDisabledReason={detail.values.implementationDisabledReason}
-                />
-            )
+    it.each([
+        {
+            status: TaskRunStatus.QUEUED,
+            createdBy: null,
+            tooltip: 'Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        },
+        {
+            status: TaskRunStatus.IN_PROGRESS,
+            createdBy: teammateClaim.user,
+            tooltip:
+                'Robin started this implementation. Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        },
+    ])('opens the existing $status task instead of starting another', async ({ status, createdBy, tooltip }) => {
+        const user = userEvent.setup()
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(captureInboxReportAction).mockImplementationOnce(
+            jest.requireActual('../../inboxAnalytics').captureInboxReportAction
+        )
+        const report = makeReport()
+        const detail = inboxReportDetailLogic({ reportId: report.id, report })
+        detail.mount()
+        await expectLogic(detail).toFinishAllListeners()
+        const task = { ...mockTask('implementation-task', status), created_by: createdBy }
+        detail.actions.loadReportTasksSuccess([
+            { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+        ])
+        render(
+            <ImplementButton
+                report={report}
+                position="header"
+                reportTaskToOpen={detail.values.reportTaskToOpen}
+                implementationDisabledReason={detail.values.implementationDisabledReason}
+            />
+        )
 
-            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
-            await user.click(screen.getByTestId('inbox-report-open-task'))
+        expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+        expect(screen.getByTestId('inbox-report-open-task')).toHaveTextContent('View running implementation')
+        await user.hover(screen.getByTestId('inbox-report-open-task'))
+        expect(await screen.findByText(tooltip)).toBeInTheDocument()
+        await user.click(screen.getByTestId('inbox-report-open-task'))
 
-            expect(createPrFromReport).not.toHaveBeenCalled()
-            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
-                taskId: task.id,
-                runId: task.latest_run.id,
-            })
-            detail.unmount()
-        }
-    )
+        expect(capture).toHaveBeenCalledWith(
+            'Inbox report action',
+            expect.objectContaining({
+                action_type: 'implementation_button_clicked',
+                surface: 'detail_pane',
+                button_action: 'view_task',
+                button_position: 'header',
+            }),
+            undefined
+        )
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+            taskId: task.id,
+            runId: task.latest_run.id,
+        })
+        detail.unmount()
+    })
 
     it.each([200, 503])('keeps customer prompts available without GitHub access (status %i)', async (status) => {
         let repositoryStatus = status
@@ -316,6 +443,10 @@ describe('ImplementButton', () => {
         ],
         ['Enter', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Enter}')],
     ])('passes steering instructions with %s', async (_method, submit) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(captureInboxReportAction).mockImplementation(
+            jest.requireActual('../../inboxAnalytics').captureInboxReportAction
+        )
         const user = await openMenu()
 
         await user.type(
@@ -330,7 +461,24 @@ describe('ImplementButton', () => {
                 'Keep the existing API'
             )
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+        expect(
+            capture.mock.calls.filter(([, properties]) => properties?.action_type === 'implementation_button_clicked')
+        ).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    action_type: 'implementation_button_clicked',
+                    surface: 'detail_pane',
+                    button_action: 'implement',
+                    button_position: 'body',
+                }),
+                undefined,
+            ],
+        ])
+        expect(
+            jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
+                .extra
+        ).toEqual({
             has_feedback: true,
             claim_step: 'start',
             opened_from_link: false,

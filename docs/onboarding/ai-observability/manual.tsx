@@ -52,7 +52,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Node.js' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="npm install posthog-node" />
+                                                <CodeBlock language="bash" code="npm install posthog-node@6" />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -99,7 +99,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Python' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="pip install posthog" />
+                                                <CodeBlock language="bash" code="pip install posthog~=8.0" />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -144,14 +144,14 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="go get github.com/posthog/posthog-go"
+                                                    code="go get github.com/posthog/posthog-go/v2"
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
                                                     language="go"
                                                     code={dedent`
-                                                        import "github.com/posthog/posthog-go"
+                                                        import "github.com/posthog/posthog-go/v2"
 
                                                         client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",
@@ -190,7 +190,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Ruby' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="gem install posthog-ruby" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="gem install posthog-ruby -v '~> 3.0'"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -236,7 +239,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="composer require posthog/posthog-php"
+                                                    code='composer require "posthog/posthog-php:^4.0"'
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>

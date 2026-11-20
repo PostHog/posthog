@@ -1,14 +1,28 @@
-"""Reads and actions for one warehouse source or schema in PostHog Admin."""
+"""Reads and actions for warehouse sources and schemas in PostHog Admin."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from products.warehouse_sources.backend.facade.contracts import (
+    AutoDisabledSchemaFilter,
+    AutoDisabledSchemaSelection,
+    AutoDisabledSchemasPage,
+    AutoDisabledSchemasSummary,
     RepartitionRequest,
+    SchemaReenableResult,
+    SchemaReenableTarget,
     StaffActionResult,
     StaffJobsPage,
     StaffSchemasPage,
     StaffSchemaSummary,
     StaffSourceSummary,
+)
+from products.warehouse_sources.backend.logic.auto_disabled_schemas import (
+    DAYS_CHOICES,
+    DEFAULT_DAYS,
+    MAX_REENABLE_PER_RUN,
+    REENABLE_TIME_BUDGET_SECONDS,
+    AutoDisabledSchemas,
 )
 from products.warehouse_sources.backend.logic.schema_staff_actions import (
     PARTITION_FORMAT_CHOICES,
@@ -18,15 +32,23 @@ from products.warehouse_sources.backend.logic.schema_staff_actions import (
 )
 
 __all__ = [
+    "DAYS_CHOICES",
+    "DEFAULT_DAYS",
+    "MAX_REENABLE_PER_RUN",
+    "REENABLE_TIME_BUDGET_SECONDS",
     "PARTITION_FORMAT_CHOICES",
     "PARTITION_MODE_CHOICES",
     "get_schema_for_staff",
     "get_source_for_staff",
+    "list_auto_disabled_schemas_for_staff",
     "list_schema_jobs_for_staff",
     "list_source_schemas_for_staff",
     "pause_schema_schedule_for_staff",
     "recreate_schema_schedule_for_staff",
+    "reenable_schemas_for_staff",
     "repartition_schema_for_staff",
+    "select_auto_disabled_schemas_for_staff",
+    "summarize_auto_disabled_schemas_for_staff",
     "trigger_schema_sync_for_staff",
     "unpause_schema_schedule_for_staff",
 ]
@@ -66,3 +88,24 @@ def unpause_schema_schedule_for_staff(schema_id: UUID) -> StaffActionResult:
 
 def recreate_schema_schedule_for_staff(schema_id: UUID) -> StaffActionResult:
     return SchemaStaffActions.recreate_schedule(schema_id)
+
+
+def summarize_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) -> AutoDisabledSchemasSummary:
+    return AutoDisabledSchemas.summary(selection)
+
+
+def list_auto_disabled_schemas_for_staff(
+    selection: AutoDisabledSchemaFilter, page_number: str | None
+) -> AutoDisabledSchemasPage:
+    return AutoDisabledSchemas.page(selection, page_number)
+
+
+def select_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) -> AutoDisabledSchemaSelection:
+    """The newest matching schemas, at most `MAX_REENABLE_PER_RUN`, for one re-enable run."""
+    return AutoDisabledSchemas.select(selection)
+
+
+def reenable_schemas_for_staff(
+    targets: Sequence[SchemaReenableTarget], time_budget_seconds: float | None = None
+) -> SchemaReenableResult:
+    return AutoDisabledSchemas.reenable(targets, time_budget_seconds)

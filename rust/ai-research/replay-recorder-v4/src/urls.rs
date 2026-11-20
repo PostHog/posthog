@@ -10,6 +10,7 @@ use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{checked_url, CanonicalUrl, Decline};
 use serde_json::{json, Value};
 
+use replay_core_v4::inspect::sketch::DistinctSketch;
 use replay_core_v4::inspect::stats::BlockStats;
 
 use crate::batch::Block;
@@ -33,6 +34,7 @@ pub struct FlushUrls {
 #[derive(Default)]
 struct BlockUrls {
     accepted_images: u32,
+    image_refs: DistinctSketch,
     unsent: Vec<usize>,
 }
 
@@ -40,7 +42,6 @@ impl FlushUrls {
     pub fn new<'b>(
         blocks: impl IntoIterator<Item = &'b Block>,
         keys: &FlushKeys,
-        key_month: &str,
         already_sent: &dyn Fn(&str) -> bool,
     ) -> Self {
         let mut unsent = Vec::new();
@@ -49,9 +50,10 @@ impl FlushUrls {
             .into_iter()
             .map(|block| {
                 let mut urls = BlockUrls::default();
-                for (url, asset, reference) in remote_urls(block, keys, key_month) {
+                for (url, asset, reference) in remote_urls(block, keys) {
                     if asset == UrlAsset::Image {
                         urls.accepted_images += 1;
+                        urls.image_refs.insert(&reference);
                     }
                     if already_sent(&reference) {
                         continue;
@@ -74,22 +76,15 @@ impl FlushUrls {
 }
 
 /// Empty when the flush has no keys for the block's session.
-fn remote_urls(
-    block: &Block,
-    keys: &FlushKeys,
-    key_month: &str,
-) -> Vec<(CanonicalUrl, UrlAsset, String)> {
+fn remote_urls(block: &Block, keys: &FlushKeys) -> Vec<(CanonicalUrl, UrlAsset, String)> {
     let id = SessionId {
         team_id: block.session.team_id,
         session_id: block.session.session_id.clone(),
     };
-    let (Some(_), Some(team_key)) = (
-        keys.sessions.get(&id),
-        keys.team_months.get(&block.session.team_id),
-    ) else {
+    let Some((session_key, team_key)) = keys.session(&id) else {
         return Vec::new();
     };
-    let url_key = image_url_key(team_key);
+    let (key_month, url_key) = (&session_key.key_month, image_url_key(team_key));
     let images = block.image_urls.iter().map(|url| (url, UrlAsset::Image));
     let fonts = block.font_urls.iter().map(|url| (url, UrlAsset::Font));
     images
@@ -102,13 +97,15 @@ fn remote_urls(
         .collect()
 }
 
-/// Builds one job per new remote image or font URL. Counts the image URLs of each block in the stats paired with it.
+/// Builds one job per new remote image or font URL. Counts the image URLs of each block, and adds their references to
+/// its image sketch, in the stats paired with it.
 /// `index` is the block's position in the blocks that `urls` was built from. `already_sent` names references this
-/// process sent or found fresh today.
+/// process sent or found fresh today. A fetcher that packs the image writes its index row in `write_day`.
 pub fn fetch_jobs<'b>(
     urls: &FlushUrls,
     blocks: impl IntoIterator<Item = (usize, &'b Block, &'b mut BlockStats)>,
     now_ms: i64,
+    write_day: &str,
     already_sent: &dyn Fn(&str) -> bool,
 ) -> FetchJobs {
     let mut jobs = FetchJobs::new();
@@ -116,6 +113,7 @@ pub fn fetch_jobs<'b>(
     for (index, block, stats) in blocks {
         let block_urls = &urls.blocks[index];
         stats.image_urls += block_urls.accepted_images;
+        stats.image_ref_sketch.merge(&block_urls.image_refs);
         for &position in &block_urls.unsent {
             let (url, asset, reference) = &urls.unsent[position];
             if seen[position] || already_sent(reference) {
@@ -134,6 +132,7 @@ pub fn fetch_jobs<'b>(
                     "fetchCount": 0,
                     "republishCount": 0,
                     "lastRepublishReason": null,
+                    "writeDays": [write_day],
                 }));
         }
     }
@@ -288,7 +287,7 @@ mod tests {
                 },
             );
         }
-        keys.team_months.insert(7, [2; 32]);
+        keys.team_months.insert((7, "2026-10".to_owned()), [2; 32]);
         keys
     }
 
@@ -316,8 +315,14 @@ mod tests {
         let sent = url_ref(UrlAsset::Image, 7, "2026-10", &sent_hash);
         let already_sent = |reference: &str| reference == sent;
 
-        let urls = FlushUrls::new([&block], &keys(&["s"]), "2026-10", &already_sent);
-        let jobs = fetch_jobs(&urls, [(0, &block, &mut stats)], 1_000, &already_sent);
+        let urls = FlushUrls::new([&block], &keys(&["s"]), &already_sent);
+        let jobs = fetch_jobs(
+            &urls,
+            [(0, &block, &mut stats)],
+            1_000,
+            "2026-10-14",
+            &already_sent,
+        );
         let images = ("example.com".to_owned(), UrlAsset::Image);
         assert_eq!(jobs.keys().collect::<Vec<_>>(), [&images]);
         let fetched: Vec<_> = jobs[&images]
@@ -340,6 +345,7 @@ mod tests {
             (job["sessionId"].as_str(), job["remainingHops"].as_u64()),
             (Some("s"), Some(10))
         );
+        assert_eq!(job["writeDays"], json!(["2026-10-14"]));
         // Every public URL the block referenced counts, sent before or not.
         assert_eq!(stats.image_urls, 4);
     }
@@ -359,12 +365,7 @@ mod tests {
             ),
             block("second", &[shared]),
         ];
-        let urls = FlushUrls::new(
-            &blocks,
-            &keys(&["dropped", "first", "second"]),
-            "2026-10",
-            &|_| false,
-        );
+        let urls = FlushUrls::new(&blocks, &keys(&["dropped", "first", "second"]), &|_| false);
         assert_eq!(urls.unsent_references().count(), 2);
 
         let mut stats = [BlockStats::default(), BlockStats::default()];
@@ -373,6 +374,7 @@ mod tests {
             &urls,
             [(1, &blocks[1], first_stats), (2, &blocks[2], second_stats)],
             1_000,
+            "2026-10-14",
             &|_| false,
         );
         let sessions: Vec<_> = jobs[&("example.com".to_owned(), UrlAsset::Image)]

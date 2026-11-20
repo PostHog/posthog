@@ -89,6 +89,9 @@ class EnrichedPromptSpec(BaseModel):
     # Raw event names whose per-event property schema is folded into context_blob. Persisted in the
     # frozen envelope so the reuse path can rebuild the same property-aware blob the fixer needs.
     relevant_events: list[str] = Field(default_factory=list)
+    # False when a freshly generated plan still misses a coverage item after repair. Such a plan must
+    # not be frozen, so the next delivery plans again.
+    coverage_complete: bool = True
 
 
 class HogQLFix(BaseModel):
@@ -103,3 +106,43 @@ class RelevantEvents(BaseModel):
         default_factory=list,
         description="Event names — copied verbatim from the provided list — relevant to the user's prompt.",
     )
+
+
+MAX_COVERAGE_ITEMS = 12
+COVERAGE_ITEM_ID_MAX_LENGTH = 20
+COVERAGE_NEED_MAX_LENGTH = 300
+
+
+class CoverageItem(BaseModel):
+    id: str = Field(..., max_length=COVERAGE_ITEM_ID_MAX_LENGTH, description="Short unique id, e.g. 'c1'.")
+    need: str = Field(
+        ...,
+        max_length=COVERAGE_NEED_MAX_LENGTH,
+        description="One thing the report must show to answer the prompt, phrased as a metric or question.",
+    )
+    needs_previous_period: bool = Field(
+        ...,
+        description=(
+            "True when this item is about change: growth, drops, trends versus before, what is new, "
+            "or what stopped happening. It then needs a comparison with the previous period."
+        ),
+    )
+
+
+class QueryCoverage(BaseModel):
+    items: list[CoverageItem] = Field(..., min_length=1, max_length=MAX_COVERAGE_ITEMS)
+
+
+class CoveredQueryPlanStep(QueryPlanStep):
+    covers: list[str] = Field(
+        default_factory=list, description="Ids of the coverage items this step answers, e.g. ['c1']."
+    )
+
+
+class CoveredQueryPlan(BaseModel):
+    overall_intent: str = Field(
+        ...,
+        max_length=500,
+        description="Plain-English summary of what the report will tell the user.",
+    )
+    steps: list[CoveredQueryPlanStep] = Field(..., min_length=1, max_length=MAX_QUERY_PLAN_STEPS)

@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { DashboardType } from '~/types'
 
@@ -34,6 +35,12 @@ describe('newSubscriptionTargetLogic', () => {
         expect(dashboardSpy).toHaveBeenCalledWith(7)
         expect(logic.values.target).toEqual({ kind: 'dashboard', id: 7, name: 'Weekly review' })
         expect(logic.values.dashboard).toMatchObject({ id: 7 })
+    })
+
+    it('starts loading dashboards when the dashboard target is selected', async () => {
+        await expectLogic(logic, () => logic.actions.setKind('dashboard')).toDispatchActions([
+            dashboardsModel.actionTypes.loadDashboardsIfNeeded,
+        ])
     })
 
     it('drops the target when the dashboard cannot be loaded', async () => {

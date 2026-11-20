@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
+
 
 def _parse_research_signal_buckets(raw: str) -> tuple[int, ...]:
     """Parse a comma-separated bucket list into a sorted, deduplicated, strictly positive tuple."""
@@ -78,6 +80,7 @@ class EmitSignalInputs:
     sync_with_source: bool = False
     source_match_signal_id: str | None = None
     source_match_report_id: str | None = None
+    buffered_at: str | None = None
 
 
 @dataclass
@@ -159,7 +162,7 @@ class TeamSignalGroupingInput:
     pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
 
 
-@dataclass
+@frozen
 class BufferSignalsInput:
     """Inputs for the buffer signals workflow."""
 
@@ -168,6 +171,7 @@ class BufferSignalsInput:
     # Small in practice (only a few signals can sneak in during two activity calls),
     # but must be carried over to avoid dropping them.
     pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
+    provider_usage_limited: bool = False
 
 
 @dataclass(frozen=False)

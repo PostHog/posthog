@@ -1,6 +1,8 @@
 use posthog_cli::{
-    cmd, invocation_context::init_posthog_telemetry, safe_eprintln,
-    utils::broken_pipe::BrokenPipeSafeStderr,
+    cmd,
+    invocation_context::init_posthog_telemetry,
+    safe_eprintln,
+    utils::{broken_pipe::BrokenPipeSafeStderr, ci::init_detailed_diagnostics},
 };
 
 fn main() {
@@ -15,9 +17,10 @@ fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
     init_posthog_telemetry();
+    init_detailed_diagnostics();
 
     let result = cmd::Cli::run();
-    posthog_rs::flush();
+    posthog::flush();
 
     match result {
         // A child process (the `api` proxy) failed: telemetry is flushed above,

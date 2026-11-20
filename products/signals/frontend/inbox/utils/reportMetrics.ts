@@ -301,6 +301,28 @@ export function reportMetricUnitWord(metric: Pick<ReportMetricApi, 'kind' | 'uni
     }
 }
 
+const ROW_COMPACT_FROM = 10_000
+const ROW_COMPACT_FORMAT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** The row figure sits in a fixed column, so a large value shortens to `38.1M`. The tooltip has the exact value. */
+function rowNumber(value: number, maximumFractionDigits: number): string {
+    return Math.abs(value) >= ROW_COMPACT_FROM
+        ? ROW_COMPACT_FORMAT.format(value)
+        : humanFriendlyNumber(value, maximumFractionDigits)
+}
+
+function rowCurrency(value: number, currency: CurrencyCode): string {
+    const magnitude = Math.abs(value)
+    // Cents only matter on small amounts; `$1,200.00` does not fit the column.
+    const options: Intl.NumberFormatOptions =
+        magnitude >= ROW_COMPACT_FROM
+            ? { notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 }
+            : magnitude >= 100
+              ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+              : {}
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, ...options }).format(value)
+}
+
 export function reportMetricRowParts(
     metric: Pick<ReportMetricApi, 'kind' | 'unit' | 'value_format'>,
     value: number | null | undefined
@@ -315,7 +337,7 @@ export function reportMetricRowParts(
 
     switch (valueFormat) {
         case 'count':
-            return { value: humanFriendlyNumber(numericValue, 0), unit }
+            return { value: rowNumber(numericValue, 0), unit }
         case 'percentage':
             return { value: percentage(numericValue / 100, significantDecimalPlaces(numericValue)), unit }
         case 'percentage_scaled':
@@ -323,15 +345,15 @@ export function reportMetricRowParts(
         // The row stacks the unit word under the figure, so a duration stays a plain number in its own
         // unit. A composed `4m 47s` would collide with the `seconds` word below it.
         case 'duration':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
         case 'currency': {
             const currency = metric.unit?.trim() ?? null
             return isCurrencyCode(currency)
-                ? { value: formatCurrency(numericValue, currency), unit }
-                : { value: humanFriendlyNumber(numericValue, 2), unit }
+                ? { value: rowCurrency(numericValue, currency), unit }
+                : { value: rowNumber(numericValue, 2), unit }
         }
         case 'number':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
     }
 }
 
@@ -406,7 +428,10 @@ export function isReportMetricsEnabled(featureFlags: FeatureFlagsSet): boolean {
 export const REPORT_METRIC_SNAPSHOT_FRESH_FOR_MS = 15 * 60 * 1000
 
 /** Whether any metric on the report has no snapshot, or one older than the freshness window. */
-export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }, now: number): boolean {
+export function reportNeedsMetricRefresh(
+    report: { metrics?: readonly Pick<ReportMetricApi, 'value' | 'value_at'>[] },
+    now: number
+): boolean {
     return (report.metrics ?? []).some((metric) => {
         if (metric.value === null || metric.value === undefined || !metric.value_at) {
             return true
@@ -414,6 +439,13 @@ export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }
         const measuredAt = Date.parse(metric.value_at)
         return !Number.isFinite(measuredAt) || now - measuredAt >= REPORT_METRIC_SNAPSHOT_FRESH_FOR_MS
     })
+}
+
+function sameLabels(a: readonly string[] | null | undefined, b: readonly string[] | null | undefined): boolean {
+    if (!a || !b) {
+        return !a === !b
+    }
+    return a.length === b.length && a.every((label, index) => label === b[index])
 }
 
 function sameSeries(a: number[] | null | undefined, b: number[] | null | undefined): boolean {
@@ -428,7 +460,9 @@ function sameSeries(a: number[] | null | undefined, b: number[] | null | undefin
  * query stays as loaded. Returns the same report object when nothing changed, so a memoized row
  * does not re-render for a refresh that measured the same number.
  */
-export function mergeReportMetricSnapshots<T extends { id: string; metrics?: ReportMetricApi[] }>(
+type SnapshotMetric = Pick<ReportMetricApi, 'metric_id' | 'value' | 'value_at' | 'series' | 'series_buckets'>
+
+export function mergeReportMetricSnapshots<T extends { id: string; metrics?: readonly SnapshotMetric[] }>(
     report: T,
     snapshots: readonly SignalReportMetricSnapshotsApi[]
 ): T {
@@ -444,14 +478,22 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
             !snapshot ||
             (snapshot.value === metric.value &&
                 snapshot.value_at === metric.value_at &&
-                sameSeries(snapshot.series, metric.series))
+                sameSeries(snapshot.series, metric.series) &&
+                sameLabels(snapshot.series_buckets, metric.series_buckets))
         ) {
             return metric
         }
         changed = true
-        return { ...metric, value: snapshot.value, value_at: snapshot.value_at, series: snapshot.series }
+        return {
+            ...metric,
+            value: snapshot.value,
+            value_at: snapshot.value_at,
+            series: snapshot.series,
+            series_buckets: snapshot.series_buckets,
+        }
     })
-    return changed ? { ...report, metrics } : report
+    // Only the snapshot fields change, so each metric keeps its own type.
+    return changed ? ({ ...report, metrics } as T) : report
 }
 
 export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {

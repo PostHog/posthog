@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -110,6 +111,12 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             )
         return str(created.id)
 
+    def _create_copy_whose_logs_row_is_gone(self) -> str:
+        alert_id = self._create_with_logs_row()
+        assert LogsAlertConfiguration.objects.get(id=alert_id).owner == PlatformAlertOwner.PLATFORM
+        LogsAlertConfiguration.objects.filter(id=alert_id).delete()
+        return alert_id
+
     def _read(self, alert_id: str) -> dict[str, Any]:
         response = self.client.get(f"{self.base_url}{alert_id}/")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -206,6 +213,25 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert pages == [created[3:1:-1], created[1::-1]]
 
+    def test_the_list_sorts_an_alert_moved_after_its_creation_by_its_creation(self, *_: object) -> None:
+        with time_machine.travel(_NOW - timedelta(hours=2), tick=False):
+            moved = LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name="High error rate",
+                filters=_FILTERS,
+                threshold_count=10,
+                enabled=True,
+                next_check_at=_NOW + timedelta(minutes=3),
+            )
+        with time_machine.travel(_NOW - timedelta(hours=1), tick=False):
+            native = self._create_without_logs_row()
+        [cutover] = cut_over_team(self.team.id, now=_NOW)
+        assert cutover.skipped is None
+
+        listed = [alert["id"] for alert in self.client.get(self.base_url).json()["results"]]
+
+        assert listed == [native, str(moved.id)]
+
     def test_the_creator_filter_matches_both_kinds_of_alert_by_their_creator(self, *_: object) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
         with_row, without_row = self._create_with_logs_row(), self._create_without_logs_row()
@@ -220,8 +246,14 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         )
 
     def test_terraform_sees_no_difference_between_an_alert_with_a_logs_row_and_one_without(self, *_: object) -> None:
+        self._assert_terraform_sees_no_difference(self._create_without_logs_row)
+
+    def test_terraform_sees_no_difference_for_a_platform_copy_whose_logs_row_was_deleted(self, *_: object) -> None:
+        self._assert_terraform_sees_no_difference(self._create_copy_whose_logs_row_is_gone)
+
+    def _assert_terraform_sees_no_difference(self, create_without_row: Callable[[], str]) -> None:
         with_row = self._terraform_lifecycle(self._create_with_logs_row())
-        without_row = self._terraform_lifecycle(self._create_without_logs_row())
+        without_row = self._terraform_lifecycle(create_without_row())
 
         assert without_row == with_row
         assert without_row[2] == {
@@ -302,6 +334,32 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         read = self._read(created.json()["id"])
         assert (read["snooze_until"], read["state"]) == ("2026-11-06T13:00:00Z", "snoozed")
+
+    def test_an_alert_with_no_logs_row_keeps_its_labels_and_annotations(self, *_: object) -> None:
+        self.native_create = True
+
+        created = self.client.post(
+            self.base_url,
+            {
+                "name": "High error rate",
+                "threshold_count": 10,
+                "filters": _FILTERS,
+                "labels": {"team": "checkout"},
+                "annotations": {"summary": "Checkout errors"},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        url = f"{self.base_url}{created.json()['id']}/"
+        unrelated = self.client.patch(url, {"threshold_count": 20}, format="json")
+        relabelled = self.client.patch(url, {"labels": {"team": "billing"}}, format="json")
+
+        assert (created.json()["labels"], unrelated.json()["labels"], relabelled.json()["labels"]) == (
+            {"team": "checkout"},
+            {"team": "checkout"},
+            {"team": "billing"},
+        )
+        assert relabelled.json()["annotations"] == {"summary": "Checkout errors"}
 
     def test_a_team_whose_alerts_stay_with_logs_keeps_the_logs_row_with_the_flag_on(self, *_: object) -> None:
         LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)

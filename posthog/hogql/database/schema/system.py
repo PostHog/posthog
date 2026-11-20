@@ -8,6 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     DEFINITION_TAGS,
     ENDPOINT_CURRENT_VERSION,
+    TASK_LATEST_RUN,
     TICKET_ASSIGNMENT,
     TICKET_TAGS,
 )
@@ -33,23 +34,25 @@ from posthog.hogql.database.models import (
     TableNode,
     UUIDDatabaseField,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
+from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.aeo.backend.facade.hogql import aeo_brands, aeo_citation_checks
 from products.annotations.backend.facade.hogql import annotations
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
@@ -72,7 +75,9 @@ from products.customer_analytics.backend.facade.hogql import (
     feature_request_product_areas,
     feature_requests,
 )
+from products.dashboards.backend.facade.hogql import dashboard_tiles, dashboards
 from products.signals.backend.facade.constants import SIGNAL_USAGE_START
+from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
 # Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
@@ -293,14 +298,329 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
 )
 
 
-alerts: PostgresTable = PostgresTable(
-    name="alerts",
+# The one state a source shows for a platform alert, as `runtime_by_public_id` composes it: a failing check replaces
+# the instances' state, an alert fires while any of its groups fires, and otherwise the ungrouped instance holds it.
+# Only an ungrouped alert has that instance, and it has no other. An alert with no instance yet has not fired. `c` is
+# the configuration and `i` its instances, grouped.
+_PLATFORM_STATE = """
+    if(c.check_status != 'ok', c.check_status,
+        if(ifNull(i.any_firing, 0) = 1, 'firing',
+            if(JSONExtractString(c.grouping, 'mode') = 'single', coalesce(nullIf(i.any_state, ''), 'not_firing'), 'not_firing')))
+"""
+
+
+class _InsightReadGatedTable(PostgresTable):
+    """A table of insight alerts that keeps only the alerts whose insight the reader may view, as the alert API
+    gates every alert read. The rule comes from the reader's insight access at print time, so the query reads no
+    insights and needs no insight API scope."""
+
+    # None for a table whose alerts watch no insight.
+    insight_id_expr: Optional[str]
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        user_access_control = context.database.user_access_control if context and context.database else None
+        if user_access_control is None or self.insight_id_expr is None:
+            return list(self.predicates)
+        guard = _insight_read_guard(
+            parse_expr(self.insight_id_expr), user_access_control, context.team_id if context else None
+        )
+        return [*self.predicates, guard] if guard is not None else list(self.predicates)
+
+
+def _insight_read_guard(
+    insight_id: ast.Expr, user_access_control: "UserAccessControl", team_id: Optional[int]
+) -> Optional[ast.Expr]:
+    """The insights a reader may view, as `filter_queryset_by_access_level` narrows them: only the granted ones
+    without resource-level access, otherwise all but the denied ones, and the reader's own insights either way."""
+    from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL  # noqa: PLC0415
+
+    allowlisted = user_access_control.allowlisted_resource_ids_by_scope.get("insight")
+    access = user_access_control.access_level_for_resource("insight")
+    if allowlisted or access is None or access.access_level == NO_ACCESS_LEVEL:
+        readable = (allowlisted or frozenset()) | _own_insight_ids(user_access_control, team_id, None)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=insight_id,
+            right=ast.Constant(value=sorted(int(insight) for insight in readable), is_sensitive=True),
+        )
+    blocked = user_access_control.blocked_resource_ids_by_scope.get("insight", frozenset())
+    blocked -= _own_insight_ids(user_access_control, team_id, blocked)
+    if not blocked:
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=insight_id,
+        right=ast.Constant(value=sorted(int(insight) for insight in blocked), is_sensitive=True),
+    )
+
+
+def _own_insight_ids(
+    user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+) -> frozenset[str]:
+    from products.product_analytics.backend.facade.api import insight_ids_created_by  # noqa: PLC0415
+
+    if team_id is None:
+        return frozenset()
+    own = insight_ids_created_by(
+        team_id=team_id,
+        user_id=user_access_control.user.pk,
+        insight_ids=[int(insight) for insight in candidate_ids] if candidate_ids is not None else None,
+    )
+    return frozenset(str(insight) for insight in own)
+
+
+def _platform_state_expr() -> ast.Expr:
+    return parse_expr(_PLATFORM_STATE)
+
+
+def _platform_configuration_table(
+    name: str, source_kind: str, access_scope: APIScopeObject, held_predicate: Expr, insight_id_expr: Optional[str]
+) -> _InsightReadGatedTable:
+    return _InsightReadGatedTable(
+        name=name,
+        insight_id_expr=insight_id_expr,
+        postgres_table_name="alerts_platformalertconfiguration",
+        access_scope=access_scope,
+        # Object grants key an alert by its public id, which this table does not hold as a column.
+        resource_level_access_only=True,
+        postgres_pushdown_values={"source_kind": source_kind},
+        predicates=[held_predicate],
+        description=(
+            f"Internal table of {source_kind} alerts the alerts platform holds, from "
+            "`alerts_platformalertconfiguration`: every alert with no source row, and every copy the platform owns. "
+            f"Not for direct querying; use `system.{'alerts' if source_kind == 'insight' else 'logs_alerts'}`."
+        ),
+        fields={
+            "id": StringDatabaseField(name="id", description="Platform configuration UUID."),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+            "legacy_configuration_id": StringDatabaseField(
+                name="legacy_configuration_id",
+                nullable=True,
+                description="The source row this alert was copied from, which is its public id; NULL for an alert with no source row.",
+            ),
+            "source_kind": StringDatabaseField(name="source_kind", hidden=True),
+            "owner": StringDatabaseField(name="owner", hidden=True),
+            "name": StringDatabaseField(name="name", description="Alert name."),
+            "enabled": BooleanDatabaseField(name="enabled", description="Whether the alert is active."),
+            "source_config": StringJSONDatabaseField(
+                name="source_config", description="JSON settings the alert's source reads."
+            ),
+            "grouping": StringJSONDatabaseField(
+                name="grouping", description="JSON grouping: 'single' for one instance, or the keys it groups by."
+            ),
+            "check_interval_minutes": IntegerDatabaseField(
+                name="check_interval_minutes", description="How often the alert is evaluated, in minutes."
+            ),
+            "evaluation_periods": IntegerDatabaseField(name="evaluation_periods"),
+            "datapoints_to_alarm": IntegerDatabaseField(name="datapoints_to_alarm"),
+            "cooldown_minutes": IntegerDatabaseField(name="cooldown_minutes"),
+            "schedule_restriction": StringJSONDatabaseField(name="schedule_restriction", nullable=True),
+            "next_check_at": DateTimeDatabaseField(name="next_check_at", nullable=True),
+            "snooze_until": DateTimeDatabaseField(name="snooze_until", nullable=True),
+            "consecutive_failures": IntegerDatabaseField(name="consecutive_failures"),
+            "check_status": StringDatabaseField(
+                name="check_status", description="Whether the alert's checks succeed: 'ok', 'errored' or 'broken'."
+            ),
+            "created_at": DateTimeDatabaseField(name="created_at"),
+            "updated_at": DateTimeDatabaseField(name="updated_at"),
+        },
+    )
+
+
+class _PlatformInstancesTable(PostgresTable):
+    """The instance table holds every source's alerts. Its Postgres read keeps only those of one source, so a
+    query does not copy out the other sources' instances to drop them in ClickHouse."""
+
+    source_kind: str
+
+    def postgres_pushdown_in_values(self, context: HogQLContext) -> dict[str, tuple[str, ...]]:
+        from products.alerts_platform.backend.facade.api import held_configuration_ids  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        if context.team_id is None:
+            return {}
+        ids = held_configuration_ids(team_id=context.team_id, source_kind=SourceKind(self.source_kind))
+        return {"configuration_id": tuple(str(configuration_id) for configuration_id in ids)}
+
+
+def _platform_instances_table(
+    name: str, configurations_table: str, configurations_predicate: Expr, source_kind: str, access_scope: APIScopeObject
+) -> PostgresTable:
+    return _PlatformInstancesTable(
+        name=name,
+        source_kind=source_kind,
+        postgres_table_name="alerts_platformalert",
+        access_scope=access_scope,
+        resource_level_access_only=True,
+        push_team_guard_with_predicates=True,
+        # The pushed-down ids only prune the read. This predicate keeps the alerts the reader may see.
+        predicates=[configurations_predicate],
+        # The group's key holds raw breakdown values, which the insight's own access rules guard, so it stays out.
+        description=f"Internal table of the runtime state of each group of the alerts in `system.{configurations_table}`; not for direct querying.",
+        fields={
+            "id": StringDatabaseField(name="id", description="Instance UUID."),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+            "configuration_id": StringDatabaseField(
+                name="configuration_id", description="Platform configuration UUID."
+            ),
+            "state": StringDatabaseField(name="state", description="Platform state of this group."),
+            "last_notified_at": DateTimeDatabaseField(name="last_notified_at", nullable=True),
+        },
+    )
+
+
+# The columns that read the instances. A query that reads none of them skips the instance read.
+_RUNTIME_COLUMNS = frozenset({"state", "last_notified_at"})
+
+
+def _without_runtime_reads(
+    rows: ast.SelectQuery | ast.SelectSetQuery, table_to_add: LazyTableToAdd
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """`rows` without the instance join of its platform branch, when the query reads no runtime column."""
+    accessed = {chain[0] for chain in table_to_add.fields_accessed.values()}
+    if accessed & _RUNTIME_COLUMNS or not isinstance(rows, ast.SelectSetQuery):
+        return rows
+    platform = rows.subsequent_select_queries[-1].select_query
+    if not isinstance(platform, ast.SelectQuery) or platform.select_from is None:
+        return rows
+    platform.select_from.next_join = None
+    platform.select = [
+        ast.Alias(alias=column.alias, expr=ast.Constant(value=None))
+        if isinstance(column, ast.Alias) and column.alias in _RUNTIME_COLUMNS
+        else column
+        for column in platform.select
+    ]
+    return rows
+
+
+insight_alert_rows: _InsightReadGatedTable = _InsightReadGatedTable(
+    name="_insight_alert_rows",
     postgres_table_name="posthog_alertconfiguration",
     access_scope="alert",
-    description="Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+    resource_level_access_only=True,
+    push_team_guard_with_predicates=True,
+    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones.
+    predicates=[parse_expr("owner != 'platform'")],
+    insight_id_expr="insight_id",
+    description="Internal table of the insight alerts their own stack evaluates; not for direct querying, use `system.alerts`.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "owner": StringDatabaseField(name="owner", hidden=True),
+        "name": StringDatabaseField(name="name"),
+        "insight_id": IntegerDatabaseField(name="insight_id"),
+        "enabled": BooleanDatabaseField(name="enabled"),
+        "state": StringDatabaseField(name="state"),
+        "calculation_interval": StringDatabaseField(name="calculation_interval"),
+        "condition": StringJSONDatabaseField(name="condition"),
+        "config": StringJSONDatabaseField(name="config"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_notified_at": DateTimeDatabaseField(name="last_notified_at"),
+        "last_checked_at": DateTimeDatabaseField(name="last_checked_at"),
+        "next_check_at": DateTimeDatabaseField(name="next_check_at"),
+        "snoozed_until": DateTimeDatabaseField(name="snoozed_until"),
+        "skip_weekend": BooleanDatabaseField(name="skip_weekend"),
+        "schedule_restriction": StringJSONDatabaseField(name="schedule_restriction"),
+    },
+)
+
+# A copy the source still owns is left to the source's own row, so every alert shows once. The predicates are
+# static strings, because placeholder expansion at import would load `posthog.schema` during django.setup().
+platform_insight_alerts: PostgresTable = _platform_configuration_table(
+    "_platform_insight_alerts",
+    "insight",
+    "alert",
+    parse_expr("source_kind = 'insight' AND (legacy_configuration_id IS NULL OR owner = 'platform')"),
+    "JSONExtractInt(source_config, 'insight_id')",
+)
+platform_insight_alert_instances: PostgresTable = _platform_instances_table(
+    "_platform_insight_alert_instances",
+    "_platform_insight_alerts",
+    parse_expr("configuration_id IN (SELECT id FROM system._platform_insight_alerts)"),
+    "insight",
+    "alert",
+)
+
+
+# `calculation_interval` maps each platform interval to the insight cadence it stands for. Keep the mapping in sync
+# with `RECURRENCE` in products/alerts/backend/platform_insight_alert.py.
+def _insight_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            toString(id) AS id, name, insight_id, enabled, state, calculation_interval, condition, config,
+            created_at, last_notified_at, last_checked_at, next_check_at, snoozed_until, skip_weekend,
+            schedule_restriction
+        FROM system._insight_alert_rows
+        UNION ALL
+        SELECT
+            toString(coalesce(c.legacy_configuration_id, c.id)) AS id,
+            c.name AS name,
+            JSONExtractInt(c.source_config, 'insight_id') AS insight_id,
+            c.enabled AS enabled,
+            multiIf(
+                c.snooze_until > now(), 'Snoozed',
+                {platform_state} = 'firing', 'Firing',
+                {platform_state} IN ('errored', 'broken'), 'Errored',
+                'Not firing'
+            ) AS state,
+            multiIf(
+                c.check_interval_minutes = 2, 'real_time',
+                c.check_interval_minutes = 15, 'every_15_minutes',
+                c.check_interval_minutes = 60, 'hourly',
+                c.check_interval_minutes = 1440, 'daily',
+                c.check_interval_minutes = 10080, 'weekly',
+                c.check_interval_minutes = 43200, 'monthly',
+                NULL
+            ) AS calculation_interval,
+            if(JSONHas(c.source_config, 'condition', 'comparison'), JSONExtractRaw(c.source_config, 'condition', 'comparison'), '{}') AS condition,
+            if(JSONHas(c.source_config, 'config'), JSONExtractRaw(c.source_config, 'config'), '{}') AS config,
+            c.created_at AS created_at,
+            i.last_notified_at AS last_notified_at,
+            NULL AS last_checked_at,
+            c.next_check_at AS next_check_at,
+            c.snooze_until AS snoozed_until,
+            JSONExtractBool(c.source_config, 'skip_weekend') AS skip_weekend,
+            c.schedule_restriction AS schedule_restriction
+        FROM system._platform_insight_alerts AS c
+        LEFT JOIN (
+            SELECT
+                configuration_id,
+                max(state = 'firing') AS any_firing,
+                any(state) AS any_state,
+                max(last_notified_at) AS last_notified_at
+            FROM system._platform_insight_alert_instances
+            GROUP BY configuration_id
+        ) AS i ON i.configuration_id = c.id
+        """,
+        placeholders={"platform_state": _platform_state_expr()},
+    )
+
+
+class _InsightAlertsTable(ScopedLazyTable):
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return self.with_nested_reads(_without_runtime_reads(_insight_alerts_select(), table_to_add), table_to_add)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "alerts"
+
+    def to_printed_hogql(self) -> str:
+        return "alerts"
+
+
+alerts: _InsightAlertsTable = _InsightAlertsTable(
+    access_scope="alert",
+    description=(
+        "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. "
+        "An alert the alerts platform owns shows its settings and state from the platform."
+    ),
+    fields={
+        "id": StringDatabaseField(
+            name="id",
+            description="Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
+        ),
         "name": StringDatabaseField(name="name", description="User-given name of the alert."),
         "insight_id": IntegerDatabaseField(
             name="insight_id", description="Insight the alert watches; joins to insights.id."
@@ -318,12 +638,16 @@ alerts: PostgresTable = PostgresTable(
         "config": StringJSONDatabaseField(
             name="config", description="JSON alert configuration (series, comparison settings, etc.)."
         ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the alert was created."),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            description="When the alert was created. For an alert moved to the alerts platform, when it moved.",
+        ),
         "last_notified_at": DateTimeDatabaseField(
             name="last_notified_at", description="When a notification was last sent."
         ),
         "last_checked_at": DateTimeDatabaseField(
-            name="last_checked_at", description="When the alert was last evaluated."
+            name="last_checked_at",
+            description="When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
         ),
         "next_check_at": DateTimeDatabaseField(
             name="next_check_at", description="When the alert is next scheduled to be evaluated."
@@ -396,81 +720,6 @@ cohorts: PostgresTable = PostgresTable(
             name="is_static",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_static"])]),
             description="1 if the cohort is a fixed static list, 0 if dynamically calculated from filters.",
-        ),
-    },
-)
-
-dashboards: PostgresTable = PostgresTable(
-    name="dashboards",
-    postgres_table_name="posthog_dashboard",
-    access_scope="dashboard",
-    access_control_creator_id_field="created_by_id",
-    description="Dashboards: collections of insight tiles; one row per dashboard.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Dashboard id."),
-        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
-        "name": StringDatabaseField(name="name", description="Dashboard name."),
-        "description": StringDatabaseField(name="description", description="Dashboard description."),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the dashboard."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the dashboard was created."),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(
-            name="deleted",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
-            description="1 if the dashboard has been deleted, 0 otherwise.",
-        ),
-        "filters": StringJSONDatabaseField(
-            name="filters", description="JSON dashboard-level filters applied to all tiles."
-        ),
-        "variables": StringJSONDatabaseField(name="variables", description="JSON dashboard-level template variables."),
-    },
-)
-
-dashboard_tiles: PostgresTable = PostgresTable(
-    name="dashboard_tiles",
-    postgres_table_name="posthog_dashboardtile",
-    access_scope="dashboard",
-    # Child of dashboard: object-level access control applies to the parent dashboard, not the tile's own id.
-    access_control_id_field="dashboard_id",
-    description="Tiles placed on dashboards (insight, text, or button tiles) with their layout; one row per tile.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Tile id."),
-        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
-        "dashboard_id": IntegerDatabaseField(
-            name="dashboard_id", description="Dashboard the tile belongs to; joins to dashboards.id."
-        ),
-        "insight_id": IntegerDatabaseField(
-            name="insight_id",
-            nullable=True,
-            description="Insight shown by the tile; joins to insights.id (NULL for non-insight tiles).",
-        ),
-        "text_id": IntegerDatabaseField(
-            name="text_id", nullable=True, description="Text content id for text tiles; NULL otherwise."
-        ),
-        "button_tile_id": StringDatabaseField(
-            name="button_tile_id", nullable=True, description="Button content id for button tiles; NULL otherwise."
-        ),
-        "layouts": StringJSONDatabaseField(
-            name="layouts", description="JSON grid layout (position/size) per breakpoint."
-        ),
-        "color": StringDatabaseField(name="color", nullable=True, description="Optional tile color."),
-        "show_description": BooleanDatabaseField(
-            name="show_description", nullable=True, description="Whether the insight description is shown on the tile."
-        ),
-        "transparent_background": BooleanDatabaseField(
-            name="transparent_background",
-            nullable=True,
-            description="Whether the tile renders with a transparent background.",
-        ),
-        "filters_overrides": StringJSONDatabaseField(
-            name="filters_overrides", nullable=True, description="JSON filter overrides applied to this tile only."
-        ),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
-        "deleted": ExpressionField(
-            name="deleted",
-            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
         ),
     },
 )
@@ -1560,9 +1809,6 @@ replay_scanners: PostgresTable = PostgresTable(
         "sampling_rate": FloatDatabaseField(
             name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
         ),
-        "sampling_mode": StringDatabaseField(
-            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
-        ),
         "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
         "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
         "enabled": ExpressionField(
@@ -1752,6 +1998,10 @@ exports: PostgresTable = PostgresTable(
 file_system: PostgresTable = PostgresTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
+    # Workflow and email template rows follow workflow access, which this table cannot check per row,
+    # so they are left out. The list matches WORKFLOW_FILE_SYSTEM_TYPES in posthog/models/file_system/constants.py.
+    predicates=[parse_expr("type NOT IN ('hog_flow', 'message_template')")],
+    push_team_guard_with_predicates=True,
     description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),
@@ -2352,21 +2602,130 @@ logs_views: PostgresTable = PostgresTable(
     },
 )
 
-logs_alerts: PostgresTable = PostgresTable(
-    name="logs_alerts",
+logs_alert_rows: PostgresTable = PostgresTable(
+    name="_logs_alert_rows",
     postgres_table_name="logs_logsalertconfiguration",
     access_scope="logs",
-    description="Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+    resource_level_access_only=True,
+    push_team_guard_with_predicates=True,
+    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones.
+    predicates=[parse_expr("owner != 'platform'")],
+    description="Internal table of the logs alerts their own stack evaluates; not for direct querying, use `system.logs_alerts`.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
-        "name": StringDatabaseField(name="name", description="Alert name."),
-        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
-        "enabled": ExpressionField(
-            name="enabled",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
-            description="1 if the alert is enabled, 0 otherwise.",
+        "owner": StringDatabaseField(name="owner", hidden=True),
+        "name": StringDatabaseField(name="name"),
+        "enabled": BooleanDatabaseField(name="enabled"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "threshold_count": IntegerDatabaseField(name="threshold_count"),
+        "threshold_operator": StringDatabaseField(name="threshold_operator"),
+        "window_minutes": IntegerDatabaseField(name="window_minutes"),
+        "check_interval_minutes": IntegerDatabaseField(name="check_interval_minutes"),
+        "state": StringDatabaseField(name="state"),
+        "evaluation_periods": IntegerDatabaseField(name="evaluation_periods"),
+        "datapoints_to_alarm": IntegerDatabaseField(name="datapoints_to_alarm"),
+        "cooldown_minutes": IntegerDatabaseField(name="cooldown_minutes"),
+        "snooze_until": DateTimeDatabaseField(name="snooze_until", nullable=True),
+        "next_check_at": DateTimeDatabaseField(name="next_check_at", nullable=True),
+        "last_notified_at": DateTimeDatabaseField(name="last_notified_at", nullable=True),
+        "last_checked_at": DateTimeDatabaseField(name="last_checked_at", nullable=True),
+        "consecutive_failures": IntegerDatabaseField(name="consecutive_failures"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+platform_logs_alerts: PostgresTable = _platform_configuration_table(
+    "_platform_logs_alerts",
+    "logs",
+    "logs",
+    parse_expr("source_kind = 'logs' AND (legacy_configuration_id IS NULL OR owner = 'platform')"),
+    None,
+)
+platform_logs_alert_instances: PostgresTable = _platform_instances_table(
+    "_platform_logs_alert_instances",
+    "_platform_logs_alerts",
+    parse_expr("configuration_id IN (SELECT id FROM system._platform_logs_alerts)"),
+    "logs",
+    "logs",
+)
+
+
+def _logs_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            toString(id) AS id, name, toInt(enabled) AS enabled, filters, threshold_count,
+            threshold_operator, window_minutes, check_interval_minutes, state, evaluation_periods,
+            datapoints_to_alarm, cooldown_minutes, snooze_until, next_check_at, last_notified_at, last_checked_at,
+            consecutive_failures, created_at, updated_at
+        FROM system._logs_alert_rows
+        UNION ALL
+        SELECT
+            toString(coalesce(c.legacy_configuration_id, c.id)) AS id,
+            c.name AS name,
+            toInt(c.enabled) AS enabled,
+            if(JSONHas(c.source_config, 'filters'), JSONExtractRaw(c.source_config, 'filters'), '{}') AS filters,
+            JSONExtractInt(c.source_config, 'condition', 'threshold_count') AS threshold_count,
+            JSONExtractString(c.source_config, 'condition', 'threshold_operator') AS threshold_operator,
+            JSONExtractInt(c.source_config, 'condition', 'window_minutes') AS window_minutes,
+            c.check_interval_minutes AS check_interval_minutes,
+            if(
+                c.snooze_until > now(), 'snoozed',
+                if({platform_state} = 'snoozed', 'not_firing', {platform_state})
+            ) AS state,
+            c.evaluation_periods AS evaluation_periods,
+            c.datapoints_to_alarm AS datapoints_to_alarm,
+            c.cooldown_minutes AS cooldown_minutes,
+            c.snooze_until AS snooze_until,
+            c.next_check_at AS next_check_at,
+            i.last_notified_at AS last_notified_at,
+            NULL AS last_checked_at,
+            c.consecutive_failures AS consecutive_failures,
+            c.created_at AS created_at,
+            c.updated_at AS updated_at
+        FROM system._platform_logs_alerts AS c
+        LEFT JOIN (
+            SELECT
+                configuration_id,
+                max(state = 'firing') AS any_firing,
+                any(state) AS any_state,
+                max(last_notified_at) AS last_notified_at
+            FROM system._platform_logs_alert_instances
+            GROUP BY configuration_id
+        ) AS i ON i.configuration_id = c.id
+        """,
+        placeholders={"platform_state": _platform_state_expr()},
+    )
+
+
+class _LogsAlertsTable(ScopedLazyTable):
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return self.with_nested_reads(_without_runtime_reads(_logs_alerts_select(), table_to_add), table_to_add)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "logs_alerts"
+
+    def to_printed_hogql(self) -> str:
+        return "logs_alerts"
+
+
+logs_alerts: _LogsAlertsTable = _LogsAlertsTable(
+    access_scope="logs",
+    description=(
+        "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. "
+        "An alert the alerts platform owns shows its settings and state from the platform."
+    ),
+    fields={
+        "id": StringDatabaseField(
+            name="id",
+            description="Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
         ),
+        "name": StringDatabaseField(name="name", description="Alert name."),
+        "enabled": IntegerDatabaseField(name="enabled", description="1 if the alert is enabled, 0 otherwise."),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON log filters defining which logs the alert counts."
         ),
@@ -2402,12 +2761,17 @@ logs_alerts: PostgresTable = PostgresTable(
             name="last_notified_at", nullable=True, description="When a notification was last sent."
         ),
         "last_checked_at": DateTimeDatabaseField(
-            name="last_checked_at", nullable=True, description="When the alert was last evaluated."
+            name="last_checked_at",
+            nullable=True,
+            description="When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
         ),
         "consecutive_failures": IntegerDatabaseField(
             name="consecutive_failures", description="Number of consecutive evaluation failures."
         ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the alert was created."),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            description="When the alert was created. For an alert moved to the alerts platform, when it moved.",
+        ),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the alert was last updated."),
     },
 )
@@ -3479,7 +3843,7 @@ task_artifacts: PostgresTable = PostgresTable(
     predicates=[
         parse_expr("task_id IN (SELECT id FROM system.tasks)"),
     ],
-    description="Living artifacts produced by tasks in public project spaces; private, unfiled, and internal tasks are excluded.",
+    description="Living artifacts produced by the tasks in system.tasks.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3528,15 +3892,105 @@ task_public_channels: PostgresTable = PostgresTable(
 )
 
 
+class _TaskPublicSlackTasksTable(PostgresTable):
+    """Aggregates the Slack thread mappings in ClickHouse, so a query reads only the tasks that qualify,
+    never the mapping rows of private threads."""
+
+    def to_printed_clickhouse(self, context):
+        source = build_function_call(self.postgres_table_name, context)
+        team_filter = f"WHERE team_id = {int(context.team_id)} " if context.team_id is not None else ""
+        public_types = escape_clickhouse_string(sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES))
+        return (
+            f"(SELECT team_id, task_id AS id FROM {source} {team_filter}GROUP BY team_id, task_id "
+            f"HAVING countIf(NOT has({public_types}, ifNull(conversation_type, ''))) = 0)"
+        )
+
+
+# A Slack task sits in its creator's personal space, so it qualifies on its threads instead, as in
+# `public_slack_thread_q`: only when every thread it answers in is a public Slack channel.
+task_public_slack_tasks: _TaskPublicSlackTasksTable = _TaskPublicSlackTasksTable(
+    name="_task_public_slack_tasks",
+    postgres_table_name="slack_app_slackthreadtaskmapping",
+    description="Internal list of the tasks whose Slack threads are all in public Slack channels.",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+    },
+)
+
+_TASK_VISIBLE_PREDICATE = """
+    channel_id IN (SELECT id FROM system._task_public_channels)
+    OR (origin_product = 'slack' AND id IN (SELECT id FROM system._task_public_slack_tasks))
+"""
+
+
+def _task_latest_run_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    # The tuple keeps a NULL summary from making argMax skip the latest run for an older one.
+    return parse_select(
+        """
+        SELECT
+            task_id,
+            tupleElement(latest, 1) AS task_summary,
+            tupleElement(latest, 2) AS task_tags
+        FROM (
+            SELECT task_id, argMax(tuple(task_summary, task_tags), tuple(created_at, id)) AS latest
+            FROM system.task_runs
+            GROUP BY task_id
+        )
+        """
+    )
+
+
+class _TaskLatestRunTable(LazyTable):
+    description: str = "Internal table backing the summary columns of `system.tasks`: the latest run of each task."
+    fields: dict[str, FieldOrTable] = {
+        "task_id": StringDatabaseField(name="task_id", description="Task the run belongs to."),
+        "task_summary": StringDatabaseField(name="task_summary", nullable=True, description="Summary of the run."),
+        "task_tags": StringArrayDatabaseField(name="task_tags", description="Tags of the run."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _task_latest_run_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "task_latest_run"
+
+    def to_printed_hogql(self) -> str:
+        return "task_latest_run"
+
+
+def task_latest_run_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `tasks.latest_run`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_task_latest_run_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "task_id"]),
+            ),
+        ),
+    )
+
+
 tasks: PostgresTable = PostgresTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
     predicates=[
         parse_expr("internal != true"),
-        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+        parse_expr(_TASK_VISIBLE_PREDICATE),
     ],
-    description="Tasks filed in public project spaces; private, unfiled, and internal tasks are excluded.",
+    description=(
+        "Tasks the whole project can read: tasks filed in public project spaces, and Slack tasks whose threads "
+        "are all in public Slack channels. Private, unfiled, and internal tasks are excluded."
+    ),
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3584,15 +4038,70 @@ tasks: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the task was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the task was last updated."),
+        "latest_run": LazyJoin(
+            from_field=["id"],
+            join_table=_TaskLatestRunTable(),
+            resolver=TASK_LATEST_RUN,
+            hidden=True,
+        ),
+        "task_summary": FieldTraverser(
+            chain=["latest_run", "task_summary"],
+            description="Agent-written summary of the task's latest run; same rules as task_runs.task_summary.",
+        ),
+        "task_tags": FieldTraverser(
+            chain=["latest_run", "task_tags"],
+            description="Topic tags of the task's latest run; same rules as task_runs.task_tags.",
+        ),
     },
 )
 
-task_runs: PostgresTable = PostgresTable(
+
+# ClickHouse SQL over `posthog_task_run.state`, a JSONB blob that also holds sandbox credentials. The
+# blob is not a HogQL field, so a query can read only the summary and tags derived from it here.
+def _task_run_state_text(key: str) -> str:
+    value = f"if(JSONType(state, '{key}') = 'String', JSONExtractString(state, '{key}'), '')"
+    return f"nullIf(replaceRegexpAll({value}, '^\\\\s+|\\\\s+$', ''), '')"
+
+
+def _task_run_state_tags(key: str) -> str:
+    return f"JSONExtractArrayRaw(state, '{key}')"
+
+
+# Matches `list_team_task_summaries`: these summaries need the viewer's own query access, or hold private
+# workflow trigger context. A run with no recorded origin counts as a workflow run.
+_TASK_RUN_SUMMARY_HIDDEN = "(JSONHas(state, 'analytics_query_context') OR origin_product IN ('workflow', ''))"
+
+# Same fallback rules as `TaskRun.task_summary` and `task_tags_from_state`. An explicit tag list wins, even an empty one.
+_TASK_RUN_SUMMARY_SQL = (
+    f"if({_TASK_RUN_SUMMARY_HIDDEN}, NULL, "
+    f"coalesce({_task_run_state_text('task_summary')}, {_task_run_state_text('prior_run_summary')}))"
+)
+_TASK_RUN_TAGS_SQL = (
+    f"if({_TASK_RUN_SUMMARY_HIDDEN}, [], arrayMap(tag -> JSONExtractString(tag), arrayFilter(tag -> JSONType(tag) = 'String', "
+    f"if(JSONType(state, 'task_tags') = 'Array', {_task_run_state_tags('task_tags')}, {_task_run_state_tags('prior_run_tags')}))))"
+)
+
+
+class _TaskRunsTable(PostgresTable):
+    """Reads the run rows through a subquery that adds the summary and tags derived from the run state."""
+
+    def to_printed_clickhouse(self, context):
+        source = build_function_call(self.postgres_table_name, context)
+        # ClickHouse does not send a filter on this subquery to Postgres. Without the team filter inside
+        # the subquery, Postgres returns the runs of every team and ClickHouse drops them afterwards.
+        team_filter = f" WHERE team_id = {int(context.team_id)}" if context.team_id is not None else ""
+        return (
+            f"(SELECT *, {_TASK_RUN_SUMMARY_SQL} AS task_summary, {_TASK_RUN_TAGS_SQL} AS task_tags "
+            f"FROM {source}{team_filter})"
+        )
+
+
+task_runs: _TaskRunsTable = _TaskRunsTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
     predicates=[parse_expr("task_id IN (SELECT id FROM system.tasks)")],
-    description="Execution runs of tasks filed in public project spaces.",
+    description="Execution runs of the tasks in system.tasks.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3614,6 +4123,22 @@ task_runs: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the run row was last updated."),
         "completed_at": DateTimeDatabaseField(
             name="completed_at", nullable=True, description="When the run finished; NULL while running."
+        ),
+        "task_summary": StringDatabaseField(
+            name="task_summary",
+            nullable=True,
+            description=(
+                "Agent-written summary of what was asked and what the run found, or the summary inherited from the run "
+                "it resumed. NULL when the run wrote none, or for runs over analytics query context and workflow runs, "
+                "whose summaries are private."
+            ),
+        ),
+        "task_tags": StringArrayDatabaseField(
+            name="task_tags",
+            description=(
+                "Kebab-case topic tags the agent gave the run, or the tags inherited from the run it resumed. "
+                "Empty when the summary is private."
+            ),
         ),
     },
 )
@@ -4191,6 +4716,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "aeo_brands": TableNode(name="aeo_brands", table=aeo_brands),
         "aeo_citation_checks": TableNode(name="aeo_citation_checks", table=aeo_citation_checks),
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
@@ -4217,6 +4743,13 @@ class SystemTables(TableNode):
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
+        "_insight_alert_rows": TableNode(name="_insight_alert_rows", table=insight_alert_rows, hidden=True),
+        "_platform_insight_alerts": TableNode(
+            name="_platform_insight_alerts", table=platform_insight_alerts, hidden=True
+        ),
+        "_platform_insight_alert_instances": TableNode(
+            name="_platform_insight_alert_instances", table=platform_insight_alert_instances, hidden=True
+        ),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_export_on_demands": TableNode(name="batch_export_on_demands", table=batch_export_on_demands),
@@ -4310,6 +4843,11 @@ class SystemTables(TableNode):
         "inbox_reports": TableNode(name="inbox_reports", table=inbox_reports),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "logs_alerts": TableNode(name="logs_alerts", table=logs_alerts),
+        "_logs_alert_rows": TableNode(name="_logs_alert_rows", table=logs_alert_rows, hidden=True),
+        "_platform_logs_alerts": TableNode(name="_platform_logs_alerts", table=platform_logs_alerts, hidden=True),
+        "_platform_logs_alert_instances": TableNode(
+            name="_platform_logs_alert_instances", table=platform_logs_alert_instances, hidden=True
+        ),
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
@@ -4341,6 +4879,9 @@ class SystemTables(TableNode):
         "surveys": TableNode(name="surveys", table=surveys),
         "survey_response_archives": TableNode(name="survey_response_archives", table=survey_response_archives),
         "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
+        "_task_public_slack_tasks": TableNode(
+            name="_task_public_slack_tasks", table=task_public_slack_tasks, hidden=True
+        ),
         "task_artifacts": TableNode(name="task_artifacts", table=task_artifacts),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
@@ -4363,5 +4904,5 @@ def access_controlled_system_tables() -> dict[str, APIScopeObject]:
     return {
         name: node.table.access_scope
         for name, node in SystemTables().children.items()
-        if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
+        if isinstance(node.table, PostgresTable | ScopedLazyTable) and node.table.access_scope is not None
     }

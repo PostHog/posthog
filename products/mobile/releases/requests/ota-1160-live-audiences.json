@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-live-audiences",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-chat-reconnect",
+    "notes": "Live now offers All, Web and Mobile views, mobile activity metrics, audience-scoped online counts, and automatic map hiding. Verify switching views and projects, opening country details, and returning from the background."
+}

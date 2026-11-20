@@ -2,8 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -114,19 +112,6 @@ describe('tracingViewerLogic', () => {
     })
 
     describe('identity resolution', () => {
-        // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
-        // it wants, otherwise a flag one test enables leaks into the next.
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        function enableCorrelationLinks(): void {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS], {
-                [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-            })
-        }
-
         // A partial prefetch batch is the trace's complete span set, so no fetch runs and the
         // identity resolves from it.
         function openCompleteTrace(attributes: Record<string, string>): void {
@@ -138,23 +123,14 @@ describe('tracingViewerLogic', () => {
         }
 
         it('resolves the person and session the open trace belongs to', () => {
-            enableCorrelationLinks()
-
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
             expect(logic.values.traceIdentity).toEqual({ distinctId: 'user-1', sessionId: 'session-1' })
         })
 
-        it('resolves nothing while the flag is off', () => {
-            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
-
-            expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
-        })
-
         // "The spans disagree, so promote neither" can only be decided over the whole trace, so a
         // known-partial span set must resolve nothing rather than trust the page it has.
         it('resolves nothing while more spans can still load', async () => {
-            enableCorrelationLinks()
             getTraceSpy.mockResolvedValue({
                 results: [
                     makeSpan({
@@ -175,17 +151,11 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
 
-        // The Errors tab needs the session without the person, so it follows the error badge flag.
-        // Reading the person flag instead would leave the tab empty on a team that has only badges.
-        it.each([
-            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
-            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
-        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
-
+        // The Errors tab needs the session without the person.
+        it('resolves traceSessionId for the open trace', () => {
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
-            expect(logic.values.traceSessionId).toBe(expected)
+            expect(logic.values.traceSessionId).toBe('session-1')
         })
 
         // A badge sits on one row and resolves that row's session. A trace touching two sessions
@@ -197,9 +167,6 @@ describe('tracingViewerLogic', () => {
             ['the prefetched list', false],
             ['the list when the fetched trace page omits it', true],
         ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            })
             const spanA = makeSpan({
                 uuid: 'span-0',
                 span_id: 'span-0',

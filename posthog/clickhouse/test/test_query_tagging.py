@@ -644,6 +644,12 @@ class TestAddFallbackQueryTags(SimpleTestCase):
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP_ANALYTICS
 
+    @parameterized.expand([("BookActivityMatrixQuery",), ("BookActivityPeopleQuery",), ("BookActivityFirstsQuery",)])
+    def test_book_activity_kind_attributes_to_customer_analytics(self, query_type: str) -> None:
+        tags = QueryTags(query_type=query_type)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.CUSTOMER_ANALYTICS
+
     def test_mcp_source_fills_product_only(self):
         tags = QueryTags(source="mcp")
         add_fallback_query_tags(tags)

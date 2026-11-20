@@ -23,7 +23,10 @@ import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-pos
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import {
+    HogInvocationResultRow,
+    HogInvocationResultsService,
+} from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RERUN_MAX_CONSECUTIVE_PAGE_ERRORS, RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
@@ -72,7 +75,6 @@ describe('RerunPaginatorService integration', () => {
         await chClient?.close()
     })
 
-    let seededCount = 0
     /**
      * Seed `n` lifecycle rows for the given function. Each entry becomes a real
      * Kafka produce + MV ingestion, so by the time this returns ClickHouse has
@@ -93,6 +95,7 @@ describe('RerunPaginatorService integration', () => {
             firstScheduledAt?: Date
         }>
     ): Promise<void> => {
+        const seeded: HogInvocationResultRow[] = []
         for (const r of rows) {
             const globals = createHogExecutionGlobals({
                 project: { id: team.id } as any,
@@ -119,28 +122,44 @@ describe('RerunPaginatorService integration', () => {
                 queuePriority: 0,
                 queueScheduledAt: r.scheduledAt ? ({ toJSDate: () => r.scheduledAt } as any) : undefined,
             }
-            seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
+            const row = seedingService.prepareLifecycleRow(invocation, r.status, {
+                error: r.error,
+                errorKind: r.errorKind,
+            })
+            if (!row) {
+                throw new Error('HOG_INVOCATION_RESULTS_ENABLED is off, so no lifecycle row was seeded')
+            }
+            seeded.push(row)
+            seedingService.queuePreparedRow(row)
         }
         await seedingService.flush()
         await kafkaProducer.flush()
-
-        // Track cumulative seeded rows so calling seedRows twice in the same
-        // test waits for *all* rows (rather than trivially passing on the
-        // previous seed's count).
-        seededCount += rows.length
-        const expected = seededCount
 
         // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
         // chewing a backlog from whichever suite the shard ran just before this one (run order
         // shifts whenever sibling files change size). The deadline is sized for that worst case;
         // waitForExpect polls, so a healthy pipe still completes in seconds.
+        //
+        // A seeded row is ready when its partition holds a row for the same invocation with at
+        // least its version. A physical row count is not a valid check: the table is a
+        // ReplacingMergeTree keyed by invocation, so a background merge can replace an earlier
+        // seeded row with a later one for the same invocation before the count reaches the
+        // number of rows seeded. Merges do not cross partitions, so the check is per partition day.
         await waitForExpect(async () => {
-            const got = await clickhouse.query<{ c: number }>(
-                `SELECT count() AS c FROM hog_invocation_results
+            const landed = await clickhouse.query<{ invocation_id: string; day: string; version: string }>(
+                `SELECT invocation_id, toString(toDate(scheduled_at)) AS day, toString(max(version)) AS version
+                 FROM hog_invocation_results
                  WHERE team_id = ${team.id}
-                   AND function_id = '${hogFunction.id}'`
+                   AND function_id = '${hogFunction.id}'
+                 GROUP BY invocation_id, day`
             )
-            expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
+            const latestVersion = new Map(landed.map((l) => [`${l.invocation_id}|${l.day}`, BigInt(l.version)]))
+            const notLanded = seeded.filter(
+                (row) =>
+                    (latestVersion.get(`${row.invocation_id}|${row.scheduled_at.slice(0, 10)}`) ?? -1n) <
+                    BigInt(row.version)
+            )
+            expect(notLanded.map((row) => `${row.invocation_id} (${row.status})`)).toEqual([])
         }, 90_000)
     }
 
@@ -180,7 +199,6 @@ describe('RerunPaginatorService integration', () => {
             ],
         })
         await kafkaProducer.flush()
-        seededCount += 1
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results
@@ -200,8 +218,6 @@ describe('RerunPaginatorService integration', () => {
     })
 
     beforeEach(async () => {
-        seededCount = 0
-
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         team = (await createTestTeamFixture(hub.postgres)).team

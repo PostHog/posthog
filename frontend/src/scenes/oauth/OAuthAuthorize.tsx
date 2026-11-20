@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
@@ -8,13 +8,13 @@ import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { InlineCreateForm } from 'scenes/authentication/shared/InlineCreateForm'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
@@ -22,6 +22,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
+import { OAuthAuthorizeEmaIssuer } from './OAuthAuthorizeEmaIssuer'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
@@ -81,70 +82,10 @@ export const OAuthAuthorizeRedirecting = ({
     )
 }
 
-const InlineCreateForm = ({
-    label,
-    placeholder,
-    loading,
-    onSubmit,
-    onCancel,
-}: {
-    label: string
-    placeholder: string
-    loading: boolean
-    onSubmit: (name: string) => void
-    onCancel?: () => void
-}): JSX.Element => {
-    const [name, setName] = useState('')
-
-    return (
-        <div className="flex flex-col gap-2 p-3 border border-border rounded bg-bg-light">
-            <LemonLabel>{label}</LemonLabel>
-            <div className="flex gap-2">
-                <LemonInput
-                    autoFocus
-                    fullWidth
-                    placeholder={placeholder}
-                    maxLength={64}
-                    value={name}
-                    onChange={setName}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && name.trim()) {
-                            onSubmit(name.trim())
-                        }
-                        if (e.key === 'Escape') {
-                            onCancel?.()
-                        }
-                    }}
-                    disabled={loading}
-                />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    loading={loading}
-                    disabledReason={!name.trim() ? 'Enter a name' : undefined}
-                    onClick={() => onSubmit(name.trim())}
-                >
-                    Create
-                </LemonButton>
-                {onCancel && (
-                    <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
-                        Cancel
-                    </LemonButton>
-                )}
-            </div>
-        </div>
-    )
-}
-
 export const OAuthAuthorize = (): JSX.Element => {
     const {
-        requiredScopeRows,
-        adjustableScopeRows,
         scopeGroups,
-        scopeRowsGrouped,
-        allScopesRequired,
-        identityScopeDescriptions,
-        showReadOnlyBulkAction,
+        isStepUp,
         oauthApplication,
         oauthApplicationLoading,
         appName,
@@ -165,6 +106,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         newProjectLoading,
         newOrganizationLoading,
         selectedOrganization,
+        emaIssuerConsent,
         user,
     } = useValues(oauthAuthorizeLogic)
     const {
@@ -177,7 +119,6 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
         setScopeAccess,
         setScopeGroupAccess,
-        setAllScopeAccess,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -272,6 +213,14 @@ export const OAuthAuthorize = (): JSX.Element => {
         )
     }
 
+    if (emaIssuerConsent) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeEmaIssuer consent={emaIssuerConsent} />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
     if (user && allOrganizations.length === 0) {
         return (
             <OAuthAuthorizeLayout>
@@ -315,7 +264,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                             <span>{appName}</span>
                         </>
                     }
-                    sub={`${appName} is requesting access to your data.`}
+                    sub={
+                        isStepUp
+                            ? `${appName} is requesting more access. What you granted before stays as it is.`
+                            : `${appName} is requesting access to your data.`
+                    }
                     className="mb-2"
                 />
                 {user && (
@@ -460,58 +413,25 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </div>
 
                         <div className="flex flex-col">
-                            {/* Sticky and full-bleed, so the bulk actions stay in reach once the
-                                first rows scroll away. z-10 clears the access selectors, whose
-                                own parts sit at z-index 2. */}
-                            <div className="AuthScene__cardSurface sticky top-0 z-10 flex items-center justify-between gap-2 flex-wrap px-4 sm:px-6 py-2 border-y border-border">
-                                <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {adjustableScopeRows.length > 1 && (
-                                    <div className="flex items-center gap-1 flex-wrap">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('write')}
-                                        >
-                                            Select all
-                                        </LemonButton>
-                                        {showReadOnlyBulkAction && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() => setAllScopeAccess('read')}
-                                            >
-                                                Read-only
-                                            </LemonButton>
-                                        )}
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('none')}
-                                        >
-                                            Deselect all
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                <OAuthScopeList
-                                    appName={appName}
-                                    identityScopeDescriptions={identityScopeDescriptions}
-                                    requiredScopeRows={requiredScopeRows}
-                                    adjustableScopeRows={adjustableScopeRows}
-                                    scopeGroups={scopeRowsGrouped ? scopeGroups : null}
-                                    allScopesRequired={allScopesRequired}
-                                    onChangeRow={setScopeAccess}
-                                    onChangeGroup={setScopeGroupAccess}
-                                    dataAttrPrefix="oauth-scope-group"
-                                />
-                                {accessControlsApply && (
+                            <OAuthScopeList
+                                groups={scopeGroups}
+                                onChangeRow={setScopeAccess}
+                                onChangeGroup={setScopeGroupAccess}
+                                dataAttrPrefix="oauth-scope-group"
+                                // Sticky and full-bleed, so the list-wide controls stay in reach once the
+                                // first rows scroll away. z-10 clears the access selectors, whose own
+                                // parts sit at z-index 2.
+                                headerClassName="AuthScene__cardSurface sticky top-0 z-10 px-4 sm:px-6 py-2 border-y border-border"
+                                bodyClassName="px-4 sm:px-6 pt-3 pb-4"
+                            />
+                            {accessControlsApply && (
+                                <div className="px-4 sm:px-6 pb-4">
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
                                         <strong className="block">Access controls still apply.</strong>
                                         {appName} can only do what both your access level and these permissions allow.
                                     </LemonBanner>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 

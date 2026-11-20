@@ -11,7 +11,7 @@ export function githubRunUrl(repoOwner: string, repoName: string, runId: number)
     return `https://github.com/${repoOwner}/${repoName}/actions/runs/${runId}`
 }
 
-/** A job's log page. With a step number, the page opens at the first line of that step. */
+/** With a step number, the page opens at the first line of that step. */
 export function githubJobUrl(
     repoOwner: string,
     repoName: string,

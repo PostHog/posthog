@@ -24,8 +24,7 @@ class TagAnswer:
 @frozen
 class TagContext:
     issue: ErrorTrackingIssue
-    # The issue's exception event as text, built the way `build_severity_state` builds severity's Jev input.
-    state: str
+    event_properties: dict[str, object]
 
 
 class Tagger(Protocol):
@@ -37,9 +36,12 @@ class Tagger(Protocol):
         ...
 
     def answer(self, context: TagContext, definitions: Sequence[IssueTagDefinition]) -> dict[str, TagAnswer]:
-        """Answer the given tags for the context's issue, keyed by tag key. Leave out a tag the tagger did not answer.
+        """Return the given tags whose label applies to the context's issue, keyed by tag key, each with `value=True`.
 
-        All tags come in one call because the Jev tagger adds every tag question to the one decision request
-        that severity inference sends, which holds at most `MAX_QUESTIONS_PER_REQUEST` questions.
+        Do not return any other tag. This includes a tag that the tagger answered with no. A lower-ranked tagger
+        cannot replace the row of this tagger, so a false row stops that tagger from applying the label.
+
+        All tags come in one call so that a tagger can answer them together. The Jev tagger asks every tag question
+        in one decision request, which holds at most `MAX_QUESTIONS_PER_REQUEST` questions.
         """
         ...

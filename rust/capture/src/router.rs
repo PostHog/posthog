@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
 use axum::Extension;
 use axum::{
     routing::{get, post},
@@ -28,6 +28,8 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
+use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -39,6 +41,10 @@ use metrics_exporter_prometheus::PrometheusHandle;
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
+
+/// One event at the shared ceiling, plus the 10% multipart allows for framing.
+pub const AI_BODY_SIZE: usize =
+    (AI_MAX_EVENT_BYTES_CEILING + AI_MAX_EVENT_BYTES_CEILING / 10) as usize;
 
 /// A route group's wire-body ceiling, carried as a request extension.
 ///
@@ -67,9 +73,9 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
-    /// `0` disables the ceiling.
-    pub ai_max_event_bytes: u64,
+    /// Largest AI-lane event each token may send (`AI_MAX_EVENT_BYTES`, raised
+    /// per token by `AI_MAX_EVENT_BYTES_OVERRIDES_CSV`). `0` disables the ceiling.
+    pub ai_max_event_bytes: AiEventSizeCaps,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -180,7 +186,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_max_event_bytes: u64,
+    ai_max_event_bytes: impl Into<AiEventSizeCaps>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -210,7 +216,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_max_event_bytes,
+        ai_max_event_bytes: ai_max_event_bytes.into(),
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
@@ -270,8 +276,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // ingress can route them to the capture-ai deployment and keep AI and
     // analytics workloads isolated. Its own router rather than a member of
     // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`
-    // so it keeps the batch body limit instead of the larger multipart one.
+    // analytics batch and event routes.
     let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
@@ -285,8 +290,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+        .layer(DefaultBodyLimit::max(AI_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(AI_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(
@@ -408,6 +413,13 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             "/i/v0/ai/otel/",
             post(otel::otel_handler).options(otel::options),
         )
+        // OTLP exporters configured with the generic `OTEL_EXPORTER_OTLP_ENDPOINT`
+        // append the signal path to it. Only traces are accepted, so logs and
+        // metrics exports still get a 404.
+        .route(
+            "/i/v0/ai/otel/v1/traces",
+            post(otel::otel_handler).options(otel::options),
+        )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     // Each deployment registers its own ingress and nothing else. The AI paths
@@ -420,7 +432,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
     // send everything to one endpoint. Those divert to the AI lane by event
     // name; that is unrelated to which paths are registered here.
-    let mut router = match capture_mode {
+    let router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
@@ -442,6 +454,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
+
+    // `Router::merge` keeps the merged-in router's default fallback, so without
+    // this the v1 router (merged last) would serve every unmatched request.
+    let mut router = router.fallback(|| async { StatusCode::NOT_FOUND });
 
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));

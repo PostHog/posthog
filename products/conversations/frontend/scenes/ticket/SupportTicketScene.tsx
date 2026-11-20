@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconEllipsis, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonMenu, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -24,6 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
@@ -114,7 +114,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         olderMessagesLoading,
         linkedReports,
         chatPanelWidth,
-        hasUnsavedChanges,
         unsavedTicketChanges,
         ticketUpdating,
         ticketDeleting,
@@ -150,7 +149,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setTags,
         setSnoozedUntil,
         sendMessage,
-        updateTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
@@ -265,6 +263,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         <SceneContent className="flex-1 min-h-0 pb-4">
             <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
+                nameAction={<TodayScenePinButton />}
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
                     ticket && ticket.identity_verified !== true ? (
@@ -418,7 +417,34 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         )}
 
                         {/* Ticket info */}
-                        <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-1">
+                                <h3 className="text-sm font-semibold">Ticket info</h3>
+                                {ticketUpdating && <Spinner className="text-muted-alt" />}
+                            </div>
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Delete ticket',
+                                        icon: <IconTrash />,
+                                        status: 'danger',
+                                        onClick: () => deleteTicket(),
+                                        disabledReason:
+                                            deleteDisabledReason ?? (ticketDeleting ? 'Deleting ticket…' : undefined),
+                                        'data-attr': 'ticket-delete',
+                                    },
+                                ]}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More ticket actions"
+                                    aria-label="More ticket actions"
+                                    data-attr="ticket-more-menu"
+                                />
+                            </LemonMenu>
+                        </div>
                         <div className="space-y-2 text-xs">
                             {ticket?.created_at && (
                                 <div className="flex justify-between">
@@ -513,6 +539,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-alt">Zendesk ID</span>
                                     <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                </div>
+                            )}
+                            {ticket?.intercom_conversation_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Intercom ID</span>
+                                    <LemonTag type="highlight">#{ticket.intercom_conversation_id}</LemonTag>
+                                </div>
+                            )}
+                            {ticket?.pylon_issue_id && (
+                                <div className="flex justify-between items-center gap-2">
+                                    <span className="text-muted-alt shrink-0">Pylon ID</span>
+                                    <LemonTag type="highlight" className="truncate" title={ticket.pylon_issue_id}>
+                                        {ticket.pylon_issue_id}
+                                    </LemonTag>
                                 </div>
                             )}
                             {ticket?.session_context?.current_url && (
@@ -629,34 +669,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     disabledReason={sendDisabledReason}
                                 />
                             </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                size="small"
-                                onClick={() => deleteTicket()}
-                                loading={ticketDeleting}
-                                disabledReason={deleteDisabledReason}
-                                data-attr="ticket-delete"
-                            >
-                                Delete ticket
-                            </LemonButton>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Ticket}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={ticket?.user_access_level}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateTicket()}
-                                    loading={ticketUpdating}
-                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
-                                >
-                                    Save changes
-                                </LemonButton>
-                            </AccessControlAction>
                         </div>
                     </LemonCard>
 

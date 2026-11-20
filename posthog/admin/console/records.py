@@ -3,8 +3,10 @@ from typing import ClassVar
 from django.db.models import Model, QuerySet
 from django.urls import reverse
 
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import DataDeletionRequest
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team.team import Team
@@ -215,16 +217,72 @@ class DeletionRequestRecord(RecordType):
         return [*TeamRecord().parents(team), RecordLink(label=team.name, href=TeamRecord().url(team))]
 
     def links(self, obj: Model) -> list[RecordLink]:
-        return [
+        assert isinstance(obj, DataDeletionRequest)
+        links = [
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]),
                 title="The raw request, with every field",
             ),
         ]
+        run_url = dagster_run_url(obj.last_dagster_run_id) if obj.last_dagster_run_id else None
+        if run_url is not None:
+            links.append(
+                RecordLink(label="Last run in Dagster", href=run_url, title="The latest deletion run of this request")
+            )
+        return links
+
+
+class OAuthApplicationRecord(RecordType):
+    key = "oauth-application"
+    plural = "oauth-applications"
+    label = "OAuth application"
+    pk_converter = "uuid"
+
+    def queryset(self) -> QuerySet:
+        return OAuthApplication.objects.select_related("organization", "provisioning_review")
+
+    def title(self, obj: Model) -> str:
+        assert isinstance(obj, OAuthApplication)
+        return obj.name
+
+    def subtitle(self, obj: Model) -> str:
+        assert isinstance(obj, OAuthApplication)
+        return obj.client_id
+
+    def parents(self, obj: Model) -> list[RecordLink]:
+        assert isinstance(obj, OAuthApplication)
+        if obj.organization is None:
+            return []
+        return [RecordLink(label=obj.organization.name, href=RECORD_TYPES["organization"].url(obj.organization))]
+
+    def links(self, obj: Model) -> list[RecordLink]:
+        return [
+            RecordLink(
+                label="Raw record in Django admin",
+                href=reverse("admin:posthog_oauthapplication_change", args=[obj.pk]),
+                title="The raw OAuthApplication row: redirect URIs, scopes and the other OAuth settings",
+            ),
+        ]
 
 
 RECORD_TYPES: dict[str, RecordType] = {
     record.key: record
-    for record in (TeamRecord(), OrganizationRecord(), ProjectRecord(), UserRecord(), DeletionRequestRecord())
+    for record in (
+        TeamRecord(),
+        OrganizationRecord(),
+        ProjectRecord(),
+        UserRecord(),
+        DeletionRequestRecord(),
+        OAuthApplicationRecord(),
+    )
 }
+
+
+def console_url_for(obj: Model) -> str | None:
+    """The console page of a record, for the Django admin change form of the same row. None when the console has
+    no page for its model."""
+    for record_type in RECORD_TYPES.values():
+        if isinstance(obj, record_type.queryset().model) and obj.pk is not None:
+            return record_type.url(obj)
+    return None

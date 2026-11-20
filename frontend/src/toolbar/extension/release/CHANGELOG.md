@@ -1,5 +1,23 @@
 # @posthog/toolbar-extension
 
+## 0.5.1
+
+### Patch changes
+
+- [a4b3663912c](https://github.com/PostHog/posthog/commit/a4b3663912c3c672b13d46845ab1144bf6a9e8fe) The toolbar now stays on the project you signed in to, even after you switch projects in PostHog. Each project signs out once after the update, so sign in again.
+
+## 0.5.0
+
+### Minor changes
+
+- [6febaaf5f2e](https://github.com/PostHog/posthog/commit/6febaaf5f2e9c6e4b2627c0e8c3f7638e86ef734) Compare the page with a feature flag off and on, side by side, from the flags tool.
+
+## 0.4.0
+
+### Minor changes
+
+- [804aa444ede](https://github.com/PostHog/posthog/commit/804aa444edea74001d07709ca21425cc773e95b8) Filter the heatmap and clickmap by feature flag variant, and search flags and variants. Not every account has it yet.
+
 ## 0.3.0
 
 ### Minor changes

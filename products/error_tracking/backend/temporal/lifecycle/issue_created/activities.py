@@ -1,7 +1,10 @@
 import json
+import threading
+from collections.abc import Callable
 from datetime import UTC
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 import httpx
@@ -21,10 +24,11 @@ from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.common.worker import DEFAULT_MAX_CONCURRENT_TASKS
 
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
-    build_severity_state,
+    build_exception_state,
     infer_severity,
     severity_inference_enabled,
 )
@@ -33,14 +37,19 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
-from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
+from products.error_tracking.backend.temporal.lifecycle.event_properties import (
+    IssueCreatedEventNotFoundError,
+    fetch_event_properties,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+    ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE,
     SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedWorkflowInputs,
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
+    IssueTaggerOutcome,
     SeverityInferenceSkipReason,
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
@@ -59,6 +68,7 @@ from products.ml_inference.backend.facade.contracts import (
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
+    from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +81,25 @@ ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
     "error_tracking_issue_created_severity_inference_total",
     "Issue-created severity inference attempts by outcome and by the severity stored afterwards",
     labelnames=("outcome", "severity"),
+)
+# A tag run holds an activity slot for its whole model call, and this worker also delivers alerts.
+# Tags get an eighth of the slots, beside the quarter that summaries get.
+ISSUE_TAG_WORKER_SLOTS = threading.BoundedSemaphore(
+    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 8)
+)
+# Rule runs on merge targets block on event reads, so they get their own eighth. A slow Jev run then cannot hold them.
+MERGE_TARGET_TAG_WORKER_SLOTS = threading.BoundedSemaphore(
+    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 8)
+)
+ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
+    "error_tracking_issue_created_tagger_total",
+    "Issue-created tagger runs by tagger and outcome. Runs skipped before any tagger starts have tagger none",
+    labelnames=("tagger", "outcome"),
+)
+ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES = Counter(
+    "error_tracking_issue_created_merge_target_tagger_total",
+    "Rule runs on the issue that a new exception merged into at creation, by tagger and outcome",
+    labelnames=("tagger", "outcome"),
 )
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
@@ -194,7 +223,7 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
     if not stacktrace:
         return SeverityInferenceSkipReason.NO_EXCEPTION
-    return build_severity_state(stacktrace, event_properties)
+    return build_exception_state(stacktrace, event_properties)
 
 
 def _decision_error_skip_reason(inputs: IssueCreatedWorkflowInputs, error: Exception) -> SeverityInferenceSkipReason:
@@ -279,6 +308,109 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
         outcome=result.skipped_reason or "inferred", severity=result.stored_severity or ingestion_severity
     ).inc()
     return result
+
+
+def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> IssueTaggerOutcome:
+    """Name the outcome of one tagger run. `unavailable` is a transient gateway failure that a retry can fix."""
+    match run.error:
+        case None:
+            return IssueTaggerOutcome.ANSWERED
+        case DecisionsDisabledError() | GatewayNotConfiguredError():
+            return IssueTaggerOutcome.DECISIONS_UNAVAILABLE
+        case DecisionGatewayUnreachableError():
+            return IssueTaggerOutcome.UNAVAILABLE
+        case DecisionGatewayError(status_code=status_code) if status_code == 429 or status_code >= 500:
+            return IssueTaggerOutcome.UNAVAILABLE
+        case DecisionGatewayError(status_code=status_code):
+            logger.warning(
+                "error_tracking_issue_tagger_rejected",
+                team_id=inputs.team_id,
+                issue_id=inputs.issue_id,
+                tagger=run.source,
+                status_code=status_code,
+            )
+            return IssueTaggerOutcome.GATEWAY_REJECTED
+    return IssueTaggerOutcome.FAILED
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers  # noqa: PLC0415
+
+    _tag_issue_created(
+        inputs,
+        ISSUE_TAG_WORKER_SLOTS,
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES,
+        lambda load_event_properties: run_issue_taggers(inputs.team_id, inputs.issue_id, load_event_properties),
+    )
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def tag_issue_created_merge_target_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import run_rule_tagger_on_merge_target  # noqa: PLC0415
+
+    _tag_issue_created(
+        inputs,
+        MERGE_TARGET_TAG_WORKER_SLOTS,
+        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES,
+        lambda load_event_properties: run_rule_tagger_on_merge_target(
+            inputs.team_id, inputs.fingerprint, load_event_properties
+        ),
+    )
+
+
+def _tag_issue_created(
+    inputs: IssueCreatedWorkflowInputs,
+    slots: threading.BoundedSemaphore,
+    outcomes: Counter,
+    run_taggers: Callable[[Callable[[Team], dict[str, object]]], "tuple[TaggerRun, ...] | IssueTaggingSkipReason"],
+) -> None:
+    # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no tags.
+    if not slots.acquire(blocking=False):
+        logger.warning("error_tracking_issue_tags_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
+        outcomes.labels(tagger="none", outcome=IssueTaggerOutcome.WORKER_BUSY).inc()
+        return
+    try:
+        _run_taggers(inputs, outcomes, run_taggers)
+    finally:
+        slots.release()
+
+
+def _run_taggers(
+    inputs: IssueCreatedWorkflowInputs,
+    outcomes: Counter,
+    run_taggers: Callable[[Callable[[Team], dict[str, object]]], "tuple[TaggerRun, ...] | IssueTaggingSkipReason"],
+) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason  # noqa: PLC0415
+
+    try:
+        result = run_taggers(lambda team: fetch_event_properties(team, inputs))
+    except IssueCreatedEventNotFoundError:
+        # Tags are best effort, so a missing event skips them without a retry or an error tracking report.
+        outcomes.labels(tagger="none", outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
+        return
+    if isinstance(result, IssueTaggingSkipReason):
+        outcomes.labels(tagger="none", outcome=result).inc()
+        return
+
+    run_outcomes = [(run, _tagger_outcome(inputs, run)) for run in result]
+    for run, outcome in run_outcomes:
+        outcomes.labels(tagger=run.source, outcome=outcome).inc()
+    # A retry runs every tagger again. An unchanged answer writes no activity log row.
+    for run, outcome in run_outcomes:
+        if outcome == IssueTaggerOutcome.UNAVAILABLE:
+            raise NonReportableApplicationError(
+                "Tag model is unavailable", type=ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
+            ) from run.error
+        if outcome == IssueTaggerOutcome.FAILED and run.error is not None:
+            raise run.error
 
 
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
@@ -402,6 +534,8 @@ ACTIVITIES = [
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,
     infer_issue_created_severity_activity,
+    tag_issue_created_activity,
+    tag_issue_created_merge_target_activity,
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
     generate_issue_created_summary_activity,

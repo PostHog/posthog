@@ -113,6 +113,7 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
@@ -246,7 +247,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
+        case (
+            NodeKind.ACCOUNTS_TABLE_QUERY
+            | NodeKind.ACCOUNT_USERS_QUERY
+            | NodeKind.ACCOUNT_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_PEOPLE_QUERY
+            | NodeKind.BOOK_ACTIVITY_FIRSTS_QUERY
+        ):
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -272,7 +280,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
             | NodeKind.SESSION_QUERY
-            | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
@@ -411,6 +418,10 @@ def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
 
 
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
+FlagCallsRead = Literal["flag_evaluations", "union"]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -437,6 +448,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    queue_wait_ms: Optional[int] = None
     kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None
@@ -576,6 +588,8 @@ class QueryTags(BaseModel):
     warehouse_table_ids: Optional[list[str]] = None
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
+
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None
 

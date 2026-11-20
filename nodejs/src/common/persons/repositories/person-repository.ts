@@ -4,14 +4,7 @@ import type { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
-import {
-    InternalPerson,
-    PersonUpdateFields,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-    TeamId,
-} from '~/types'
+import { InternalPerson, PersonUpdateFields, Team, TeamId } from '~/types'
 
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
@@ -118,6 +111,11 @@ export interface PersonReadRepository {
     ): Promise<Record<string, string[]>>
 }
 
+export interface ConsistentPersonReader {
+    /** `personId` is the bigint row id, not the uuid. */
+    fetchPersonById(teamId: TeamId, personId: string, callerTag?: string): Promise<InternalPerson | null>
+}
+
 /**
  * Full person repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, merges, and deletes persons.
@@ -173,8 +171,6 @@ export interface PersonRepository {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,

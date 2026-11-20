@@ -15,14 +15,16 @@ import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSource
 
 import { TodayRow } from './TodayRow'
 
-export function TodaySelfDrivingStatus({ fallback }: { fallback: ReactNode }): JSX.Element {
+type QuietRowRenderer = (offerSelfDriving: boolean) => ReactNode
+
+export function TodaySelfDrivingStatus({ quietRow }: { quietRow: QuietRowRenderer }): JSX.Element {
     if (!useFeatureFlag('PRODUCT_AUTONOMY')) {
-        return <>{fallback}</>
+        return <>{quietRow(false)}</>
     }
-    return <TodaySelfDrivingVerdict fallback={fallback} />
+    return <TodaySelfDrivingVerdict quietRow={quietRow} />
 }
 
-function TodaySelfDrivingVerdict({ fallback }: { fallback: ReactNode }): JSX.Element {
+function TodaySelfDrivingVerdict({ quietRow }: { quietRow: QuietRowRenderer }): JSX.Element {
     const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
 
@@ -30,7 +32,7 @@ function TodaySelfDrivingVerdict({ fallback }: { fallback: ReactNode }): JSX.Ele
         return <Skeleton className="h-12 w-full" />
     }
     if (!computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs ?? [])) {
-        return <>{fallback}</>
+        return <>{quietRow(!sourceConfigsLoadFailed && scoutConfigs !== null)}</>
     }
     return (
         <ol className="TodayRows">

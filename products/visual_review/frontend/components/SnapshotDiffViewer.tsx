@@ -16,6 +16,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { automaticQuarantineLabel } from '../lib/quarantineAuthor'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
 import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
@@ -344,6 +345,12 @@ export function SnapshotDiffViewer({
                                 <>
                                     <span>·</span>
                                     <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                                </>
+                            )}
+                            {automaticQuarantineLabel(quarantineEntry) && (
+                                <>
+                                    <span>·</span>
+                                    <span>{automaticQuarantineLabel(quarantineEntry)}</span>
                                 </>
                             )}
                         </div>

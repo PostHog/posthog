@@ -10,7 +10,7 @@ from products.warehouse_sources.sources.tally.settings import (
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     TALLY_API_VERSION_2025_02_01,
-    TALLY_API_VERSION_2026_10_27,
+    TALLY_API_VERSION_2026_08_04,
 )
 from products.warehouse_sources.sources.tally.source import TallySource
 
@@ -54,9 +54,9 @@ class TestTallySource:
 
     @parameterized.expand(
         [
-            ("unpinned_uses_new_default", None, TALLY_API_VERSION_2026_10_27),
+            ("unpinned_uses_new_default", None, TALLY_API_VERSION_2026_08_04),
             ("pinned_2025_02_01_keeps_its_pin", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
-            ("pinned_2026_10_27", TALLY_API_VERSION_2026_10_27, TALLY_API_VERSION_2026_10_27),
+            ("pinned_2026_08_04", TALLY_API_VERSION_2026_08_04, TALLY_API_VERSION_2026_08_04),
         ]
     )
     def test_source_for_pipeline_plumbs_config_and_inputs(

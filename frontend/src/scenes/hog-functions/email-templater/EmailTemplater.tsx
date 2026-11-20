@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, Suspense, useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -14,6 +14,7 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import {
@@ -32,6 +33,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
@@ -41,16 +43,43 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { filterMessageTemplates } from 'products/workflows/frontend/TemplateLibrary/filterMessageTemplates'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
+import { AddHeaderFieldButton } from './AddHeaderFieldButton'
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { linkDialogFocusCustomJs } from './custom-tools/linkDialogFocus'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { PREHEADER_FIELD, isHeaderFieldShown } from './emailHeaderFields'
+import { EmailHeaderRow } from './EmailHeaderRow'
 import { withInertLinks } from './emailPreviewHtml'
-import { EmailSenderSummary } from './EmailSenderSummary'
+import { EmailRecipientFields } from './EmailRecipientFields'
+import { sendingStoppedWarning } from './emailSenderFields'
+import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { LiquidSupportedText } from './LiquidSupportedText'
+import { OptionalHeaderFieldRow } from './OptionalHeaderFieldRow'
+import { QuillEmailHeaderFields } from './QuillEmailHeaderFields'
+import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
+import {
+    SANDBOX_SENDER_VALUE,
+    sandboxSenderGroups,
+    sandboxSenderHint,
+    sandboxSenderInputOptions,
+    selectedSenderValue,
+} from './sandboxSenderOptions'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
+
+const EmailDocumentEditor = lazyWithRetry(() =>
+    import('products/workflows/frontend/EmailDocumentEditor/EmailDocumentEditor').then((module) => ({
+        default: module.EmailDocumentEditor,
+    }))
+)
+const EmailEditorOldBar = lazyWithRetry(() =>
+    import('products/workflows/frontend/EmailDocumentEditor/components/EmailEditorSwitch').then((module) => ({
+        default: module.EmailEditorSwitch.OldEditorBar,
+    }))
+)
 
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
 // subject rows have their own message; body content is reported separately near the editor.
@@ -259,26 +288,49 @@ export function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
+    const sandbox = useContext(SandboxSenderChoiceContext)
+    const sandboxHint = sandboxSenderHint(sandbox)
+    const { flushPendingDesignEdit } = useAsyncActions(emailTemplaterLogic)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
         : value?.integrationId
           ? [value.integrationId]
           : []
+    const stoppedWarning = sandbox?.selected
+        ? null
+        : sendingStoppedWarning((integrationsOfKind ?? []).filter((x) => selectedIntegrationIds.includes(x.id)))
 
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
+
+    const switchSenderKind = (switchSender: () => void): void => {
+        void flushPendingDesignEdit().then(switchSender)
+    }
 
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        onChange({ ...value, integrationId, integrationIds: undefined })
+        if (integrationId === SANDBOX_SENDER_VALUE) {
+            switchSenderKind(() => sandbox?.onSelect())
+            return
+        }
+        const next = { ...value, integrationId, integrationIds: undefined }
+        if (sandbox?.selected) {
+            switchSenderKind(() => onChange(next))
+            return
+        }
+        onChange(next)
     }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
+        if (integrationIds.includes(SANDBOX_SENDER_VALUE)) {
+            switchSenderKind(() => sandbox?.onSelect())
+            return
+        }
         if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
             return
         }
@@ -289,7 +341,7 @@ export function NativeEmailIntegrationChoice({
         })
     }
 
-    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+    if (!sandbox && !integrationsLoading && integrationsOfKind?.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -314,18 +366,21 @@ export function NativeEmailIntegrationChoice({
         <div className="flex flex-col">
             <div className="flex gap-2 items-center">
                 {label}
-                {senderRotationEnabled ? (
+                {senderRotationEnabled && !sandbox?.selected ? (
                     <div className="flex flex-col flex-1">
                         <LemonInputSelect<number>
                             className="m-1 flex-1"
                             mode="multiple"
                             placeholder="Choose email senders"
                             loading={integrationsLoading}
-                            options={(integrationsOfKind || []).map((integration) => ({
-                                key: String(integration.id),
-                                label: integration.display_name,
-                                value: integration.id,
-                            }))}
+                            options={[
+                                ...(integrationsOfKind || []).map((integration) => ({
+                                    key: String(integration.id),
+                                    label: integration.display_name,
+                                    value: integration.id,
+                                })),
+                                ...sandboxSenderInputOptions(sandbox),
+                            ]}
                             value={selectedIntegrationIds}
                             size="small"
                             fullWidth
@@ -357,6 +412,7 @@ export function NativeEmailIntegrationChoice({
                                     value: integration.id,
                                 })),
                             },
+                            ...sandboxSenderGroups(sandbox),
                             {
                                 options: [
                                     {
@@ -367,14 +423,14 @@ export function NativeEmailIntegrationChoice({
                                 ],
                             },
                         ]}
-                        value={value?.integrationId}
+                        value={selectedSenderValue(sandbox, value?.integrationId)}
                         size="small"
                         fullWidth
                         onChange={onChangeIntegration}
                         data-attr="workflow-email-sender-select"
                     />
                 )}
-                {!overridesVisible && (
+                {!overridesVisible && !sandbox?.selected && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -388,6 +444,8 @@ export function NativeEmailIntegrationChoice({
                     </LemonButton>
                 )}
             </div>
+            {sandboxHint && <div className="px-2 pb-1 text-xs text-muted">{sandboxHint}</div>}
+            {stoppedWarning && <span className="px-2 pb-1 text-xs text-danger">{stoppedWarning}</span>}
             {overridesVisible && (
                 <>
                     <div className="flex gap-2 items-center border-t">
@@ -428,52 +486,6 @@ export function NativeEmailIntegrationChoice({
                 </>
             )}
         </div>
-    )
-}
-
-function LiquidSupportedText({
-    value,
-    onChange,
-    globals,
-}: {
-    value: string
-    onChange: (value?: string) => void
-    globals: any
-}): JSX.Element {
-    const { templatingEngine } = useValues(emailTemplaterLogic)
-    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
-    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
-
-    const templating = templatingEngine ?? 'hog'
-
-    return (
-        <span className="flex grow group relative justify-between">
-            <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
-                <CyclotronJobTemplateSuggestionsButton
-                    templating={templatingEngine}
-                    setTemplatingEngine={setTemplatingEngine}
-                    value={value}
-                    onOptionSelect={(option) => {
-                        onChange?.(
-                            insertTemplateReference(
-                                value || '',
-                                templateReferenceForOption(option, templating),
-                                cursorOffset()
-                            )
-                        )
-                    }}
-                />
-            </span>
-            <CodeEditorInline
-                embedded
-                className="flex-1"
-                globals={globals}
-                value={value}
-                language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
-                onChange={onChange}
-                onMount={onEditorMount}
-            />
-        </span>
     )
 }
 
@@ -555,38 +567,49 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
 function NativeEmailTemplaterForm({
     mode,
     fieldsHidden,
+    switchInHeader,
 }: {
     mode: EmailEditorMode
     fieldsHidden?: boolean
+    switchInHeader?: boolean
 }): JSX.Element {
     const {
         unlayerEditorProjectId,
         emailMediaLibraryEnabled,
         unlayerEditorUser,
         logicProps,
-        templates,
         mergeTags,
         activeContentTab,
         visibleFields,
+        usesDocumentEditor,
+        documentEditorOffered,
+        emailConversionPending,
     } = useValues(emailTemplaterLogic)
     // The editor rebuilds itself when its options change, so it keeps the tags it started with.
     // Later changes reach it through setMergeTags in the logic.
     const [initialMergeTags] = useState(mergeTags)
-    const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
+    const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField } =
         useActions(emailTemplaterLogic)
     // With the AI panel integration on, chat sits beside the editor and width is scarce, so the
     // Unlayer tools panel starts collapsed to give the canvas room.
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
 
-    // The template editor has only subject + preheader, so they share one row with the
-    // visual/plain-text switch to keep vertical space for the canvas. A transactional template adds its
-    // sender as one summary line above.
+    const emailHeaderEnabled = useFeatureFlag('WORKFLOWS_EMAIL_HEADER')
+    const isWorkflowEmail = logicProps.type === 'native_email' || logicProps.type === 'native_email_sandbox'
+    const documentEditorActive = usesDocumentEditor && mode === 'full'
+    // Each header field gets one short row to keep vertical space for the canvas. A transactional template adds its
+    // sender as one summary line above, and a workflow email adds the sender and the recipients. The new editor has
+    // its own visual/plain-text switch, so a template it edits keeps the full header.
+    const workflowHeader = isWorkflowEmail && emailHeaderEnabled
     const compactHeader =
-        (logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
-        mode === 'full'
-    const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
-    // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
-    const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
+        workflowHeader ||
+        ((logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
+            mode === 'full' &&
+            !documentEditorActive)
+    const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
+    // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
+    const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
+    const preheaderVisible = isHeaderFieldShown(visibleFields, 'preheader')
 
     return (
         <>
@@ -597,68 +620,38 @@ function NativeEmailTemplaterForm({
                 formKey="emailTemplate"
             >
                 <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
-                    {compactHeader ? (
+                    {compactHeader && logicProps.quillHeader && mode === 'preview' ? (
+                        <QuillEmailHeaderFields />
+                    ) : compactHeader ? (
                         <>
-                            {logicProps.type === 'native_email_transactional_template' && <EmailSenderSummary />}
-                            <div className="flex gap-2 items-center pl-2 pr-1 py-0.5 border-b shrink-0">
-                                <LemonField name="subject" className="flex-2 min-w-40" renderError={() => null}>
-                                    {({ value, onChange, error }: ChildFunctionProps) => (
-                                        <div className="flex gap-2 items-center flex-1">
-                                            <LemonLabel className={error ? 'text-danger' : ''}>Subject</LemonLabel>
-                                            <LiquidSupportedText
-                                                value={value}
-                                                onChange={onChange}
-                                                globals={logicProps.variables}
-                                            />
-                                        </div>
+                            {showSenderRow && <EmailSenderRow />}
+                            {workflowHeader && <EmailRecipientFields />}
+                            <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
+                                <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
+                                    {({ value, onChange }: ChildFunctionProps) => (
+                                        <LiquidSupportedText
+                                            value={value}
+                                            onChange={onChange}
+                                            globals={logicProps.variables}
+                                            placeholder="Add a subject line"
+                                        />
                                     )}
                                 </LemonField>
-                                {preheaderVisible ? (
-                                    <LemonField name="preheader" className="flex-1 min-w-40" renderError={() => null}>
-                                        {({ value, onChange }: ChildFunctionProps) => (
-                                            <div className="flex gap-2 items-center flex-1">
-                                                <LemonLabel info="This is the preview text that appears below the subject line in an inbox.">
-                                                    Preheader
-                                                </LemonLabel>
-                                                <LiquidSupportedText
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    globals={logicProps.variables}
-                                                />
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    type="tertiary"
-                                                    icon={<IconX />}
-                                                    onClick={() => {
-                                                        onChange('')
-                                                        hideAdvancedField('preheader')
-                                                    }}
-                                                    tooltip="Remove field"
-                                                />
-                                            </div>
-                                        )}
-                                    </LemonField>
-                                ) : offerPreheader ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        icon={<IconPlus />}
-                                        onClick={() => revealAdvancedField('preheader')}
-                                    >
-                                        Preheader
-                                    </LemonButton>
+                                {!preheaderVisible && <AddHeaderFieldButton field={PREHEADER_FIELD} />}
+                                {showContentSwitch ? (
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        className="shrink-0"
+                                        value={activeContentTab}
+                                        onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                                        options={[
+                                            { value: 'visual', label: 'Visual' },
+                                            { value: 'plaintext', label: 'Plain text' },
+                                        ]}
+                                    />
                                 ) : null}
-                                <LemonSegmentedButton
-                                    size="small"
-                                    className="ml-2 shrink-0"
-                                    value={activeContentTab}
-                                    onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
-                                    options={[
-                                        { value: 'visual', label: 'Visual' },
-                                        { value: 'plaintext', label: 'Plain text' },
-                                    ]}
-                                />
-                            </div>
+                            </EmailHeaderRow>
+                            {preheaderVisible && <OptionalHeaderFieldRow field={PREHEADER_FIELD} />}
                         </>
                     ) : (
                         visibleFields.map((field) => {
@@ -734,8 +727,51 @@ function NativeEmailTemplaterForm({
                     {!compactHeader && <AddAdvancedFieldButtons />}
                 </div>
 
-                {mode === 'full' ? (
+                {documentEditorActive ? (
+                    <div className="relative flex flex-col flex-1 min-h-0">
+                        {showContentSwitch && !compactHeader ? (
+                            <div className="flex justify-end px-2 py-1 border-b shrink-0">
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={activeContentTab}
+                                    onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                                    options={[
+                                        { value: 'visual', label: 'Visual' },
+                                        { value: 'plaintext', label: 'Plain text' },
+                                    ]}
+                                />
+                            </div>
+                        ) : null}
+                        <div
+                            className={clsx(
+                                activeContentTab === 'visual'
+                                    ? 'flex flex-col flex-1 min-h-0'
+                                    : 'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
+                            )}
+                        >
+                            <Suspense
+                                fallback={
+                                    <div className="flex justify-center p-8">
+                                        <Spinner className="text-2xl" />
+                                    </div>
+                                }
+                            >
+                                <EmailDocumentEditor />
+                            </Suspense>
+                        </div>
+                        {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                    </div>
+                ) : mode === 'full' && emailConversionPending ? (
+                    <div className="flex justify-center p-8">
+                        <Spinner className="text-2xl" />
+                    </div>
+                ) : mode === 'full' ? (
                     <>
+                        {documentEditorOffered ? (
+                            <Suspense fallback={null}>
+                                <EmailEditorOldBar />
+                            </Suspense>
+                        ) : null}
                         <div className="relative flex flex-col flex-1">
                             <div
                                 className={clsx(
@@ -836,10 +872,10 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                 <>
                     <div
                         className={clsx(
-                            'flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
-                            value
+                            value || emailTemplate.text
                                 ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
                                 : 'opacity-100'
                         )}
@@ -851,17 +887,23 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                         />
                     </div>
 
-                    {/* The floor keeps the preview readable where the host gives it no
-                        spare height to grow into */}
-                    <iframe
-                        srcDoc={withInertLinks(value)}
-                        sandbox=""
-                        title="Email template preview"
-                        className="flex-1 min-h-80"
-                    />
+                    <EmailBodyPreview html={value} text={emailTemplate.text} />
                 </>
             )}
         </LemonField>
+    )
+}
+
+function EmailBodyPreview({ html, text }: { html: string | undefined; text: string | undefined }): JSX.Element {
+    if (!html && text) {
+        return (
+            <pre className="ph-no-capture flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
+                {text}
+            </pre>
+        )
+    }
+    return (
+        <iframe srcDoc={withInertLinks(html)} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
     )
 }
 
@@ -903,7 +945,16 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
     )
 }
 
-function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fieldsHidden?: boolean }): JSX.Element {
+function EmailTemplaterForm({
+    mode,
+    fieldsHidden,
+    switchInHeader,
+}: {
+    mode: EmailEditorMode
+    fieldsHidden?: boolean
+    /** The panel around the form already shows the visual/plain-text switch. */
+    switchInHeader?: boolean
+}): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -912,7 +963,8 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'native_email_template':
         case 'native_email_transactional_template':
         case 'native_email':
-            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
+        case 'native_email_sandbox':
+            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} switchInHeader={switchInHeader} />
     }
 }
 
@@ -1035,7 +1087,7 @@ function EmailTemplaterEditorPanel({
                     <LemonButton size="small" icon={<IconX />} onClick={onClose} tooltip="Close" aria-label="Close" />
                 )}
             </div>
-            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
+            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} switchInHeader />
             <div className="flex gap-2 items-center shrink-0">
                 <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                     Save as new template
@@ -1200,7 +1252,8 @@ export function EmailTemplater({
 }): JSX.Element {
     return (
         <BindLogic logic={emailTemplaterLogic} props={props}>
-            <div className="flex flex-col flex-1">
+            {/* The new editor fits the page, so the email and its style panel scroll on their own. Short windows scroll the page instead. */}
+            <div className="flex flex-col flex-1 has-[[data-attr=email-document-editor]]:min-h-[38rem]">
                 {props.layout === 'inline' ? (
                     <EmailTemplaterInline />
                 ) : (

@@ -32,7 +32,7 @@ Browse already opens the product pages the app has, and the phone never deletes 
 Web analytics has no pin button for the same reason.
 `shortcutInputFor()` writes the exact `path`, `type`, `ref` and `href` the web writes, so the server dedupes the row.
 Rows for one view (a sibling environment, a rename) collapse into one pin, and unpin deletes all of them.
-The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and immediately on pull. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request.
+The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and immediately on pull. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request. Live's Meanwhile list reads it once when no screen has read it in the session (see [LIVE.md](LIVE.md#no-web-traffic)).
 
 Order and display mode stay on the phone, per project, in the `views-pin-prefs:v2` store (AsyncStorage).
 The app never writes the server's `order`: `reorder` is closed to OAuth, and a PATCH would move a sibling-environment pin into this environment.
@@ -82,7 +82,7 @@ The status line shows "Updating…" while a request of the screen runs, "Updated
 
 ## Date ranges
 
-A range lasts for the session, per view, in memory (`rangeStore.ts`). Range keys and queue groups carry the data scope (`demo`, or the host and project), so a range or a queued refresh from demo mode or another project never applies.
+The app remembers each dashboard, standalone insight and Web analytics range on the device (`rangeStore.ts`). Selections are scoped to the account, host and project, with separate selections for demo mode. The app restores them before screens open. Presets stay relative and custom dates stay fixed. "Reset to saved range" forgets the selection on this device.
 Overrides always send `date_to`, also as null, because the server merges filters by top-level key.
 A dashboard's saved range comes from `persisted_filters`, which a read with an override also carries, so "Reset to saved range" stays correct after the saved-range read has left the cache.
 SQL tiles without `{filters}` read without the override, because it would only change their cache key.
@@ -96,8 +96,8 @@ The "SQL views" dashboard (`demo-dash-sql`) has a SQL table, a SQL line chart, a
 
 ## The Views tab
 
-The third slot of the bottom bar opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
-The slot after it holds one pinned list from Browse: Errors, Sessions, Web analytics or Live (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+The fourth slot of the bottom bar, after Home, Inbox and Chats, opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The slot after it, which held one pinned list from Browse, is retired, so no list is pinned to the bar (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
@@ -114,6 +114,7 @@ A pin shows in one of three modes, chosen on this phone:
 | Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness                                 | Fits visible content | Yes        |
 | Chart  | A compact `MetricChart`, series legend, saved range and freshness; a value and change pill when one number represents the insight | Fits visible content | Yes        |
 
+`usePinGlance.ts` derives what a pin shows at a glance (value, change, sparkline, second line) for Number and Chart pins and for Live's Meanwhile list.
 Row mode has a fixed height. Number and Chart pins size to their visible content, and Chart pins keep a fixed plot height while the canvas replaces its sparkline placeholder.
 Number cards fit their content and only include the comparison and date row when either is present.
 Both modes omit empty footer lines and the footer itself when neither the saved range nor freshness is available.
@@ -153,9 +154,9 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics, Live, Sessions and Errors. Web analytics, Live, Sessions and Errors open as a pushed screen or, when pinned, as a slot in the nav pill. A long press on any of these four rows offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics and Live have demo data.
+Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Web analytics, Sessions and Errors open as a pushed screen (`openBrowseEntry` in `browseRoutes.ts`). Live has no row, because it is the Home tab. While the pin slot is retired, a long press on these rows does nothing (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions plays sample recordings, Web analytics has demo data, and Errors is dimmed.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
-Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
+Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). The Sessions and Errors rows send it too, with `section` `replay` or `errors`. Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
 
 ### Routes
@@ -167,17 +168,18 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Web analytics      | `/views/web-analytics?from={entry}`                                                                   |
 | Web analytics list | `/views/web-analytics/list?tile={pages, sources, devices or locations}&breakdown={WebStatsBreakdown}` |
 | Live               | `/views/live?from={entry}`                                                                            |
+| Live countries     | `/views/live-countries`, Visitors by country (see LIVE.md)                                            |
 | Pinned tabs        | `/web-analytics`, `/live` (`app/(tabs)/web-analytics/`, `app/(tabs)/live/`)                           |
 | Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
 | Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, or `web_analytics` for the Live chip) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, `web_analytics` for the Live chip, or `live_meanwhile` for a pin on Live's Meanwhile list) for `mobile_view_opened`; `mode` is the pin's display mode.
 A pinned tab opens with `from: tab`, which never travels in a route.
 `mobile_view_opened` also sends `chrome`: `tab` for the pinned Web analytics tab, `stack` for every pushed view.
 The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
 A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
-Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `chartHref`), never by hand.
-An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `liveCountriesHref`, `chartHref`), never by hand.
+An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's remembered range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`, `posthog://views/live`.
 
 ## View screens
@@ -218,12 +220,13 @@ The queries port the web's tiles in `webAnalyticsLogic.tsx` (`src/api/webAnalyti
 
 - **Interval.** The web's default for the range (`interval.ts`): hours for today, yesterday and 24 or 48 hours, months for 180 days, this year and all time, days otherwise. A custom range takes weeks from 14 days and months from about two months.
 - **Filters.** A tap on a row filters every card by its value, as a click does on the web (`breakdownFilter`, ported from `webStatsBreakdownToPropertyName` and the web's row handler). A missing value filters by "is not set"; a viewport sets its width and height; a time zone sets the browser's offset. A language filters by its base code across all locales. A new filter moves the tile to the web's drill-down tab (Channel to Referring domain, UTM source to medium to campaign, Country to Region to City, Device type to Browser to OS to Viewport). Another value of the same property replaces the filter, and the same value again turns it off. A toast confirms each change with Undo. Outbound clicks have no row filter, as on the web, and their card says so.
-- **Chips.** Active filters show as chips above the overview, including while the overview is loading or has failed. A tap removes one and "Clear all" removes all, each with Undo. Filters, the selected metric and the tabs last for the session, per project, in memory (`webAnalyticsStore.ts`), and are sent as `properties` on every query.
+- **Chips.** Breakdown filters appear as chips above the overview, even during loading or errors. Tap a chip to remove it or **Clear all** to clear breakdown filters. Both offer Undo. The app remembers filters, the selected metric, and tabs per project for the session. Queries send breakdown filters as `properties`.
+- **Exclude internal users.** **More** and **Settings → Analytics** share a device setting that defaults to off. When on, it applies the project's internal user filters to Web analytics, Live, and Sessions.
 - **Refresh.** Each card is one `RefreshItem` in screen order, overview first. Every card counts as visible, so one screen open reads up to 8 queries through the shared queue. A range or filter change is a new open path (`rangeKey`), like a range change on other screens; a metric or tab change drops any queued reads for the replaced card and reads the newly selected one. The full list is its own screen with one item.
 - **States.** The whole screen shows the skeleton until the overview arrives, and the error state when the overview fails. Each card then has its own skeleton, "No data for this range." and "Couldn't load this data. Pull down to try again.", and dims its values when its last read failed.
 - **Demo.** `src/demo/webAnalytics.ts` answers every query with invented hedgebox.net data that follows the range and the filters: a filter scales the counts by the share of the row it came from, so the overview with "Path: /pricing" shows the visitors of the /pricing row.
-- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen has "Pin to navigation" (`view-nav-pin`, or `view-nav-unpin`) above "Open on web"; on the tab, the tabs menu has "Unpin from navigation" and "Open on web".
-- **Live chip.** A pill with a green dot and the users online count (`web-analytics-live-chip`) sits right of the title, or right of the range button on the tab. It reads "Live" until a count arrives. A tap pushes Live with `from=web_analytics`. The count comes from `useLiveUsersOnline` (`src/features/live/hooks.ts`): the live events stats read on Cloud, else the HogQL count on the `live` budget, every 30 seconds, only while the screen is focused and the app is in the foreground. It never runs Live's full read.
+- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen and the tabs menu on the tab both have "Open on web". Their "Pin to navigation" rows (`view-nav-pin`, `nav-list-pin`) are hidden while the pin slot is retired.
+- **Live chip.** The chip (`web-analytics-live-chip`) shows **Live** until the online count arrives. Tap it to open Live. `useLiveUsersOnline` polls every 30 seconds while focused in the foreground. It uses HogQL for filtered counts or when Cloud stats are unavailable.
 
 Events: `mobile_web_analytics_metric_selected` (`metric`), `mobile_web_analytics_breakdown_changed` (`tile`, `breakdown`, `from`: `card` or `list`, `source`: `user` for a picked tab or `drill_down` for the tab a new row filter moves the tile to), `mobile_web_analytics_filter_added` (`property`, `source`: `card`, `list` or `undo`), `mobile_web_analytics_filter_removed` (`property`, `source`: `chip`, `clear_all`, `undo` or `row`), `mobile_web_analytics_list_opened` (`tile`, `breakdown`) and `mobile_web_analytics_web_tile_opened` (`tile`). Filter events name the property, never the value.
 
@@ -236,14 +239,14 @@ On mixed dashboards, the control stays visible and tiles that ignore it keep the
 
 - **Header row** (`ViewRangeControl`): the range button (`view-range`) opens the date range sheet. The resolved dates show under the button. Changing the range updates its label without a save-status indicator or previous/next period buttons.
 - **Steps:** a swipe on the button (right for the earlier period) steps through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. Forward steps stop at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
-- **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips and presets apply at once and keep the sheet open; Done (`sheet-done`) closes it.
+- **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips, presets, and reset apply at once and close the sheet. Selecting the current preset also closes it. The sheet has no Done button. Comparison changes apply at once and keep the sheet open. Swipe down or tap outside to close it.
 - **Custom range** (`RangeCalendar`, `range-calendar`): a month grid in the project timezone. The first tap sets the start, the second the end (taps in reverse order swap), and a third starts over. Future days are disabled. ‹ › (`range-month-prev`, `range-month-next`) or a swipe change the month, and Apply (`range-apply`) sends date-only strings.
-- **Compare:** available on trends insights, and off for All time. SQL, retention and other insight kinds leave out the comparison control. Turning off a saved comparison reads a separate result with `compareFilter.compare: false`, so its number and delta describe the single period. On a trends insight it runs the compare query from the data layer. The query takes `query.source` from any read of the insight, so a range change with compare on sends only the compare query. An insight saved with compare shows its saved range from the retrieve, which already carries both periods. Opened from a tile, the insight shares the dashboard's range but keeps its own compare toggle. On a dashboard the switch stays disabled with "Compare works on single insights. Open a chart to compare." while `DASHBOARD_COMPARE_SUPPORTED` is false. Web analytics has no compare row.
+- **Compare:** available on trends insights, and off for All time. SQL, retention and other insight kinds leave out the comparison control. The switch reflects the insight's saved comparison when it reopens on a remembered range. Turning off a saved comparison reads a separate result with `compareFilter.compare: false`, so its number and delta describe the single period. On a trends insight it runs the compare query from the data layer. The query takes `query.source` from any read of the insight, so a range change with compare on sends only the compare query. If the retrieve already carries both periods for the current range, the screen uses that result. Opened from a tile, the insight shares the dashboard's range but keeps its own compare toggle. On a dashboard the switch stays disabled with "Compare works on single insights. Open a chart to compare." while `DASHBOARD_COMPARE_SUPPORTED` is false. Web analytics has no compare row.
 
 A range change reads with `blocking`, never `force_*`: the new override is a new cache key, so the screen hooks run their open path again (`trigger: range`). Each range has its own queue group, so a new range drops the queued reads of the previous one and its own reads go next.
 While the new range loads, the insight and web analytics screens keep the previous values on screen (`rangeLoading`), and dashboard tiles keep their layout.
 Dashboard rows count as visible by tile id, because a range change gives every tile a new item key while the list keeps the same rows.
-Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
+Number and Chart pins in the list display the saved range. The compare toggle lasts for the app session.
 `useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`. The sheet sends `mobile_date_range_sheet_opened` (`view_type`; `entry`: `button` or `accessibility`) when it opens.
 
 ## Charts beyond line and bar
@@ -262,6 +265,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
 - Chart pins support the same time series and breakdowns as dashboard charts, including every y column in a SQL chart. Number pins still require a single meaningful value.
+- Trends legends, tooltips and ranked bars use saved series names (`custom_name`, or `action.custom_name` in older responses) before raw result labels, preserving breakdown values and previous-period labels. Blank names fall back to the result label, event/action name or series number.
 - Numbers keep the insight's saved units, prefixes, suffixes, number style and decimal precision across dashboard tiles, pins, insight screens and chart labels. `src/model/adapters/insightFormatting.ts` reads the settings (`insightValueFormat`) and formats every value (`formatInsightValue`). SQL big numbers use the first result column's table formatting, SQL charts and bar lists the first y column's formatting, and trends the aggregation axis settings.
 - A breakdown insight has no big number, because no one value stands for it. A trends insight with a breakdown, or a ranking with several values, has `capabilities.number = false`.
 - A tap on a funnel step, bar row or retention cell selects it (`useItemSelection`), under the same one-selected-chart rule as a line chart tooltip: an outside tap, a scroll away, Android back or new data clears it. A funnel step shows the median time from the previous step, a bar row its share of the total (or its rank when the values do not add up), and a retention cell a callout under the grid.
@@ -311,7 +315,7 @@ The tile picker explains unsupported metric cards, logarithmic axes, 100% stacks
 `app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention`, `bars` or `table`) and pushes `chartHref(shortId, queryKey)`.
 
 - Entries: the tile head button, the insight screen's caption row, the legend "+N" pill, the bar list "+N more" row, and the VoiceOver action "Open full screen".
-- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
+- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same date range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
 - A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods), bar lists (all rows) and SQL tables (up to 500 rows) show in a card.
 - Saved stacked bar charts keep their stacks in pins, tiles, insights and full screen. The value axis fits the full stack; zero values leave no bar. Full screen offers a small layout icon beside Back for multi-series bar charts. Tap it to switch between grouped and stacked bars. The choice persists on this device across visits and applies to all bar charts, including pins and dashboard tiles. Until a choice is made, each chart uses its saved layout.
@@ -351,12 +355,13 @@ Profiles without a country show the person alone.
 ## Sessions and Errors release controls
 
 The `mobile-session-replay` and `mobile-error-tracking` feature flags control Sessions and Errors independently.
-Both are hidden until the app receives an enabled flag for the signed-in account. The app sends the account's
+Both are hidden for signed-in users until the app receives an enabled flag for the account. The demo has sample Sessions
+available without these flags. The app sends the account's
 normalized email and selected project as person-property overrides for flag evaluation, and refreshes flags on
 account changes and foreground returns. An earlier account's pending flag response cannot replace the current flags.
 
 An off flag hides the corresponding Browse and search entry and navigation pin. Saved pin preferences remain on
-the device, so enabling the flag restores the slot. Both tab and pushed list/detail routes also check the flag;
+the device. Both tab and pushed list/detail routes also check the flag;
 a disabled route returns to the person's start page before mounting the feature screen.
 
 For local UI checks, development bundles accept comma-separated keys in `EXPO_PUBLIC_FEATURE_FLAGS`.

@@ -14,6 +14,7 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/alerts/registration.py",
+                "backend/alerts/slack.py",
                 "backend/alerts/wording.py",
                 "backend/apps.py",
                 "backend/task_profiles.py"

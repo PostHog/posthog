@@ -22,7 +22,7 @@ export const Default: Story = {
                     name: '$ai_generation',
                     uuid: 'gen-answer',
                     timestamp: '2026-09-01T10:15:02Z',
-                    properties: { $ai_model: 'gpt-4.1-mini', $ai_latency: 1.88, $ai_input_tokens: 1822 },
+                    properties: { $ai_model: 'gpt-6-luna', $ai_latency: 1.88, $ai_input_tokens: 1822 },
                     ioKeys: { input: null, output: null, tools: null },
                 },
             },

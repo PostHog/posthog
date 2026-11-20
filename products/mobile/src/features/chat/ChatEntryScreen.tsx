@@ -7,6 +7,7 @@ import { scopeKey } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles } from '@/ui/theme'
 import { iconSizes } from '@/ui/tokens'
@@ -64,25 +65,27 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         }
         return (
             <View style={styles.screen}>
-                {conversation.isError || detail ? (
-                    <StateView
-                        icon={<WarningIcon size={iconSizes.empty} />}
-                        title={detail ? 'This chat is not ready yet' : "Couldn't load this chat"}
-                        actionLabel="Try again"
-                        onAction={() => void conversation.refetch()}
-                    />
-                ) : (
-                    <LoadingView label="Loading chat" />
-                )}
-                <ChatHeader webUrl={undefined} onBack={props.onBack} onNewChat={restart} />
+                <ScreenBlur chrome={<ChatHeader webUrl={undefined} onBack={props.onBack} onNewChat={restart} />}>
+                    {conversation.isError || detail ? (
+                        <StateView
+                            icon={<WarningIcon size={iconSizes.empty} />}
+                            title={detail ? 'This chat is not ready yet' : "Couldn't load this chat"}
+                            actionLabel="Try again"
+                            onAction={() => void conversation.refetch()}
+                        />
+                    ) : (
+                        <LoadingView label="Loading chat" />
+                    )}
+                </ScreenBlur>
             </View>
         )
     }
     if (mode === 'loading' || !scope)
         return (
             <View style={styles.screen}>
-                <LoadingView label="Loading chat" />
-                <ChatHeader webUrl={undefined} onBack={props.onBack} onNewChat={restart} />
+                <ScreenBlur chrome={<ChatHeader webUrl={undefined} onBack={props.onBack} onNewChat={restart} />}>
+                    <LoadingView label="Loading chat" />
+                </ScreenBlur>
             </View>
         )
     return scope.host === 'https://us.posthog.com' && scope.projectId === 2 ? (

@@ -170,7 +170,14 @@ def get_size_of_folder(path: str) -> float:
 # SeaweedFS's credential bootstrap loop, see docker-compose.base.yml) by message here, same ambiguity
 # `_is_retryable_purge_error` documents for the sibling HeadObject case. Retry the bounded budget below
 # to let that race self-heal; a persistent misconfiguration still raises once it's exhausted.
+#
+# The same bodyless response reports a transient server-side blip (the store answering before it's
+# fully up) as a bare 500 or 503 instead of 403 — the identical "InternalError"/"ServiceUnavailable"
+# condition `is_transient_object_store_error` already retries elsewhere for calls that go through
+# s3fs/delta-rs. A direct `head_bucket` call here bypasses that layer, so it needs the same bounded
+# retry to avoid raising on what is usually a boot race rather than a real outage.
 _HEAD_BUCKET_MAX_ATTEMPTS = 4
+_HEAD_BUCKET_RETRYABLE_CODES = (403, 500, 503)
 
 # SeaweedFS (the S3-compatible backend behind local/self-hosted setups) has no per-account ownership
 # check like AWS's, so it reports the loser of a concurrent create_bucket race as a bare
@@ -233,7 +240,7 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
                         raise
                 return
 
-            if int(error_code) != 403:
+            if int(error_code) not in _HEAD_BUCKET_RETRYABLE_CODES:
                 raise
 
             attempt += 1

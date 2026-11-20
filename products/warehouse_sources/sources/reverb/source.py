@@ -50,9 +50,9 @@ class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Reverb",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, payouts, payments, and refund requests into the PostHog Data warehouse.
+            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, payouts, payments, refund requests, offers, conversations, and feedback into the PostHog Data warehouse.
 
-Create a token from **My Profile → API & Integrations** in your Reverb account, with the `read_listings`, `read_orders`, and `read_payouts` scopes. The token doesn't expire.""",
+Create a token from **My Profile → API & Integrations** in your Reverb account, with the `read_listings`, `read_orders`, and `read_payouts` scopes. To sync offers, conversations, or received feedback, also add the `read_offers`, `read_messages`, or `read_feedback` scope. The token doesn't expire.""",
             iconPath="/static/services/reverb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/reverb",
             keywords=["marketplace", "musical instruments", "orders", "payouts"],

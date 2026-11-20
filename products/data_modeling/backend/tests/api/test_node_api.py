@@ -35,6 +35,7 @@ from products.data_modeling.backend.models import (
     DataWarehouseManagedViewSet,
     Edge,
     Node,
+    NodeSubscription,
     NodeType,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -435,6 +436,34 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
+    def _view_node(self, name: str, *job_statuses: str) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        for minutes_ago, job_status in enumerate(reversed(job_statuses)):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=timezone.now() - timedelta(minutes=minutes_ago),
+            )
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+
+    def test_attention_count_counts_failed_and_suspended_models_once(self):
+        self._view_node("failing", DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED)
+        self._view_node("recovered", DataModelingJob.Status.FAILED, DataModelingJob.Status.COMPLETED)
+        self._suspend(self._view_node("failing_and_suspended", DataModelingJob.Status.FAILED))
+        self._suspend(self._view_node("suspended"))
+        legacy = self._view_node("legacy_failure")
+        legacy.properties = {"system": {"last_run_status": "Failed"}}
+        legacy.save(update_fields=["properties"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/attention_count/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"count": 4})
+
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
@@ -519,6 +548,33 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
+
+    @parameterized.expand(
+        [
+            ("materialize", "post", "materialize/", None),
+            ("set_a_cadence", "patch", "", {"sync_frequency": "24hour"}),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_view_that_names_the_window_start_passes_the_read_access_check(
+        self, _name, method, path, payload, mock_sync_connect, _reconcile
+    ):
+        mock_sync_connect.return_value = AsyncMock()
+        self.saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        self.saved_query.save()
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{path}",
+            data=payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     @parameterized.expand(
         [
@@ -648,6 +704,28 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn(str(self.view_node.id), node_ids)
         self.assertIn(str(view_b.id), node_ids)
         self.assertIn(str(view_c.id), node_ids)
+
+    def test_lineage_query_count_does_not_grow_with_nodes_or_depth(self):
+        view_b = self._view_node("view_b")
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
+        parent = self._view_node("child_0")
+        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=parent)
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={view_b.id}"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(url)
+
+        for index in range(1, 4):
+            child = self._view_node(f"child_{index}")
+            Edge.objects.create(team=self.team, dag=self.dag, source=parent, target=child)
+            parent = child
+        with CaptureQueriesContext(connection) as larger:
+            response = self.client.get(url)
+
+        counts = {node["name"]: (node["upstream_count"], node["downstream_count"]) for node in response.json()["nodes"]}
+        self.assertEqual(counts["view_b"], (1, 4))
+        self.assertEqual(counts["child_0"], (2, 3))
+        self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
 
     def test_lineage_no_dependencies(self):
         sq_standalone = DataWarehouseSavedQuery.objects.create(
@@ -1554,6 +1632,96 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.get(f"{self._list_url()}{self.node.id}/" if detail else self._list_url())
 
         self.assertEqual(response.status_code, expected_status)
+
+
+class TestNodeWatching(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="watched_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            created_by=self.editor_user,
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.editor_user, access_level="editor")
+
+    def _url(self, node: Node, action: str = "") -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/{action}"
+
+    def _watching(self, node: Node) -> bool:
+        detail = self.client.get(self._url(node)).json()["watching"]
+        listed = next(
+            entry
+            for entry in self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/").json()["results"]
+            if entry["id"] == str(node.id)
+        )["watching"]
+        assert detail == listed
+        return detail
+
+    @parameterized.expand([("creator", "editor_user", True), ("non_creator", "viewer_user", False)])
+    def test_watching_follows_watch_and_unwatch(self, _name, user_attr, watches_by_default):
+        self.client.force_login(getattr(self, user_attr))
+        assert self._watching(self.view_node) is watches_by_default
+
+        response = self.client.post(self._url(self.view_node, "watch/"))
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": True})
+        assert self._watching(self.view_node) is True
+
+        response = self.client.post(self._url(self.view_node, "unwatch/"))
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
+        assert self._watching(self.view_node) is False
+
+    @parameterized.expand([("watch", status.HTTP_403_FORBIDDEN), ("unwatch", status.HTTP_200_OK)])
+    def test_a_view_the_caller_cannot_read_can_be_unwatched_but_not_watched(self, action, expected_status):
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(self._url(self.view_node, f"{action}/"))
+
+        assert response.status_code == expected_status
+        subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
+        assert not subscribed.exists()
+
+    def test_a_metric_hidden_after_access_loss_can_still_be_unwatched(self):
+        metric = Node.objects.create(
+            team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=uuid4()
+        )
+        self.client.force_login(self.viewer_user)
+        assert self.client.post(self._url(metric, "watch/")).status_code == status.HTTP_200_OK
+        self._create_access_control(self.viewer_user, resource="data_catalog", access_level="none")
+
+        response = self.client.post(self._url(metric, "unwatch/"))
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
+        subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
+        assert not subscribed.exists()
+
+    def test_a_node_without_a_saved_query_can_be_watched(self):
+        table_node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(self._url(table_node, "watch/"))
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": True})
+
+    def test_a_node_of_a_deleted_view_is_not_found(self):
+        self.saved_query.deleted = True
+        self.saved_query.save()
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(self._url(self.view_node, "watch/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not NodeSubscription.objects.for_team(self.team.id).exists()
 
 
 class TestEdgeViewSet(APIBaseTest):

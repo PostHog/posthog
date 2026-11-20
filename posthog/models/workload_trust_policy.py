@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 from posthog.utils import safe_cache_delete
 
 # A policy can grant any unprivileged scope except the ones that let a workload token outlive itself or

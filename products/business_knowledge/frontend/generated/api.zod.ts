@@ -38,6 +38,25 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
 })
 
 /**
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
+ */
+export const businessKnowledgeKeysCreateBodyLabelMax = 40
+
+export const BusinessKnowledgeKeysCreateBody = /* @__PURE__ */ zod.object({
+    label: zod
+        .string()
+        .max(businessKnowledgeKeysCreateBodyLabelMax)
+        .describe('Name for the key. Must be unique in this project.'),
+    library_id: zod
+        .uuid()
+        .nullable()
+        .describe(
+            'The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.'
+        ),
+})
+
+/**
  * @summary Create a business knowledge library
  */
 export const businessKnowledgeLibrariesCreateBodyNameMax = 255

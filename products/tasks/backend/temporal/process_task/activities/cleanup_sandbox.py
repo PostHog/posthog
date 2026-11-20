@@ -69,6 +69,16 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
             logger.warning(
                 "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
             )
+    if run_id is not None:
+        try:
+            TaskRun.revoke_agent_egress_registrations(run_id, reason="sandbox_cleanup", sandbox_id=input.sandbox_id)
+        except Exception as error:
+            logger.warning(
+                "cleanup_sandbox_egress_revocation_failed",
+                extra={"run_id": str(run_id), "sandbox_id": input.sandbox_id},
+                exc_info=True,
+            )
+            cleanup_error = error
     try:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
@@ -157,7 +167,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     if cleanup_error is not None and strict_cleanup:
         raise cleanup_error
 
-    if run_id is not None and stream_completion_safe:
+    if run_id is not None and stream_completion_safe and cleanup_error is None:
         try:
             TaskRun.clear_sandbox_connection_state_atomic(run_id, input.sandbox_id)
         except TaskRun.DoesNotExist:

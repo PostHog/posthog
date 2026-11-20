@@ -1,6 +1,10 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { type InboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
@@ -13,6 +17,7 @@ type StoryArgs = {
     view: VerifyEmailView
     reason?: VerifyEmailReason
     verificationEmailSent?: boolean
+    inboxProvider?: InboxProvider
 }
 
 const meta: Meta<StoryArgs> = {
@@ -45,7 +50,7 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = true }) => {
+const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = true, inboxProvider }) => {
     useStorybookMocks({
         get: {
             '/_preflight': { ...preflightJson },
@@ -54,10 +59,11 @@ const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = tr
     })
 
     useEffect(() => {
+        setPendingVerificationEmail('12345678', 'test@posthog.com', inboxProvider ?? null)
         verifyEmailLogic.actions.setView(view)
         verifyEmailLogic.actions.setUuid('12345678')
         verifyEmailLogic.actions.setDeepLinkContext(reason ?? null, verificationEmailSent)
-    }, [view, reason, verificationEmailSent])
+    }, [view, reason, verificationEmailSent, inboxProvider])
 
     return <VerifyEmail />
 }
@@ -78,3 +84,7 @@ PendingFromStripeDeepLink.args = { view: 'pending', reason: 'stripe_deep_link' }
 
 export const PendingWithFailedSend: StoryFn<StoryArgs> = Template.bind({})
 PendingWithFailedSend.args = { view: 'pending', reason: 'stripe_deep_link', verificationEmailSent: false }
+
+export const PendingWithOpenInbox: StoryFn<StoryArgs> = Template.bind({})
+PendingWithOpenInbox.args = { view: 'pending', inboxProvider: 'gmail' }
+PendingWithOpenInbox.parameters = { featureFlags: { [FEATURE_FLAGS.OPEN_INBOX_BUTTON]: 'test' } }

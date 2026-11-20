@@ -18,11 +18,7 @@ import {
     SlackChannelType,
 } from '~/types'
 
-import {
-    AlertPagerDutyRegion,
-    AlertPagerDutySeverity,
-    pagerDutyDestinationLabel,
-} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { pagerDutyDestinationLabel } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored' | 'incident_opened' | 'incident_closed'
@@ -135,28 +131,6 @@ export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-
-export type PendingLogsAlertNotification =
-    | {
-          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-          slackWorkspaceId: number
-          slackChannelId: string
-          slackChannelName?: string
-      }
-    | {
-          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-          webhookUrl: string
-      }
-    | {
-          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-          webhookUrl: string
-      }
-    | {
-          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-          routingKey: string
-          severity: AlertPagerDutySeverity
-          region: AlertPagerDutyRegion
-      }
 
 // Filter used to list every HogFunction tied to a given alert, regardless of which
 // event kind it handles. Deliberately omits the `events` array: the backend

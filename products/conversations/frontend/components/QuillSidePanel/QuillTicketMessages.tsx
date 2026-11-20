@@ -75,7 +75,7 @@ export function QuillTicketMessages({ messages, messagesLoading }: QuillTicketMe
                                             content={message.richContent as JSONContent}
                                             className="text-xs"
                                             fallbackContent={message.content}
-                                            fallbackDisableImages={message.fromZendesk}
+                                            fallbackDisableImages={message.fromExternalImport}
                                         />
                                     ) : (
                                         <SupportMarkdown className="text-xs" disableImages>

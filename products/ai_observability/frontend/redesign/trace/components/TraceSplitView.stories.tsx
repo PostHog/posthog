@@ -1,14 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { messagesContent } from '../sampleFixtures/sampleContent'
-import {
-    FIXTURE_EVALS,
-    FIXTURE_GENERATION_INPUT,
-    FIXTURE_GENERATION_OUTPUT,
-    FIXTURE_GENERATION_PROPERTIES,
-    FIXTURE_TREE,
-    withWidth,
-} from '../storyFixtures'
+import { FIXTURE_TRACE, FIXTURE_TREE, withWidth } from '../storyFixtures'
+import { stepLabelsOf } from '../traceTreeLookups'
 import { TraceSplitView } from './TraceSplitView'
 
 const generation = FIXTURE_TREE[0].children[1]
@@ -21,17 +14,18 @@ const meta: Meta<typeof TraceSplitView> = {
         selectedNodeId: generation.id,
         onSelectNode: () => {},
         onPrefetchNode: () => {},
-        evalOutcomes: {},
+        evalOutcomes: new Map(),
         detail: {
             node: generation,
             tab: 'messages',
             onTabChange: () => {},
             messagesOpening: 'lastTurn',
             onMessagesOpeningChange: () => {},
-            content: messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
-            error: null,
-            properties: FIXTURE_GENERATION_PROPERTIES,
-            evals: { status: 'ready', results: FIXTURE_EVALS },
+            load: FIXTURE_TRACE.details[generation.id].load,
+            trace: FIXTURE_TRACE.trace,
+            evaluationResults: FIXTURE_TRACE.evaluationResults,
+            evaluationResultsFailed: false,
+            stepLabels: stepLabelsOf(FIXTURE_TREE),
             raw: undefined,
             onViewInThread: () => {},
         },

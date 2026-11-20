@@ -1,28 +1,39 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from functools import cached_property
 
 from .event import TraceEvent
 from .git import GitRef
 from .node_ids import NodeIdResolver, NodeIds
+from .node_labels import number_repeated_names
+from .person import person_label
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
-from .tree import build_tree
+from .tree import TreeNode, build_tree
 from .usage import Usage, sum_known
 
 BILLED_EVENTS = frozenset({"$ai_generation", "$ai_embedding"})
 
 
 class Trace:
-    def __init__(self, trace_id: str, rows: Sequence[TraceEventRow], person: PersonRow | None) -> None:
+    def __init__(
+        self, trace_id: str, rows: Sequence[TraceEventRow], person: PersonRow | None, *, partial: bool = False
+    ) -> None:
         self.id = trace_id
         self.person = person
+        self.partial = partial
         self.events = tuple(
             sorted((TraceEvent(row=row, trace_id=trace_id) for row in rows), key=lambda event: event.row.timestamp)
         )
-        self.tree = build_tree(self.events, trace_id)
-        self.timeline = Timeline.from_tree(self.tree)
+
+    @cached_property
+    def tree(self) -> tuple[TreeNode, ...]:
+        return build_tree(self.events, self.id)
+
+    @cached_property
+    def timeline(self) -> Timeline:
+        return Timeline.from_tree(self.tree)
 
     @property
     def created_at(self) -> datetime:
@@ -43,12 +54,31 @@ class Trace:
         return self.name or "Trace"
 
     @cached_property
+    def node_labels(self) -> dict[str, str]:
+        nodes = list(_in_tree_order(self.tree))
+        ids = [self.id, *(node.event.id for node in nodes)]
+        names = [self.title, *(node.event.title for node in nodes)]
+        return dict(zip(ids, number_repeated_names(names), strict=True))
+
+    @cached_property
     def error_count(self) -> int:
         return sum(1 for event in self.events if event.has_error)
 
     @property
     def has_error(self) -> bool:
         return self.error_count > 0
+
+    @cached_property
+    def first_error_text(self) -> str | None:
+        return next((event.row.error_text for event in self.events if event.has_error and event.row.error_text), None)
+
+    @cached_property
+    def tools_called(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(tool for event in self.events for tool in event.row.tools_called))
+
+    @cached_property
+    def is_support_trace(self) -> bool:
+        return any(event.row.is_support for event in self.events)
 
     @cached_property
     def totals(self) -> Usage:
@@ -90,7 +120,7 @@ class Trace:
     def person_label(self) -> str | None:
         if self.person is None or not self.person.distinct_id:
             return None
-        return self.person.email or self.person.name or self.person.distinct_id
+        return person_label(self.person)
 
     def _total_latency_s(self) -> float:
         # The root $ai_trace event reports the whole trace's wall clock, so its children are already inside it.
@@ -108,3 +138,9 @@ class Trace:
             sum(event.row.latency or 0 for event in self.events if event.row.parent_id in (None, self.id)),
             2,
         )
+
+
+def _in_tree_order(nodes: Sequence[TreeNode]) -> Iterator[TreeNode]:
+    for node in nodes:
+        yield node
+        yield from _in_tree_order(node.children)

@@ -43,6 +43,9 @@ class ExperimentQueryContext:
     # False for a metric that reads $feature_flag_called: the call and its copy share a timestamp,
     # so one of them would be the exposure and the other a conversion.
     read_exposure_copies: bool = True
+    # The rule of a rule-linked experiment. When set, an exposure is only a $experiment_exposure event of this
+    # rule and its variant is $feature_flag_variant_key: the exposure event and $feature_flag_response take no part.
+    feature_flag_rule_id: str | None = None
 
     def precomputed_entity_id_sql(self) -> str:
         """
