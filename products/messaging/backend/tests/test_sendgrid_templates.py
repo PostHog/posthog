@@ -169,6 +169,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert converted.text == '{{ variables.name | join: "," }} Go ({{ unsubscribe_url }})'
 
+    def test_an_unsubscribe_tag_kept_as_text_stays_whole_in_the_plain_part(self) -> None:
+        converted = convert_version(
+            {"html_content": '<a href="{{url}}">Track</a><p><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a></p>'}
+        )
+
+        assert converted.text == "Track ({% raw %}{{url}}{% endraw %})Leave (<%asm_group_unsubscribe_raw_url%>)"
+
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
 

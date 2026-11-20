@@ -332,6 +332,8 @@ def plain_text_from_html(html: str) -> str:
     # Source text can't hold the slot marker, or it could stand in for a tag held here.
     text = _hold_raw_blocks(html.replace("\x01", ""), tags)
     text = _LIQUID_TAG.sub(hold, text)
+    # A `<%...%>` tag in a template kept as text holds `<` and `>`, which would read as HTML below.
+    text = _ASM_TAG.sub(hold, text)
     spans = list(_not_content_spans(text))
     text = "".join(
         text[start:end]
