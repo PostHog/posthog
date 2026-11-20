@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -18,9 +17,9 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
-        FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
-        UpvalueCell,
+        boolean_text_equals, compare_numeric_arrays, compare_values, ordering_matches,
+        temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral, HogMap, HogStr,
+        HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -998,7 +997,7 @@ impl<'a> HogVM<'a> {
     }
 
     /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers and lexicographically ordered
-    /// numeric arrays. `sortableSemver` returns a numeric array, so server-side property filters need
+    /// numeric arrays; the coercing path orders the same arrays through [`compare_values`]. `sortableSemver` returns a numeric array, so server-side property filters need
     /// this narrow array case even when they retain strict comparison semantics. Other non-number
     /// operands still error, which lets cymbal auto-disable malformed rules. Only when the context
     /// opts into coercing comparisons does a non-number operand reach [`compare_values`]. `a` is the
@@ -1633,36 +1632,6 @@ fn failure(error: VmError, vm: Option<&HogVM>, step: usize) -> VmFailure {
         ip: vm.map_or(0, |vm| vm.ip),
         stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
         step,
-    }
-}
-
-fn compare_numeric_arrays(
-    a: &[HogValue],
-    b: &[HogValue],
-    heap: &VmHeap,
-) -> Result<Ordering, VmError> {
-    for value in a.iter().chain(b) {
-        let _: &Num = value.deref(heap)?.try_as()?;
-    }
-
-    for (a_value, b_value) in a.iter().zip(b) {
-        let a_num: &Num = a_value.deref(heap)?.try_as()?;
-        let b_num: &Num = b_value.deref(heap)?.try_as()?;
-        let ordering = a_num.compare(b_num);
-        if ordering != Ordering::Equal {
-            return Ok(ordering);
-        }
-    }
-    Ok(a.len().cmp(&b.len()))
-}
-
-fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
-    match op {
-        NumOp::Gt => ordering.is_gt(),
-        NumOp::Gte => ordering.is_ge(),
-        NumOp::Lt => ordering.is_lt(),
-        NumOp::Lte => ordering.is_le(),
-        _ => unreachable!("ordering comparison requires a comparison operation"),
     }
 }
 
