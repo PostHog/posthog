@@ -60,17 +60,26 @@ class QueryStructures(TraversingVisitor):
         self.ctes: dict[int, ast.CTE] = {}
         self.references: Counter[int] = Counter()
         self._visited_ctes: set[int] = set()
-        self._scalar_scopes: list[dict[str, int]] = []
+        self._subquery_scalar_ctes: dict[int, int] = {}
+        self._expression_cte_scopes: list[dict[str, int | None]] = []
         self.cross_join_equalities = 0
         self.date_arrays_before_breakdown_limit = False
 
     def visit_field(self, node: ast.Field) -> None:
-        # A scalar CTE reference keeps only the CTE's name, because an expression CTE has no query type to match on.
-        if isinstance(node.type, ast.FieldAliasType):
-            for scope in reversed(self._scalar_scopes):
-                if node.type.alias in scope:
-                    self._visit_once(scope[node.type.alias])
-                    break
+        if not isinstance(node.type, ast.FieldAliasType):
+            return
+        type_id = self._subquery_scalar_ctes.get(id(node.type.type))
+        # The resolver types an expression CTE reference as a new StringType; lambda arguments and aliases keep their own type.
+        if type_id is None and type(node.type.type) is ast.StringType:
+            type_id = self._expression_cte(node.type.alias)
+        if type_id is not None:
+            self._visit_once(type_id)
+
+    def _expression_cte(self, name: str) -> int | None:
+        for scope in reversed(self._expression_cte_scopes):
+            if name in scope:
+                return scope[name]
+        return None
 
     def visit_cte(self, node: ast.CTE) -> None:
         # ClickHouse never runs a CTE body that nothing references, so bodies are visited from their references.
@@ -110,19 +119,32 @@ class QueryStructures(TraversingVisitor):
         return next(iter(sources.aliases)) if len(sources.aliases) == 1 and not sources.unknown else None
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        scalar_scope: dict[str, int] = {}
-        self._scalar_scopes.append(scalar_scope)
+        scope: dict[str, int | None] = {}
+        for cte in (node.ctes or {}).values():
+            if cte.expr.type is None:
+                continue
+            self.ctes[id(cte.expr.type)] = cte
+            if cte.cte_type != "column":
+                continue
+            if isinstance(cte.expr.type, ast.SelectQueryType):
+                first_column = next(iter(cte.expr.type.columns.values()), None)
+                if first_column is not None:
+                    self._subquery_scalar_ctes[id(first_column)] = id(cte.expr.type)
+            else:
+                scope[cte.name] = id(cte.expr.type)
+        # A select alias shadows a CTE of the same name, as in the resolver's lookup order.
+        for expr in node.select:
+            if isinstance(expr, ast.Alias):
+                scope[expr.alias] = None
+        self._expression_cte_scopes.append(scope)
         try:
-            self._visit_select_query(node, scalar_scope)
+            self._visit_select_query(node)
         finally:
-            self._scalar_scopes.pop()
+            self._expression_cte_scopes.pop()
 
-    def _visit_select_query(self, node: ast.SelectQuery, scalar_scope: dict[str, int]) -> None:
+    def _visit_select_query(self, node: ast.SelectQuery) -> None:
         for cte in (node.ctes or {}).values():
             if cte.expr.type is not None:
-                self.ctes[id(cte.expr.type)] = cte
-                if cte.cte_type == "column":
-                    scalar_scope[cte.name] = id(cte.expr.type)
                 self._visit_cte_body(id(cte.expr.type))
         calls = _LocalCalls()
         for expr in node.select:

@@ -200,6 +200,21 @@ class TestTreeFacts(BaseTest):
                 TreeFacts(),
             ),
             (
+                "a lambda argument named like an unreferenced scalar CTE",
+                "WITH (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id) AS n SELECT arrayMap(n -> n + 1, [1]) FROM events",
+                TreeFacts(),
+            ),
+            (
+                "a nested alias named like an unreferenced scalar CTE",
+                "WITH (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id) AS n SELECT (SELECT 1 AS n, n + 1) FROM events",
+                TreeFacts(),
+            ),
+            (
+                "a nested alias named like an unreferenced expression CTE",
+                "WITH (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id) AS n, n + 1 AS m SELECT (SELECT 'x' AS m, m) FROM events",
+                TreeFacts(),
+            ),
+            (
                 "an equality inside OR",
                 "SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id OR l.event = 'example'",
                 TreeFacts(),
