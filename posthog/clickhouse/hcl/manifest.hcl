@@ -131,6 +131,17 @@ role "batch_exports" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
 }
 
+# FLAGS satellite: the feature flag evaluation store, split off the main cluster. Holds
+# sharded_flag_evaluations, the Kafka consumer and the MV that fills it, plus the
+# flag_evaluations read table. The data nodes read it through that table, so prod data
+# points it at this cluster (roles/data/prod). Dev is not modeled: no flags cluster is
+# confirmed there, and dev data keeps the storage table. The local stacks have no flags
+# node and keep the storage on data and the consumer on medium.
+role "flags" {
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+}
+
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,
 # preaggregated + analytics tables). Only the local node is modeled here — it runs the
 # base schema migrations produce (MSK events_json_mv, ~135 objects, no per-env mat_
@@ -138,10 +149,10 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/cloud", "roles/coshared/log_entries_write", "roles/data/dev"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/coshared/flag_evaluations_data", "roles/data/common", "roles/coshared/main_proxies", "roles/data/cloud", "roles/coshared/log_entries_write", "roles/data/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/cloud", "roles/data/prod", "roles/data/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/cloud", "roles/coshared/log_entries_write", "roles/data/prod", "roles/data/prod-eu"] }
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/data/shared", "roles/coshared/flag_evaluations_data", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local"] }
 }
 
 # INGESTION satellites: the Kafka consumer layer. Each node carries the kafka_* engine
@@ -158,7 +169,7 @@ role "small" {
 }
 
 role "medium" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/ingestion_medium/local"] }
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/flag_evaluations_ingest", "roles/ingestion_medium/local"] }
 }
 
 # The plain dev/hobby stack (docker-compose.dev.yml): ONE ClickHouse server hosting every
@@ -166,7 +177,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/apm/shared", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/data/shared", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/apm/shared", "roles/apm/local", "roles/coshared/ai_events_data", "roles/coshared/person_shims", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/log_entries_aux", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/main_join_readers", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/data/shared", "roles/coshared/flag_evaluations_data", "roles/data/common", "roles/coshared/main_proxies", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/coshared/flag_evaluations_ingest", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {
@@ -202,6 +213,8 @@ cluster "aux" { roles = ["aux"] }
 cluster "ai_events" { roles = ["ai_events"] }
 
 cluster "batch_exports" { roles = ["batch_exports"] }
+
+cluster "flags" { roles = ["flags"] }
 
 cluster "posthog" {
   roles   = ["data"]
