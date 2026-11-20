@@ -3011,7 +3011,7 @@ describe('CDP API', () => {
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
-                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
+                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKeys').mockReturnValue(new Promise(() => {}))
 
                 const res = await send(hogFlow.id, authorized(), {
                     ...body,
