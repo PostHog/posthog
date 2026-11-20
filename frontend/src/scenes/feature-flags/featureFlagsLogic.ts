@@ -312,19 +312,19 @@ export interface featureFlagsLogicValues {
     hasActiveFilters: boolean
     pagination: PaginationManual
     paramsFromFilters: {
-        active?: string | undefined
-        archived?: string | undefined
-        created_by_id?: number[] | undefined
-        deleted?: string | undefined
-        evaluation_runtime?: string | undefined
-        excluded_tags?: string[] | undefined
+        active?: string
+        archived?: string
+        created_by_id?: number[]
+        deleted?: string
+        evaluation_runtime?: string
+        excluded_tags?: string[]
         limit: number
         offset: number
-        order?: string | undefined
-        page?: number | undefined
-        search?: string | undefined
-        tags?: string[] | undefined
-        type?: string | undefined
+        order?: string
+        page?: number
+        search?: string
+        tags?: string[]
+        type?: string
     }
     shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
@@ -377,10 +377,10 @@ export interface featureFlagsLogicActions {
     restoreFeatureFlagSuccess: (
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         },
         payload?: {
@@ -389,10 +389,10 @@ export interface featureFlagsLogicActions {
     ) => {
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         }
         payload?: {
@@ -453,10 +453,10 @@ export interface featureFlagsLogicActions {
     updateFeatureFlagArchivedSuccess: (
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         },
         payload?: {
@@ -467,10 +467,10 @@ export interface featureFlagsLogicActions {
     ) => {
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         }
         payload?: {
@@ -489,10 +489,10 @@ export interface featureFlagsLogicActions {
     updateFeatureFlagSuccess: (
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         },
         payload?: {
@@ -502,10 +502,10 @@ export interface featureFlagsLogicActions {
     ) => {
         featureFlags: {
             count: number
-            filters?: FeatureFlagsFilters | null | undefined
+            filters?: FeatureFlagsFilters | null
             lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: any[]
         }
         payload?: {
@@ -541,19 +541,19 @@ export interface featureFlagsLogicMeta {
         filtersChanged: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => boolean
         switchingDeletedView: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => boolean
         paramsFromFilters: (filters: FeatureFlagsFilters) => {
-            active?: string | undefined
-            archived?: string | undefined
-            created_by_id?: number[] | undefined
-            deleted?: string | undefined
-            evaluation_runtime?: string | undefined
-            excluded_tags?: string[] | undefined
+            active?: string
+            archived?: string
+            created_by_id?: number[]
+            deleted?: string
+            evaluation_runtime?: string
+            excluded_tags?: string[]
             limit: number
             offset: number
-            order?: string | undefined
-            page?: number | undefined
-            search?: string | undefined
-            tags?: string[] | undefined
-            type?: string | undefined
+            order?: string
+            page?: number
+            search?: string
+            tags?: string[]
+            type?: string
         }
         hasActiveFilters: (filters: FeatureFlagsFilters) => boolean
         shouldShowEmptyState: (

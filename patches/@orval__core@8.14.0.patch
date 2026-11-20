@@ -1,0 +1,22 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 9887caed977ab7b1aebdbbdfc813c37a51047565..8bff46c717fe9f976de9a29c8171de5bcf663c3b 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -5726,7 +5726,7 @@ function generateTarget(builder, options) {
+ 		if (operation.fetchReviver) target.fetchReviver.push(operation.fetchReviver);
+ 		if (index === operations.length - 1) {
+ 			const isMutator = target.mutators.some((mutator) => isAngularClient ? mutator.hasThirdArg : mutator.hasSecondArg);
+-			const hasAwaitedType = compareVersions(options.packageJson?.dependencies?.typescript ?? options.packageJson?.devDependencies?.typescript ?? "4.4.0", "4.5.0");
++			const hasAwaitedType = compareVersions(options.packageJson?.resolvedVersions?.typescript ?? options.packageJson?.dependencies?.typescript ?? options.packageJson?.devDependencies?.typescript ?? "4.4.0", "4.5.0");
+ 			const header = builder.header({
+ 				outputClient: options.client,
+ 				isRequestOptions: options.override.requestOptions !== false,
+@@ -6072,7 +6072,7 @@ function generateTargetForTags(builder, options) {
+ 			for (const [tag, target] of Object.entries(allTargetTags)) {
+ 				const isMutator = !!target.mutators?.some((mutator) => isAngularClient ? mutator.hasThirdArg : mutator.hasSecondArg);
+ 				const operationNames = Object.values(builder.operations).filter(({ tags }) => tags.map((tag) => kebab(tag)).indexOf(kebab(tag)) === 0).map(({ operationName }) => operationName);
+-				const hasAwaitedType = compareVersions(options.packageJson?.dependencies?.typescript ?? options.packageJson?.devDependencies?.typescript ?? "4.4.0", "4.5.0");
++				const hasAwaitedType = compareVersions(options.packageJson?.resolvedVersions?.typescript ?? options.packageJson?.dependencies?.typescript ?? options.packageJson?.devDependencies?.typescript ?? "4.4.0", "4.5.0");
+ 				const titles = builder.title({
+ 					outputClient: options.client,
+ 					title: pascal(tag),

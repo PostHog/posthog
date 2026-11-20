@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+import type { UserType } from '~/types'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
@@ -696,11 +697,11 @@ export interface inboxReportDetailLogicActions {
     }) => {
         payload: {
             body: string
-            inReplyTo?: string | undefined
+            inReplyTo?: string
             key: string
-            line?: number | undefined
-            path?: string | undefined
-            side?: 'LEFT' | 'RIGHT' | undefined
+            line?: number
+            path?: string
+            side?: 'LEFT' | 'RIGHT'
         }
     }
     postReviewCommentFinished: () => {
@@ -862,22 +863,22 @@ export interface inboxReportDetailLogicMeta {
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => EnrichedReviewer[] | null
         addReviewerOptions: (
             availableReviewers: AvailableReviewerOption[] | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
-        isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
-        teammateClaimHolder: (report: SignalReport | null, user: null | import('~/types').UserType) => _UserApi | null
-        isReportClaimable: (report: SignalReport | null, user: null | import('~/types').UserType) => boolean
+        isClaimedByMe: (reportClaimant: _UserApi | null, user: UserType | null) => boolean
+        teammateClaimHolder: (report: SignalReport | null, user: UserType | null) => _UserApi | null
+        isReportClaimable: (report: SignalReport | null, user: UserType | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
             report: SignalReport | null,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
