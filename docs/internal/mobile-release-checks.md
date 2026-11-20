@@ -6,6 +6,13 @@ Use this checklist before sharing a build or publishing an update of the Expo + 
 Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.md#mobile-build). Detailed instructions are in
 [Releasing](../../products/mobile/docs/RELEASING.md).
 
+## Review ownership
+
+Required mobile-team approval covers native code, widgets, config plugins, native build configuration, embedded icons and splash images, and the OTA signing certificate.
+Dependency manifests and the lockfile also require approval because they can change native dependencies and linking.
+App routes, JavaScript bridges, screens, other OTA assets, docs, tests, release scripts and workflows use optional ownership.
+The app's `product.yaml` assigns the mobile team; `.github/owners.yaml` assigns mobile workflows to the mobile and DevEx teams.
+
 ## Build and update checks
 
 - Confirm Mobile CI passes for the source commit. For production, include one native or OTA request in
