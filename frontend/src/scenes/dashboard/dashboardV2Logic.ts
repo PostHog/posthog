@@ -33,6 +33,8 @@ const TELEMETRY_TILE_REFRESH_CONCURRENCY = 6
 const EAGER_TILE_LOADS = 12
 // Matches MAX_CACHED_TILES_BATCH_SIZE: the most tiles one board stream takes.
 const BOARD_STREAM_MAX_TILES = 100
+// Tiles that scroll into view within this window load through one board stream.
+const SCROLL_IN_BATCH_MS = 100
 
 export function telemetryTileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.telemetryTileLoadQueue ??= new TaskQueue(TELEMETRY_TILE_REFRESH_CONCURRENCY))
@@ -126,6 +128,18 @@ function usesBoardStream(placement: DashboardPlacement, tileCount: number): bool
         tileCount > 0 &&
         tileCount <= BOARD_STREAM_MAX_TILES
     )
+}
+
+/**
+ * A first load on the dashboard page reads tile results through the board stream,
+ * so the dashboard GET returns the layout and tile metadata only.
+ */
+export function omitsTileResultsOnLoad(
+    dashboardV2Enabled: boolean,
+    isInitialLoad: boolean,
+    placement: DashboardPlacement
+): boolean {
+    return dashboardV2Enabled && isInitialLoad && placement === DashboardPlacement.Dashboard && !isSharedView()
 }
 
 /** The refresh a board stream runs for, as the per-tile path receives it. */
@@ -337,6 +351,52 @@ export async function refreshThroughBoardStream<T extends InsightTile>(
         teamId: refresh.currentTeamId,
         report,
         settle,
+    })
+}
+
+/**
+ * Loads tiles that scrolled into view. The tiles that arrive within one short window load through one board stream.
+ * Each call restarts the window: `breakpoint` cancels the earlier calls, and the last call loads every waiting tile.
+ * The caller marks each tile as loading before this waits, so a card that mounts meanwhile does not start its own query.
+ * Null when the board stream does not apply, and the caller loads the tiles through the per-tile path.
+ */
+export async function loadScrolledInTiles<T extends InsightTile>(
+    cache: Record<string, any>,
+    tiles: T[],
+    refresh: BoardStreamRefresh,
+    {
+        placement,
+        report,
+        breakpoint,
+    }: {
+        placement: DashboardPlacement
+        report: TileRefreshReporter
+        breakpoint: (ms: number) => Promise<void> | void
+    }
+): Promise<BoardStreamOutcome<T> | null> {
+    if (!refresh.currentTeamId || !usesBoardStream(placement, tiles.length)) {
+        return null
+    }
+    const waiting: T[] = (cache.scrolledInTiles ??= [])
+    waiting.push(...tiles.filter((tile) => !waiting.some((other) => other.id === tile.id)))
+    await breakpoint(SCROLL_IN_BATCH_MS)
+    cache.scrolledInTiles = []
+    // The stream only sees aborts that happen after it starts, so a refresh cancelled during the debounce skips it.
+    const aborted = refresh.signal.aborted
+    if (aborted || !usesBoardStream(placement, waiting.length)) {
+        return {
+            settledTileIds: new Set(),
+            leftTiles: waiting,
+            aborted,
+            fallback: { eventProperties: {} },
+            refreshEventProperties: {},
+        }
+    }
+    return await loadThroughBoardStream(waiting, {
+        refresh,
+        teamId: refresh.currentTeamId,
+        report,
+        settle: () => {},
     })
 }
 
