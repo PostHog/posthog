@@ -1,5 +1,4 @@
 from products.tasks.backend.facade.profiles import (
-    AgentPolicy,
     DrivePolicy,
     GithubAccess,
     GithubResolution,
@@ -60,7 +59,6 @@ WRITER = TaskProfile(
     max_cost_usd=None,
     task_budget_usd=None,
     finish_in_flight=True,
-    agent_policy=AgentPolicy(branch_push_without_pr=True),
 )
 
 PROFILES = (WRITER,)
