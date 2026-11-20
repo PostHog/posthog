@@ -1,6 +1,11 @@
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { router } from 'kea-router'
 
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { urls } from 'scenes/urls'
+
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { EndpointType } from '~/types'
 
 /** Must match ENDPOINT_NAME_REGEX in products/endpoints/backend/constants.py */
 const ENDPOINT_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/
@@ -25,6 +30,18 @@ export function validateEndpointName(name: string): string | undefined {
         return 'Name must start with a letter, contain only letters, numbers, hyphens, or underscores, and be between 1 and 128 characters.'
     }
     return undefined
+}
+
+/** SQL endpoints duplicate in the SQL editor. Every other kind duplicates through the insight modal. */
+export function duplicateEndpointFromList(
+    endpoint: EndpointType,
+    openInsightDuplicateModal: (endpoint: EndpointType) => void
+): void {
+    if (isHogQLQuery(endpoint.query)) {
+        router.actions.push(urls.sqlEditor({ query: endpoint.query.query, source: 'endpoint' }))
+    } else {
+        openInsightDuplicateModal(endpoint)
+    }
 }
 
 /**

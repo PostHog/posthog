@@ -69,17 +69,28 @@ export function EndpointsUsageTrendsNode(props: {
     return <EndpointsUsageTrendsChart results={results} metric={props.query.metric} interval={props.query.interval} />
 }
 
-export function EndpointsUsageTrendsChart({
+export function EndpointsUsageTrendsChart(props: EndpointsUsageTrendsPlotProps): JSX.Element {
+    return (
+        <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
+            <EndpointsUsageTrendsPlot {...props} />
+        </div>
+    )
+}
+
+export interface EndpointsUsageTrendsPlotProps {
+    results: TrendsDataPoint[]
+    metric: EndpointsUsageMetric
+    interval?: IntervalType
+}
+
+/** The line or area chart alone. The caller draws the surface around it. */
+export function EndpointsUsageTrendsPlot({
     results,
     metric,
     // Quill only formats the axis ticks and the tooltip header when both `timezone` and `interval`
     // are set, so an absent interval would leave raw ISO labels on both.
     interval = 'day',
-}: {
-    results: TrendsDataPoint[]
-    metric: EndpointsUsageMetric
-    interval?: IntervalType
-}): JSX.Element {
+}: EndpointsUsageTrendsPlotProps): JSX.Element {
     const isAreaChart = metric === 'cpu_seconds' || metric === 'bytes_read'
 
     const { labels, series, scale } = useMemo(
@@ -106,14 +117,6 @@ export function EndpointsUsageTrendsChart({
     }, [labels, series.length, scale, timezone, interval])
 
     return (
-        <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
-            <TimeSeriesLineChart
-                series={series}
-                labels={labels}
-                theme={theme}
-                config={config}
-                onError={handleChartError}
-            />
-        </div>
+        <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} onError={handleChartError} />
     )
 }

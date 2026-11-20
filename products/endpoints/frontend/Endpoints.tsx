@@ -18,10 +18,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
-import { humanizeQueryKind } from './common'
+import { duplicateEndpointFromList, humanizeQueryKind } from './common'
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
@@ -70,13 +69,7 @@ export const EndpointsTable = (): JSX.Element => {
         confirmToggleActive(endpoint)
     }
 
-    const handleDuplicate = (endpoint: EndpointType): void => {
-        if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, source: 'endpoint' }))
-        } else {
-            setDuplicateEndpoint(endpoint)
-        }
-    }
+    const handleDuplicate = (endpoint: EndpointType): void => duplicateEndpointFromList(endpoint, setDuplicateEndpoint)
 
     const columns: LemonTableColumns<EndpointType> = [
         {

@@ -29,6 +29,7 @@ export interface endpointsLogicValues {
     activeTab: EndpointsTab
     allEndpoints: EndpointType[]
     allEndpointsLoading: boolean
+    availableTags: string[]
     endpoints: EndpointType[]
     filters: EndpointsFilters
 }
@@ -63,6 +64,7 @@ export interface endpointsLogicActions {
 export interface endpointsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         endpoints: (allEndpoints: EndpointType[], filters: EndpointsFilters) => EndpointType[]
+        availableTags: (allEndpoints: EndpointType[]) => string[]
     }
 }
 
@@ -108,6 +110,13 @@ export const endpointsLogic = kea<endpointsLogicType>([
         ],
     }),
     selectors({
+        availableTags: [
+            (s) => [s.allEndpoints],
+            (allEndpoints: EndpointType[]): string[] =>
+                [...new Set(allEndpoints.flatMap((endpoint) => endpoint.tags ?? []))].sort((a, b) =>
+                    a.localeCompare(b)
+                ),
+        ],
         endpoints: [
             (s) => [s.allEndpoints, s.filters],
             (allEndpoints: EndpointType[], filters: EndpointsFilters) => {

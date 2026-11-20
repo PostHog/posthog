@@ -7,6 +7,7 @@
     "dependencies": {
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
+        "@tanstack/react-table": "^8.21.3",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",

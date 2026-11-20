@@ -25,6 +25,7 @@ import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 import { QuillEndpointsSceneActions } from './QuillEndpointsSceneActions'
+import { QuillEndpointsTabs } from './QuillEndpointsTabs'
 
 export const scene: SceneExport = {
     component: EndpointsScene,
@@ -99,7 +100,11 @@ export function EndpointsScene(): JSX.Element {
                             )
                         }
                     />
-                    <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    {todayRailNav ? (
+                        <QuillEndpointsTabs />
+                    ) : (
+                        <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    )}
                     <InsightPickerEndpointModal />
                 </SceneContent>
             </BindLogic>
