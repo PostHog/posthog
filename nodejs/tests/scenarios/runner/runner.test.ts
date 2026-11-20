@@ -1568,7 +1568,7 @@ describe('runner through seed, drive and judge', () => {
             now: () => new Date(),
             failover: { takesMs: 20 },
             liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
-            shortValuesOf: 'Maximum',
+            shortValuesOf: 'Average',
         })
 
         const { result, stackName } = await runOnHost(cloud, shortSmoke([{ ...failover, at: '1s', for: '500ms' }]))

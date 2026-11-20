@@ -116,6 +116,7 @@ export function scorecardOf(
         admissions: result.admissions,
         bars: result.bars,
         valve_timeline: result.timeline,
+        role_restarts: result.restarts ?? [],
         evidence_dir: result.evidenceDir,
     }
 }
