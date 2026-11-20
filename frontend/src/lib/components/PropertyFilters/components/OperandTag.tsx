@@ -1,7 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { Badge } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 export const OperandTag = ({ operand, className }: { operand: 'and' | 'or'; className?: string }): JSX.Element => {
     const quillSurface = useQuillSurface()

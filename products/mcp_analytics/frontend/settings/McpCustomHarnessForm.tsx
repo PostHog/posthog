@@ -3,13 +3,15 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { HarnessIconMask } from '../components/HarnessIconMask'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
+import { QuillMcpCustomHarnessForm } from './QuillMcpCustomHarnessForm'
 
 // Fixed colors rather than theme tokens, so the preview shows both themes whichever one is active.
-const PREVIEW_BACKGROUNDS = [
+export const PREVIEW_BACKGROUNDS = [
     { name: 'light', className: 'bg-white text-black' },
     { name: 'dark', className: 'bg-black text-white' },
 ] as const
@@ -24,6 +26,11 @@ export function McpCustomHarnessForm(): JSX.Element {
     const iconPreview =
         customHarnessForm.icon && !customHarnessFormValidationErrors.icon ? customHarnessForm.icon.trim() : null
     const { cancelEditingHarness } = useActions(mcpCustomHarnessesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillMcpCustomHarnessForm iconPreview={iconPreview} />
+    }
 
     return (
         <Form

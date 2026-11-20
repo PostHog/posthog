@@ -1,10 +1,17 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { backendAssetUrl } from 'lib/utils/apiHost'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillUploadedLogo = lazy(() =>
+    retryImport(() => import('./QuillUploadedLogo')).then((m) => ({ default: m.QuillUploadedLogo }))
+)
 
 export interface UploadedLogoProps {
     name: string
@@ -26,6 +33,26 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
     ref
 ) {
     const [isLoadingImage, setIsLoadingImage] = useState(true)
+    const quillSurface = useQuillSurface()
+    const imageSrc = mediaId
+        ? mediaId.startsWith('data:')
+            ? mediaId
+            : backendAssetUrl(`/uploaded_media/${mediaId}`)
+        : null
+
+    if (quillSurface) {
+        return (
+            <Suspense fallback={null}>
+                <QuillUploadedLogo
+                    name={name}
+                    entityId={entityId}
+                    imageSrc={imageSrc}
+                    size={size}
+                    outlinedLettermark={outlinedLettermark}
+                />
+            </Suspense>
+        )
+    }
 
     if (!mediaId) {
         return <Lettermark index={entityId} name={name} size={size} outlined={outlinedLettermark} />
@@ -48,7 +75,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
             {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
             <img
                 className="size-full object-cover"
-                src={mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)}
+                src={imageSrc ?? undefined}
                 alt="Uploaded logo"
                 onError={() => setIsLoadingImage(false)}
                 onLoad={() => setIsLoadingImage(false)}

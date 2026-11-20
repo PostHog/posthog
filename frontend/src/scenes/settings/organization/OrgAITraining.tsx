@@ -5,10 +5,12 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AI_TRAINING_URL } from './aiTrainingConstants'
 import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
+import { QuillOrganizationAITrainingOptOut } from './QuillOrganizationAITrainingOptOut'
 
 function AITrainingDescription({ hasSignedBaa, isLocked }: { hasSignedBaa: boolean; isLocked: boolean }): JSX.Element {
     if (hasSignedBaa) {
@@ -44,6 +46,7 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
     const { updateOrganization } = useActions(organizationLogic)
 
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasSignedBaa = !!currentOrganization?.has_signed_baa
     const isLocked = !!currentOrganization?.is_ai_training_locked
 
@@ -57,6 +60,23 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
 
     const checked = !hasSignedBaa && !!currentOrganization?.is_ai_training_opted_in
 
+    const handleChange = (value: boolean): void => {
+        updateOrganization({ is_ai_training_opted_in: value })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillOrganizationAITrainingOptOut
+                hasSignedBaa={hasSignedBaa}
+                isLocked={isLocked}
+                checked={checked}
+                loading={currentOrganizationLoading}
+                disabledReason={disabledReason}
+                onCheckedChange={handleChange}
+            />
+        )
+    }
+
     return (
         <div className="max-w-160">
             <AITrainingDescription hasSignedBaa={hasSignedBaa} isLocked={isLocked} />
@@ -64,9 +84,7 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
                 <LemonSwitch
                     label="Enable AI training on anonymized data"
                     data-attr="organization-ai-training-opt-in"
-                    onChange={(value) => {
-                        updateOrganization({ is_ai_training_opted_in: value })
-                    }}
+                    onChange={handleChange}
                     checked={checked}
                     disabledReason={disabledReason}
                     loading={currentOrganizationLoading}

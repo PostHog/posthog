@@ -8,8 +8,8 @@ import { Field, FieldTitle, Input, Tooltip, TooltipContent, TooltipTrigger } fro
 import { QuillChartOptionLabel } from 'lib/components/ChartOptions/QuillChartOptionLabel'
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PathCleaningControls } from 'lib/components/PathCleanFilters/PathCleaningControls'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { EditorFilterProps } from '~/types'
 
