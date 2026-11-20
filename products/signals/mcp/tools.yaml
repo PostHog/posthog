@@ -112,8 +112,8 @@ tools:
             text. Pass `mine: true` when a person asks about their own insights: only insights they created, or viewed
             in the last 90 days (the window in which scoring treats an insight as active), are searched, and the counts
             cover only those. Leave it off for the whole project, which is the default and what a scheduled run without
-            a person should use. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
-            search is not available for this project.
+            a person should use. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A
+            404 means anomaly search is not available for this project.
         exclude_params:
             - include_points
         feature_flag: anomalies-search
