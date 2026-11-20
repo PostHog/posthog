@@ -18,8 +18,7 @@ export interface Token {
 
 const INITIAL_TOKEN_CAPACITY = 64
 
-// The tokens of a map as one typed array per field. A large bundle has millions of tokens, and an
-// object for each one costs several times the 25 bytes a token takes here.
+// One typed array per field: a bundle has millions of tokens, and an object for each costs far more.
 export class TokenList {
     length = 0
     dstLine: Uint32Array
@@ -145,8 +144,6 @@ for (let index = 0; index < 64; index++) {
 const COMMA = 44
 const SEMICOLON = 59
 
-// The mappings as bytes. Every character is ASCII, so the string is built from them in one step
-// instead of from an array with one entry per character.
 class MappingsWriter {
     private bytes = Buffer.allocUnsafe(64 * 1024)
     private length = 0
@@ -373,8 +370,7 @@ function maxSegments(mappings: string): number {
     return separators + 1
 }
 
-// Reads the mappings in place. Splitting them into a string per line and per segment first takes
-// several times their size, and a bundle's mappings run to tens of megabytes.
+// Reads the mappings in place: a string per line and per segment takes several times their size.
 function decodeMappings(mappings: string, rangeMappings: string, sourceCount: number, nameCount: number): TokenList {
     const tokens = new TokenList(maxSegments(mappings))
     const rangeLines = rangeMappings === '' ? null : rangeMappings.split(';')
@@ -532,9 +528,8 @@ function decodeSection(section: JsonValue): Section {
 const isU32 = (value: JsonValue | undefined): value is JsonNumber =>
     value !== undefined && isJsonNumber(value) && value.kind === 'u' && value.value <= 0xffffffffn
 
-// True when the sections are already in the order the flattening sorts them into, and each one has
-// a map. Then a section can be flattened as soon as it is decoded. Otherwise every section is
-// decoded first, so an invalid section fails before a missing map does, in the order they come.
+// Sections in sorted order, each with a map, can be flattened as they are decoded. Otherwise all
+// are decoded first, so an invalid section still fails before a missing map does.
 function sectionsAreOrdered(sections: JsonValue[]): boolean {
     let lastLine = 0
     let lastColumn = 0
@@ -571,8 +566,7 @@ function decodeAny(raw: JsonValue): SourceMap {
     const list = optionalArray(sections, 'sections') ?? []
     const flattened = new FlattenedSections()
 
-    // An Expo bundle has a section per module. Holding every decoded section until the last one
-    // is read doubles the tokens in memory, so ordered sections are flattened one at a time.
+    // Expo writes a section per module, and holding every decoded one doubles the tokens in memory.
     if (sectionsAreOrdered(list)) {
         for (const section of list) {
             flattened.add(decodeSection(section))
@@ -667,7 +661,6 @@ export function adjustMappings(map: SourceMap, adjustment: Token[]): void {
     const original = map.tokens
     original.sort()
     const adjusted = [...adjustment].sort((a, b) => a.srcLine - b.srcLine || a.srcCol - b.srcCol)
-    // Every range starts at most one clipped copy of a token, on top of the tokens themselves.
     const moved = new TokenList(original.length + adjusted.length)
     map.tokens = moved
     if (original.length === 0) {

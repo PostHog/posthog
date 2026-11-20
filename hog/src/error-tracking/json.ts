@@ -36,8 +36,7 @@ export function decodeUtf8(bytes: Uint8Array): string {
 
 export class JsonParser {
     index = 0
-    // Set once the text has a number that isn't an integer. Writing a float and reading it back
-    // can give another float, so a caller that skips that round trip needs to know there is none.
+    // A float can read back from its own text as another float, so a caller may need to know.
     sawFloat = false
     private depth = 0
 

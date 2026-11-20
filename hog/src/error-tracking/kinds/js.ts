@@ -200,8 +200,6 @@ export function serializeMapContent(content: MapContent): string {
     return `{${[...head, ...(inner ? [inner] : [])].join(',')}}`
 }
 
-// The UTF-8 bytes of `serializeMapContent`, without the string in between. A large map is written
-// and hashed as bytes, and its text as a string takes up to twice its size on top of them.
 export function serializeMapBytes(content: MapContent): Buffer[] {
     const head = serializeMapIds(content).join(',')
     const out = new Utf8Writer()
@@ -412,9 +410,8 @@ export class SourcePair {
     }
 
     // posthog-cli decodes the map from its serialized text, and reads the encoded map back the same
-    // way. Values without a float come back from that round trip as they went in, so the parsed
-    // fields are used as they are: the text of a large map and a second tree are gigabytes. A
-    // float can read back as another float, so a map that has one takes the round trip.
+    // way. Without a float, values come back from that round trip as they went in, so it is
+    // skipped: on a large map it costs gigabytes. A map with a float takes it.
     private rawMap(): JsonValue {
         if (this.map.hasFloats !== false) {
             return parseJson(serializeMapContent(this.map))
