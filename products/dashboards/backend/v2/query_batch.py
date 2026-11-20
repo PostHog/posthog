@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread, Timer
@@ -28,10 +28,11 @@ from django.utils.timezone import now
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse, IntervalType
+from posthog.schema import CacheMissResponse, DateRange, HogQLFilters, IntervalType
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.filters import resolve_date_range
 
 from posthog.api.services.query import (
     ExecutionMode,
@@ -54,6 +55,21 @@ from posthog.renderers import SafeJSONRenderer
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.v2.buckets import (
+    BUCKETED_RUNS,
+    UNBOUNDED_RANGE_END,
+    BucketContractError,
+    BucketedQuery,
+    BucketStore,
+    NotBucketable,
+    SpanRows,
+    assemble,
+    check_bucketed,
+    maybe_shadow_check,
+    provenance,
+    raw_provenance,
+    store_key,
+)
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 
 logger = structlog.get_logger(__name__)
@@ -204,6 +220,8 @@ def to_posthog_date(expression: str) -> Optional[str]:
 def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
+    if target.bucketed and target.language != QueryBatchLanguage.HOGQL:
+        raise InvalidTarget("Only HogQL targets can be bucketed.")
     if target.language == QueryBatchLanguage.HOGQL:
         return ResolvedQuery(
             query={
@@ -448,7 +466,8 @@ class QueryBatch:
         self._to_refresh = [resolved[index] for index in to_refresh]
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
-            self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+            run = self._run_bucketed if inputs[index].target.bucketed else self._run
+            self._jobs.append((index, query_id, partial(run, index, resolved[index], query_id)))
 
     def _read_chunk(
         self,
@@ -519,7 +538,9 @@ class QueryBatch:
                         to_run.append(index)
                     continue
                 stale = _is_stale(response)
-                if stale and not (item.swr or item.cache_only):
+                # A bucketed run reruns only the newest buckets, so it is cheaper to run than to serve stale.
+                serve_stale = item.cache_only or (item.swr and not item.target.bucketed)
+                if stale and not serve_stale:
                     to_run.append(index)
                     continue
                 body = _render_body(_result_line(index, response, hit=True, stale=stale))
@@ -632,6 +653,117 @@ class QueryBatch:
         except Exception as e:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
+
+    def _run_bucketed(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
+        """A bucketed HogQL target: finished buckets from the store, the rest from ClickHouse. A query that breaks
+        the contract runs whole, with the reason in its provenance."""
+        if self._cancelled:
+            return {"i": index, "error": _FAILED}
+        try:
+            checked = check_bucketed(query.query["query"])
+            return self._assemble_buckets(index, checked, query, query_id)
+        except (NotBucketable, BucketContractError) as e:
+            BUCKETED_RUNS.labels(outcome="not_bucketable" if isinstance(e, NotBucketable) else "fallback").inc()
+            reason = str(e) if isinstance(e, NotBucketable) else f"bucketed HogQL: {e}"
+            line = self._run(index, query, query_id)
+        except Exception as e:
+            return _error_line(index, e, team=self._team)
+        if "result" in line:
+            line["result"]["provenance"] = raw_provenance(reason)
+        return line
+
+    def _assemble_buckets(
+        self, index: int, checked: BucketedQuery, query: ResolvedQuery, query_id: str
+    ) -> dict[str, Any]:
+        team = self._team
+        grid = checked.grid(team.timezone_info)
+        started = now()
+        date_range = query.query["filters"]["dateRange"]
+        resolved = resolve_date_range(HogQLFilters(dateRange=DateRange(**date_range)), team, now=started)
+        if resolved.date_from is None:
+            raise NotBucketable("a bucketed range needs a start")
+        date_to = UNBOUNDED_RANGE_END if resolved.date_to is None else resolved.date_to
+        if resolved.date_to_inclusive:
+            date_to += timedelta(microseconds=1)
+        # Planned without a range, so the key is the same whatever range a panel shows, and still carries the
+        # timezone, modifiers, variables and this user's access restrictions.
+        planned = plan_query_dict(
+            team,
+            {**query.query, "filters": {}},
+            dashboard_filters_json=None,
+            variables_override_json=query.variables,
+            limit_context=_limit_context(query.query),
+            user=self._user,
+            user_access_control=UserAccessControl(user=self._user, team=team),
+            allow_raw_results=False,
+        )
+        if planned is None:
+            raise NotBucketable("the query does not plan")
+        key = store_key(team.pk, planned.cache_key, grid)
+        default_limit = get_default_limit_for_context(planned.query_runner.limit_context or LimitContext.QUERY)
+        fetch = partial(self._fetch_span, query, query_id)
+        answer = assemble(
+            query=checked,
+            grid=grid,
+            date_from=resolved.date_from,
+            date_to=date_to,
+            now=started,
+            store=BucketStore(key),
+            fetch=fetch,
+            default_limit=default_limit,
+        )
+        BUCKETED_RUNS.labels(outcome="far" if answer.far else "served").inc()
+        maybe_shadow_check(
+            answer=answer,
+            grid=grid,
+            query=checked,
+            date_from=resolved.date_from,
+            date_to=date_to,
+            now=started,
+            fetch=partial(self._fetch_span, query, None),
+            store_key=key,
+            on_done=connections.close_all,
+        )
+        result = {
+            "results": answer.rows,
+            "columns": answer.columns,
+            "types": answer.types,
+            "hasMore": answer.has_more,
+            "limit": checked.limit if checked.limit is not None else default_limit,
+            "is_cached": False,
+            "cache_key": key,
+            "last_refresh": started,
+            "provenance": provenance(answer, grid),
+        }
+        return _result_line(index, result, hit=False, stale=False)
+
+    def _fetch_span(self, query: ResolvedQuery, query_id: Optional[str], start: datetime, end: datetime) -> SpanRows:
+        span = {
+            **query.query,
+            "filters": {
+                **query.query.get("filters", {}),
+                "dateRange": {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
+            },
+        }
+        response = process_query_dict(
+            self._team,
+            span,
+            variables_override_json=query.variables,
+            limit_context=_limit_context(query.query),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            user=self._user,
+            query_id=query_id,
+            dashboard_id=self._dashboard_id,
+        )
+        data = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
+        if data.get("error"):
+            raise BucketContractError(str(data["error"]))
+        return SpanRows(
+            columns=list(data.get("columns") or []),
+            types=list(data.get("types") or []),
+            rows=list(data.get("results") or []),
+            has_more=bool(data.get("hasMore")),
+        )
 
     def _emit(self, line: dict[str, Any]) -> None:
         if self._is_cancelled():

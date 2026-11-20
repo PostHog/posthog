@@ -73,6 +73,23 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, databa
     return ReplaceFilters(filters, team, database).visit(node)
 
 
+@dataclasses.dataclass(frozen=True)
+class ResolvedDateRange:
+    """The bounds `{filters}` prints for a date range. `date_to_inclusive` is True when `date_to` was snapped to
+    the end of a day and is compared with `<=`; otherwise it is compared with `<`. None means unbounded."""
+
+    date_from: Optional[datetime]
+    date_to: Optional[datetime]
+    date_to_inclusive: bool
+
+
+def resolve_date_range(filters: Optional[HogQLFilters], team: Team, *, now: datetime) -> ResolvedDateRange:
+    replacer = ReplaceFilters(filters, team)
+    replacer._now = now.astimezone(team.timezone_info)
+    date_to, inclusive = replacer._resolve_date_to()
+    return ResolvedDateRange(date_from=replacer._resolve_date_from(), date_to=date_to, date_to_inclusive=inclusive)
+
+
 class ReplaceFilters(CloningVisitor):
     def __init__(
         self,
