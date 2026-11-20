@@ -1020,12 +1020,14 @@ filters:
         - 'products/notifications/backend/**'
         - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/user_access_control.py
+        - products/access_control/backend/facade/subject_access_control.py
         - products/access_control/backend/facade/contracts.py
         - products/access_control/backend/facade/enums.py
         - 'products/access_control/backend/models/**'
         - 'products/event_definitions/backend/models/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/facade/models.py
         - products/cdp/backend/internal_events.py
-        - ee/billing/quota_limiting.py
         - posthog/tasks/email.py
         - posthog/email.py
         - posthog/helpers/email_utils.py
@@ -1076,6 +1078,7 @@ filters:
         - products/warehouse_sources/backend/facade/pipelines.py
         - products/warehouse_sources/backend/facade/source_management.py
         - products/warehouse_sources/backend/facade/types.py
+        - products/warehouse_sources/backend/facade/contracts.py
         - products/warehouse_sources/backend/ad_hoc_sync.py
         - products/warehouse_sources/backend/billing.py
         - products/warehouse_sources/backend/self_managed_access.py
@@ -1107,6 +1110,9 @@ filters:
         - products/customer_analytics/backend/constants.py
         - 'products/notifications/backend/**'
         - products/cdp/backend/models/hog_functions/hog_function.py
+        - products/batch_exports/backend/facade/destinations/bigquery.py
+        - products/batch_exports/backend/temporal/destinations/bigquery_batch_export.py
+        - products/batch_exports/backend/temporal/utils.py
         - ee/billing/quota_limiting.py
         - ee/billing/billing_manager.py
         - ee/models/license.py
@@ -1250,6 +1256,11 @@ filters:
         - products/warehouse_sources/backend/facade/source_inputs.py
         - products/warehouse_sources/backend/facade/sources.py
         - products/warehouse_sources/backend/facade/types.py
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/logic/source_inputs.py
+        - products/warehouse_sources/backend/logic/source_credentials.py
+        - products/warehouse_sources/backend/logic/source_credentials_rollout.py
+        - products/warehouse_sources/backend/logic/credential_auth_types.py
         - products/data_modeling/backend/facade/models.py
         - products/experiments/backend/temporal/registry.py
         - products/experiments/backend/temporal/models.py
@@ -1268,6 +1279,8 @@ filters:
         - products/experiments/backend/facade/daily_calculation.py
         - products/experiments/backend/facade/timeseries.py
         - products/experiments/backend/facade/warehouse_native_access.py
+        - products/experiments/backend/facade/contracts.py
+        - products/experiments/backend/facade/enums.py
         - products/experiments/backend/metric_resolution.py
         - products/experiments/backend/metric_utils.py
         - products/experiments/backend/metric_validation.py
@@ -1312,6 +1325,8 @@ filters:
         - 'products/metrics/backend/precompute/**'
         - 'products/metrics/backend/hogql_queries/**'
         - products/metrics/backend/facade/api.py
+        - products/metrics/backend/facade/contracts.py
+        - products/metrics/backend/facade/enums.py
         - products/metrics/backend/dashboard_import/catalog.py
         - products/metrics/backend/dashboard_import/colors.py
         - products/metrics/backend/dashboard_import/layout.py
@@ -1320,12 +1335,10 @@ filters:
         - products/metrics/backend/dashboard_import/tiles.py
         - products/metrics/backend/dashboard_import/validation.py
         - products/metrics/backend/alerts/freshness.py
-        - products/metrics/backend/anomaly.py
         - products/metrics/backend/date_range.py
         - products/metrics/backend/derived.py
         - products/metrics/backend/formula.py
         - products/metrics/backend/has_metrics_query_runner.py
-        - products/metrics/backend/investigation.py
         - products/metrics/backend/metric_attributes_query_runner.py
         - products/metrics/backend/metric_event_samples_query_runner.py
         - products/metrics/backend/metric_names_query_runner.py
@@ -1334,7 +1347,6 @@ filters:
         - products/metrics/backend/metrics4_samples.py
         - products/metrics/backend/metrics_overview_query_runner.py
         - products/metrics/backend/models.py
-        - products/metrics/backend/prometheus_usage.py
         - products/metrics/backend/promql.py
         - products/metrics/backend/query_concurrency.py
         - products/metrics/backend/query_counts.py
@@ -1417,6 +1429,8 @@ filters:
         - 'products/today/backend/logic/today_highlights/**'
         - products/today/backend/models.py
         - products/today/backend/facade/highlight_helpers.py
+        - products/today/backend/facade/contracts.py
+        - products/today/backend/facade/enums.py
         - 'products/*/backend/facade/today_highlights.py'
         - 'products/*/backend/today_highlights.py'
         - 'products/workflows/backend/today_highlights/**'
@@ -1447,6 +1461,7 @@ filters:
         - products/canvas/backend/error_reports.py
         - products/canvas/backend/models.py
         - products/canvas/backend/facade/enums.py
+        - products/canvas/backend/facade/contracts.py
         - products/canvas/packages/canvas_builder/manifest.json
         - 'products/messaging/backend/temporal/**'
         - 'products/messaging/backend/provider_imports/**'
@@ -1489,6 +1504,8 @@ filters:
         - posthog/event_usage.py
         - posthog/dns_utils.py
         - posthog/persons_db.py
+        - posthog/cache_utils.py
+        - posthog/helpers/encrypted_fields.py
         - posthog/metrics.py
         - posthog/temporal/oauth.py
         - posthog/security/oob_domains.py
@@ -1501,6 +1518,7 @@ filters:
         - posthog/llm/openai_flex.py
         - 'posthog/usage_ingestion/**'
         - 'posthog/integrations/**'
+        - 'posthog/credentials_service/**'
         - 'posthog/hogql/**'
         - 'posthog/hogql_queries/**'
         - 'posthog/clickhouse/**'
@@ -1562,11 +1580,11 @@ images:
             batch-exports:
                 repository: posthog-temporal-workers/batch-exports
                 filter: batchExportsWorker
-                bootstrapPolicyDigest: e1b8739e98729841f17ea5d7f675bc98f49546e43fbc125c160e9ac7a0e0a37d
+                bootstrapPolicyDigest: e4e09e71c777a649516b7fb8b6bf5b7cd76fb9b9bd3d2cb6a3894e1341a3cf60
             data-warehouse:
                 repository: posthog-temporal-workers/data-warehouse
                 filter: dataWarehouseWorker
-                bootstrapPolicyDigest: 20b7021eb790c200239219e73ffaca6a329a646b8d05effade1de54896542d1d
+                bootstrapPolicyDigest: 36c8ac6887429fe32682f98291e2334d28eadc834ddd3eb9e191224d2d8e6786
             data-warehouse-cdp-producer:
                 repository: posthog-temporal-workers/data-warehouse-cdp-producer
                 filter: dataWarehouseCdpProducerWorker
@@ -1574,4 +1592,4 @@ images:
             general-purpose:
                 repository: posthog-temporal-workers/general-purpose
                 filter: generalPurposeWorker
-                bootstrapPolicyDigest: e843aefd9c5073424a3b8f970df82d99c837bf8f3543c7a60eba6944218c9ab7
+                bootstrapPolicyDigest: 814080dca168fc13501e7236e3e830e8fadc06eb48657ee32c163034dab7f524
