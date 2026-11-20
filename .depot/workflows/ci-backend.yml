@@ -974,15 +974,16 @@ jobs:
             # see which products a posthog/ or ee/ edit reaches, and the selector can, because
             # it follows the import graph into products/. Both matrices read one verdict, so
             # they can never disagree about whether the selection is trustworthy.
-            # Only on a legacy diff: turbo-discover.js trusts the selection only when the paths
-            # filter saw a legacy edit, and falls back without a selector run otherwise. The
+            # On a legacy diff, and on a ready PR's product-only diff: turbo-discover.js trusts a
+            # product cascade's selection by phase, and reports what an untrusted one would have
+            # run. A product-only draft skips the matrices whatever the selector picks. The
             # DISABLE_BACKEND_TEST_SELECTION kill switch skips the run too; the script still
             # reports the `disabled` reason from its own env.
             - name: Install uv
               # Optional setup: a failure here must fall back to the full matrices like a
               # selector failure does, not fail the job that gates every test job.
               continue-on-error: true
-              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
+              if: env.SELECTION_APPLIES == 'true' && (needs.changes.outputs.legacy == 'true' || github.event.pull_request.draft != true) && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
               uses: ./.depot/actions/setup-uv
               with:
                   enable-cache: false
@@ -1018,7 +1019,7 @@ jobs:
               # reaches the matrices rather than taking the whole job down with it.
               continue-on-error: true
               timeout-minutes: 8
-              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
+              if: env.SELECTION_APPLIES == 'true' && (needs.changes.outputs.legacy == 'true' || github.event.pull_request.draft != true) && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
               shell: bash
               run: |
                   set -euo pipefail
