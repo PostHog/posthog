@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { createWindowIdRegistry } from '@posthog/replay-shared'
+import { ExpansionBudget, ReplayTelemetry, createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -20,8 +20,131 @@ import {
     type sessionRecordingDataCoordinatorLogicType,
 } from '../player/sessionRecordingDataCoordinatorLogic'
 import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
+import { parseEncodedSnapshots } from '../player/snapshot-processing/process-all-snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
+import {
+    ExportedSessionRecordingFileRawHeader,
+    ExportedSessionRecordingFileV1,
+    ExportedSessionRecordingFileV2,
+    LoadedSessionRecordingFile,
+} from './types'
+
+const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
+
+// Limits for a file a person opens by hand, so a crafted file cannot exhaust the tab before anything renders.
+const MAX_RAW_HEADER_BYTES = 8 * 1024 * 1024
+const MAX_RAW_BLOCKS = 100_000
+const MAX_RAW_BLOCK_EXPANDED_BYTES = 256 * 1024 * 1024
+const MAX_RAW_EXPANDED_BYTES = 1024 * 1024 * 1024
+
+// A raw snappy block starts with its decompressed length as a little-endian base-128 varint.
+const snappyExpandedLength = (block: Uint8Array): number => {
+    let length = 0
+    for (let i = 0; i < Math.min(block.byteLength, 5); i++) {
+        length += (block[i] & 0x7f) * 2 ** (7 * i)
+        if ((block[i] & 0x80) === 0) {
+            return length
+        }
+    }
+    return Infinity
+}
+
+export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
+    bytes.byteLength >= RAW_EXPORT_MAGIC.byteLength && RAW_EXPORT_MAGIC.every((byte, i) => bytes[i] === byte)
+
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+// The player parses width and height as integers and puts href into the patched meta event.
+const isValidViewport = (viewport: unknown): boolean => {
+    const { timestamp, width, height, href } = (viewport ?? {}) as Record<string, unknown>
+    const isDimension = (value: unknown): boolean => /^\d+$/.test(String(value))
+    return isFiniteNumber(timestamp) && isDimension(width) && isDimension(height) && typeof href === 'string'
+}
+
+const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => {
+    const header = JSON.parse(line)
+    if (typeof header !== 'object' || header === null) {
+        throw new Error('File does not have a valid header')
+    }
+    if (header.version !== '2026-11-raw') {
+        throw new Error(`Unsupported export version ${header.version}`)
+    }
+    if (
+        typeof header.session_id !== 'string' ||
+        !Number.isInteger(header.block_count) ||
+        !Array.isArray(header.viewports) ||
+        !header.viewports.every(isValidViewport)
+    ) {
+        throw new Error('File does not have a valid header')
+    }
+    return header
+}
+
+// Event name the shared parser captures when it drops lines it cannot parse.
+const UNPARSEABLE_LINES_EVENT = 'session recording had unparseable lines'
+
+export const parseRawExportedSessionRecording = async (
+    bytes: Uint8Array,
+    onUnreadableLines?: () => void
+): Promise<LoadedSessionRecordingFile> => {
+    const headerEnd = bytes
+        .subarray(0, RAW_EXPORT_MAGIC.byteLength + MAX_RAW_HEADER_BYTES)
+        .indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
+    if (headerEnd === -1) {
+        throw new Error('File does not have a valid header')
+    }
+    const header = parseRawHeader(new TextDecoder().decode(bytes.subarray(RAW_EXPORT_MAGIC.byteLength, headerEnd)))
+
+    // The shared parser stops quietly at a truncated block, so check the framing here first.
+    const blocks = bytes.subarray(headerEnd + 1)
+    const view = new DataView(blocks.buffer, blocks.byteOffset, blocks.byteLength)
+    let blockCount = 0
+    let expandedBytes = 0
+    for (let offset = 0; offset < blocks.byteLength; blockCount++) {
+        const blockEnd = offset + 4 > blocks.byteLength ? Infinity : offset + 4 + view.getUint32(offset)
+        if (blockEnd > blocks.byteLength) {
+            throw new Error('File is truncated')
+        }
+        // The shared parser reads a zero length at the start as unframed data.
+        if (blockEnd === offset + 4) {
+            throw new Error('File has an empty block')
+        }
+        const blockExpandedBytes = snappyExpandedLength(blocks.subarray(offset + 4, blockEnd))
+        expandedBytes += blockExpandedBytes
+        if (blockExpandedBytes > MAX_RAW_BLOCK_EXPANDED_BYTES || expandedBytes > MAX_RAW_EXPANDED_BYTES) {
+            throw new Error('File is too large to play back in the browser')
+        }
+        offset = blockEnd
+        if (blockCount >= MAX_RAW_BLOCKS) {
+            throw new Error('File is too large to play back in the browser')
+        }
+    }
+    if (blockCount !== header.block_count) {
+        throw new Error(`File has ${blockCount} blocks but its header lists ${header.block_count}`)
+    }
+    // The shared parser's telemetry would send unreadable lines, which hold page content, to analytics.
+    const telemetry: ReplayTelemetry = {
+        capture: (event) => {
+            if (event === UNPARSEABLE_LINES_EVENT) {
+                onUnreadableLines?.()
+            }
+        },
+        captureException: () => {},
+    }
+    // Nested compressed fields share the room left after the blocks themselves.
+    const budget = new ExpansionBudget(MAX_RAW_EXPANDED_BYTES - expandedBytes)
+    const snapshots = await parseEncodedSnapshots(blocks, header.session_id, undefined, undefined, telemetry, budget)
+    if (!snapshots.length) {
+        throw new Error('File contains no snapshots')
+    }
+
+    return {
+        id: header.session_id,
+        person: header.person,
+        snapshots: snapshots.sort((a, b) => a.timestamp - b.timestamp),
+        viewports: header.viewports,
+    }
+}
 
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
     const data = JSON.parse(fileData) as ExportedSessionRecordingFileV1 | ExportedSessionRecordingFileV2
@@ -102,7 +225,7 @@ export interface sessionRecordingFilePlaybackSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     fileId: string
     playerProps: SessionRecordingPlayerProps
-    sessionRecording: ExportedSessionRecordingFileV2['data'] | null
+    sessionRecording: LoadedSessionRecordingFile | null
     sessionRecordingLoading: boolean
 }
 
@@ -175,24 +298,19 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
 
     loaders(({ actions }) => ({
         sessionRecording: {
-            __default: null as ExportedSessionRecordingFileV2['data'] | null,
+            __default: null as LoadedSessionRecordingFile | null,
             loadFromFile: async (file: File) => {
                 try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => {
-                            resolve(e.target?.result as string)
-                        }
-                        filereader.onerror = (e) => {
-                            reject(e)
-                        }
-                        filereader.readAsText(file)
-                    })
-
-                    const data = parseExportedSessionRecording(loadedFile)
-
+                    const bytes = new Uint8Array(await file.arrayBuffer())
+                    const data = isRawExportedSessionRecording(bytes)
+                        ? await parseRawExportedSessionRecording(bytes, () =>
+                              lemonToast.warning(
+                                  "Part of this recording couldn't be read, so playback may be incomplete. The file may be damaged."
+                              )
+                          )
+                        : parseExportedSessionRecording(new TextDecoder().decode(bytes)).data
                     actions.reportRecordingLoadedFromFile({ success: true })
-                    return data.data
+                    return data
                 } catch (error) {
                     actions.reportRecordingLoadedFromFile({ success: false, error: `${error}` })
                     lemonToast.error(`File import failed: ${error}`)

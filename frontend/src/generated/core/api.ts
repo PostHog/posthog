@@ -1292,30 +1292,6 @@ export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
 export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
     organizationId: string,
     id: number,
@@ -1491,30 +1467,6 @@ export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = 
         {
             ...options,
             method: 'PATCH',
-        }
-    )
-}
-
-export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
