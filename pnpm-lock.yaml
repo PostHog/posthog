@@ -4305,8 +4305,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
       zod:
-        specifier: ^4.3.6
-        version: 4.6.7
+        specifier: 4.3.6
+        version: 4.3.6
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
@@ -30115,11 +30115,11 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.3
       pkce-challenge: 5.0.0
-      zod: 4.6.7
+      zod: 4.3.6
 
   '@modelcontextprotocol/core@2.4.0':
     dependencies:
-      zod: 4.6.7
+      zod: 4.3.6
 
   '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)':
     dependencies:

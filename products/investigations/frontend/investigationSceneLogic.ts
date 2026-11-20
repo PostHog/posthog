@@ -33,49 +33,7 @@ export interface investigationSceneLogicActions {
         value: true
     }
     changeDocument: (document: InvestigationDocument) => {
-        document: {
-            baselineId: string | null
-            checks: ('definition' | 'maturity' | 'population' | 'tracking')[]
-            conclusion: string
-            context: string
-            decision: string
-            evidence: {
-                id: string
-                kind: 'link' | 'query'
-                note: string
-                reference: number
-                sql: string
-                title: string
-                url: string
-            }[]
-            example: boolean
-            followUp: string
-            hypotheses: {
-                evidenceIds: string[]
-                id: string
-                reasoning: string
-                status: 'open' | 'ruled_out' | 'supported'
-                title: string
-            }[]
-            nextEvidenceNumber: number
-            question: string
-            runs: {
-                at: string
-                conclusion: string
-                id: string
-                results: {
-                    columns: string[]
-                    error: string | null
-                    evidenceId: string
-                    rows: (boolean | number | string | null)[][]
-                    sql: string
-                    title: string
-                    truncated: boolean
-                }[]
-            }[]
-            status: 'closed' | 'investigating' | 'monitoring' | 'review'
-            version: 1
-        }
+        document: InvestigationDocument
     }
     discard: () => {
         value: true
@@ -96,49 +54,7 @@ export interface investigationSceneLogicActions {
         record: SavedInvestigationApi,
         document: InvestigationDocument
     ) => {
-        document: {
-            baselineId: string | null
-            checks: ('definition' | 'maturity' | 'population' | 'tracking')[]
-            conclusion: string
-            context: string
-            decision: string
-            evidence: {
-                id: string
-                kind: 'link' | 'query'
-                note: string
-                reference: number
-                sql: string
-                title: string
-                url: string
-            }[]
-            example: boolean
-            followUp: string
-            hypotheses: {
-                evidenceIds: string[]
-                id: string
-                reasoning: string
-                status: 'open' | 'ruled_out' | 'supported'
-                title: string
-            }[]
-            nextEvidenceNumber: number
-            question: string
-            runs: {
-                at: string
-                conclusion: string
-                id: string
-                results: {
-                    columns: string[]
-                    error: string | null
-                    evidenceId: string
-                    rows: (boolean | number | string | null)[][]
-                    sql: string
-                    title: string
-                    truncated: boolean
-                }[]
-            }[]
-            status: 'closed' | 'investigating' | 'monitoring' | 'review'
-            version: 1
-        }
+        document: InvestigationDocument
         record: SavedInvestigationApi
     }
     setBusy: (busy: boolean) => {
@@ -146,9 +62,9 @@ export interface investigationSceneLogicActions {
     }
     setError: (
         error: string | null,
-        conflict?: any
+        conflict?: boolean
     ) => {
-        conflict: any
+        conflict: boolean
         error: string | null
     }
 }
@@ -158,50 +74,8 @@ export interface investigationSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         dirty: (
-            document: {
-                baselineId: string | null
-                checks: ('definition' | 'maturity' | 'population' | 'tracking')[]
-                conclusion: string
-                context: string
-                decision: string
-                evidence: {
-                    id: string
-                    kind: 'link' | 'query'
-                    note: string
-                    reference: number
-                    sql: string
-                    title: string
-                    url: string
-                }[]
-                example: boolean
-                followUp: string
-                hypotheses: {
-                    evidenceIds: string[]
-                    id: string
-                    reasoning: string
-                    status: 'open' | 'ruled_out' | 'supported'
-                    title: string
-                }[]
-                nextEvidenceNumber: number
-                question: string
-                runs: {
-                    at: string
-                    conclusion: string
-                    id: string
-                    results: {
-                        columns: string[]
-                        error: string | null
-                        evidenceId: string
-                        rows: (boolean | number | string | null)[][]
-                        sql: string
-                        title: string
-                        truncated: boolean
-                    }[]
-                }[]
-                status: 'closed' | 'investigating' | 'monitoring' | 'review'
-                version: 1
-            } | null,
-            savedDocument: any,
+            document: InvestigationDocument | null,
+            savedDocument: InvestigationDocument | null,
             discarded: boolean
         ) => boolean
     }
@@ -223,7 +97,7 @@ export const investigationSceneLogic = kea<investigationSceneLogicType>([
         loaded: (record: SavedInvestigationApi) => ({ record }),
         changeDocument: (document: InvestigationDocument) => ({ document }),
         setBusy: (busy: boolean) => ({ busy }),
-        setError: (error: string | null, conflict = false) => ({ error, conflict }),
+        setError: (error: string | null, conflict: boolean = false) => ({ error, conflict }),
         save: true,
         saved: (record: SavedInvestigationApi, document: InvestigationDocument) => ({ record, document }),
         saveCopy: true,

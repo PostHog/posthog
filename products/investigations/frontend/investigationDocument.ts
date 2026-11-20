@@ -56,7 +56,7 @@ export const investigationDocumentSchema = z.object({
     example: z.boolean(),
 })
 
-export type InvestigationDocument = z.infer<typeof investigationDocumentSchema>
+export interface InvestigationDocument extends z.infer<typeof investigationDocumentSchema> {}
 export type InvestigationEvidence = z.infer<typeof investigationEvidenceSchema>
 export type InvestigationHypothesis = z.infer<typeof investigationHypothesisSchema>
 export type InvestigationRun = z.infer<typeof investigationRunSchema>

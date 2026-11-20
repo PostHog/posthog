@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.access_control.backend.models import AccessControl
+from products.access_control.backend.facade.testing import create_access_control
 
 from ..models import Investigation
 
@@ -96,15 +96,15 @@ class TestInvestigationAPI(APIBaseTest):
         member = User.objects.create_and_join(self.organization, "investigator@example.com", "test-password")
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
         record = Investigation.objects.for_team(self.team.id).create(team_id=self.team.id, document=document())
-        AccessControl.objects.create(
-            team=self.team, resource="investigation", access_level="viewer", organization_member=membership
+        create_access_control(
+            team_id=self.team.id, resource="investigation", access_level="viewer", organization_member_id=membership.id
         )
-        AccessControl.objects.create(
-            team=self.team,
+        create_access_control(
+            team_id=self.team.id,
             resource="investigation",
             resource_id=str(record.id),
             access_level="editor",
-            organization_member=membership,
+            organization_member_id=membership.id,
         )
         self.client.force_login(member)
         self.assertEqual(self.client.get(self.url).status_code, 200)

@@ -10,7 +10,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
-        "zod": "^4.3.6"
+        "zod": "4.3.6"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:",

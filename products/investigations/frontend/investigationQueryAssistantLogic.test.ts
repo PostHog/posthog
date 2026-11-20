@@ -1,5 +1,6 @@
 import { initKeaTests } from '~/test/init'
 
+import type { InvestigationDocument } from './investigationDocument'
 import { investigationExample } from './investigationExample'
 import { InvestigationQueryAssistantProps, investigationQueryAssistantLogic } from './investigationQueryAssistantLogic'
 import { investigationQueryContext } from './queryAssistantHelpers'
@@ -7,16 +8,16 @@ import { investigationQueryContext } from './queryAssistantHelpers'
 describe('investigation query assistant', () => {
     let logic: ReturnType<typeof investigationQueryAssistantLogic.build>
     let props: InvestigationQueryAssistantProps
-    const onChange = jest.fn()
+    const savedDocuments: InvestigationDocument[] = []
 
     beforeEach(() => {
         initKeaTests()
-        onChange.mockClear()
+        savedDocuments.length = 0
         props = {
             scope: 'assistant-test',
             document: investigationExample(),
             editable: true,
-            onChange,
+            onChange: (document) => savedDocuments.push(document),
             onSelect: jest.fn(),
         }
         logic = investigationQueryAssistantLogic(props)
@@ -37,15 +38,15 @@ describe('investigation query assistant', () => {
         logic.actions.setTargetId(props.document.evidence[0].id)
         logic.actions.askAssistant()
         propose()
-        expect(onChange).not.toHaveBeenCalled()
+        expect(savedDocuments).toEqual([])
         expect(logic.values.proposal?.sql).toBe('SELECT 21 AS conversion_rate')
         investigationQueryAssistantLogic({
             ...props,
             document: { ...props.document, conclusion: 'An unsaved conclusion' },
         })
         logic.actions.acceptProposal('replace')
-        expect(onChange).toHaveBeenCalledTimes(1)
-        const saved = onChange.mock.calls[0][0]
+        expect(savedDocuments).toHaveLength(1)
+        const [saved] = savedDocuments
         expect(saved.evidence[0]).toEqual({ ...props.document.evidence[0], sql: 'SELECT 21 AS conversion_rate' })
         expect(saved.runs).toEqual(props.document.runs)
         expect(saved.hypotheses).toEqual(props.document.hypotheses)
@@ -75,10 +76,10 @@ describe('investigation query assistant', () => {
                       )
             investigationQueryAssistantLogic({ ...props, document: { ...props.document, evidence } })
             logic.actions.acceptProposal('replace')
-            expect(onChange).not.toHaveBeenCalled()
+            expect(savedDocuments).toEqual([])
             expect(logic.values.error).toBeTruthy()
             logic.actions.acceptProposal('add')
-            const saved = onChange.mock.calls[0][0]
+            const [saved] = savedDocuments
             expect(saved.evidence.slice(0, -1)).toEqual(evidence)
             expect(saved.evidence.at(-1)).toMatchObject({
                 reference: props.document.nextEvidenceNumber,
@@ -94,7 +95,7 @@ describe('investigation query assistant', () => {
             logic.actions.askAssistant()
             propose({ context })
             expect(logic.values.proposal).toBeNull()
-            expect(onChange).not.toHaveBeenCalled()
+            expect(savedDocuments).toEqual([])
         }
     )
 
@@ -127,7 +128,7 @@ describe('investigation query assistant', () => {
         propose()
         investigationQueryAssistantLogic({ ...props, editable: false })
         logic.actions.acceptProposal('add')
-        expect(onChange).not.toHaveBeenCalled()
+        expect(savedDocuments).toEqual([])
     })
 
     it('routes proposals only to the most recently requested investigation', () => {
