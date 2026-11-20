@@ -43,6 +43,7 @@ jobs:
               with:
                   sparse-checkout: |
                       /cli/
+                      /rust/common/symbol_processing/
                       /dist-workspace.toml
                       /README.md
                       /LICENSE
