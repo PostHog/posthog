@@ -372,6 +372,12 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
         }
 
+    def to_representation(self, instance: DataWarehouseTable) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.team_credential is None:
+            data["credential"] = None
+        return data
+
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
         return get_data_warehouse_table_name(table.external_data_source, table.name)

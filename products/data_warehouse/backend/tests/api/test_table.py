@@ -835,6 +835,32 @@ class TestTable(APIBaseTest):
         credential.refresh_from_db()
         assert (credential.access_key, credential.access_secret) == ("original_key", "original_secret")
 
+    def test_list_hides_a_credential_of_another_team(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        foreign = DataWarehouseTable.objects.create(
+            name="foreign_credential_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            credential=DataWarehouseCredential.objects.create(
+                team=other_team, access_key="key", access_secret="secret"
+            ),
+        )
+        own = DataWarehouseTable.objects.create(
+            name="own_credential_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            credential=DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_tables/")
+
+        assert response.status_code == 200, response.json()
+        credentials = {row["id"]: row["credential"] for row in response.json()["results"]}
+        assert credentials[str(foreign.id)] is None
+        assert credentials[str(own.id)]["id"] == str(own.credential_id)
+
     def test_update_table_credential_blank_access_secret(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 
