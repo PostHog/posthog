@@ -129,6 +129,14 @@ describe('sessionRecordingFilePlaybackLogic', () => {
             ['a truncated block', encodeRawExport([rawBlock(0), rawBlock(1)]).slice(0, -5), 'File is truncated'],
             ['a block count mismatch', encodeRawExport([rawBlock(0)], { block_count: 2 }), 'header lists 2'],
             ['an unknown version', encodeRawExport([rawBlock(0)], { version: '2099-01-raw' }), 'Unsupported'],
+            ['viewports that are not a list', encodeRawExport([rawBlock(0)], { viewports: {} }), 'valid header'],
+            [
+                'a viewport without a timestamp',
+                encodeRawExport([rawBlock(0)], { viewports: [{ width: '1', height: '1' }] }),
+                'valid header',
+            ],
+            ['a missing block count', encodeRawExport([rawBlock(0)], { block_count: undefined }), 'valid header'],
+            ['an empty block', encodeRawExport(['']), 'empty block'],
         ])('rejects %s', async (_, bytes, message) => {
             await expect(parseRawExportedSessionRecording(bytes)).rejects.toThrow(message)
         })

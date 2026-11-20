@@ -35,17 +35,33 @@ const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
 export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
     bytes.byteLength >= RAW_EXPORT_MAGIC.byteLength && RAW_EXPORT_MAGIC.every((byte, i) => bytes[i] === byte)
 
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => {
+    const header = JSON.parse(line)
+    if (typeof header !== 'object' || header === null) {
+        throw new Error('File does not have a valid header')
+    }
+    if (header.version !== '2026-11-raw') {
+        throw new Error(`Unsupported export version ${header.version}`)
+    }
+    if (
+        typeof header.session_id !== 'string' ||
+        !Number.isInteger(header.block_count) ||
+        !Array.isArray(header.viewports) ||
+        !header.viewports.every((viewport: unknown) => isFiniteNumber((viewport as { timestamp?: unknown })?.timestamp))
+    ) {
+        throw new Error('File does not have a valid header')
+    }
+    return header
+}
+
 export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promise<LoadedSessionRecordingFile> => {
     const headerEnd = bytes.indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
     if (headerEnd === -1) {
         throw new Error('File does not have a valid header')
     }
-    const header: ExportedSessionRecordingFileRawHeader = JSON.parse(
-        new TextDecoder().decode(bytes.subarray(RAW_EXPORT_MAGIC.byteLength, headerEnd))
-    )
-    if (header.version !== '2026-11-raw') {
-        throw new Error(`Unsupported export version ${header.version}`)
-    }
+    const header = parseRawHeader(new TextDecoder().decode(bytes.subarray(RAW_EXPORT_MAGIC.byteLength, headerEnd)))
 
     // The shared parser stops quietly at a truncated block, so check the framing here first.
     const blocks = bytes.subarray(headerEnd + 1)
@@ -55,6 +71,10 @@ export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promi
         const blockEnd = offset + 4 > blocks.byteLength ? Infinity : offset + 4 + view.getUint32(offset)
         if (blockEnd > blocks.byteLength) {
             throw new Error('File is truncated')
+        }
+        // The shared parser reads a zero length at the start as unframed data.
+        if (blockEnd === offset + 4) {
+            throw new Error('File has an empty block')
         }
         offset = blockEnd
     }
