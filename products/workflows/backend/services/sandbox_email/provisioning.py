@@ -75,8 +75,12 @@ def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     return provision_sandbox_sender(team, user)
 
 
+def has_sandbox_sender(team_id: int) -> bool:
+    return bool(IntegrationManager.email_sandbox.credentials.find(team_id, external_id=SANDBOX_SENDER_INTEGRATION_ID))
+
+
 def provision_sandbox_sender_if_available(team: Team, user: User) -> None:
-    if IntegrationManager.email_sandbox.credentials.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID):
+    if has_sandbox_sender(team.id):
         return
     try:
         set_up_sandbox_sender(team, user)

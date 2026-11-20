@@ -19,7 +19,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG, provision_sandbox_sender
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -739,9 +739,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 content_type="application/json",
             )
             if path == "web_save":
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
-                )
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
+                    )
             else:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_flows/new/invocations",
@@ -757,6 +758,25 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code in (200, 201), response.json()
         assert self._sandbox_sender_is_set_up() == expected
         assert set_up_at_forward == ([] if path == "web_save" else [expected])
+
+    @parameterized.expand([("setup_fails", False), ("already_set_up", True)])
+    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool) -> None:
+        if already_set_up:
+            provision_sandbox_sender(self.team, self.user)
+        setup = patch(
+            "products.workflows.backend.presentation.views.hog_flow.provision_sandbox_sender_if_available",
+            side_effect=RuntimeError("setup failed"),
+        )
+
+        with _flag(True), _runtime(True), setup as provision, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
+            )
+
+        assert response.status_code == 201, response.json()
+        assert HogFlow.objects.filter(id=response.json()["id"]).exists()
+        assert provision.call_count == (0 if already_set_up else 1)
+        assert self._sandbox_sender_is_set_up() == already_set_up
 
     @parameterized.expand(
         [

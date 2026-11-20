@@ -285,6 +285,7 @@ from products.workflows.backend.facade.sandbox_email import (
     can_default_to_sandbox,
     check_sandbox_sender_available,
     deliverable_own_sender_domains,
+    has_sandbox_sender,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -6453,18 +6454,24 @@ class HogFlowViewSet(
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
-        else:
-            self._set_up_sandbox_sender_for(cast(dict, serializer.validated_data).get("actions"))
+        elif self._needs_sandbox_sender(cast(dict, serializer.validated_data).get("actions")):
+            transaction.on_commit(self._try_to_set_up_sandbox_sender)
 
-    def _set_up_sandbox_sender_for(self, actions: Any) -> None:
-        user = self.request.user
-        if (
-            isinstance(user, User)
-            and isinstance(actions, list)
+    def _needs_sandbox_sender(self, actions: Any) -> bool:
+        return (
+            isinstance(actions, list)
             and any(isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE for step in actions)
-            and _can_set_up_sandbox_sender(self.team, user)
-        ):
-            provision_sandbox_sender_if_available(self.team, user)
+            and not has_sandbox_sender(self.team.id)
+        )
+
+    def _try_to_set_up_sandbox_sender(self) -> None:
+        user = self.request.user
+        try:
+            if isinstance(user, User) and _can_set_up_sandbox_sender(self.team, user):
+                provision_sandbox_sender_if_available(self.team, user)
+        except Exception as error:
+            logger.exception("sandbox_sender_setup_failed", team_id=self.team.id)
+            capture_exception(error)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -7380,7 +7387,8 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
-            self._set_up_sandbox_sender_for(actions)
+            if self._needs_sandbox_sender(actions):
+                self._try_to_set_up_sandbox_sender()
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id if hog_flow else None,
