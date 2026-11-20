@@ -47,6 +47,8 @@ export type RequestProperties = {
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
     clientIp?: string | undefined
+    // Names only, never values: they show which identifiers a client sends before we read any.
+    requestHeaderNames?: string[] | undefined
 }
 
 export type ClientInfo = {
@@ -93,6 +95,15 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
         }
     }
     return unique.length > 0 ? unique : undefined
+}
+
+// Identifier-shaped only, so an email or a `key=value` pasted into a name is dropped.
+const OBSERVED_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/
+const MAX_OBSERVED_NAMES = 64
+
+export function observedNames(names: Iterable<string>): string[] | undefined {
+    const valid = [...new Set(names)].filter((name) => OBSERVED_NAME.test(name)).sort()
+    return valid.length > 0 ? valid.slice(0, MAX_OBSERVED_NAMES) : undefined
 }
 
 function parseExcludeTools(value: string | undefined): string[] | undefined {
@@ -142,5 +153,6 @@ export function parseRequestProperties(
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,
+        requestHeaderNames: observedNames(request.headers.keys()),
     }
 }
