@@ -10,7 +10,7 @@ app_dir=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$1" "$2"
 build_dir=$(cd "$1" && pwd)
 artifact_dir=$(cd "$2" && pwd)
-cd "$app_dir"
+cd "${ARGENT_APP_DIR:-$app_dir}"
 
 export CI=1 EXPO_NO_DOTENV=1 EXPO_NO_TELEMETRY=1 DO_NOT_TRACK=1
 export COCOAPODS_DISABLE_STATS=true

@@ -9,7 +9,7 @@ Post a new comment on the PR containing only `/ios-smoke <full commit SHA>`.
 To get the current SHA, run `gh pr view <number> --repo PostHog/posthog --json headRefOid --jq .headRefOid`.
 
 Open **Actions → Test mobile PR on iOS** for the result. To retry, post a fresh command so GitHub checks your current organization membership.
-The job checks that the PR still points to that commit, builds a bundled app on a fresh GitHub-hosted Mac, and runs the iOS demo walkthroughs and portrait capture.
+The job checks that the PR still points to that commit, then uses the build script from the default branch to compile that commit in an empty build directory on a fresh GitHub-hosted Mac. Both walkthroughs and the portrait capture use that run’s bundled app. Every request builds again, including retries of the same commit.
 Download the reports and screenshots from the run's artifacts within three days. Inspect the images before adding them to a PR.
 For your own changes, use the usual [local testing commands](TESTING.md).
 

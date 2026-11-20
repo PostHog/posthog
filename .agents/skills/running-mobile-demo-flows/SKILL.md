@@ -34,7 +34,9 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 
 ## Run the bundled flows
 
-From `products/mobile`:
+For an external PR, request a [fresh hosted build of its exact commit](../../../products/mobile/docs/CI.md#test-a-mobile-pr-on-ios) for every run or retry.
+
+For your own changes, from `products/mobile`:
 
 ```sh
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
