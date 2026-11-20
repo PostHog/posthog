@@ -1,0 +1,446 @@
+// A JavaScript bundle and its sourcemap, and the chunk ID injection hog runs on them. Copied from
+// posthog-cli's `sourcemaps/content.rs`, `source_pairs.rs` and `inject.rs`, so the bytes written
+// here are the bytes posthog-cli writes. The rules only hog has are marked where they apply.
+
+use anyhow::{anyhow, Result};
+use magic_string::{GenerateDecodedMapOptions, MagicString};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sourcemap::SourceMap;
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Component, Path, PathBuf},
+};
+
+use crate::{
+    constant::{
+        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CHUNK_ID_NAMESPACE, CODE_SNIPPET_TEMPLATE,
+        CODE_SNIPPET_WITH_RELEASE_TEMPLATE, QUOTED_CHUNKID_PLACEHOLDER, RELEASE_ID_PLACEHOLDER,
+    },
+    node,
+};
+
+// A release id longer than this between the snippet halves is not one hog or posthog-cli wrote.
+const MAX_RELEASE_ID_LITERAL_BYTES: usize = 256;
+const SOURCEMAP_REFERENCE_PREFIXES: [&str; 2] = ["//# sourceMappingURL=", "//@ sourceMappingURL="];
+const CHUNK_ID_COMMENT: &str = "//# chunkId=";
+const DEBUG_ID_COMMENT: &str = "//# debugId=";
+
+fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
+    let Some(release_id) = release_id else {
+        return substitute_chunk_id(CODE_SNIPPET_TEMPLATE, chunk_id);
+    };
+    Ok(
+        substitute_chunk_id(CODE_SNIPPET_WITH_RELEASE_TEMPLATE, chunk_id)?
+            .replace(RELEASE_ID_PLACEHOLDER, &serde_json::to_string(release_id)?),
+    )
+}
+
+fn substitute_chunk_id(template: &str, chunk_id: &str) -> Result<String> {
+    Ok(template.replace(
+        QUOTED_CHUNKID_PLACEHOLDER,
+        &serde_json::to_string(chunk_id)?,
+    ))
+}
+
+struct ReleaseSnippetSpan {
+    start: usize,
+    end: usize,
+    release_id_start: usize,
+    release_id_end: usize,
+}
+
+fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSpan> {
+    let (prefix, suffix) = CODE_SNIPPET_WITH_RELEASE_TEMPLATE
+        .split_once(RELEASE_ID_PLACEHOLDER)
+        .expect("release template has a release id placeholder");
+    let suffix = substitute_chunk_id(suffix, chunk_id).ok()?;
+    let start = source.find(prefix)?;
+    let release_id_start = start + prefix.len();
+    let release_id_len = source[release_id_start..].find(&suffix)?;
+    if release_id_len > MAX_RELEASE_ID_LITERAL_BYTES {
+        return None;
+    }
+    let release_id_end = release_id_start + release_id_len;
+    Some(ReleaseSnippetSpan {
+        start,
+        end: release_id_end + suffix.len(),
+        release_id_start,
+        release_id_end,
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceMapContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+    #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
+    pub chunk_id: Option<String>,
+    #[serde(rename = "debugId", skip_serializing_if = "Option::is_none")]
+    pub debug_id: Option<String>,
+    #[serde(flatten)]
+    pub fields: BTreeMap<String, Value>,
+}
+
+impl SourceMapContent {
+    fn apply_adjustment(&mut self, adjustment: SourceMap) -> Result<()> {
+        let new_content = {
+            let content = serde_json::to_string(&*self)?.into_bytes();
+            let mut map = sourcemap::decode_slice(content.as_slice())
+                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?;
+            if let sourcemap::DecodedMap::Index(indexed) = &mut map {
+                let replacement = indexed
+                    .flatten()
+                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {err}"))?;
+                map = sourcemap::DecodedMap::Regular(replacement);
+            };
+            let original = match &mut map {
+                sourcemap::DecodedMap::Regular(m) => m,
+                sourcemap::DecodedMap::Hermes(m) => m,
+                sourcemap::DecodedMap::Index(_) => unreachable!(),
+            };
+            original.adjust_mappings(&adjustment);
+            let mut content = content;
+            content.clear();
+            original.to_writer(&mut content)?;
+            serde_json::from_slice::<SourceMapContent>(&content)?
+        };
+        let mut old = std::mem::replace(self, new_content);
+        self.chunk_id = old.chunk_id.take();
+        self.release_id = old.release_id.take();
+        self.debug_id = old.debug_id.take();
+        for (key, value) in old.fields {
+            if key != "sections" {
+                self.fields.entry(key).or_insert(value);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn magic_adjustment(magic: &mut MagicString) -> Result<SourceMap> {
+    let adjustment = magic
+        .generate_map(GenerateDecodedMapOptions {
+            include_content: true,
+            ..Default::default()
+        })
+        .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
+    SourceMap::from_slice(
+        adjustment
+            .to_string()
+            .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
+            .as_bytes(),
+    )
+    .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))
+}
+
+pub struct SourcePair {
+    // Canonical, because hog reports this path and writes the bundle back to it.
+    pub source_path: PathBuf,
+    pub map_path: PathBuf,
+    pub source: String,
+    pub map: SourceMapContent,
+}
+
+// Why a bundle hog found has no pair to work on. hog shows the reason next to the bundle's path.
+pub enum Unreadable {
+    NoSourcemap,
+    Skipped(String),
+}
+
+impl SourceMapContent {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+}
+
+pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<SourcePair, Unreadable> {
+    let skipped = |reason: String| Unreadable::Skipped(reason);
+
+    let source_path = dunce::canonicalize(path).map_err(|error| {
+        skipped(format!(
+            "failed to read source: {}",
+            node::message(&error, "lstat", path)
+        ))
+    })?;
+    let source = node::read_text(&source_path)
+        .map_err(|message| skipped(format!("failed to read source: {message}")))?;
+
+    let map_path = find_sourcemap(
+        &source_path,
+        sourcemap_reference(&source),
+        public_path_prefix,
+    )
+    .map_err(|_| skipped("the sourcemap reference is not valid UTF-8 once decoded".to_string()))?
+    .ok_or(Unreadable::NoSourcemap)?;
+    let map: SourceMapContent = node::read(&map_path)
+        .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
+        .map_err(|message| skipped(format!("failed to read sourcemap: {message}")))?;
+
+    // posthog-cli would rewrite any JSON object the reference names, such as a settings file next
+    // to the build. A sourcemap always has `mappings`, or `sections` when it is an index map.
+    if !map.fields.contains_key("mappings") && !map.fields.contains_key("sections") {
+        return Err(skipped(
+            "the file its sourceMappingURL names isn't a sourcemap: it has no mappings".to_string(),
+        ));
+    }
+
+    Ok(SourcePair {
+        source_path,
+        map_path,
+        source,
+        map,
+    })
+}
+
+// Whether discovery counts the file as a bundle: it is readable text and its sourcemap exists.
+pub fn has_sourcemap(path: &Path, public_path_prefix: Option<&str>) -> bool {
+    let Ok(source) = node::read_text(path) else {
+        return false;
+    };
+
+    matches!(
+        find_sourcemap(path, sourcemap_reference(&source), public_path_prefix),
+        Ok(Some(_))
+    )
+}
+
+// posthog-cli refuses to upload a Hermes map without this key, so it is what tells the map the
+// Hermes compiler composed apart from Metro's packager map.
+const HERMES_FUNCTION_OFFSETS: &str = "x_hermes_function_offsets";
+
+pub fn is_composed_map(path: &Path) -> bool {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SourceMapContent>(&bytes).ok())
+        .is_some_and(|map| map.fields.contains_key(HERMES_FUNCTION_OFFSETS))
+}
+
+impl SourcePair {
+    fn comment_value(&self, prefix: &str) -> Option<String> {
+        self.source
+            .lines()
+            .rev()
+            .find(|line| line.starts_with(prefix))
+            .and_then(|line| line.split_once('=').map(|(_, value)| value.to_string()))
+    }
+
+    pub fn chunk_id(&self) -> Option<String> {
+        self.comment_value(CHUNK_ID_COMMENT)
+    }
+
+    pub fn source_debug_id(&self) -> Option<String> {
+        self.comment_value(DEBUG_ID_COMMENT)
+    }
+
+    pub fn injected_release_id(&self) -> Option<String> {
+        let chunk_id = self.chunk_id()?;
+        let span = find_release_snippet(&self.source, &chunk_id)?;
+        serde_json::from_str(&self.source[span.release_id_start..span.release_id_end]).ok()
+    }
+
+    pub fn add_chunk_id(&mut self, chunk_id: &str, release_id: Option<&str>) -> Result<()> {
+        if self.chunk_id().is_some() {
+            return Err(anyhow!("Chunk ID already set"));
+        }
+        let mut magic = MagicString::new(&self.source);
+        magic
+            .prepend(&build_code_snippet(chunk_id, release_id)?)
+            .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;
+        magic
+            .append(&CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, chunk_id))
+            .map_err(|err| anyhow!("Failed to append chunk comment: {err}"))?;
+        let adjustment = magic_adjustment(&mut magic)?;
+        self.source = magic.to_string();
+        if self.map.chunk_id.is_none() {
+            self.map.apply_adjustment(adjustment)?;
+            self.map.chunk_id = Some(chunk_id.to_string());
+        }
+        Ok(())
+    }
+
+    pub fn remove_chunk_id(&mut self, chunk_id: &str) -> Result<()> {
+        if self.chunk_id().as_deref() != Some(chunk_id) {
+            return Err(anyhow!("Chunk ID mismatch"));
+        }
+        let mut magic = MagicString::new(&self.source);
+        let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, chunk_id);
+        if let Some(start) = self.source.find(&chunk_comment) {
+            magic
+                .remove(start as i64, (start + chunk_comment.len()) as i64)
+                .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
+        }
+        let code_snippet = substitute_chunk_id(CODE_SNIPPET_TEMPLATE, chunk_id)?;
+        if let Some(start) = self.source.find(&code_snippet) {
+            magic
+                .remove(start as i64, (start + code_snippet.len()) as i64)
+                .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+        } else if let Some(span) = find_release_snippet(&self.source, chunk_id) {
+            magic
+                .remove(span.start as i64, span.end as i64)
+                .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+        }
+        let adjustment = magic_adjustment(&mut magic)?;
+        self.source = magic.to_string();
+        self.map.apply_adjustment(adjustment)?;
+        self.map.chunk_id = None;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Action {
+    Injected,
+    ReleaseUpdated,
+    Unchanged,
+}
+
+// A bundler debug id becomes the chunk id when it parses as a UUID. The source comment wins over
+// the map's `debugId` when both exist.
+fn adopted_debug_id(pair: &SourcePair, warnings: &mut Vec<String>) -> Option<String> {
+    let display = pair.source_path.display();
+    let source_id = pair.source_debug_id();
+    let id = source_id.clone().or_else(|| pair.map.debug_id.clone())?;
+    if let (Some(source_id), Some(map_id)) = (&source_id, &pair.map.debug_id) {
+        if source_id != map_id {
+            warnings.push(format!(
+                "{display}: the chunk and its sourcemap have different debug ids. Using the chunk's."
+            ));
+        }
+    }
+    if uuid::Uuid::parse_str(&id).is_ok() {
+        return Some(id);
+    }
+    warnings.push(format!(
+        "{display}: ignoring the malformed debug id {} and deriving a chunk id from the content.",
+        js_string(&id)
+    ));
+    None
+}
+
+// `JSON.stringify` of a string. serde_json escapes the same characters except U+2028 and U+2029,
+// which neither escapes, and lone surrogates, which a Rust string cannot hold.
+fn js_string(text: &str) -> String {
+    serde_json::to_string(text).expect("a string serializes")
+}
+
+// Event mode: chunk ids derive from the bundle's content, so they stay the same across rebuilds.
+// A resolved release goes into the snippet, and a changed release swaps only the snippet.
+pub fn inject_event_mode(
+    pair: &mut SourcePair,
+    release_id: Option<&str>,
+    warnings: &mut Vec<String>,
+) -> Result<(Action, String)> {
+    let Some(existing) = pair.chunk_id() else {
+        let chunk_id = adopted_debug_id(pair, warnings).unwrap_or_else(|| {
+            uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, pair.source.as_bytes()).to_string()
+        });
+        pair.add_chunk_id(&chunk_id, release_id)?;
+        return Ok((Action::Injected, chunk_id));
+    };
+    let Some(release_id) = release_id else {
+        return Ok((Action::Unchanged, existing));
+    };
+    if pair.injected_release_id().as_deref() == Some(release_id) {
+        return Ok((Action::Unchanged, existing));
+    }
+    pair.remove_chunk_id(&existing)?;
+    pair.add_chunk_id(&existing, Some(release_id))?;
+    Ok((Action::ReleaseUpdated, existing))
+}
+
+// Symbol-set mode: the release is stamped into the map, and a pair whose release changed gets a
+// fresh random chunk id, because PostHog binds a symbol set to one release.
+pub fn needs_new_chunk_id(pair: &SourcePair, release_id: Option<&str>) -> bool {
+    pair.map.release_id.as_deref() != release_id || pair.chunk_id().is_none()
+}
+
+pub fn inject_symbol_set_mode(
+    pair: &mut SourcePair,
+    release_id: Option<&str>,
+    new_chunk_id: Option<String>,
+) -> Result<(Action, String)> {
+    let existing = pair.chunk_id();
+    let Some(chunk_id) = new_chunk_id else {
+        let existing =
+            existing.ok_or_else(|| anyhow!("hog sent no chunk id for a bundle without one"))?;
+        return Ok((Action::Unchanged, existing));
+    };
+
+    pair.map.release_id = release_id.map(str::to_string);
+    if let Some(existing) = &existing {
+        pair.remove_chunk_id(existing)?;
+    }
+    pair.add_chunk_id(&chunk_id, None)?;
+
+    let action = if existing.is_some() {
+        Action::ReleaseUpdated
+    } else {
+        Action::Injected
+    };
+    Ok((action, chunk_id))
+}
+
+pub fn sourcemap_reference(source: &str) -> Option<&str> {
+    source.lines().rev().find_map(|line| {
+        let line = line.trim();
+        SOURCEMAP_REFERENCE_PREFIXES
+            .iter()
+            .find_map(|prefix| line.strip_prefix(prefix))
+    })
+}
+
+// Node's `path.join`: joins, then folds `.` and `..` without touching the disk. hog reports and
+// rewrites the map at this path, so it must be spelled the way hog spells it.
+fn node_join(folder: &Path, relative: &str) -> PathBuf {
+    let joined = folder.join(relative);
+    let mut out: Vec<Component> = Vec::new();
+    for component in joined.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match out.last() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                Some(Component::RootDir) | Some(Component::Prefix(_)) => {}
+                _ => out.push(component),
+            },
+            other => out.push(other),
+        }
+    }
+    out.iter().collect()
+}
+
+// `findSourceMap` in kinds/js.ts. Err means the decoded reference is not valid UTF-8.
+pub fn find_sourcemap(
+    source_path: &Path,
+    reference: Option<&str>,
+    public_path_prefix: Option<&str>,
+) -> Result<Option<PathBuf>, ()> {
+    let folder = source_path.parent().unwrap_or(Path::new(""));
+    let mut candidates = Vec::new();
+    if let Some(reference) = reference {
+        let decoded = urlencoding::decode(reference).map_err(|_| ())?;
+        let resolve = |path: &str| {
+            if Path::new(path).is_absolute() {
+                PathBuf::from(path)
+            } else {
+                node_join(folder, path)
+            }
+        };
+        candidates.push(resolve(&decoded));
+        if let Some(prefix) = public_path_prefix {
+            for prefix in [prefix.to_string(), format!("{prefix}/")] {
+                if let Some(rest) = decoded.strip_prefix(prefix.as_str()) {
+                    candidates.push(resolve(rest));
+                }
+            }
+        }
+    }
+    let mut guessed = source_path.as_os_str().to_owned();
+    guessed.push(".map");
+    candidates.push(PathBuf::from(guessed));
+    Ok(candidates.into_iter().find(|candidate| candidate.exists()))
+}

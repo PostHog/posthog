@@ -1,6 +1,8 @@
 import { defineCommand } from '@/core/command'
 import { plural } from '@/core/text'
-import { inject, select } from '@/error-tracking/run'
+import { injectPairs } from '@/error-tracking/pairs'
+import { select } from '@/error-tracking/run'
+import { withWorker } from '@/error-tracking/worker'
 
 import {
     DRY_RUN_OPTION,
@@ -34,15 +36,17 @@ export default defineCommand({
 
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
-        const selection = await select(ctx, args.paths ?? [], settings)
-        const report = await inject(ctx, selection, settings)
-        return {
-            dryRun: settings.dryRun,
-            release: report.release,
-            injected: report.injected,
-            skipped: report.skipped,
-            warnings: report.warnings,
-        }
+        return withWorker(async (worker) => {
+            const selection = await select(ctx, worker, args.paths ?? [], settings)
+            const report = await injectPairs(ctx, worker, selection, settings)
+            return {
+                dryRun: settings.dryRun,
+                release: report.release,
+                injected: report.injected,
+                skipped: report.skipped,
+                warnings: report.warnings,
+            }
+        })
     },
 
     human({ result, out }) {

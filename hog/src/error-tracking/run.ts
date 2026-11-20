@@ -45,6 +45,7 @@ import { sourceStep } from './native/sources'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
+import type { Worker } from './worker'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -91,7 +92,12 @@ export interface Selection {
     cwd: string
 }
 
-export async function select(ctx: Context, paths: string[], options: ErrorTrackingOptions): Promise<Selection> {
+export async function select(
+    ctx: Context,
+    worker: Worker,
+    paths: string[],
+    options: ErrorTrackingOptions
+): Promise<Selection> {
     let roots: Root[]
     let cwd: string
     if (paths.length > 0) {
@@ -111,7 +117,8 @@ export async function select(ctx: Context, paths: string[], options: ErrorTracki
         roots = sources.map((source) => ({ ...source, kind: options.kind ?? source.kind }))
         cwd = loaded.root
     }
-    return { artifacts: discover(roots, cwd, { publicPathPrefix: options.publicPathPrefix }), roots, cwd }
+    const artifacts = await discover(worker, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
+    return { artifacts, roots, cwd }
 }
 
 // The flags first, then --info-plist, then posthog.json.
@@ -289,9 +296,9 @@ export async function inject(
     }
 }
 
-const DRY_RUN_RELEASE_WARNING =
+export const DRY_RUN_RELEASE_WARNING =
     'PostHog assigns the release ID, so a dry run leaves it out. JavaScript content hashes from a dry run can differ from a real run.'
-const MISSING_RELEASE_WARNING =
+export const MISSING_RELEASE_WARNING =
     'No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.'
 
 export interface UploadReport {

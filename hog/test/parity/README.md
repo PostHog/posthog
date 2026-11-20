@@ -7,7 +7,7 @@ So a byte that differs between the two CLIs breaks every customer who switches f
 `hog schema pull` must write the same module as `posthog-cli exp schema pull`, so a project can switch CLIs without a change to its generated code.
 
 These tests compare hog against goldens recorded from the Rust code.
-The goldens are checked in, so the tests need no Rust toolchain.
+The goldens are checked in, so the tests need nothing from `cli/`. They do need hog-worker, which `pnpm --filter hog unit` builds from `hog/worker/` first.
 
 ## What is compared
 

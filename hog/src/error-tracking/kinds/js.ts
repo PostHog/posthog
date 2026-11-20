@@ -252,23 +252,10 @@ export function findSourceMap(
     return candidates.find((candidate) => existsSync(candidate))
 }
 
-export function isJsBundle(
-    path: string,
-    publicPathPrefix: string | undefined,
-    extensions: readonly string[] = JS_EXTENSIONS
-): boolean {
+// Rust's `Path::extension` gives no extension for a file named `.js`.
+export function hasBundleName(path: string, extensions: readonly string[]): boolean {
     const name = basename(path)
-    // Rust's `Path::extension` gives no extension for a file named `.js`.
-    if (name.lastIndexOf('.') === 0 || !extensions.some((extension) => name.endsWith(extension))) {
-        return false
-    }
-    try {
-        return (
-            findSourceMap(path, sourceMappingReference(decodeUtf8(readFileSync(path))), publicPathPrefix) !== undefined
-        )
-    } catch {
-        return false
-    }
+    return name.lastIndexOf('.') !== 0 && extensions.some((extension) => name.endsWith(extension))
 }
 
 export class SourcePair {

@@ -436,10 +436,13 @@ Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
 pnpm --filter hog hog --help  # run hog from source
-pnpm --filter hog unit        # run the tests
+pnpm --filter hog build:worker # build hog-worker, which `hog error-tracking` runs
+pnpm --filter hog unit        # build hog-worker, then run the tests
 pnpm --filter hog typecheck   # check types
 pnpm --filter hog compile     # build dist/hog for this machine
 ```
+
+`hog error-tracking` hands its file work to hog-worker, the Rust program in `worker/`, so those commands and their tests need a Rust toolchain. A run from source starts the worker that `build:worker` leaves in `worker/target/release/`. A compiled hog starts the `hog-worker` next to its own binary, and never looks for one anywhere else.
 
 A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
 

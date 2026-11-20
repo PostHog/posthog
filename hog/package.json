@@ -11,7 +11,8 @@
         "hog": "bun --no-env-file src/index.ts",
         "compile": "pnpm run build:mcp && bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
         "typecheck": "tsc --noEmit",
-        "unit": "bun test",
+        "unit": "pnpm run build:worker && bun test",
+        "build:worker": "cargo build --release --locked --manifest-path worker/Cargo.toml --target-dir worker/target",
         "schema": "bun scripts/write-schema.ts",
         "build:mcp": "pnpm --filter @posthog/mcp build:cli:library"
     },
