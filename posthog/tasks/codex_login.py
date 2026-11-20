@@ -181,6 +181,12 @@ def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
     from posthog.api.user_integration_codex import DesktopAccessUnavailable, ensure_codex_connect_enabled
 
     exchange_started = False
+    retry_cache = Retrying(
+        retry=retry_if_exception_type(RedisError),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(2),
+        reraise=True,
+    )
     try:
         login = claim_login(user_id, login_id)
         if login is None:
@@ -239,7 +245,7 @@ def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
         tokens = parse_codex_auth_json({"tokens": response.json()})
         with transaction.atomic():
             CodexUserIntegration._lock_user(user_id)
-            if get_login(user_id, login_id)["status"] != "pending":
+            if retry_cache(get_login, user_id, login_id)["status"] != "pending":
                 return
             CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
             Retrying(
@@ -251,12 +257,7 @@ def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")
             transaction.on_commit(
-                lambda: Retrying(
-                    retry=retry_if_exception_type(RedisError),
-                    stop=stop_after_attempt(3),
-                    wait=wait_fixed(2),
-                    reraise=True,
-                )(update_login, user_id, login_id, "connected"),
+                lambda: retry_cache(update_login, user_id, login_id, "connected"),
                 robust=True,
             )
             transaction.on_commit(lambda: capture_login_result(user, "connected"))

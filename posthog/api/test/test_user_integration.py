@@ -2219,6 +2219,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             "access_unavailable",
             "access_unavailable_final",
             "cache_unavailable",
+            "cache_unavailable_after_exchange",
             "cache_unavailable_after_store",
         )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
@@ -2244,13 +2245,13 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "access_unavailable_final": "connected",
                 "access_unavailable_final_persistent": "failed",
                 "cache_unavailable": "connected",
-                "cache_unavailable_after_exchange": "failed",
+                "cache_unavailable_after_exchange": "connected",
                 "cache_unavailable_after_store": "connected",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)
         assert "rt_" not in json.dumps(result)
-        if outcome == "cache_unavailable_after_store":
+        if outcome in ("cache_unavailable_after_exchange", "cache_unavailable_after_store"):
             assert requests_seen.count("https://auth.openai.com/oauth/token") == 2
         if connected:
             assert (
