@@ -9,6 +9,8 @@ import { useMocks } from '~/mocks/jest'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import type { CohortIdentifier } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+
 import { editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
@@ -34,25 +36,31 @@ describe('editorSceneLogic', () => {
     })
 
     describe('Save as cohort', () => {
-        it.each<{ name: string; query: HogQLQuery }>([
+        it.each<{ name: string; query: HogQLQuery; identifier: CohortIdentifier; expectedSQL: string }>([
             {
-                name: 'variables, filters and explicit limit',
+                name: 'wildcard results with variables, filters and an explicit limit',
+                identifier: 'person_id',
+                expectedSQL:
+                    'SELECT person_id FROM (\nSELECT * FROM (SELECT id AS person_id FROM persons WHERE {filters} LIMIT 5)\n)',
                 query: {
                     kind: NodeKind.HogQLQuery,
-                    query: 'SELECT id FROM persons WHERE {filters} LIMIT 5',
+                    query: 'SELECT * FROM (SELECT id AS person_id FROM persons WHERE {filters} LIMIT 5);',
                     variables: { plan: { variableId: 'plan', code_name: 'plan', value: 'pro' } },
                     filters: { filterTestAccounts: true },
                 },
             },
             {
-                name: 'constant bindings',
+                name: 'distinct ID beside an event ID with a bound constant',
+                identifier: 'distinct_id',
+                expectedSQL:
+                    'SELECT distinct_id FROM (\nSELECT uuid AS id, distinct_id FROM events WHERE properties.plan = {plan} -- query end\n)',
                 query: {
                     kind: NodeKind.HogQLQuery,
-                    query: 'SELECT id FROM persons WHERE properties.plan = {plan}',
+                    query: 'SELECT uuid AS id, distinct_id FROM events WHERE properties.plan = {plan} -- query end',
                     values: { plan: 'pro' },
                 },
             },
-        ])('preserves $name when saving a SQL cohort', async ({ query }) => {
+        ])('preserves $name when saving a SQL cohort', async ({ query, identifier, expectedSQL }) => {
             let createdCohort: unknown
             useMocks({
                 post: {
@@ -62,7 +70,10 @@ describe('editorSceneLogic', () => {
                     },
                 },
             })
-            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            let form: Parameters<typeof LemonDialog.openForm>[0] | undefined
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation((config) => {
+                form = config
+            })
             const logic = sqlEditorLogic({ tabId: TAB_ID })
             logic.mount()
             logic.actions.setQueryInput(query.query)
@@ -70,13 +81,16 @@ describe('editorSceneLogic', () => {
 
             const scene = editorSceneLogic({ tabId: TAB_ID })
             scene.mount()
-            scene.actions.saveAsCohort()
+            scene.actions.saveAsCohort(identifier)
             await expectLogic(scene).toFinishAllListeners()
 
-            const form = openForm.mock.calls.at(-1)?.[0]
             expect(form).toBeTruthy()
             await expectLogic(exportsLogic(), () => form!.onSubmit({ name: 'Pro people' })).toFinishAllListeners()
-            expect(createdCohort).toEqual({ name: 'Pro people', is_static: true, query })
+            expect(createdCohort).toEqual({
+                name: 'Pro people',
+                is_static: true,
+                query: { ...query, query: expectedSQL },
+            })
             openForm.mockRestore()
         })
     })

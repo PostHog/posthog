@@ -51,7 +51,11 @@ import {
 } from 'products/data_warehouse/frontend/sql_editor/LemonSaveAsMenu'
 import { QuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuerySaveConfirmation'
 import { QuillQuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuillQuerySaveConfirmation'
-import { SAVE_AS_TARGETS, getCohortSaveDisabledReason } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import {
+    SAVE_AS_TARGETS,
+    getCohortIdentifier,
+    getCohortSaveDisabledReason,
+} from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -672,6 +676,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         <IconWarning data-attr="sql-editor-save-warning" className="ml-1" aria-hidden="true" />
     ) : null
 
+    const cohortIdentifier = useMemo(
+        () =>
+            getCohortIdentifier(
+                response && 'columns' in response ? response.columns : undefined,
+                metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
+            ),
+        [response, metadata, activeQueryText, queryInput]
+    )
     const saveAsDisabledReasons: Record<SaveAsTargetId, () => string | null | undefined> = {
         cohort: () =>
             saveAsDisabledReason ??
@@ -679,11 +691,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 isDirectConnection: !!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino',
                 isMultiQuery,
                 hasCurrentResults: !needsSaveConfirmation,
-                columns: response && 'columns' in response ? response.columns : undefined,
-                tables:
-                    metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim()
-                        ? metadata?.table_names
-                        : undefined,
+                identifier: cohortIdentifier,
             }),
         insight: () => saveAsInsightDisabledReason,
         view: () =>
@@ -714,7 +722,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         } else if (target === 'endpoint') {
             saveAsEndpoint(candidates)
         } else if (target === 'cohort') {
-            saveAsCohort()
+            saveAsCohort(cohortIdentifier)
         } else {
             saveAsMetric(undefined, candidates)
         }

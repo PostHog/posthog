@@ -20,6 +20,7 @@ import posthog from 'posthog-js'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { openSaveAsCohortDialog } from 'lib/components/openSaveAsCohortDialog'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { splitQueries } from 'lib/monaco/multiQueryUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
@@ -34,7 +35,7 @@ import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } fro
 import type { AnyDataNode, Node } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import type { CohortIdentifier, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import type { notebookLogicType } from '../../notebooks/Notebook/notebookLogic'
@@ -195,8 +196,8 @@ export interface editorSceneLogicActions {
     openSaveAsMenu: () => {
         value: true
     }
-    saveAsCohort: () => {
-        value: true
+    saveAsCohort: (identifier: CohortIdentifier | undefined) => {
+        identifier: CohortIdentifier | undefined
     }
     selectSaveAsTarget: (target: SaveAsTargetId) => {
         target: SaveAsTargetId
@@ -317,7 +318,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         closeHistoryModal: true,
         openSaveAsMenu: true,
         selectSaveAsTarget: (target: SaveAsTargetId) => ({ target }),
-        saveAsCohort: true,
+        saveAsCohort: (identifier: CohortIdentifier | undefined) => ({ identifier }),
     }),
     reducers({
         isHistoryModalOpen: [
@@ -711,10 +712,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
 
             void copyToClipboard(shareUrl.toString(), 'share link')
         },
-        saveAsCohort: () => {
+        saveAsCohort: ({ identifier }) => {
             const { query, variables, filters, values: queryValues } = values.sourceQuery.source
+            const statements = splitQueries(values.queryInput ?? query, { hogql: true })
+            if (!identifier || statements.length !== 1) {
+                return
+            }
             openSaveAsCohortDialog(actions.createStaticCohort, {
-                query: values.queryInput ?? query,
+                query: `SELECT ${identifier} FROM (\n${statements[0].query}\n)`,
                 variables,
                 filters,
                 values: queryValues,
