@@ -109,10 +109,15 @@ tools:
             before series that flag often, because a series that is usually quiet and now flags matters more than one
             that always flags. Pass `order: recent` for the series whose newest flagged bucket ended last first, so an
             hourly series flagged a few hours ago sorts above a daily series flagged yesterday. Pass `search` to keep
-            only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to
-            `offset + limit`. When `series_capped` is true, the project has more scored series than one search reads, so
-            some matching series are missing from every page: narrow the date range, or pass `insight_id`,
-            `dashboard_id` or `search`. A 404 means anomaly search is not available for this project.
+            only insights whose name contains the text. A noise filter is on by default: it hides flagged series whose
+            anomaly rate over the chart window of their interval is above 10% (`max_anomaly_rate: 0.1`), because a
+            series flagged that often is noisy, not unusual. A series with fewer than 10 scored buckets in its chart
+            window is never hidden. `hidden_series` says how many series the filter hid; they are not in the rows, the
+            insight counts or `has_more`. Pass a higher `max_anomaly_rate` to see more, or 1 to turn the filter off.
+            When `has_more` is true, read the next page with `offset` set to `offset + limit`. When `series_capped` is
+            true, the project has more scored series than one search reads, so some matching series are missing from
+            every page: narrow the date range, or pass `insight_id`, `dashboard_id` or `search`. A 404 means anomaly
+            search is not available for this project.
         exclude_params:
             - include_points
         feature_flag: anomalies-search

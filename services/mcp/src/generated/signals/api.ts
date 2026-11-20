@@ -252,6 +252,10 @@ export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault = 0.1
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin = 0
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax = 1
+
 export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
@@ -297,6 +301,14 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    max_anomaly_rate: zod
+        .number()
+        .min(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin)
+        .max(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax)
+        .default(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault)
+        .describe(
+            'The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.'
+        ),
     offset: zod
         .number()
         .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)

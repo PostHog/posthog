@@ -873,6 +873,10 @@ export interface AnomalySearchResponseApi {
     series: AnomalySeriesApi[]
     /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
+    /** The applied noise filter limit. 1 means the filter is off. */
+    max_anomaly_rate: number
+    /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
+    hidden_series: number
     /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
     has_more: boolean
     /** True when `limit` or a read cap left rows out. */
@@ -13761,6 +13765,12 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
+     * @minimum 0
+     * @maximum 1
+     */
+    max_anomaly_rate?: number
     /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
