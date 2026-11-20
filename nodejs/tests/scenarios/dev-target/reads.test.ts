@@ -11,7 +11,11 @@ type Seen = { method?: string; url?: string; authorization?: string; body: any }
 
 // Answers the way the query API does: a query without a limit gets 100 rows, and a repeated query gets its
 // cached answer unless the request forces a fresh one.
-async function fakeDev(state: { receipts: Receipt[]; series: Record<string, number[]> }) {
+async function fakeDev(state: {
+    receipts: Receipt[]
+    series: Record<string, number[]>
+    exitSeries?: Record<string, number[]>
+}) {
     const seen: Seen[] = []
     const cached = new Map<string, unknown[]>()
     const server = http.createServer((req, res) => {
@@ -44,10 +48,12 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
                 }
                 return reply(200, { results: cached.get(key) })
             }
-            const names = new URL(req.url!, 'http://dev').searchParams.get('name')!.split(',')
+            const params = new URL(req.url!, 'http://dev').searchParams
+            const names = params.get('name')!.split(',')
+            const series = params.get('instance_id') === 'exit-1' ? state.exitSeries : state.series
             return reply(200, {
                 labels: ['2026-11-20T14:00', '2026-11-20T15:00'],
-                series: names.map((name) => ({ name, values: state.series[name] ?? [0, 0] })),
+                series: names.map((name) => ({ name, values: series?.[name] ?? [0, 0] })),
             })
         })
     })
@@ -144,15 +150,16 @@ describe('dev reads', () => {
         }
     })
 
-    it('counts the workflow runs that have not reached their webhook or ended another way', async () => {
+    it('counts the workflow runs that have not reached its exit or ended another way', async () => {
         const dev = await fakeDev({
             receipts: [],
-            series: { triggered: [3, 7], fetch: [2, 5], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 9] },
+            series: { triggered: [3, 7], fetch: [5, 9], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 18] },
+            exitSeries: { succeeded: [2, 4] },
         })
         try {
-            const runs = await workflowRuns(dev.config, '2026-11-20T14:30:00.000Z', 'hour')
+            const runs = await workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour', 'exit-1')
 
-            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, fetch: 7, failed: 1, quota_limited: 1 }, 1])
+            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, exited: 6, failed: 1, quota_limited: 1 }, 2])
         } finally {
             await dev.close()
         }

@@ -1,10 +1,13 @@
 import http from 'http'
 import { AddressInfo } from 'net'
+import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { load } from '../cards'
 import type { DevConfig } from './config'
-import { captureEmit } from './target'
+import type { WorkflowRuns } from './reads'
+import { captureEmit, devTarget } from './target'
 
 type Answer = (uuid: string) => { status: number; body: object }
 
@@ -97,6 +100,79 @@ describe('captureEmit', () => {
             expect(capture.seen).toHaveLength(1)
         } finally {
             await capture.close()
+        }
+    })
+})
+
+describe('the dev target halt', () => {
+    const BEFORE: WorkflowRuns = { triggered: 50, exited: 40, failed: 0, quota_limited: 2 }
+
+    async function fakeWorkflow(hour: WorkflowRuns) {
+        const server = http.createServer((req, res) => {
+            const reply = (body: object): void => {
+                res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+            }
+            const url = new URL(req.url!, 'http://dev')
+            if (url.pathname === '/api/projects/1/') {
+                return reply({ id: 1, api_token: 'phc_test' })
+            }
+            if (url.pathname === '/api/projects/1/hog_flows/flow-1/') {
+                return reply({ id: 'flow-1', actions: [{ id: 'exit-1', type: 'exit' }] })
+            }
+            const daily = url.searchParams.get('interval') === 'day'
+            const exits = url.searchParams.get('instance_id') === 'exit-1'
+            const total = (name: string): number =>
+                daily ? 0 : exits ? (name === 'succeeded' ? hour.exited : 0) : (hour[name as keyof WorkflowRuns] ?? 0)
+            reply({
+                labels: ['2026-11-20T14:00'],
+                series: url.searchParams
+                    .get('name')!
+                    .split(',')
+                    .map((name) => ({ name, values: [total(name)] })),
+            })
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const config: DevConfig = {
+            host: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+            offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
+            receiptsTeamId: 2,
+            monthlyRuns: 10_000,
+            key: 'phx_test',
+        }
+        return { config, close: () => new Promise<void>((done) => server.close(() => done())) }
+    }
+
+    it.each<[string, Partial<WorkflowRuns>, string | undefined]>([
+        [
+            'more than a minute of offers unfinished since the first offer',
+            { triggered: 111 },
+            'the workflow had 61 runs unfinished at the 1x step, more than a minute of offers',
+        ],
+        [
+            'a minute of offers unfinished, leaving out the runs from before the first offer',
+            { triggered: 110 },
+            undefined,
+        ],
+        [
+            'a run dev quota limited since the first offer',
+            { triggered: 51, quota_limited: 3 },
+            'dev quota limited 1 runs of the workflow at the 1x step',
+        ],
+    ])('halts a ramp step on %s', async (_story, after, reason) => {
+        const hour = { ...BEFORE }
+        const dev = await fakeWorkflow(hour)
+        try {
+            const loaded = load(path.join(__dirname, '..', 'cards', 'dev', 'dev-smoke.yaml'), {
+                profilePath: path.join(__dirname, '..', 'profiles', 'dev.yaml'),
+                target: 'dev',
+            })
+            const run = devTarget(dev.config).open(loaded, 'run-a')
+            await run.seed(new AbortController().signal)
+            Object.assign(hour, after)
+
+            expect(await run.limit!({ index: 0, scale: 1, startedAt: 0, endedAt: 120_000, dueUnits: 120 })).toBe(reason)
+        } finally {
+            await dev.close()
         }
     })
 })

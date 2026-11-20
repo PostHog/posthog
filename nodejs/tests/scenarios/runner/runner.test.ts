@@ -319,6 +319,7 @@ describe('runner', () => {
     })
 
     describe('on the dev target', () => {
+        const WORKFLOW = '0190f6a2-0000-7000-8000-000000000001'
         const devCard = (): LoadedCard =>
             load(path.join(__dirname, '..', 'cards', 'dev', 'dev-smoke.yaml'), {
                 profilePath: path.join(__dirname, '..', 'profiles', 'dev.yaml'),
@@ -331,7 +332,14 @@ describe('runner', () => {
                 project = 200,
                 projectToken = 'phc_test',
                 month = {},
-            }: { metrics?: number; project?: number; projectToken?: string; month?: Record<string, number> },
+                actions = [{ id: 'exit-1', type: 'exit' }],
+            }: {
+                metrics?: number
+                project?: number
+                projectToken?: string
+                month?: Record<string, number>
+                actions?: { id: string; type: string }[]
+            },
             interrupt = new AbortController()
         ): Promise<{ result: RunResult; offered: number }> => {
             let offered = 0
@@ -351,6 +359,9 @@ describe('runner', () => {
                     if (req.headers.authorization !== 'Bearer phx_test') {
                         return reply(401, { type: 'authentication_error' })
                     }
+                    if (req.url === `/api/projects/1/hog_flows/${WORKFLOW}/`) {
+                        return reply(metrics, { id: WORKFLOW, actions })
+                    }
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
                         const daily = req.url!.includes('interval=day')
                         const series = Object.entries(daily ? month : {}).map(([name, n]) => ({ name, values: [n] }))
@@ -369,7 +380,7 @@ describe('runner', () => {
                 {
                     target: devTarget({
                         host: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-                        offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
+                        offers: { teamId: 1, token: 'phc_test', workflowId: WORKFLOW },
                         receiptsTeamId: 2,
                         monthlyRuns: 10_000,
                         key: 'phx_test',
@@ -401,6 +412,11 @@ describe('runner', () => {
                 'a workflow dev quota limited this month',
                 { month: { triggered: 5, quota_limited: 1 } },
                 'dev quota limited 1 runs of the workflow this month',
+            ],
+            [
+                'a workflow whose finished runs cannot be counted at one exit',
+                { actions: [{ id: 'webhook-1', type: 'function' }] },
+                'the workflow has 0 exit actions',
             ],
             [
                 'a month whose runs leave less than a full run of room',

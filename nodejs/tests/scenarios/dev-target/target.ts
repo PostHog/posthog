@@ -9,7 +9,7 @@ import type { Wiring } from '../environment/topology'
 import { Emit, captureWebhook } from '../generator/traffic'
 import type { RunTarget } from '../runner/runner'
 import type { DevConfig } from './config'
-import { WorkflowRuns, checkOffersToken, receiptTruth, unfinishedOf, workflowRuns } from './reads'
+import { WorkflowRuns, checkOffersToken, exitActionOf, receiptTruth, unfinishedOf, workflowRuns } from './reads'
 
 const METRICS_EVERY_MS = 10_000
 const SDK_INFO = 'posthog-scenario-runner/1'
@@ -68,16 +68,40 @@ const monthStart = (): string => {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
 }
 
+const hourStart = (): string => {
+    const now = new Date()
+    now.setUTCMinutes(0, 0, 0)
+    return now.toISOString()
+}
+
+const minus = (runs: WorkflowRuns, base: WorkflowRuns): WorkflowRuns => ({
+    triggered: runs.triggered - base.triggered,
+    exited: runs.exited - base.exited,
+    failed: runs.failed - base.failed,
+    quota_limited: runs.quota_limited - base.quota_limited,
+})
+
 export function devTarget(config: DevConfig): RunTarget {
     return {
         name: 'dev',
         open(loaded, runId) {
-            const since = new Date().toISOString()
+            // The metrics table merges an hour's rows under one of their timestamps, so a window must start on the hour,
+            // and the runs it already held before the first offer are subtracted.
+            const since = hourStart()
             const { ratePerSecond } = captureWebhook.profile.parse(loaded.profile.traffic[captureWebhook.name])
+            let before: Promise<{ exitId: string; base: WorkflowRuns }> | undefined
+            const baseline = (): Promise<{ exitId: string; base: WorkflowRuns }> =>
+                (before ??= exitActionOf(config).then(async (exitId) => ({
+                    exitId,
+                    base: await workflowRuns(config, since, 'hour', exitId),
+                })))
             let read: { at: number; runs: Promise<WorkflowRuns> } | undefined
             const runsSince = (): Promise<WorkflowRuns> => {
                 if (read === undefined || Date.now() - read.at >= METRICS_EVERY_MS) {
-                    read = { at: Date.now(), runs: workflowRuns(config, since, 'hour') }
+                    const runs = baseline().then(async ({ exitId, base }) =>
+                        minus(await workflowRuns(config, since, 'hour', exitId), base)
+                    )
+                    read = { at: Date.now(), runs }
                 }
                 return read.runs
             }
@@ -99,6 +123,7 @@ export function devTarget(config: DevConfig): RunTarget {
                             `the workflow ran ${month.triggered} times this month, so a run of up to ${DEV_CAPS.units} units could pass DEV_TARGET_MONTHLY_RUNS`
                         )
                     }
+                    await baseline()
                     await checkOffersToken(config)
                     return { teamIds: [teamId], flowIds: { [captureWebhook.name]: { [teamId]: workflowId } } }
                 },
