@@ -1491,6 +1491,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 carriers.append(group[0])
                 objects_to_delete.append(FileObjectRef(team_id=team_id, type=file_type, ref=ref))
 
+        self._ensure_can_change_pipelines(entry.type for entry in objects_to_delete)
         # Every other type's object needs the same editor access as through its own API.
         other_objects = [
             (entry.type, entry.ref, entry.team_id)
@@ -1503,7 +1504,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             and entries_missing_access_level(other_objects, self.user_access_control, self.team.project_id, "editor")
         ):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
-        self._ensure_can_change_pipelines(entry.type for entry in objects_to_delete)
         self._authorize_workflow_files(
             {_row_target(row) for row in removed}
             | {_workflow_target(entry.type, entry.ref, entry.team_id, False) for entry in objects_to_delete}
@@ -1676,7 +1676,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
 
     def _ensure_can_change_pipelines(self, type_strings: Iterable[str]) -> None:
-        if any(t.startswith("hog_function/") for t in type_strings) and (
+        if any(t.startswith("hog_function/") or t in WORKFLOW_FILE_SYSTEM_TYPES for t in type_strings) and (
             access_control_api.get_restricted_properties_with_group_type_index_for_team(
                 team_id=self.team.id, user=cast(User, self.request.user)
             )

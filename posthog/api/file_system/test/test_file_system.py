@@ -47,6 +47,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -2294,6 +2295,29 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(response.status_code, expected, response.content)
         destination.refresh_from_db()
         self.assertEqual(destination.deleted, (change == "delete") == (expected == status.HTTP_200_OK))
+
+    @parameterized.expand([("delete",), ("restore",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_restricted_member_cannot_delete_or_restore_a_transactional_template(
+        self, change: str, _flag: MagicMock
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+        template_id = create_message_template_for_test(
+            team_id=self.team.id, name="Receipt", content={}, deleted=change == "restore"
+        )
+        if change == "delete":
+            entry = FileSystem.objects.create(
+                team=self.team, path="Unfiled/Receipt", depth=2, type="message_template", ref=str(template_id)
+            )
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": str(template_id)}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
