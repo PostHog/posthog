@@ -70,7 +70,6 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -83,6 +82,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
     PregateOutcome,
+    check_outside_engine_tree,
     engine_source_files,
     fetch_folder_policy_files,
     fetch_manifest_contents,
@@ -101,6 +101,7 @@ from products.stamphog.backend.logic.gateway_tokens import (
     revoke_scoped_token,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
@@ -112,6 +113,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -524,7 +526,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
+        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -566,6 +568,24 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             content = future.result()
             if content is not None:
                 policy_files[path] = content
+        # The policy names these manifests, so they can only be read once the policy is in. Like the
+        # policy, each comes from the default branch, and an absent one leaves its entry unusable.
+        # Each is read as the blob at its path, so a symlink reads as its link text and the entry
+        # is unusable, rather than as a target that self-governance and the pins never cover.
+        with timer.step("issuer_manifests"):
+            for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
+                content = client.get_default_branch_blob_text(repo, path)
+                if content is not None:
+                    policy_files[path] = content
+        with timer.step("check_run_proofs"):
+            check_runs = proven_check_runs(
+                client,
+                repo,
+                pr_number=number,
+                head_sha=run.head_sha,
+                check_runs=check_runs_future.result(),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+            )
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -574,7 +594,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             "reviews": reviews_future.result(),
             "discussion": discussion_future.result(),
             "review_threads": review_threads_future.result(),
-            "check_runs": check_runs_future.result(),
+            "check_runs": check_runs,
             "pr_reactions": reactions_future.result(),
             "policy_files": policy_files,
             "author_pr_numbers": author_pr_numbers_future.result() if author_pr_numbers_future else [],
@@ -999,7 +1019,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
-            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+            context["check_runs"] = proven_check_runs(
+                client,
+                repo,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+                check_runs=client.get_check_runs(repo, run.head_sha),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+            )
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []
@@ -2534,6 +2561,9 @@ def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str
     }
     if STAMPHOG_POLICY_ENTRYPOINT in effective:
         effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
+    for path in issuer_manifest_paths(effective.get(STAMPHOG_POLICY_ENTRYPOINT)):
+        if path in policy_files:
+            effective[path] = policy_files[path]
     return effective
 
 
@@ -2543,6 +2573,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     Each ``write_file`` and ``execute`` call is one round trip to the sandbox provider, and the engine
     alone is some twenty files. One archive and one extract command replace them.
     """
+    check_outside_engine_tree(policy_files)
     members = {
         **policy_files,
         **{f"{_ENGINE_RELATIVE_DIR}/{name}": content for name, content in engine_source_files().items()},
@@ -2562,7 +2593,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     return buffer.getvalue()
 
 
-def _review_payload_command() -> str:
+def _review_payload_command(issuer_paths: tuple[str, ...] = ()) -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
@@ -2572,7 +2603,9 @@ def _review_payload_command() -> str:
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
-    to load, any more than a missing policy.yml would.
+    to load, any more than a missing policy.yml would. The issuer manifests the policy names are wiped
+    the same way, so a manifest the default branch lacks leaves its attestation entry unusable rather
+    than read from the PR head.
 
     The engine and owners directories are wiped whole: the PR head's checkout may carry
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
@@ -2584,8 +2617,9 @@ def _review_payload_command() -> str:
     a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
-    policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
-    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    wiped = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, *issuer_paths)
+    policy_paths = " ".join(shlex.quote(path) for path in wiped)
+    destinations = (*wiped, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
     parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
     no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
@@ -2605,7 +2639,8 @@ def _ship_review_payload(
     from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
-    result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))
+    issuer_paths = issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT))
+    result = sandbox.execute(_review_payload_command(issuer_paths), timeout_seconds=_step_timeout(deadline, 60))
     if result.exit_code != 0:
         # The reviewer reads an untrusted PR head, so tar's stderr can name repository paths. Keep it
         # in the worker log only.

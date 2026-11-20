@@ -94,6 +94,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "idea_commenter_user": "The user who wrote the comment.",
         },
     },
+    "idea_internal_comments": {
+        "description": "A comment that an Aha! user left on an idea in the Aha! app. Ideas portal users do not see these comments.",
+        "docs_url": "https://www.aha.io/api/resources/comments/list_comments_on_an_idea",
+        "columns": {
+            "id": "Unique identifier for the comment.",
+            "idea_id": "Identifier of the idea this comment was left on.",
+            "body": "The comment's text content.",
+            "created_at": "Time at which the comment was created.",
+            "updated_at": "Time at which the comment was last updated.",
+            "parent_comment_id": "Identifier of the parent comment, if this is a reply.",
+            "user": "The Aha! user who wrote the comment.",
+            "attachments": "Files attached to the comment.",
+            "url": "URL of the comment in the Aha! web app.",
+            "commentable": "The record the comment belongs to, with its type and identifier.",
+        },
+    },
     "products": {
         "description": "A workspace (product) in your Aha! account. Ideas belong to a workspace through `product_id`.",
         "docs_url": "https://www.aha.io/api/resources/products/list_products_in_the_account",

@@ -109,6 +109,24 @@ const FLAGGED_SERIES = [
         [10, 3, 2]
     ),
     makeSeries(
+        1,
+        'Signups by referrer',
+        'Paid social',
+        'day',
+        [20, 22, 19, 21, 20, 23, 22, 21, 20, 22, 21, 60, 64, 20],
+        [3, 2]
+    ),
+    makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', [8, 9, 8, 7, 9, 8, 8, 9, 8, 7, 8, 9, 30, 7], [2]),
+    makeSeries(
+        1,
+        'Signups by referrer',
+        'Direct',
+        'day',
+        [64, 66, 61, 65, 63, 62, 64, 66, 63, 65, 64, 30, 28, 62],
+        [3, 2]
+    ),
+    makeSeries(1, 'Signups by referrer', 'Partners', 'day', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 5, 18, 6], [2]),
+    makeSeries(
         2,
         'Checkout started',
         'Checkout started',

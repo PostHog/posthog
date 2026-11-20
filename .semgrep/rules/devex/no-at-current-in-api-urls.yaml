@@ -41,8 +41,6 @@ rules:
               - '/frontend/src/scenes/teamLogic.tsx'
               - '/frontend/src/scenes/organizationLogic.tsx'
               - '/frontend/src/scenes/projectLogic.ts'
-              - '/frontend/src/scenes/welcome/welcomeDialogLogic.ts'
-              - '/frontend/src/lib/api.ts'
       patterns:
           # Any string or template literal with an `@current` path segment: URLs
           # handed to api/fetch/combineUrl, `<img src>` URLs, and IDs passed to

@@ -1,4 +1,4 @@
-"""Imports suppressions from Postmark, and lists what stays behind.
+"""Imports suppressions and templates from Postmark, and lists what stays behind.
 
 Postmark has no read-only token. A server token reads one server. An account token also reads domains and senders, and
 lists each server's tokens, which the import uses and never stores. The run keeps the token it was given only until it
@@ -9,8 +9,9 @@ strongest reason across every stream. A suppression dump has no pages, so a step
 and saves a batch at a time. The last saved address is where a retried step continues.
 """
 
+import re
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
@@ -25,6 +26,7 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.models.message_suppression import SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -42,16 +44,20 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.postmark_templates import convert_template
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs_changed,
     import_suppressions,
 )
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.postmark_client import (
     DUMP_TIMEOUT_SECONDS,
     MAX_DUMP_BYTES,
+    TEMPLATE_NOT_FOUND_CODE,
     PostmarkAPIError,
     PostmarkClient,
     PostmarkRateLimited,
@@ -78,12 +84,16 @@ TOO_LITTLE_ACCESS_MESSAGE = (
 RATE_LIMITED_MESSAGE = "Postmark kept asking PostHog to slow down. Import again later."
 # Postmark's own value for testing sends. It reads no real data.
 TEST_TOKEN = "POSTMARK_API_TEST"
+IMPORT_TAG = "imported-from-postmark"
 SUPPRESSION_BATCH_SIZE = 500
 # Postmark sends each list whole, so the import holds every address at once. This keeps that within a worker's memory.
 MAX_SUPPRESSED_ADDRESSES = 500_000
 TOO_MANY_SUPPRESSIONS_MESSAGE = (
     "This Postmark account has more suppressed addresses than PostHog can import at once. Contact support to import it."
 )
+# Sending by key caps it at 256 characters, the longest tag value SES takes.
+TEMPLATE_KEY_MAX_LENGTH = 256
+TEMPLATE_KEY_PATTERN = re.compile(rf"[A-Za-z0-9_-]{{1,{TEMPLATE_KEY_MAX_LENGTH}}}")
 CATEGORY_KEY_PREFIX = "postmark_"
 # The stream every server has for broadcasts. Mail on it is plain marketing email in PostHog, with no category.
 DEFAULT_BROADCAST_STREAM = "broadcast"
@@ -118,6 +128,9 @@ class PostmarkImportProvider(ImportProvider):
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
         "this needs new records. Leave your Postmark records in place, because both tools can sign mail for one domain "
         "while you move.",
+        "Open each template with notes and fix what they mention, choose a sender, then send yourself a test.",
+        "Make a template transactional and change your app to send it through PostHog. Start with a low-risk email "
+        "and move the rest one at a time.",
         "If you send a lot of email, move it over several days. Mailbox providers slow down mail from a sender "
         "whose volume jumps.",
         "Point your webhooks at their PostHog replacements, or rebuild them as workflows.",
@@ -161,6 +174,22 @@ class PostmarkImportProvider(ImportProvider):
             ),
         ),
         ImportStepSpec(
+            key="templates",
+            label="Templates",
+            description=(
+                "Copies each template into your PostHog library with its alias as the key, with its layout copied into "
+                "it and notes on anything to review. Postmark templates don't name a sender, so choose one on each. "
+                "Templates you already have here stay as they are."
+            ),
+            count_labels=(
+                ("created", "New templates"),
+                ("needs_review", "New templates to review"),
+                ("already_present", "Already in PostHog, left as they are"),
+                ("layouts", "Layouts read"),
+                ("unreadable", "Templates Postmark no longer has"),
+            ),
+        ),
+        ImportStepSpec(
             key="domains",
             label="Sending domains and senders",
             description=(
@@ -182,7 +211,9 @@ class PostmarkImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_TOKEN_MESSAGE)
         if not api_key.isascii() or api_key == TEST_TOKEN:
@@ -201,6 +232,8 @@ class PostmarkImportProvider(ImportProvider):
                     yield from _fetch_streams(client, context, checkpoint)
                 case "suppressions":
                     yield from _fetch_suppressions(client, context, checkpoint)
+                case "templates":
+                    yield from _fetch_templates(client, context, checkpoint)
                 case "domains":
                     yield from _fetch_domains(client, context, checkpoint)
                 case "webhooks":
@@ -288,7 +321,8 @@ def _save_skipped_servers(skipped: list[PostmarkServer]) -> SavedPage:
             label=f"{server.name} (server)",
             status="skipped",
             notes=(
-                "This is a sandbox server, so it never delivers mail and its suppressions aren't real."
+                "This is a sandbox server, so it never delivers mail and its suppressions aren't real. To import its "
+                "templates, run an import with this server's token."
                 if server.delivery_type == "Sandbox"
                 else "Postmark shares no token for this server. Run an import with this server's token.",
             ),
@@ -511,6 +545,206 @@ def _timestamp(value: str) -> datetime | None:
         return parse_datetime(value)
     except ValueError:
         return None
+
+
+def _fetch_templates(
+    client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    importable = _importable_servers(client).importable
+    start_server = int(checkpoint.get("server", 0)) if checkpoint else 0
+    start_offset = int(checkpoint.get("offset", 0)) if checkpoint else 0
+    remaining = [server for server in importable if server.id >= start_server]
+    for index, server in enumerate(remaining):
+        server_client = client.for_server(server)
+        layouts: dict[str, dict[str, Any] | None] = {}
+        offset = start_offset if server.id == start_server else 0
+        for page, next_offset in server_client.offset_pages("/templates", "Templates", {}, offset=offset):
+            next_server = remaining[index + 1] if index + 1 < len(remaining) else None
+            yield _template_page(server_client, context, server, page, layouts, next_offset, next_server)
+
+
+def _template_page(
+    client: PostmarkClient,
+    context: ImportContext,
+    server: PostmarkServer,
+    page: list[dict[str, Any]],
+    layouts: dict[str, dict[str, Any] | None],
+    next_offset: int | None,
+    next_server: PostmarkServer | None,
+) -> ImportPage:
+    templates: list[dict[str, Any]] = []
+    shadowed: set[int] = set()
+    missing = 0
+    layout_rows = [row for row in page if row.get("TemplateType") == "Layout"]
+    for row in page:
+        if row.get("TemplateType") == "Layout":
+            continue
+        # The list has no content, so each template costs one more request.
+        template = _read_template(client, row.get("Alias") or row.get("TemplateId"))
+        if template is None:
+            missing += 1
+            continue
+        alias = template.get("LayoutTemplate")
+        if alias and alias not in layouts:
+            layouts[alias] = _read_template(client, alias)
+        if _alias_shadowed(client, template):
+            shadowed.add(template["TemplateId"])
+        templates.append(template)
+    if next_offset is not None:
+        checkpoint: StepCheckpoint | None = {"server": server.id, "offset": next_offset}
+    elif next_server is not None:
+        checkpoint = {"server": next_server.id, "offset": 0}
+    else:
+        checkpoint = None
+    return ImportPage(
+        processed=len(page),
+        save=partial(
+            _save_templates, context, server, templates, frozenset(shadowed), dict(layouts), layout_rows, missing
+        ),
+        checkpoint=checkpoint,
+    )
+
+
+def _read_template(client: PostmarkClient, reference: Any) -> dict[str, Any] | None:
+    try:
+        return client.get(f"/templates/{reference}")
+    except PostmarkAPIError as e:
+        # A template can go away between the list and the read, and a layout can be missing. The rest carries on.
+        if e.status_code == 404 or e.error_code == TEMPLATE_NOT_FOUND_CODE:
+            return None
+        raise
+
+
+def _alias_key(alias: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", alias)[:TEMPLATE_KEY_MAX_LENGTH]
+
+
+def _alias_shadowed(client: PostmarkClient, template: dict[str, Any]) -> bool:
+    """Whether another template on the server has, as its exact alias, the key this template's alias turns into."""
+    alias = str(template.get("Alias") or "").strip()
+    if not alias or TEMPLATE_KEY_PATTERN.fullmatch(alias):
+        return False
+    other = _read_template(client, _alias_key(alias))
+    return other is not None and other.get("TemplateId") != template.get("TemplateId")
+
+
+def _template_key(template: dict[str, Any], shadowed: frozenset[int]) -> tuple[str, tuple[str, ...]]:
+    """The key and any note about it. Postmark allows a `.` in an alias, and PostHog's keys don't."""
+    alias = str(template.get("Alias") or "").strip()
+    if not alias:
+        return f"postmark-{template.get('TemplateId')}"[:TEMPLATE_KEY_MAX_LENGTH], ()
+    if TEMPLATE_KEY_PATTERN.fullmatch(alias):
+        return alias, ()
+    key = _alias_key(alias)
+    if template.get("TemplateId") in shadowed:
+        # The template whose alias is the key keeps it, whichever of the two an import reads first.
+        suffix = f"-{template['TemplateId']}"
+        key = _with_suffix(key, suffix)
+    return key, (f"PostHog keys can't contain every character in the alias {alias}, so the key is {key}.",)
+
+
+def _with_suffix(key: str, suffix: str) -> str:
+    return f"{key[: TEMPLATE_KEY_MAX_LENGTH - len(suffix)]}{suffix}"
+
+
+def _server_tag(server: PostmarkServer) -> str:
+    return f"postmark-server-{server.id}"
+
+
+def _save_templates(
+    context: ImportContext,
+    server: PostmarkServer,
+    templates: list[dict[str, Any]],
+    shadowed: frozenset[int],
+    layouts: dict[str, dict[str, Any] | None],
+    layout_rows: list[dict[str, Any]],
+    missing: int,
+) -> SavedPage:
+    keys = [_template_key(template, shadowed)[0] for template in templates]
+    keys += [_with_suffix(key, f"-{server.id}") for key in keys]
+    # A deleted template counts too: importing again must not bring back one someone deleted.
+    taken = {
+        str(row.key): {item.tag.name for item in row.tagged_items.all()}
+        for row in MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys)
+        .only("id", "key")
+        .prefetch_related("tagged_items__tag")
+    }
+    # A code email's key counts as someone else's, so the template is skipped and the code email keeps sending.
+    for key in code_email_keys(context.team_id, keys):
+        taken.setdefault(key, set())
+
+    items: list[ImportItem] = []
+    counts: Counter[str] = Counter({"layouts": len(layout_rows), "unreadable": missing})
+    for template in templates:
+        key, key_notes = _template_key(template, shadowed)
+        name = str(template.get("Name") or key)[:400]
+        choice = _choose_key(key, server, taken)
+        if choice.key is None:
+            counts["already_present"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
+            continue
+        chosen, key_note = choice.key, choice.note
+        taken[chosen] = {IMPORT_TAG, _server_tag(server)}
+        layout = layouts.get(template["LayoutTemplate"]) if template.get("LayoutTemplate") else None
+        converted = convert_template(template, layout)
+        notes = (*key_notes, *((key_note,) if key_note else ()), *converted.notes)
+        email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
+        if converted.text:
+            email["text"] = converted.text
+        created = create_template(
+            context.team_id,
+            context.created_by_id,
+            {
+                "name": name,
+                "key": chosen,
+                "description": " ".join(("Imported from Postmark.", *notes)),
+                "type": "email",
+                "content": {"templating": "liquid", "email": email},
+                "tags": [IMPORT_TAG, _server_tag(server)],
+            },
+        )
+        counts["needs_review" if notes else "created"] += 1
+        items.append(
+            ImportItem(label=name, status="created", url=f"/workflows/library/templates/{created.id}", notes=notes)
+        )
+    items += [
+        ImportItem(
+            label=f"{row.get('Name') or row.get('Alias')} (layout)",
+            status="listed",
+            notes=("PostHog has no layouts. Each template that uses this one has its own copy.",),
+        )
+        for row in layout_rows
+    ]
+    return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
+@frozen
+class _KeyChoice:
+    key: str | None
+    note: str | None = None
+
+
+def _choose_key(key: str, server: PostmarkServer, taken: dict[str, set[str]]) -> _KeyChoice:
+    """A Postmark alias is only unique within a server, so a second server with the same alias gets a longer key."""
+    if key not in taken:
+        return _KeyChoice(key=key)
+    tags = taken[key]
+    if IMPORT_TAG not in tags or _server_tag(server) in tags:
+        return _KeyChoice(key=None)
+    longer = _with_suffix(key, f"-{server.id}")
+    if longer in taken:
+        return _KeyChoice(key=None)
+    return _KeyChoice(
+        key=longer, note=f"Another Postmark server has a template with the same alias, so the key is {longer}."
+    )
 
 
 def _fetch_domains(

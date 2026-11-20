@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { anomaliesTabLogic, anomalySeriesId } from './anomaliesTabLogic'
+import { anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
 import { AnomalyBucketShading } from './AnomalyBucketShading'
 import { anomalyChartData } from './anomalyChartData'
 
@@ -33,7 +33,7 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
     const { chartPoints, chartPointsStatus } = useValues(anomaliesTabLogic)
-    const id = anomalySeriesId(series)
+    const id = anomalySeriesKey(series)
     const loaded = chartPoints[id]
 
     const data = useMemo(

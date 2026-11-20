@@ -13,7 +13,11 @@ from posthog.cloud_utils import is_hobby
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
+from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
+    finalize_cohort_backfill_runs,
+    publish_cohort_backfill_run_gauges,
+)
 from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
@@ -23,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -123,6 +128,7 @@ from products.legal_documents.backend.facade.tasks import reconcile_pending_lega
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
+from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
@@ -292,12 +298,28 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender, crontab(minute="41"), close_stale_provider_import_runs.s(), name="close stale provider import runs"
+    )
+    # Precomputed metrics for dashboard tiles: fill forward, backfill a day, drop what is past retention.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_metrics_precompute_fills.s(),
+        name="fill metrics precomputed metrics",
+        expires_seconds=5 * 60,
     )
     add_periodic_task_with_expiry(
         sender,
@@ -1405,6 +1427,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         publish_cohort_backfill_run_gauges.s(),
         name="publish cohort backfill run gauges",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        dispatch_static_cohort_reconciliations.s(),
+        name="dispatch static cohort reconciliations",
     )
 
     # Poll PandaDoc for legal documents we still think are unsigned and archive

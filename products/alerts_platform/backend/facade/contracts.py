@@ -278,6 +278,8 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
     created_by_id: int | None = None
+    # When the owner last changed, so a source can tell its own history from the platform's.
+    owner_changed_at: datetime | None = None
     # The label names the team's routes match on, which a group keeps first when its labels are cut.
     routed_label_names: frozenset[str] = frozenset()
 
@@ -1635,6 +1637,14 @@ class StoredAlertDestination:
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
     keeps_legacy_webhook_body: bool = False
+
+
+@frozen
+class DeliveryTestOutcome:
+    """What sending a test message to an alert's destinations did: how many took it, and how many refused or failed."""
+
+    sent: int
+    failed: int
 
 
 @frozen

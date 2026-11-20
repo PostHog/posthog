@@ -247,6 +247,14 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
+    ),
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
+    ),
+    depotBackend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
@@ -1452,11 +1460,11 @@ describe('CI workflow run plans', () => {
             github,
             steps: {
                 ...allFiltersChanged(wf),
-                'code-quality': { 'Check static typing': { outcome } },
+                mypy: { 'Check static typing': { outcome } },
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['mypy']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each([
