@@ -140,6 +140,12 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("feature_disabled", PropertyDefinition.Type.EVENT, "feature_disabled", "log_entries"),
             ("alias", PropertyDefinition.Type.EVENT, "restricted", "log_entries AS logs"),
             ("subquery", PropertyDefinition.Type.EVENT, "restricted", "(SELECT * FROM log_entries)"),
+            (
+                "column_alias",
+                PropertyDefinition.Type.EVENT,
+                "restricted",
+                "(SELECT original_source AS log_source, message FROM log_entries AS l(original_source, log_source))",
+            ),
         ]
     )
     def test_hogql_log_entries_follow_property_access(
