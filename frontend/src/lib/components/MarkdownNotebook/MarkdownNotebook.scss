@@ -2178,8 +2178,9 @@ button.MarkdownNotebook__component-title:focus-visible {
     border-radius: 0.25rem;
 }
 
-/* Clicking the <ref> highlight flashes the thread it anchors. */
-.MarkdownNotebook__component-shell--comment-flash .MarkdownNotebook__discussion-comment {
+/* Clicking the <ref> highlight flashes the thread it anchors, and hovering it marks the thread. */
+.MarkdownNotebook__component-shell--comment-flash .MarkdownNotebook__discussion-comment,
+.MarkdownNotebook__component-shell--comment-linked .MarkdownNotebook__discussion-comment {
     border-color: var(--color-border-warning, rgb(235 145 0 / 80%));
     box-shadow: 0 0 0 3px rgb(235 145 0 / 20%);
     transition:
@@ -2221,6 +2222,7 @@ button.MarkdownNotebook__component-title:focus-visible {
         top: 0;
         left: calc(100% + 1rem);
         width: calc(var(--markdown-notebook-comment-gutter) - 2rem);
+        transition: top 0.15s ease;
     }
 }
 
@@ -2748,4 +2750,67 @@ button.MarkdownNotebook__component-title:focus-visible {
     overflow: hidden;
     clip-path: inset(50%);
     outline: none;
+}
+
+.MarkdownNotebook__columns {
+    container-type: inline-size;
+    min-width: 0;
+}
+
+.MarkdownNotebook__columns-grid {
+    display: grid;
+    grid-template-columns: var(--notebook-column-tracks);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.MarkdownNotebook__column {
+    min-width: 0;
+}
+
+.MarkdownNotebook__columns-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.25rem;
+}
+
+.MarkdownNotebook__columns-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 18rem;
+}
+
+.MarkdownNotebook__column-width {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 2rem;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.75rem;
+
+    input {
+        width: 100%;
+        accent-color: var(--color-accent);
+    }
+}
+
+.MarkdownNotebook--edit .MarkdownNotebook__column {
+    padding: 0.5rem 0 0.5rem 1.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+}
+
+.MarkdownNotebook--jupyter .MarkdownNotebook__column {
+    padding-left: 0;
+}
+
+.MarkdownNotebook--edit .MarkdownNotebook__columns:hover .MarkdownNotebook__column,
+.MarkdownNotebook--edit .MarkdownNotebook__columns:focus-within .MarkdownNotebook__column {
+    border-color: var(--color-border-primary);
+}
+
+@container (max-width: 40rem) {
+    .MarkdownNotebook__columns-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

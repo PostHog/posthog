@@ -183,6 +183,26 @@ eid
 createdAt
 """
 
+# User `preferences`, `onboarding`, and `extra` are free-form JSON, so memberships keep only the
+# user's identity and account fields.
+_ORGANIZATION_USER_ITEM_FIELDS = """
+role
+externalId
+user {
+eid
+email
+name
+firstName
+lastName
+role
+verifiedEmail
+createdAt
+updatedAt
+}
+createdAt
+updatedAt
+"""
+
 
 @dataclass(frozen=True)
 class AnvilNestedList:
@@ -207,6 +227,9 @@ class AnvilEndpointConfig:
     fan_out_weld_datas: bool = False
     # Child lists read from inside parent pages; walked in order when there is more than one.
     nested_lists: tuple[AnvilNestedList, ...] = ()
+    # Read the unpaginated `organizationUsers` list of every organization in the single
+    # organizations query.
+    organization_users: bool = False
     # Anvil eids are 20-character object identifiers unique across their system, so a row's
     # own eid is a table-wide key even for fan-out children.
     primary_keys: list[str] = field(default_factory=lambda: ["eid"])
@@ -220,6 +243,13 @@ ANVIL_ENDPOINTS: dict[str, AnvilEndpointConfig] = {
         item_fields=_ORGANIZATION_ITEM_FIELDS,
         partition_key=None,
         description="The Anvil organizations your API key's user belongs to",
+    ),
+    "organization_users": AnvilEndpointConfig(
+        item_fields=_ORGANIZATION_USER_ITEM_FIELDS,
+        organization_users=True,
+        # A membership has no eid of its own; a user holds at most one membership per organization.
+        primary_keys=["organizationEid", "userEid"],
+        description="Members of each Anvil organization with their role and the dates they joined",
     ),
     "casts": AnvilEndpointConfig(
         item_fields=_CAST_ITEM_FIELDS,

@@ -8,20 +8,28 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.conditions_changed import (
+    release_conditions_changed_mid_run,
+    release_conditions_changed_rows,
+)
+from products.experiments.backend.health.checks.flag_change_findings import MAX_SAVED_CONDITIONS_LENGTH
+from products.experiments.backend.health.condition_changes import conditions_change_from_activity
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionSetTraffic,
+    FlagHistory,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
 )
-from products.experiments.backend.health.skips import CheckSkip, not_checked
+from products.experiments.backend.health.skips import SPLIT_ASSIGNS_NOBODY, CheckSkip, not_applicable, not_checked
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
@@ -58,6 +66,7 @@ def _context(
     variants: list[dict[str, Any]] = EVEN,
     exposed_units: int | None = None,
     early_exit: bool = False,
+    exposed_before_first: bool | None = True,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -76,6 +85,7 @@ def _context(
         flag_history=flag_history(
             changes,
             start_date=LAUNCHED_AT,
+            exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
@@ -84,6 +94,58 @@ def _context(
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
+
+
+def _before_exposure(ctx: HealthContext) -> HealthContext:
+    history = ctx.flag_history
+    assert isinstance(history, FlagHistory)
+    return replace(ctx, flag_history=replace(history, counted_since=None))
+
+
+def _saved_context(*conditions: list[dict[str, Any]], flag_aggregation: int | None = None) -> HealthContext:
+    changes = []
+    for index, (before, after) in enumerate(zip(conditions, conditions[1:])):
+        change = conditions_change_from_activity(
+            changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
+            job_type=None,
+            before_groups=before,
+            after_groups=after,
+            before_aggregation=flag_aggregation,
+            after_aggregation=flag_aggregation,
+            before_variants=EVEN,
+            after_variants=EVEN,
+        )
+        assert change is not None
+        changes.append(change)
+    return replace(
+        RUNNING_CONTEXT,
+        flag=parse_flag_state(
+            active=True,
+            deleted=False,
+            groups=conditions[-1],
+            variants=EVEN,
+            aggregation_group_type_index=flag_aggregation,
+        ),
+        flag_history=flag_history(changes, start_date=LAUNCHED_AT),
+    )
+
+
+def _saved(groups: list[dict[str, Any]], flag_aggregation: int | None = None) -> dict[str, Any]:
+    return {"groups": groups, "aggregation_group_type_index": flag_aggregation}
+
+
+def _emails(prefix: str) -> dict[str, Any]:
+    # Each condition takes about 40% of the size limit, so the latest change's two sides fit and nothing else does.
+    emails = [f"{prefix}-{index}@example.com" for index in range(MAX_SAVED_CONDITIONS_LENGTH // 60)]
+    return {"properties": [{"key": "email", "value": emails, "operator": "exact", "type": "person"}]}
+
+
+def _filter(**changed: Any) -> dict[str, Any]:
+    return {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person", **changed}]}
+
+
+def _group_filter(group_type_index: int) -> dict[str, Any]:
+    return _filter(type="group", group_type_index=group_type_index)
 
 
 def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
@@ -440,6 +502,9 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
+        names_start_date = "start date to" in finding.detail
+        self.assertEqual(ExperimentHealthFindingActionKind.MOVE_START_DATE in finding.actions, names_start_date)
+        self.assertEqual("suggested_start_date" in finding.evidence, names_start_date)
 
     @parameterized.expand(
         [
@@ -471,6 +536,11 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
                 not_checked("Couldn't check because you can't view the linked feature flag's history"),
             ),
+            (
+                "list_of_a_pinned_set_edited_while_every_set_pins",
+                _context([PRO_PINNED, {**TEAM, "variant": "test"}], [PRO_OR_TEAM_PINNED, {**TEAM, "variant": "test"}]),
+                not_applicable(SPLIT_ASSIGNS_NOBODY),
+            ),
             # The forced-variant check reports an override in place, with the time it was set.
             ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE]), None),
             ("pinned_condition_added", _context([EVERYONE], [PRO_PINNED, EVERYONE]), None),
@@ -488,3 +558,97 @@ class TestReleaseConditionsChangedMidRun(TestCase):
     )
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(release_conditions_changed_mid_run(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("saved_after_someone_was_exposed", _context([PRO], [PRO, EVERYONE], [EVERYONE]), [False, False]),
+            ("saved_before_anyone_was_exposed", _before_exposure(_context([PRO], [PRO, EVERYONE])), [True]),
+            (
+                "saved_when_the_exposure_answer_was_unknown",
+                _context([PRO], [PRO, EVERYONE], [EVERYONE], exposed_before_first=None),
+                [None, None],
+            ),
+            (
+                "a_history_not_compared_with_the_exposures",
+                _context([PRO], [PRO, EVERYONE], not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                [None],
+            ),
+        ]
+    )
+    def test_lists_each_change_with_whether_it_came_before_any_exposure(
+        self, _name: str, ctx: HealthContext, expected: list[bool | None]
+    ) -> None:
+        rows = release_conditions_changed_rows(ctx)
+
+        self.assertEqual([row[ExperimentHealthValueKey.BEFORE_EXPOSURE] for row in rows], expected)
+
+    def test_lists_each_change_with_the_conditions_before_and_after(self) -> None:
+        rows = release_conditions_changed_rows(
+            _context([PRO_PINNED, EVERYONE], [PRO, {**EVERYONE, "rollout_percentage": 50}])
+        )
+
+        self.assertEqual(
+            [(row[ExperimentHealthValueKey.BEFORE], row[ExperimentHealthValueKey.AFTER]) for row in rows],
+            [
+                (
+                    'Set 1: 100%, filters on plan, forces "test"\nSet 2: 100%',
+                    "Set 1: 100%, filters on plan\nSet 2: 50%",
+                )
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("a_filter_value", [_filter()], [_filter(value=["team"])], None),
+            ("an_operator", [_filter()], [_filter(operator="is_not")], None),
+            ("the_type_of_a_filter_with_the_same_key", [_filter()], [_filter(type="event")], None),
+            ("the_group_type_of_a_group_filter", [_group_filter(0)], [_group_filter(1)], 0),
+            (
+                "one_cohort_for_another",
+                [{"properties": [{"key": "id", "value": 12, "type": "cohort"}]}],
+                [{"properties": [{"key": "id", "value": 34, "type": "cohort"}]}],
+                None,
+            ),
+            (
+                "the_value_of_a_flag_dependency",
+                [{"properties": [{"key": "41", "value": True, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                [{"properties": [{"key": "41", "value": False, "operator": "flag_evaluates_to", "type": "flag"}]}],
+                None,
+            ),
+            (
+                "the_group_type_of_a_set_in_a_flag_that_mixes_group_types",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, EVERYONE],
+                [{**EVERYONE, "aggregation_group_type_index": 1}, EVERYONE],
+                None,
+            ),
+        ]
+    )
+    def test_lists_each_change_with_the_conditions_as_saved(
+        self,
+        _name: str,
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+        flag_aggregation: int | None,
+    ) -> None:
+        rows = release_conditions_changed_rows(_saved_context(before, after, flag_aggregation=flag_aggregation))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(_saved(before, flag_aggregation), _saved(after, flag_aggregation))],
+        )
+
+    def test_leaves_out_the_saved_conditions_of_earlier_changes_past_the_size_limit(self) -> None:
+        first, second = [_emails("first")], [_emails("second")]
+
+        rows = release_conditions_changed_rows(_saved_context([PRO], first, second))
+
+        self.assertEqual(
+            [
+                (row[ExperimentHealthValueKey.BEFORE_FILTERS], row[ExperimentHealthValueKey.AFTER_FILTERS])
+                for row in rows
+            ],
+            [(None, None), (_saved(first), _saved(second))],
+        )

@@ -1,6 +1,8 @@
 import { MakeLogicType, connect, events, kea, key, listeners, path, props } from 'kea'
+import type { DeepPartial, FieldName } from 'kea-forms/lib'
 import posthog, { CaptureOptions } from 'posthog-js'
 
+import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import type { HogFlow, HogFlowActionValidationResult } from './hogflows/types'
 import {
     BuilderProgress,
@@ -17,10 +19,8 @@ interface EditorVisit {
     startPath: WorkflowStartPath
     templateId: string | null
     entrySource: string | null
-    openedAt: number
     lastEdit: WorkflowBuilderEdit
     lastAddedStepType: string | null
-    enableAttempted: boolean
     discardedProgress: BuilderProgress | null
 }
 
@@ -49,9 +49,6 @@ export interface workflowEditorVisitLogicActions {
     resetWorkflow: (values?: HogFlow | undefined) => {
         values?: HogFlow
     } // workflowLogic
-    saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
-        workflow: Partial<HogFlow>
-    } // workflowLogic
     setScheduleRepeating: (repeating: boolean) => {
         repeating: boolean
     } // workflowLogic
@@ -59,10 +56,10 @@ export interface workflowEditorVisitLogicActions {
         pickerDate: string | null
     } // workflowLogic
     setScheduleState: (
-        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState,
+        scheduleState: ScheduleState,
         source?: 'natural_language' | 'picker' | undefined
     ) => {
-        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState
+        scheduleState: ScheduleState
         source: 'natural_language' | 'picker'
     } // workflowLogic
     setScheduleTimezone: (
@@ -73,14 +70,14 @@ export interface workflowEditorVisitLogicActions {
         timezone: string
     } // workflowLogic
     setWorkflowValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // workflowLogic
-    setWorkflowValues: (values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>
+    setWorkflowValues: (values: DeepPartial<HogFlow>) => {
+        values: DeepPartial<HogFlow>
     } // workflowLogic
     workflowCreated: (workflowId: string) => {
         workflowId: string
@@ -111,7 +108,6 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                 'setWorkflowValue',
                 'setWorkflowValues',
                 'resetWorkflow',
-                'saveWorkflowPartial',
                 'workflowCreated',
                 'enableBlocked',
                 'leaveConfirmed',
@@ -170,12 +166,6 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             setScheduleRepeating: recordScheduleEdit,
             addSchedule: recordScheduleEdit,
             deleteSchedule: recordScheduleEdit,
-            saveWorkflowPartial: ({ workflow }) => {
-                const visit = cache.visit as EditorVisit | null
-                if (visit && workflow.status === 'active') {
-                    visit.enableAttempted = true
-                }
-            },
             enableBlocked: () => {
                 const { invalid_step_count, invalid_step_types } = builderProgress(
                     values.workflow,
@@ -226,8 +216,6 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                     ...(visit.discardedProgress ?? builderProgress(values.workflow, values.actionValidationErrorsById)),
                     last_edit: visit.lastEdit,
                     last_added_step_type: visit.lastAddedStepType,
-                    enable_attempted: visit.enableAttempted,
-                    seconds_open: Math.round((Date.now() - visit.openedAt) / 1000),
                 },
                 options
             )
@@ -238,10 +226,8 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                 startPath: workflowStartPath(props),
                 templateId: props.templateId ?? null,
                 entrySource: props.entrySource ?? null,
-                openedAt: Date.now(),
                 lastEdit: 'none',
                 lastAddedStepType: null,
-                enableAttempted: false,
                 discardedProgress: null,
             }
             cache.visit = visit

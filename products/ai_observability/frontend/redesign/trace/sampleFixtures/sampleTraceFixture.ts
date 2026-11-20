@@ -1,22 +1,28 @@
 import type {
+    TraceApi,
     TraceEvaluationResultApi,
     TraceNodeContentApi,
     TraceNodeEventApi,
     TraceNodeKindEnumApi,
+    TraceNodeApi,
     TraceNodeMetadataApi,
     TraceNodeStatsApi,
+    TraceTimelineRowApi,
 } from '../../../generated/api.schemas'
 import { NodeDetailProps } from '../components/NodeDetail'
-import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
-import { TraceViewReadyProps } from '../components/TraceView'
-import { RawLoad } from '../types'
+import { TraceHeaderProps } from '../components/TraceHeader'
+import { ConversationState, RawLoad } from '../types'
 
 type ReadyRaw = Extract<RawLoad, { status: 'ready' }>
 
 export type SampleNodeDetail = Pick<NodeDetailProps, 'load' | 'raw'>
 
-export type SampleTraceFixture = Pick<TraceViewReadyProps, 'header' | 'tree' | 'thread' | 'timeline'> & {
-    trace: TraceSummaryBarProps['trace'] & NodeDetailProps['trace']
+export interface SampleTraceFixture {
+    header: Omit<TraceHeaderProps, 'search'>
+    tree: TraceNodeApi[]
+    thread: ConversationState
+    timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    trace: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial'> & NodeDetailProps['trace']
     initialNodeId: string
     details: Record<string, SampleNodeDetail>
     evaluationResults: TraceEvaluationResultApi[]

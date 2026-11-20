@@ -153,6 +153,13 @@ class TestScoutTrialState(APIBaseTest):
         assert own.search_memory(key=original.key) == []
         assert sibling.search_memory(key=original.key)[0].content == "Second candidate"
 
+    def test_memory_search_filters_by_key_prefix(self) -> None:
+        store = ScoutTrialStore(self.scout_run, initial_memory=[])
+        store.remember(key="report:checkout", content="v")
+        store.remember(key="dedupe:checkout", content="filed as report:checkout")
+
+        assert [entry.key for entry in store.search_memory(key_prefix="report:")] == ["report:checkout"]
+
     def test_stale_store_instances_preserve_other_writes_and_task_state(self) -> None:
         first = ScoutTrialStore(self.scout_run, initial_memory=[])
         second = ScoutTrialStore(self.scout_run, initial_memory=[])
@@ -788,9 +795,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]

@@ -1,4 +1,3 @@
-import time
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -9,7 +8,6 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
-from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -45,12 +43,10 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 from posthog.utils import get_context_for_template, get_instance_realm
@@ -663,343 +659,6 @@ def team_api_test_factory():
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        @time_machine.travel("2022-02-08", tick=False)
-        def test_generate_secret_token(self):
-            from posthog.models.utils import mask_key_value
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self._assert_activity_log_is_empty()
-
-            # Support is the only product that can still mint a first legacy secret token
-            self.team.secret_api_token = None
-            self.team.secret_api_token_backup = None
-            self.team.conversations_enabled = True
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            response_data = response.json()
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            new_secret_api_token = self.team.secret_api_token or ""
-            self.assertTrue(new_secret_api_token.startswith("phs_"))
-            self.assertEqual(response_data["secret_api_token"], new_secret_api_token)
-            self.assertIsNone(self.team.secret_api_token_backup)
-            self._assert_activity_log(
-                [
-                    {
-                        "activity": "updated",
-                        "created_at": "2022-02-08T00:00:00Z",
-                        "detail": {
-                            "changes": [
-                                {
-                                    "action": "created",
-                                    "after": {
-                                        "secret_api_token": mask_key_value(new_secret_api_token),
-                                    },
-                                    "before": {"secret_api_token": None},
-                                    "field": "secret_api_token",
-                                    "type": "Team",
-                                },
-                            ],
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "item_id": str(self.team.pk),
-                        "scope": "Team",
-                        "user": {
-                            "email": "user1@posthog.com",
-                            "first_name": "",
-                        },
-                    },
-                ]
-            )
-
-        @time_machine.travel("2022-02-08", tick=False)
-        def test_rotate_secret_token(self):
-            from posthog.models.utils import mask_key_value
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self._assert_activity_log_is_empty()
-
-            # Set the secret API token
-            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token = secret_api_token
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            response_data = response.json()
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
-            self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
-            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
-            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
-            self._assert_activity_log(
-                [
-                    {
-                        "activity": "updated",
-                        "created_at": "2022-02-08T00:00:00Z",
-                        "detail": {
-                            "changes": [
-                                {
-                                    "action": "changed",
-                                    "after": {
-                                        "secret_api_token": mask_key_value(self.team.secret_api_token),
-                                        "secret_api_token_backup": "phs_...F11C",
-                                    },
-                                    "before": {
-                                        "secret_api_token": "phs_...F11C",
-                                        "secret_api_token_backup": None,
-                                    },
-                                    "field": "secret_api_token",
-                                    "type": "Team",
-                                },
-                            ],
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "item_id": str(self.team.pk),
-                        "scope": "Team",
-                        "user": {
-                            "email": "user1@posthog.com",
-                            "first_name": "",
-                        },
-                    },
-                ]
-            )
-
-        @time_machine.travel("2022-02-08", tick=False)
-        def test_rotate_secret_token_overwrites_backup_token(self):
-            from posthog.models.utils import mask_key_value
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self._assert_activity_log_is_empty()
-
-            # Set the secret API token
-            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token = secret_api_token
-            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            response_data = response.json()
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
-            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
-            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
-            self._assert_activity_log(
-                [
-                    {
-                        "activity": "updated",
-                        "created_at": "2022-02-08T00:00:00Z",
-                        "detail": {
-                            "changes": [
-                                {
-                                    "action": "changed",
-                                    "after": {
-                                        "secret_api_token": mask_key_value(self.team.secret_api_token),
-                                        "secret_api_token_backup": "phs_...F11C",
-                                    },
-                                    "before": {
-                                        "secret_api_token": "phs_...F11C",
-                                        "secret_api_token_backup": "phs_...6789",
-                                    },
-                                    "field": "secret_api_token",
-                                    "type": "Team",
-                                },
-                            ],
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "item_id": str(self.team.pk),
-                        "scope": "Team",
-                        "user": {
-                            "email": "user1@posthog.com",
-                            "first_name": "",
-                        },
-                    },
-                ]
-            )
-
-        def test_retiring_a_legacy_token_deletes_its_migrated_psak_row(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            primary = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            self.team.secret_api_token = primary
-            self.team.secret_api_token_backup = backup
-            self.team.save()
-            for token, label in ((primary, "Migrated legacy secret API key"), (backup, "Migrated legacy key (backup)")):
-                create_project_secret_api_key(team=self.team, label=label, value=token)
-
-            # Rotation drops the old backup; its PSAK row must stop authenticating with it.
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
-            self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
-
-            # Only the mirror row authenticates the new primary, so rotation must create it.
-            self.team.refresh_from_db()
-            new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
-            self.assertEqual(new_row.team_id, self.team.id)
-            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read"])
-
-            # Deleting the backup (the rotated-out primary) retires its row too.
-            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
-
-        def test_writes_from_a_stale_instance_do_not_orphan_mirror_rows(self):
-            # A write computing from stale token fields would leave another rotation's
-            # mirror row authenticating forever, with no column referencing its token.
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            first = Team.objects.get(pk=self.team.pk)
-            stale = Team.objects.get(pk=self.team.pk)
-            first.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            stale.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-
-            updated = Team.objects.get(pk=self.team.pk)
-            current_primary = updated.secret_api_token
-            current_backup = updated.secret_api_token_backup
-            assert current_primary is not None and current_backup is not None
-            mirrored = set(
-                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
-            )
-            self.assertEqual(mirrored, {hash_key_value(current_primary), hash_key_value(current_backup)})
-
-            # Deleting the backup from an instance that missed the second rotation must not
-            # write its stale primary back over the current token.
-            first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
-            updated = Team.objects.get(pk=self.team.pk)
-            self.assertEqual(updated.secret_api_token, current_primary)
-            self.assertIsNone(updated.secret_api_token_backup)
-            mirrored = set(
-                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
-            )
-            self.assertEqual(mirrored, {hash_key_value(current_primary)})
-
-        def test_retiring_a_token_never_touches_another_teams_row(self):
-            # secure_value is globally unique, so when two teams hold the same string the
-            # single row belongs to one of them — retiring the other team's token must
-            # not delete it.
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            token = "phs_string_shared_by_two_teams_somehow"
-            self.team.secret_api_token = "phs_this_teams_own_primary_token_value"
-            self.team.secret_api_token_backup = token
-            self.team.save()
-            other_team = Team.objects.create(organization=self.organization, project=self.project, name="other")
-            row, _ = create_project_secret_api_key(team=other_team, label="Twin value", value=token)
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
-
-        @parameterized.expand(
-            [
-                ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
-                ("existing_token", "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C", False, status.HTTP_200_OK),
-                # Support has no alternative to this token for signing widget identity hashes
-                ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
-            ]
-        )
-        def test_secret_token_generation(self, _name, existing_token, conversations_enabled, expected_status):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self.team.secret_api_token = existing_token
-            self.team.secret_api_token_backup = None
-            self.team.conversations_enabled = conversations_enabled
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, expected_status)
-            if expected_status == status.HTTP_400_BAD_REQUEST:
-                self.assertIn("project secret API key", response.json()["detail"])
-                self.assertIsNone(self.team.secret_api_token)
-            else:
-                self.assertNotEqual(self.team.secret_api_token, existing_token)
-                self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
-                self.assertEqual(self.team.secret_api_token_backup, existing_token)
-
-        @time_machine.travel("2022-02-08", tick=False)
-        def test_delete_secret_backup_token(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self._assert_activity_log_is_empty()
-
-            # Set the secret API token
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            response_data = response.json()
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response_data["secret_api_token"], "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertIsNone(response_data["secret_api_token_backup"])
-            self.assertIsNone(self.team.secret_api_token_backup)
-            self._assert_activity_log(
-                [
-                    {
-                        "activity": "updated",
-                        "created_at": "2022-02-08T00:00:00Z",
-                        "detail": {
-                            "changes": [
-                                {
-                                    "action": "deleted",
-                                    "after": None,
-                                    "before": "phs_...6789",
-                                    "field": "secret_api_token_backup",
-                                    "type": "Team",
-                                },
-                            ],
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "item_id": str(self.team.pk),
-                        "scope": "Team",
-                        "user": {
-                            "email": "user1@posthog.com",
-                            "first_name": "",
-                        },
-                    },
-                ]
-            )
-
         def test_rotate_heatmaps_screenshot_secret(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1036,71 +695,6 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.team.refresh_from_db()
             self.assertIsNone(self.team.heatmaps_screenshot_secret)
-
-        def test_rotate_secret_token_insufficient_privileges(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            # Make sure it's unchanged
-            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertIsNone(self.team.secret_api_token_backup)
-
-        def test_rotate_secret_token_rejects_scoped_tokens(self):
-            # Rotation mints a PSAK mirror row, so the endpoint must stay session-only:
-            # opening it to scoped tokens would let them mint a durable credential.
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            for scopes in (["project:write"], ["project:write", "feature_flag:read", "support_ticket:read"]):
-                token = self.create_personal_api_key_with_scopes(scopes)
-                response = self.client.patch(
-                    f"/api/environments/{self.team.id}/rotate_secret_token/",
-                    HTTP_AUTHORIZATION=f"Bearer {token}",
-                )
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, scopes)
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-
-        def test_rotate_secret_token_requires_fresh_session(self):
-            # Rotation mints a durable credential, so an aged session must reauthenticate
-            # first, like it must for PSAK creation.
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            session = self.client.session
-            # login() stamps both keys and the freshness window takes their max, so age both.
-            stale = time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
-            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
-            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = stale
-            session.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
-
-        def test_delete_secret_token_backup_insufficient_privileges(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            # Make sure it's unchanged
-            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-            self.assertEqual(self.team.secret_api_token_backup, "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
         def test_update_primary_dashboard(self):
             d = Dashboard.objects.create(name="Test", team=self.team)
@@ -1667,22 +1261,19 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        def test_the_events_schema_modifier_is_not_client_writable(self) -> None:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": True}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert "useNewEventsSchema" not in response.json()["modifiers"]
+        def test_a_project_stores_its_early_events_table_choice_and_sees_a_move_by_posthog(self) -> None:
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}",
+                    {"modifiers": {"useNewEventsSchema": True}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["useNewEventsSchema"] is True
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is False
 
-            self.team.modifiers = {"useNewEventsSchema": True}
-            self.team.save()
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+                with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)):
+                    response = self.client.get(f"/api/environments/{self.team.id}")
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is True
 
         @parameterized.expand(
             [
@@ -3471,7 +3062,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
-        request = RequestFactory().get("/")
+        request = RequestFactory().get("/?deferred_app_context=0")
         request.user = self.user
         request.session = self.client.session
 
@@ -3479,6 +3070,27 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             context = get_context_for_template("index.html", request)
 
         self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
+
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, False, False),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+            ("native_events_table", FlagEvaluationsMode.EVENTS, True, True),
+        ]
+    )
+    def test_page_load_team_flag_calls_only_in_flag_evaluations(self, _name, mode, native_events, expected):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+        request = RequestFactory().get("/?deferred_app_context=0")
+        request.user = self.user
+        request.session = self.client.session
+
+        with self.is_cloud(True), self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events):
+            context = get_context_for_template("index.html", request)
+
+        self.assertEqual(
+            context["posthog_app_context"]["current_team"]["flag_calls_only_in_flag_evaluations"], expected
+        )
 
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
@@ -4124,97 +3736,6 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
         assert org_b_departure.detail["changes"][0]["before"] == str(self.org_b.id)
 
 
-class TestRotateSecretTokenConcurrency(TransactionTestCase):
-    """Two rotations of the same team must serialize on the team row lock.
-
-    Without it, both read the same primary before either commits; the second save
-    overwrites the first rotation's token while that token's mirror row keeps
-    authenticating, referenced by no column.
-    """
-
-    LOCK_WAIT_TIMEOUT = 15
-
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Rotation org")
-        # A previous failed run can leave this user behind: the test database survives between runs.
-        User.objects.filter(email="rotator@example.com").delete()
-        self.user = User.objects.create_and_join(
-            organization=self.organization, email="rotator@example.com", password=None
-        )
-        self.project, self.team = Project.objects.create_with_team(
-            name="Concurrent rotation", organization=self.organization, initiating_user=self.user
-        )
-        self.team.secret_api_token = "phs_initial_primary_token_value"
-        self.team.save()
-
-    def _rotate(self, errors: list) -> None:
-        try:
-            Team.objects.get(pk=self.team.pk).rotate_secret_token_and_save(
-                user=self.user, is_impersonated_session=False
-            )
-        except Exception as error:
-            errors.append(error)
-        finally:
-            from django.db import connections
-
-            connections.close_all()
-
-    def test_concurrent_rotations_serialize_on_the_team_lock(self):
-        errors: list[Exception] = []
-        counter_lock = threading.Lock()
-        select_calls = [0]
-        mint_calls = [0]
-        first_rotation_locked = threading.Event()
-        second_rotation_at_lock = threading.Event()
-        release_first_rotation = threading.Event()
-
-        real_select_for_update = Team.objects.select_for_update
-
-        def traced_select_for_update(*args: Any, **kwargs: Any):
-            with counter_lock:
-                select_calls[0] += 1
-                call_number = select_calls[0]
-            if call_number == 2:
-                # The second rotation's get() is about to block on the row lock.
-                second_rotation_at_lock.set()
-            return real_select_for_update(*args, **kwargs)
-
-        def traced_mint(team_id: int, token: str) -> None:
-            create_project_secret_api_key_for_token(team_id, token)
-            with counter_lock:
-                mint_calls[0] += 1
-                call_number = mint_calls[0]
-            if call_number == 1:
-                # Hold the first rotation's transaction open until the second reaches
-                # the lock, so both reads provably overlap.
-                first_rotation_locked.set()
-                if not release_first_rotation.wait(self.LOCK_WAIT_TIMEOUT):
-                    errors.append(AssertionError("Second rotation never reached the team lock"))
-
-        with (
-            patch.object(Team.objects, "select_for_update", traced_select_for_update),
-            patch("posthog.models.team.team.create_project_secret_api_key_for_token", traced_mint),
-        ):
-            first = threading.Thread(target=self._rotate, args=(errors,))
-            first.start()
-            assert first_rotation_locked.wait(self.LOCK_WAIT_TIMEOUT), "First rotation never acquired the team lock"
-
-            second = threading.Thread(target=self._rotate, args=(errors,))
-            second.start()
-            assert second_rotation_at_lock.wait(self.LOCK_WAIT_TIMEOUT), "Second rotation never reached the team lock"
-
-            release_first_rotation.set()
-            first.join(self.LOCK_WAIT_TIMEOUT)
-            second.join(self.LOCK_WAIT_TIMEOUT)
-
-        assert errors == []
-        updated = Team.objects.get(pk=self.team.pk)
-        assert updated.secret_api_token is not None and updated.secret_api_token_backup is not None
-        # Exactly the final primary and backup: no orphaned row keeps authenticating.
-        mirrored = set(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True))
-        assert mirrored == {hash_key_value(updated.secret_api_token), hash_key_value(updated.secret_api_token_backup)}
-
-
 class TestTeamSerializerHomeViewWins(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -4380,34 +3901,23 @@ class TestSecretApiTokenVisibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", None, [], True, True),
-            ("personal_api_key_project_read", "personal_api_key", ["project:read"], True, False),
+            ("session", None, []),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"]),
             (
-                "personal_api_key_mirrored_scopes_legacy_tokens_on",
+                "personal_api_key_mirrored_scopes",
                 "personal_api_key",
                 ["project:read", "feature_flag:read", "support_ticket:read"],
-                True,
-                False,
             ),
-            (
-                "personal_api_key_mirrored_scopes_legacy_tokens_off",
-                "personal_api_key",
-                ["project:read", "feature_flag:read", "support_ticket:read"],
-                False,
-                True,
-            ),
-            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True, True),
-            ("oauth_project_read", "oauth", ["project:read"], True, False),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"]),
+            ("oauth_project_read", "oauth", ["project:read"]),
         ]
     )
     @patch("posthog.event_usage.report_user_action")
-    def test_secret_api_tokens_are_visible_only_to_callers_that_hold_their_authority(
+    def test_secret_api_tokens_are_hidden_from_every_caller(
         self,
         _name: str,
         credential: str | None,
         scopes: list[str],
-        accept_team_secret_tokens: bool,
-        visible: bool,
         _mock_report_user_action: MagicMock,
     ) -> None:
         headers: dict[str, str] = {}
@@ -4420,14 +3930,14 @@ class TestSecretApiTokenVisibility(APIBaseTest):
             headers["authorization"] = f"Bearer {token}"
             self.client.logout()
 
-        with override_settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            responses = self._read_both_serializers(headers)
+        responses = self._read_both_serializers(headers)
 
-        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
         for serializer_name, response in responses.items():
             assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
             body = response.json()
-            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+            # The columns still hold plaintext until #66179 drops them, so the serializers
+            # must not expose the fields at all.
+            assert "secret_api_token" not in body and "secret_api_token_backup" not in body, serializer_name
 
     def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
         return {

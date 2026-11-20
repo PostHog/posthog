@@ -123,7 +123,7 @@ class NotebookMarkdownMigrationTool(ConsoleTool):
     key = "notebook-markdown-migration"
     title = "Markdown notebook migration"
     owner = DATA_TOOLS
-    group = "Data"
+    group = "Product data"
     description = "Converts rich notebooks to markdown notebooks in batches, after a preview."
 
     def page(self, request: HttpRequest) -> Page:
@@ -177,3 +177,16 @@ class NotebookMarkdownMigrationTool(ConsoleTool):
                 ),
             )
         ]
+
+
+# The old page fetched its stats/ and run/ JSON endpoints itself, so a bookmark of one lands on the tool page.
+for old_path in (
+    "admin/notebook-markdown-migration/",
+    "admin/notebook-markdown-migration/stats/",
+    "admin/notebook-markdown-migration/run/",
+):
+    console.register_moved_page(
+        old_path=old_path,
+        title="Markdown notebook migration",
+        url="/admin/console/tools/notebook-markdown-migration/",
+    )

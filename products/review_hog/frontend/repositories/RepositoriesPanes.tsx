@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from 'lib/components/RepositoryList/paneClasses'
+import { RepositoryColumnHeaders } from 'lib/components/RepositoryList/RepositoryColumnHeaders'
+
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MyDefaultCell } from './MyDefaultCell'
-import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from './paneClasses'
 import { ProjectRuleCell } from './ProjectRuleCell'
 import { RepositoryFoldRow } from './RepositoryFoldRow'
 import { RepositoryListPager } from './RepositoryListPager'
@@ -123,14 +125,13 @@ export function RepositoriesPanes(): JSX.Element {
             <div className="mt-4 grid grid-cols-1 overflow-hidden rounded border border-primary @min-[48rem]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.15fr)_minmax(0,1fr)] [&>*:first-child]:border-t-0">
                 <RepositoryListToolbar />
                 {/* The personal column uses the same name as the Deep settings tables. */}
-                {['Repository', 'Project', 'My preference'].map((column) => (
-                    <div
-                        key={column}
-                        className={`hidden px-4 py-1.5 text-xxs font-semibold tracking-wide text-secondary uppercase @min-[48rem]:block ${column === 'My preference' ? PANE_RIGHT : PANE_LEFT} ${PANE_ROW}`}
-                    >
-                        {column}
-                    </div>
-                ))}
+                <RepositoryColumnHeaders
+                    columns={[
+                        { label: 'Repository', pane: 'left' },
+                        { label: 'Project', pane: 'left' },
+                        { label: 'My preference', pane: 'right' },
+                    ]}
+                />
                 <RepositoryRows />
                 <RepositoryListPager />
             </div>

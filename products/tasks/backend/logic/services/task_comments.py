@@ -95,10 +95,6 @@ def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str])
     return names
 
 
-def _is_state_event(comment: Comment) -> bool:
-    return _item_context(comment).get("threadState") in COMMENT_STATES
-
-
 def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
     return urlsafe_b64encode(f"{created_at.isoformat()}|{comment_id}".encode()).decode().rstrip("=")
 

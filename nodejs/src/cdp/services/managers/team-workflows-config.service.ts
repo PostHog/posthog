@@ -25,6 +25,8 @@ export type TeamWorkflowsConfig = {
     marketing_frequency_cap_window_days: number | null
     /** Hours a capped marketing message waits for a free slot. Null skips it at once. */
     marketing_frequency_cap_hold_hours: number | null
+    /** Whether tracked email links carry ph_workflow_run, which joins a click to the session it starts. */
+    email_workflow_run_link_tag_enabled: boolean
 }
 
 export type FrequencyCap = { max_messages: number | null; window_days: number | null; hold_hours: number | null }
@@ -38,6 +40,7 @@ const DEFAULT_CONFIG: TeamWorkflowsConfig = {
     marketing_frequency_cap_max_messages: null,
     marketing_frequency_cap_window_days: null,
     marketing_frequency_cap_hold_hours: null,
+    email_workflow_run_link_tag_enabled: true,
 }
 
 /**
@@ -49,7 +52,7 @@ export class TeamWorkflowsConfigService {
     private lazyLoader: LazyLoader<TeamWorkflowsConfig>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         pubSub: PubSub
     ) {
         this.lazyLoader = new LazyLoader({
@@ -126,6 +129,11 @@ export class TeamWorkflowsConfigService {
         }
     }
 
+    public async tagsEmailLinksWithWorkflowRun(teamId: number): Promise<boolean> {
+        const config = await this.get(teamId)
+        return config.email_workflow_run_link_tag_enabled
+    }
+
     private async fetchConfigs(teamIds: string[]): Promise<Record<string, TeamWorkflowsConfig>> {
         const result = await this.postgres.query<{
             team_id: number
@@ -137,6 +145,7 @@ export class TeamWorkflowsConfigService {
             marketing_frequency_cap_max_messages: number | null
             marketing_frequency_cap_window_days: number | null
             marketing_frequency_cap_hold_hours: number | null
+            email_workflow_run_link_tag_enabled: boolean
         }>(
             PostgresUse.COMMON_READ,
             // Only DISABLED blocks: ENABLED and REINSTATED both permit sending, and '' means the
@@ -145,7 +154,7 @@ export class TeamWorkflowsConfigService {
                     email_sending_suspended_at IS NOT NULL AS email_sending_suspended,
                     ses_tenant_sending_status = 'DISABLED' AS ses_tenant_provider_suspended,
                     email_sending_tier, marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days,
-                    marketing_frequency_cap_hold_hours
+                    marketing_frequency_cap_hold_hours, email_workflow_run_link_tag_enabled
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
             [validTeamIds(teamIds)],
@@ -166,6 +175,7 @@ export class TeamWorkflowsConfigService {
                 marketing_frequency_cap_max_messages: row.marketing_frequency_cap_max_messages,
                 marketing_frequency_cap_window_days: row.marketing_frequency_cap_window_days,
                 marketing_frequency_cap_hold_hours: row.marketing_frequency_cap_hold_hours,
+                email_workflow_run_link_tag_enabled: row.email_workflow_run_link_tag_enabled,
             }
         }
         return configs

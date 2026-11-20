@@ -79,6 +79,33 @@ export class LearnLookupError extends Error {
  * Runtime view of the published product skill bundle. The bundle is parsed
  * once per refresh; all learn operations use this in-memory representation.
  */
+/**
+ * The commands that the text around a skill tells the reader to run. The MCP `learn` command takes a file as
+ * the word after the skill. A CLI with its own commands passes them instead.
+ */
+export interface LearnCommands {
+    /** Reads a skill, one file in it, or a line range of that file. */
+    read(identifier: string, path?: string, lines?: string): string
+    /** Finds skills by keywords. */
+    search(query: string): string
+    /** Searches one file. Without it, a file too large to show points to a line range only. */
+    searchFile?(identifier: string, path: string, query: string): string
+    /** Follows "Read a file with ..." in a skill's file list, such as how to separate the words. */
+    fileNote?: string
+}
+
+export function learnCommands(command = 'learn'): LearnCommands {
+    return {
+        read: (identifier, path, lines) =>
+            `${command} ${identifier}${path === undefined ? '' : ` ${path}`}${lines === undefined ? '' : ` --lines ${lines}`}`,
+        search: (query) => `${command} -s ${query}`,
+        searchFile: (identifier, path, query) => `${command} ${identifier} ${path} -s ${query}`,
+        fileNote: 'Separate the skill name and path with a space; do not use --file.',
+    }
+}
+
+const LINE_RANGE = '<start>:<end>'
+
 export class SkillCatalog {
     private readonly skillsByName: Map<string, SkillDefinition>
 
@@ -142,6 +169,10 @@ export class SkillCatalog {
         return this.skillsByName.get(name)?.description
     }
 
+    get(name: string): SkillDefinition | undefined {
+        return this.skillsByName.get(name)
+    }
+
     searchResults(query: string, namespace = ''): LearnSearchResult[] {
         const normalizedQuery = normalizeQuery(query)
         return [...this.skillsByName.values()]
@@ -166,51 +197,58 @@ export class SkillCatalog {
         return formatLearnSearchResults(results)
     }
 
-    read(name: string, path?: string, identifier = name, command = 'learn'): string {
-        const skill = this.requireSkill(name, command)
+    read(name: string, path?: string, identifier = name, commands = learnCommands()): string {
+        const skill = this.requireSkill(name, commands)
 
         if (path) {
-            const file = this.requireFile(skill, path, identifier, command)
-            return formatLearnFile(identifier, file, command)
+            const file = this.requireFile(skill, path, identifier, commands)
+            return formatLearnFile(identifier, file, commands)
         }
 
-        const skillFile = this.requireFile(skill, 'SKILL.md', identifier, command)
-        return formatLearnDocument(identifier, skill.description, skillFile, skill.files, command)
+        const skillFile = this.requireFile(skill, 'SKILL.md', identifier, commands)
+        return formatLearnDocument(identifier, skill.description, skillFile, skill.files, commands)
     }
 
-    searchFile(name: string, path: string, query: string, identifier = name, command = 'learn'): string {
-        const skill = this.requireSkill(name, command)
-        const file = this.requireFile(skill, path, identifier, command)
-        return searchLearnFile(identifier, file, query, command)
+    searchFile(name: string, path: string, query: string, identifier = name, commands = learnCommands()): string {
+        const skill = this.requireSkill(name, commands)
+        const file = this.requireFile(skill, path, identifier, commands)
+        return searchLearnFile(identifier, file, query, commands)
     }
 
-    readLines(name: string, path: string, start: number, end: number, identifier = name, command = 'learn'): string {
-        const skill = this.requireSkill(name, command)
-        const file = this.requireFile(skill, path, identifier, command)
+    readLines(
+        name: string,
+        path: string,
+        start: number,
+        end: number,
+        identifier = name,
+        commands = learnCommands()
+    ): string {
+        const skill = this.requireSkill(name, commands)
+        const file = this.requireFile(skill, path, identifier, commands)
         return readLearnLines(identifier, file, start, end)
     }
 
-    private requireSkill(name: string, command: string): SkillDefinition {
+    private requireSkill(name: string, commands: LearnCommands): SkillDefinition {
         const skill = this.skillsByName.get(name)
 
         if (!skill) {
             throw new LearnLookupError(
                 'unknown_skill',
-                `Unknown skill: "${name}". Use \`${command} -s <query>\` to find a skill.`
+                `Unknown skill: "${name}". Use \`${commands.search('<query>')}\` to find a skill.`
             )
         }
 
         return skill
     }
 
-    private requireFile(skill: SkillDefinition, path: string, identifier: string, command: string): SkillFile {
+    private requireFile(skill: SkillDefinition, path: string, identifier: string, commands: LearnCommands): SkillFile {
         validateRelativePath(path)
         const file = skill.files.find((candidate) => candidate.path === path)
 
         if (!file) {
             throw new LearnLookupError(
                 'unknown_file',
-                `Unknown file: "${path}" in skill "${identifier}". Run \`${command} ${identifier}\` for its manifest.`
+                `Unknown file: "${path}" in skill "${identifier}". Run \`${commands.read(identifier)}\` for its manifest.`
             )
         }
 
@@ -310,30 +348,35 @@ export function formatLearnDocument(
     description: string,
     skillFile: SkillFile,
     manifestFiles: readonly SkillManifestEntry[],
-    command = 'learn'
+    commands = learnCommands()
 ): string {
-    const manifest = `${formatManifest(manifestFiles)}\nRead a file with \`${command} ${identifier} <path>\`. Separate the skill name and path with a space; do not use --file.`
+    const note = commands.fileNote === undefined ? '' : ` ${commands.fileNote}`
+    const manifest = `${formatManifest(manifestFiles)}\nRead a file with \`${commands.read(identifier, '<path>')}\`.${note}`
     const full = `Skill: ${identifier}\nDescription: ${description}\n\n${manifest}\n\nSKILL.md content (frontmatter omitted):\n\n${stripFrontmatter(skillFile.content)}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
-    return formatOversizedFile(identifier, skillFile, command, manifest)
+    return formatOversizedFile(identifier, skillFile, commands, manifest)
 }
 
-export function formatLearnFile(identifier: string, file: SkillFile, command = 'learn'): string {
+export function formatLearnFile(identifier: string, file: SkillFile, commands = learnCommands()): string {
     const header = `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)`
     const full = `${header}\n\n${file.content}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
-    return formatOversizedFile(identifier, file, command)
+    return formatOversizedFile(identifier, file, commands)
 }
 
-function formatOversizedFile(identifier: string, file: SkillFile, command: string, manifest?: string): string {
+function formatOversizedFile(identifier: string, file: SkillFile, commands: LearnCommands, manifest?: string): string {
     const scope = manifest ? `${manifest}\n\n` : ''
+    const lines = commands.read(identifier, file.path, LINE_RANGE)
+    const next = commands.searchFile
+        ? `Use \`${commands.searchFile(identifier, file.path, '<query>')}\` or \`${lines}\`.`
+        : `Read part of it with \`${lines}\`, using the line numbers in the heading outline.`
     let output = appendLearnOutput(
         '',
-        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`${command} ${identifier} ${file.path} -s <query>\` or \`${command} ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n`
+        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. ${next}\n\n${scope}Heading outline:\n`
     )
     let hasHeadings = false
     for (const line of scanLines(file.content)) {
@@ -350,7 +393,12 @@ function formatOversizedFile(identifier: string, file: SkillFile, command: strin
     return fitLearnOutput(hasHeadings ? output : appendLearnOutput(output, '(No Markdown headings found.)'))
 }
 
-export function searchLearnFile(identifier: string, file: SkillFile, query: string, command = 'learn'): string {
+export function searchLearnFile(
+    identifier: string,
+    file: SkillFile,
+    query: string,
+    commands = learnCommands()
+): string {
     if (file.kind !== 'markdown') {
         throw new Error('Only Markdown contents are searchable. Read the file directly or use --lines instead.')
     }
@@ -386,7 +434,7 @@ export function searchLearnFile(identifier: string, file: SkillFile, query: stri
     if (matches === 0) {
         return (
             `No matches for "${query}" in ${identifier}/${file.path}.\n` +
-            `Read it with \`${command} ${identifier} ${file.path}\` (${file.lineCount} lines, ${file.charCount} chars) or \`${command} ${identifier} ${file.path} --lines <start>:<end>\`.`
+            `Read it with \`${commands.read(identifier, file.path)}\` (${file.lineCount} lines, ${file.charCount} chars) or \`${commands.read(identifier, file.path, LINE_RANGE)}\`.`
         )
     }
 

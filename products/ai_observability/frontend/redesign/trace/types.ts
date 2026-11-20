@@ -1,4 +1,5 @@
 import type {
+    TraceApi,
     TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
     TraceMessageApi,
@@ -7,6 +8,7 @@ import type {
     TraceNodeDetailApi,
     TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
+    TracePersonApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
 } from '../../generated/api.schemas'
@@ -14,7 +16,7 @@ import type {
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
-export type TraceOpeningMode = 'summary' | null
+export type TraceOpeningMode = 'summary' | 'thread' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -108,4 +110,22 @@ export interface FeedbackStepContext {
     traceId: string
     stepLabels: ReadonlyMap<string, string>
     focusNodeId: string | null
+}
+
+/** What a list row already knows about a trace, enough to paint the trace's header before the trace read answers. */
+export type TraceOverview = Pick<
+    TraceApi,
+    'id' | 'name' | 'createdAt' | 'sessionId' | 'totals' | 'hasError' | 'errorCount' | 'totalsPartial'
+>
+
+export interface TraceSeed {
+    overview: TraceOverview
+    defaultStepId: string | null
+    person?: TracePersonApi
+}
+
+export interface TraceViewKey {
+    hostId: string
+    traceId: string
+    timestampHint: string | null
 }

@@ -13,16 +13,21 @@ import {
     decodeIdSegment,
     makeEvaluationResult,
     makeEvaluationResults,
+    makeFeedback,
     makeNodeDetail,
     makeRawNode,
+    makeSeededRow,
     makeTraceResource,
 } from './testFixtures'
+import { traceFeedbackLogic } from './traceFeedbackLogic'
+import { tracePreloadLogic } from './tracePreloadLogic'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
     id: 'expired-1',
@@ -117,7 +122,176 @@ describe('traceViewLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(requestedPath).toMatch(/\/traces\/YS9i\/$/)
         expect(requestedHint).toEqual('2026-09-01T10:15:00Z')
-        expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
+        expect(logic.values.trace?.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
+    })
+
+    describe('seeded from a list row', () => {
+        const ROW_CREATED_AT = '2026-08-30T08:00:00Z'
+        let heldTrace = deferred()
+
+        beforeEach(() => {
+            heldTrace = deferred()
+            useMocks({
+                get: {
+                    [TRACE_URL]: async () => {
+                        await heldTrace.promise
+                        return [200, makeTraceResource()]
+                    },
+                },
+            })
+            tracePreloadLogic.mount()
+            tracePreloadLogic.actions.seedRows([makeSeededRow({ name: 'row-name', createdAt: ROW_CREATED_AT })])
+        })
+
+        function mountSeeded(): ReturnType<typeof traceViewLogic.build> {
+            const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+            logic.mount()
+            return logic
+        }
+
+        it('shows the row overview while the trace loads, then the trace', async () => {
+            const logic = mountSeeded()
+
+            expect(logic.values).toMatchObject({ status: 'loading', overview: { name: 'row-name' } })
+            heldTrace.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values).toMatchObject({ status: 'ready', overview: { name: 'answer-billing-question' } })
+        })
+
+        it('keeps the seeded overview when the list drops the row mid-load', async () => {
+            const logic = mountSeeded()
+
+            tracePreloadLogic.actions.seedRows([])
+
+            expect(logic.values.overview?.name).toBe('row-name')
+            heldTrace.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('sends the row time as the hint of a step read before the trace arrives', async () => {
+            const logic = mountSeeded()
+
+            logic.actions.loadNode('span-1', 'selection')
+            await waitFor(() => expect(nodeRequests).toContain('span-1'))
+
+            expect(nodeHints[nodeRequests.indexOf('span-1')]).toBe(ROW_CREATED_AT)
+            heldTrace.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+    })
+
+    describe('prefetched from a list row', () => {
+        let traceRequests = 0
+        let feedbackRequests = 0
+        let traceStatus = 200
+        let traceGate: Promise<void> = Promise.resolve()
+        let now = Date.parse('2026-09-01T11:00:00Z')
+
+        beforeEach(() => {
+            traceRequests = 0
+            feedbackRequests = 0
+            traceStatus = 200
+            traceGate = Promise.resolve()
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
+            useMocks({
+                get: {
+                    [TRACE_URL]: async () => {
+                        traceRequests += 1
+                        await traceGate
+                        return traceStatus === 200 ? [200, makeTraceResource()] : [traceStatus, { detail: 'nope' }]
+                    },
+                    [FEEDBACK_URL]: () => {
+                        feedbackRequests += 1
+                        return [200, makeFeedback()]
+                    },
+                },
+            })
+            tracePreloadLogic.mount()
+            tracePreloadLogic.actions.seedRows([makeSeededRow({}, 'gen-1')])
+        })
+
+        function prefetch(): void {
+            tracePreloadLogic.actions.prefetchTrace('trace-1')
+        }
+
+        async function settled(): Promise<void> {
+            await waitFor(() => expect(tracePreloadLogic.values.prefetchInFlight).toBe(false))
+        }
+
+        async function open(): Promise<{ unmount: () => void }> {
+            const feedback = traceFeedbackLogic({ traceId: 'trace-1', timestampHint: null })
+            const unmount = feedback.mount()
+            const view = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+            view.actions.loadNode('gen-1', 'navigation')
+            await expectLogic(view).toFinishAllListeners()
+            await waitFor(() => expect(view.values.status).toBe('ready'))
+            return { unmount }
+        }
+
+        it.each(['in flight', 'answered'])(
+            'opens a prefetched trace without a second read when it is %s',
+            async (state) => {
+                let releaseTrace = (): void => {}
+                traceGate = new Promise<void>((resolve) => {
+                    releaseTrace = resolve
+                })
+                prefetch()
+                if (state === 'answered') {
+                    releaseTrace()
+                    await settled()
+                }
+
+                const opening = open()
+                releaseTrace()
+                await opening
+
+                expect(traceRequests).toBe(1)
+                expect(nodeRequests.filter((id) => id === 'gen-1')).toHaveLength(1)
+                await waitFor(() => expect(feedbackRequests).toBe(1))
+            }
+        )
+
+        it.each<[string, () => Promise<void>]>([
+            [
+                'the prefetch failed',
+                async () => {
+                    traceStatus = 500
+                    nodeStatus = 500
+                    prefetch()
+                    await settled()
+                    traceStatus = 200
+                    nodeStatus = 200
+                    await open()
+                },
+            ],
+            [
+                'the trace is opened a second time',
+                async () => {
+                    prefetch()
+                    await settled()
+                    const { unmount } = await open()
+                    unmount()
+                    await open()
+                },
+            ],
+            [
+                'the prefetch is older than 30 s',
+                async () => {
+                    prefetch()
+                    await settled()
+                    now += 30_001
+                    await open()
+                },
+            ],
+        ])('reads again when %s', async (_name, steps) => {
+            const toast = jest.spyOn(lemonToast, 'error')
+
+            await steps()
+
+            expect(traceRequests).toBe(2)
+            expect(nodeRequests.filter((id) => id === 'gen-1')).toHaveLength(2)
+            expect(toast).not.toHaveBeenCalled()
+        })
     })
 
     it.each([
@@ -278,7 +452,13 @@ describe('traceViewLogic', () => {
         })
     })
 
-    it('reports how long the reads took and how long a click waited', async () => {
+    it.each([
+        ['2026-09-01T10:15:00Z', 2.5],
+        ['2026-09-01T12:15:00+02:00', 2.5],
+        ['invalid', null],
+    ])('reports trace age and read timing for timestamp %s', async (createdAt, traceAgeMinutes) => {
+        jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T10:17:30Z'))
+        useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ createdAt })] } })
         const capture = jest.spyOn(posthog, 'capture')
         const logic = await mountedLogic()
 
@@ -290,6 +470,7 @@ describe('traceViewLogic', () => {
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
             node_count: 4,
+            trace_age_minutes: traceAgeMinutes,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),
@@ -443,5 +624,47 @@ describe('traceViewLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
         })
+    })
+
+    it('has no evaluation outcomes when the evaluations read fails', async () => {
+        silenceKeaLoadersErrors()
+        useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values).toMatchObject({ evaluationResults: null, evalOutcomes: new Map() })
+    })
+
+    it('indexes the evaluation outcomes by node id', async () => {
+        const nodes = [
+            { nodeId: 'gen-1', outcome: 'fail' as const },
+            { nodeId: 'constructor', outcome: 'pass' as const },
+        ]
+        useMocks({
+            get: {
+                [EVALUATIONS_URL]: () => [
+                    200,
+                    makeEvaluationResults({ summary: { passed: 1, failed: 1, unrated: 0, nodes } }),
+                ],
+            },
+        })
+
+        const logic = await mountedLogic()
+
+        expect([...logic.values.evalOutcomes]).toEqual([
+            ['gen-1', 'fail'],
+            ['constructor', 'pass'],
+        ])
+    })
+
+    it('indexes the step labels the trace sends by node id', async () => {
+        const trace = makeTraceResource()
+        trace.tree[0].children[1].label = 'openai.chat #2'
+        useMocks({ get: { [TRACE_URL]: () => [200, trace] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values.stepLabels.get('gen-1')).toBe('openai.chat #2')
+        expect(logic.values.stepLabels.get('trace-1')).toBe('answer-billing-question')
     })
 })

@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 const FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1.json");
 const SHADOW_FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1_shadow.json");
 const REFRESH_FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1_refresh.json");
+const COHORT_FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1_cohort.json");
 
 /// Each fixture parses to the values it declares, survives a re-serialize and
 /// reparse, and comes back out with exactly the key set it went in with.
@@ -28,6 +29,7 @@ const REFRESH_FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1
 #[case::edit(FIXTURE, false, Source::Edit)]
 #[case::shadow(SHADOW_FIXTURE, true, Source::Edit)]
 #[case::refresh(REFRESH_FIXTURE, false, Source::Refresh)]
+#[case::cohort(COHORT_FIXTURE, false, Source::Cohort)]
 fn fixture_round_trips(
     #[case] fixture: &str,
     #[case] expected_shadow: bool,

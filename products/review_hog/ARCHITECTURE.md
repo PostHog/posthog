@@ -2,9 +2,10 @@
 
 ## Terms
 
-**PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
-**Code review** is the name of the in-app page and its nav entry only.
-**ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
+**PostHog Review** is the product name in prose (GitHub comments, MCP category, API docs).
+**Code review** is the page name and the identifier namespace (`code_review` in the API and scopes, `code-review` in MCP tool names).
+**ReviewHog** and **Stamphog** are internal code names; Stamphog is also the name of the GitHub app.
+Code, logs, metric names, keys, and developer docs use the code names.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
 The comment is the primary GitHub-side trigger.
 Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
@@ -306,6 +307,35 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+- **Follow-up prompts name the changed lines.** On a follow-up turn that reviews the whole PR, every session's prompt
+  lists the lines changed since the last reviewed head and says which levels the `old_code` drop discards elsewhere
+  (P2 and P3 on an automatic turn, P3 on a requested one).
+- **Repository rules come from the base commit.** Every session's prompt says that the `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, and `SKILL.md` files, every file under `.agents/` or `.claude/`, and the guides they route to, apply as they are at the PR's merge base, and that a change to one is diff content to review.
+  It names the rule files the whole PR changes (`is_rule_file`), a delta turn included, and gives the `git show` command that reads each one at the merge base.
+  A renamed file counts under its old name too (`PRFile.previous_filename`), so renaming a rule file away is listed.
+  A rule file path with a character outside `[A-Za-z0-9._/-]` is counted, not named, so PR-authored text never reaches the instruction sentence or the quoted `git show` command.
+  Without a merge base, the session applies a changed rule file's removed lines and ignores its added lines.
+- **Repository hooks do not run.** Every ReviewHog sandbox context sets `disable_repo_hooks`, so the Claude runtime ignores hooks from the checkout's `.claude/settings*.json`.
+- **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
+  It is not in `FLASH_LENSES`.
+  It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
+  `_devex_lens_files` reads ownership from the default branch through `posthog/ownership`, so a repository without `owners.yaml` never runs the lens.
+  An ownership error, such as an `owners.yaml` that does not parse, leaves the turn without the lens instead of failing it.
+  The fetch activity reads ownership once on every Standard turn with separate sessions, whether the flag is on or not.
+  It records the owned files on the turn's `pr_snapshot` when the lens runs, where the session reads its scope.
+  `ReviewMeta.devex_lens_routed` says the PR changes an owned file, and `ReviewMeta.devex_lens` says the flag also gave the turn the lens.
+  The started event carries both as `devex_lens_routed` and `devex_lens_arm`, so a routed turn without the flag is a matched control.
+  A renamed file is routed by its new path.
+  The session is one more lens unit of `lens_review_activity` under pass 2003, so a turn that runs it opens at most 10 sessions.
+  Its failure, timeout and duration report on their own (`flash_devex_*`), outside the lens counts, the slowest session and the arm fallbacks.
+  Its diff holds only the owned files.
+  Its findings dedup in a third call with the main and lens findings as anchors, so they can lose to any other finding but never take its place, and a devex duplicate raises only a devex survivor.
+  When the cap or budget drops a main or lens anchor, its most severe devex duplicate posts in the devex lane instead.
+  When that call fails, the turn posts no devex finding, because the positional fallback ignores the anchors. The main and lens dedup do not retry for it.
+  They post in their own lane of `DEVEX_LENS_MAX_FINDINGS`, outside the turn cap and the pull request's finding budget, so a routed turn posts the same other findings as an unrouted one.
+  A lane drop is stored as `cap` and counted as `devex_lane` on the completed event.
+  A coordinated turn and a delta turn run without it.
+  Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 
 **Arm sets.** `SINGLE_AGENT_ARM_SETS` (`reviewer/constants.py`) names each set of arms the sessions can run on: one arm
 for the main session, one for every lens session. The `control` set runs every session on `SINGLE_AGENT_FLASH_ARM`
@@ -536,6 +566,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
+    Each outcome also stores the reactions' tone (`reaction_sentiment`), the first reply ReviewHog did not write (`first_reply_excerpt`), and whether the comment was outdated (`comment_outdated`). The reviews API returns all three on `findings[].outcome`. The event carries only the tone and the outdated flag.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, a Deep review body is only the hidden publish marker, because the tally repeats the comments.
     A Standard review body then carries one summary line instead (`render_review_summary`, "PostHog Review · Standard · reviewed `abc1234`: 1 Must fix."), because Standard has no status comment.
@@ -961,12 +992,12 @@ also carries the review-without-resolving, resolve-only, and **Flash** variants;
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
 whoever controls the run, the sandbox agent included), **MCP tools**
-(`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
+(`code-review-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
 A draft is skipped (`draft_skipped`) unless its repository turned draft reviews on (`ReviewRepository.review_drafts`, default off) and the PR owner kept `review_drafts` on. A bot or an unmapped author follows the repository alone. The workflow checks both again when a queued run starts, and before it skips a draft it reads the draft state from GitHub again, because the queue drops a `ready_for_review` request for a head the run already holds. A failed read keeps the skip. A skipped draft's first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
-A draft that is reviewed gets its first automatic review only: the push gate's `draft` rule skips the later pushes, and `ready_for_review` reviews everything since the last reviewed head, also when the author marks it ready without a push.
+Two repository switches set the review cadence (`review_cadence.py`): `review_drafts` adds a review when a draft opens, and `review_pushes` adds reviews of later pushes. With neither, a PR gets one automatic review, when it is ready. With `review_drafts` alone, a reviewed draft gets one more when it is marked ready. With `review_pushes`, every later push goes through the push gate below. Once a PR has an `automatic_reviewed_head_sha`, the dispatch skips an event the cadence has no review for (`follow_up_skipped`): without push reviews, only a `ready_for_review` event after an automatic review of a draft starts a turn. `ReviewReport.automatic_reviewed_draft` stores the draft state of the last automatic review next to its head, and an unknown state counts as a draft. A skip at the dispatch lets Stamphog route reviewers right away. The push gate's `follow_up` rule asks the cadence again for the events queued while the first review ran. A repository whose name finds no owner there, as after a rename, has an unknown cadence and is reviewed. A person or an agent asks for any other review with `@posthog review`, the UI, or MCP.
 A PR with the `skip-agent-review` label gets no automatic review (`label_skipped`). The task checks the payload labels, and the turn checks the labels its fetch reads from GitHub again, because `gh pr create --label` adds labels after the `opened` delivery.
 The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; comment `@posthog review` for one.
 The `@posthog review` comment, the UI button, and the Stamphog handoff ignore both the switch and the skip label.
@@ -974,27 +1005,35 @@ The webhook handler reads only the cached ownership summary, so the task checks 
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
+**Deep reviews of gated PRs:** a repository can turn on `ReviewRepository.deep_review_gated_prs` (default off). The dispatch (`choose_automatic_review_mode` in `automatic_reviews.py`) then starts the automatic review as Deep (`REVIEW_MODE_FULL`) instead of Standard when all of these hold: the PR is not a draft, the head did not have its automatic review yet (`automatic_reviewed_head_sha`), the PR has no Deep turn in any state, and Stamphog's `check_approval_gates` says that a size, deny-list or tier gate sends the head to a person.
+The gate check runs Stamphog's engine pre-check for the head outside any Stamphog run, so it works only when the repository is also connected to Stamphog. It is not a reaction to a Stamphog verdict, and Stamphog's verdicts do not change.
+The review cadence decides first: the switch only picks the depth of a turn the cadence already runs, in the dispatch and in the push gate (rule 0 before the Deep turn's draft rule). The settings show the switch, "Deep review for large or sensitive PRs", only on a repository that Stamphog reviews in this project (`auto_approval` on the overview entry, from Stamphog's `reviewable_repositories`), or where it is still on.
+"No Deep turn in any state" reads every turn marker with `review_mode` full (started, completed, failed after it started, published), the failed run outcome notes with `review_mode` full (failed before its marker), and the `requested_modes` query of the PR's queue (a Deep request that runs before its marker, or a requested Deep review that waits). A waiting automatic request does not count, because the next automatic dispatch replaces it and decides again for the newer head.
+Every doubt keeps the Standard review: a gate check that answers None, and a queue that does not answer. A PR therefore gets one automatic Deep review at most, and once it is published, No Flash after Full stops the later automatic turns.
+The automatic Deep turn behaves like a Deep turn for reviewing and publishing (the pipeline design, the owner's urgency threshold, a status comment, no Standard 👍 or clean reply) and like an automatic turn for gating and opt-outs (the author's choices, the skip label, drafts, the turn's recheck). It never chains resolution (`resolve_comments=False`), the push gate applies only its draft rule and otherwise lets it review the whole PR (the other rules weigh a push against the last automatic review, which was a Standard one), and it records no clean Standard coverage, so it never starts a silent Stamphog review.
+For a ready event, the dispatch tells Stamphog to route reviewers right after it starts the Deep turn (`queue_routing_after_external_review`), because the turn can outlast Stamphog's routing safety net. The queue's ready-event answer after the turn then finds nothing left to route.
+A failed automatic Deep review is not retried on the next push. The status comment asks for a Deep review instead.
 The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`), and a `labeled` delivery starts nothing.
 The Stamphog handoff queues `process_stamphog_handoff`, which finds the project that owns the repository (it can differ from the Stamphog project).
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
-Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
+Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome, and `posthog_review_hog_automatic_review_mode_total`, keyed by the review mode of each started automatic review and the reason for it.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
-The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
-retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
+The UI and MCP paths are one surface: the viewset carries the grantable `code_review` scope (`code_review:read` for list /
+retrieve / perspective_stats, `code_review:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
 The trigger action and the `@posthog review` comment (`facade/reviews.py`) both call `requested_reviews.request_pr_review()`, which applies the owner rule for resolution and the no-Flash-after-Full refusal.
-Settings: an automatic review follows the owner's rules (Flash reads no personal settings), the UI / MCP Review button
+Settings: an automatic review follows the owner's rules (Flash reads no personal settings, and an automatic Deep review publishes at the owner's urgency threshold), the UI / MCP Review button
 and the comment follow the person who asks, the label follows the owner, and an Inbox review follows the report's reviewer.
 See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
 
 The `review-pr-queue` workflow keeps the existing per-PR workflow ID and records requests through signals.
-It has at most one pending request each for Full, manual Flash, and automatic Flash, taking explicit requests before automatic ones.
+It has at most one pending request each for Full, manual Flash, and automatic reviews (Standard or Deep), taking explicit requests before automatic ones.
 It waits for an active resolution stage and runs each review in a `review-pr` child workflow with the existing retry and comment behavior.
 An explicit Full request remains pending during an active Flash turn and runs if that head still needs a Full review.
 Automatic pushes coalesce to the latest head; a rule change that stops the author's automatic review prevents pending automatic reviews from starting without canceling a running turn.
 `automatic_reviewed_head_sha` advances only after publication succeeds or finds nothing to publish, so a failed publication can retry and an empty review does not repeat.
 An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the PR's own commits since that head.
-Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `draft` (the PR is a draft and no earlier rule skips the push), `late_follow_up` (the push would start review number `LATE_FOLLOW_UP_RUN_INDEX` or a later one), `small_pr` (the PR has fewer than `SMALL_PR_REVIEWABLE_LINES_BELOW` reviewable lines, the size the lens parts use), `quiet_small_push` (the last review kept no finding and the push changes at most `QUIET_PUSH_MAX_OWN_CODE_LINES` own code lines; skipped pushes add up until one crosses the limit), and `throttled` (the PR spent its review budget).
+Its rules, in order: `follow_up` (the repository's cadence has no review for the turn; a repository setting, so it always skips), `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `draft` (the PR is a draft and no earlier rule skips the push), `late_follow_up` (the push would start review number `LATE_FOLLOW_UP_RUN_INDEX` or a later one), `small_pr` (the PR has fewer than `SMALL_PR_REVIEWABLE_LINES_BELOW` reviewable lines, the size the lens parts use), `quiet_small_push` (the last review kept no finding and the push changes at most `QUIET_PUSH_MAX_OWN_CODE_LINES` own code lines; skipped pushes add up until one crosses the limit), and `throttled` (the PR spent its review budget).
 The `draft` rule reads the draft state from the turn's own PR snapshot: every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked ready at an unchanged head reads as ready. A draft skip reads the PR from GitHub again after the gate's other reads: a PR marked ready while the turn runs sends a ready request that the queue drops, because it asks for the head the running turn gates. If the PR is ready by then, the gate uses the decision of the rules before `draft`. A failed read reviews the push. Only a PR marked ready between that read and the end of the turn keeps its changes unreviewed until the next trigger. A draft decision keeps the `own_code_lines` of the rules that ran before it.
 The `throttled` rule keeps a token bucket per PR in Redis (`PUSH_BUDGET`): it holds two reviews and gets one back every 30 minutes. Only a push that every earlier rule lets through takes a token, so a draft push or a merge from the base costs nothing. A push that finds the bucket empty waits for the next trigger like any other skip. A Redis failure reviews the push. A head pays once: a turn that runs again at the same head, as an activity retry or a retried `review-pr` child, does not take a second token. A retry after a denial asks the bucket again, so it cannot get past the budget. The first review and human triggers never reach the gate, so they neither take nor need a token.
 Two per-PR splits run on top of these rules. Their flags are keyed like the coordinator flag, and a flag that is off puts every PR in the control arm.
@@ -1004,8 +1043,8 @@ The gate event carries `pr_changed_lines`, both arms, `coordinator`, `delta_elig
 Each rule has a `SKIP_*` switch, and every rule skips. The three value rules never take over a gate failure, and they do not run on a retry of a turn that already finalized its head. A push that no rule matches reviews with the reason `no_rule_matched`.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
 Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), `pr_draft`, the draft state the gate used (null when the snapshot is unavailable), and `reviewable_lines` and `previous_findings`, the inputs of the value rules (null when the gate could not read them); the event key includes the draft state and the reason, so a draft or throttle skip and a later review at the same head stay two events, so skip rules that weigh push size can be calibrated offline.
-The first automatic review and every comment, UI, inbox, Stamphog, and manual trigger never reach the gate.
-An automatic review of a draft that posts findings ends with a note: it is the only automatic review while the PR is a draft, `@posthog review` (or the Code review page when `github-commands` is off) reviews new changes sooner, and marking the PR ready reviews them otherwise. Comment, UI, and Stamphog reviews leave the note out, because they also run for authors without automatic reviews.
+The first automatic review and every comment, UI, inbox, Stamphog, and manual trigger never reach the gate. An automatic Deep turn reaches it, gets rule 0 like any other turn, and then passes unless the PR became a draft again (rule 4, with the same re-read on GitHub), with no delta review and no gate event.
+An automatic review of a draft that posts findings ends with a note: it is the only automatic review while the PR is a draft, `@posthog review` (or the Code review page when `github-commands` is off) reviews new changes sooner, and marking the PR ready reviews them otherwise. In a repository without push reviews, an automatic review of a ready PR that posts findings ends with a note that it is the last automatic review. Comment, UI, and Stamphog reviews leave the note out, because they also run for authors without automatic reviews.
 Reviews start only from a trigger (a push, a comment, the UI, the inbox, a Stamphog handoff, or a manual run) and run right away.
 ReviewHog never schedules a review for later, for example on a timer after a skipped push: nobody waits for a review that arrives at an unknown time, and a late review can land while the PR sits in a merge queue or under a stack.
 A change that the gate skips gets reviewed at the next trigger, or not at all.

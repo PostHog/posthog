@@ -19,7 +19,9 @@ import {
     discussQuestionProperties,
     parseInboxReportLinkSource,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
+import type { InboxReportActionSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import type { ReportDiscussionIntent } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import {
     todayExcerptChoiceCreate,
@@ -124,13 +126,13 @@ export interface todayReportLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string | undefined,
-        intent?: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined,
+        intent?: ReportDiscussionIntent | undefined,
         pullRequestUrl?: string | undefined,
         background?: boolean | undefined
     ) => {
         agentQuestion: string | undefined
         background: boolean | undefined
-        intent: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined
+        intent: ReportDiscussionIntent | undefined
         pullRequestUrl: string | undefined
         question: string
         report: SignalReport
@@ -139,13 +141,15 @@ export interface todayReportLogicActions {
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface,
-        openedFromLink?: boolean | undefined
+        surface: InboxReportActionSurface,
+        openedFromLink?: boolean | undefined,
+        repository?: string | undefined
     ) => {
         feedback: string | undefined
         openedFromLink: boolean
         report: SignalReport
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface
+        repository: string | undefined
+        surface: InboxReportActionSurface
     } // inboxTaskKickoffLogic
     openReportDiscussion: (
         report: SignalReport,

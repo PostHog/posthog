@@ -335,6 +335,33 @@ export interface EventDefinitionBulkUpdateVerifiedResponseApi {
 }
 
 /**
+ * * `posthog-go` - posthog-go 1.x
+ * * `posthog-go-v2` - posthog-go 2.x
+ */
+export type GoSDKEnumApi = (typeof GoSDKEnumApi)[keyof typeof GoSDKEnumApi]
+
+export const GoSDKEnumApi = {
+    PosthogGo: 'posthog-go',
+    PosthogGoV2: 'posthog-go-v2',
+} as const
+
+export interface GeneratedGolangDefinitionsApi {
+    /** The generated module, ready to write to a file. */
+    content: string
+    /** How many events the module types. */
+    event_count: number
+    /** A hash of the event schemas and generator version. It changes when the module would change. */
+    schema_hash: string
+    /** The version of the generator that wrote the module. */
+    generator_version: string
+    /** The posthog-go major the package imports. Clients check it to detect a PostHog that ignores `sdk`.
+     *
+     * * `posthog-go` - posthog-go 1.x
+     * * `posthog-go-v2` - posthog-go 2.x */
+    sdk?: GoSDKEnumApi
+}
+
+/**
  * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
  */
 export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
@@ -342,6 +369,33 @@ export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: str
 export interface PrimaryPropertiesResponseApi {
     /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
     primary_properties: PrimaryPropertiesResponseApiPrimaryProperties
+}
+
+/**
+ * * `posthog-js` - posthog-js
+ * * `none` - None
+ */
+export type TypeScriptSDKEnumApi = (typeof TypeScriptSDKEnumApi)[keyof typeof TypeScriptSDKEnumApi]
+
+export const TypeScriptSDKEnumApi = {
+    PosthogJs: 'posthog-js',
+    None: 'none',
+} as const
+
+export interface GeneratedDefinitionsApi {
+    /** The generated module, ready to write to a file. */
+    content: string
+    /** How many events the module types. */
+    event_count: number
+    /** A hash of the event schemas and generator version. It changes when the module would change. */
+    schema_hash: string
+    /** The version of the generator that wrote the module. */
+    generator_version: string
+    /** TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.
+     *
+     * * `posthog-js` - posthog-js
+     * * `none` - None */
+    sdk?: TypeScriptSDKEnumApi
 }
 
 export type EventDefinitionsListParams = {
@@ -413,9 +467,47 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
+export type EventDefinitionsGolangRetrieveParams = {
+    /**
+     * The posthog-go major the package imports. `posthog-go` imports `github.com/posthog/posthog-go` (1.x). `posthog-go-v2` imports `github.com/posthog/posthog-go/v2` (2.x). A package built for one major does not compile against the other.
+     *
+     * * `posthog-go` - posthog-go 1.x
+     * * `posthog-go-v2` - posthog-go 2.x
+     * @minLength 1
+     */
+    sdk?: EventDefinitionsGolangRetrieveSdk
+}
+
+export type EventDefinitionsGolangRetrieveSdk =
+    (typeof EventDefinitionsGolangRetrieveSdk)[keyof typeof EventDefinitionsGolangRetrieveSdk]
+
+export const EventDefinitionsGolangRetrieveSdk = {
+    PosthogGo: 'posthog-go',
+    PosthogGoV2: 'posthog-go-v2',
+} as const
+
 export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
      * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[]
 }
+
+export type EventDefinitionsTypescriptRetrieveParams = {
+    /**
+     * The SDK the module wraps. `posthog-js` exports a typed posthog-js instance. `none` exports only the event types, with no imports, for any other SDK.
+     *
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     * @minLength 1
+     */
+    sdk?: EventDefinitionsTypescriptRetrieveSdk
+}
+
+export type EventDefinitionsTypescriptRetrieveSdk =
+    (typeof EventDefinitionsTypescriptRetrieveSdk)[keyof typeof EventDefinitionsTypescriptRetrieveSdk]
+
+export const EventDefinitionsTypescriptRetrieveSdk = {
+    PosthogJs: 'posthog-js',
+    None: 'none',
+} as const

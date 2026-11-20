@@ -4,12 +4,15 @@ import json
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase
 
@@ -42,6 +45,13 @@ class _MonitoringReferences:
     incomplete: bool
 
 
+# All signals queries share one ClickHouse user, so its concurrent-query limit refuses queries in routine bursts.
+@retry(
+    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=5, max=30),
+    reraise=True,
+)
 def _read_monitoring_source_references(team: Team, report_ids: set[str], remaining_rows: int) -> _MonitoringReferences:
     query = (
         """

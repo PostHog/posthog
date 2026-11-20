@@ -11,7 +11,8 @@ const NO_EVALS = { passed: 0, failed: 0, unrated: 0, nodes: [] }
 const NO_FEEDBACK = { total: 0, thumbsUp: 0, thumbsDown: 0 }
 
 function renderBar(props: Partial<TraceSummaryBarProps> = {}): void {
-    render(<TraceSummaryBar trace={makeTraceResource()} {...props} />)
+    const trace = makeTraceResource()
+    render(<TraceSummaryBar overview={trace} person={trace.person} {...props} />)
 }
 
 describe('TraceSummaryBar', () => {
@@ -66,5 +67,11 @@ describe('TraceSummaryBar', () => {
         expect(screen.getByText('ada@example.com').closest('a')?.getAttribute('href')).toContain(
             urls.personByDistinctId('user-1')
         )
+    })
+
+    it('names the thumbs on the feedback chip', () => {
+        renderBar({ feedback: { summary: { total: 1, thumbsUp: 1, thumbsDown: 0 }, onClick: () => {} } })
+
+        expect(screen.getByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total')).toBeTruthy()
     })
 })

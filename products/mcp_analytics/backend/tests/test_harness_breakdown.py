@@ -244,6 +244,11 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             # PostHog's own server) and in both value spellings.
             ("sdk_vendor_cowork", {"$mcp_vendor_client": "Cowork"}, "Cowork"),
             ("sdk_vendor_claudecode", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            (
+                "sdk_vendor_claude_artifacts_over_generic_name",
+                {"$mcp_vendor_client": "ClaudeArtifacts", "$mcp_client_name": "Claude"},
+                "Claude Artifacts",
+            ),
             ("sdk_vendor_hyphenated", {"$mcp_vendor_client": "claude-code"}, "Claude Code"),
             ("legacy_vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
             ("legacy_vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
@@ -300,6 +305,44 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             # Without the kimchi UA, pi-mcp's name alone stays unattributed: it is
             # not Pi's own `pi-client`, and other pi-based clients share it.
             ("pi_mcp_name_alone_is_other", {"$mcp_client_name": "pi-mcp-castai"}, "Other"),
+            (
+                "wizard_ua_beats_generic_pi_mcp_name",
+                {"$mcp_client_user_agent": "posthog/wizard; version: 2.0.0", "$mcp_client_name": "pi-mcp-posthog"},
+                "PostHog Wizard",
+            ),
+            ("posthog_sdk_ua_is_not_wizard", {"$mcp_client_user_agent": "posthog-python/7.0.0"}, "Other"),
+            (
+                "devin_ua_beats_rmcp_name",
+                {"$mcp_client_user_agent": "Devin-MCP-Client/0.1.0", "$mcp_client_name": "rmcp"},
+                "Devin",
+            ),
+            ("rmcp_name_alone_is_rust_sdk", {"$mcp_client_name": "rmcp"}, "Rust MCP SDK"),
+            (
+                "cloudflare_portal_ua_beats_generic_name",
+                {"$mcp_client_user_agent": "Cloudflare-MCP-Portal", "$mcp_client_name": "mcp-client"},
+                "Cloudflare MCP Portal",
+            ),
+            (
+                "opencode_ua_beats_generic_cli_name",
+                {"$mcp_client_user_agent": "opencode/latest/2.0.22/cli", "$mcp_client_name": "cli"},
+                "opencode",
+            ),
+            (
+                "python_sdk_default_name_resolves_by_ua",
+                {"$mcp_client_user_agent": "python-httpx/0.28.1", "$mcp_client_name": "mcp"},
+                "Python MCP SDK",
+            ),
+            (
+                "claude_artifacts_name",
+                {"$mcp_client_user_agent": "Claude-User", "$mcp_client_name": "ClaudeArtifacts"},
+                "Claude Artifacts",
+            ),
+            ("amp_thread_actor_name", {"$mcp_client_name": "amp-thread-actor"}, "Amp"),
+            (
+                "gemini_cli_via_mcp_remote",
+                {"$mcp_client_name": "gemini-cli-mcp-client (via mcp-remote 0.15.2)"},
+                "Gemini CLI",
+            ),
             ("client_name_librechat", {"$mcp_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",
@@ -308,6 +351,7 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             ("client_name_lovable", {"$mcp_client_name": "lovable"}, "Lovable"),
             ("unknown_to_other", {"$mcp_client_name": "totally-unknown-thing"}, "Other"),
+            ("generic_claude_without_vendor_is_other", {"$mcp_client_name": "Claude"}, "Other"),
             # Not resolution signals: the SDKs never emit these properties and the
             # server folds the session-pinned name into per-event $mcp_client_name,
             # so on their own they attribute nothing.

@@ -78,6 +78,10 @@ class SourceSchema:
     # append. Sources set it when only a full refresh keeps the table equal to the origin, for
     # example file imports, where the other sync types keep the rows of files deleted upstream.
     prefers_full_refresh: bool = False
+    # True when the source reads each table's key from the table's definition, such as a REST manifest,
+    # so a table defined without a key gets none from the source. Discovery reads no columns for such a
+    # table, so nothing else shows that it has no key.
+    declares_primary_keys: bool = False
 
 
 def _change_tracking_tier(field: IncrementalField) -> int:
@@ -97,6 +101,15 @@ def _change_tracking_tier(field: IncrementalField) -> int:
     if field_type == IncrementalFieldType.ObjectID or name.lower() == "id":
         return 1
     return 0
+
+
+def tracks_updates(field: IncrementalField) -> bool:
+    return _change_tracking_tier(field) == 2
+
+
+def name_is_silent(field: IncrementalField) -> bool:
+    """True when the column name says neither "updated" nor "created", so only reading it can tell."""
+    return _change_tracking_tier(field) == 0
 
 
 def _rank_score(field: IncrementalField) -> int:
@@ -165,17 +178,34 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def lacks_merge_key(source_schema: SourceSchema) -> bool:
+    """True when discovery shows that an incremental sync of the table would have no key to merge rows on.
+
+    Without a key the first sync writes the table and every later sync fails. A table whose columns
+    discovery read needs a detected key or an `id` column, because the sync falls back to `id`. A table
+    without columns resolves its key at sync time, unless the source declares its keys at discovery.
+    """
+    if source_schema.detected_primary_keys:
+        return False
+    if source_schema.columns:
+        return not any(str(column[0]).lower() == "id" for column in source_schema.columns)
+    return source_schema.declares_primary_keys
+
+
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
     Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
     ongoing sync), else ``append`` when supported, else ``full_refresh``. A table that sets
-    ``prefers_full_refresh`` always gets ``full_refresh``. Never picks ``cdc``
+    ``prefers_full_refresh``, or that supports incremental but has no key to merge on, always
+    gets ``full_refresh``, the same default the source wizard picks. Never picks ``cdc``
     or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
     explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
     if source_schema.prefers_full_refresh:
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and lacks_merge_key(source_schema):
         sync_type = "full_refresh"
     elif source_schema.supports_incremental and chosen is not None:
         sync_type = "incremental"

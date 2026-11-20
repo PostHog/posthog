@@ -17,8 +17,8 @@ from posthog.kafka_client.dlq_replay import (
     drain_dlq,
 )
 
-REBALANCE_IN_PROGRESS = KafkaError.REBALANCE_IN_PROGRESS  # type: ignore[attr-defined]
-TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
+REBALANCE_IN_PROGRESS = KafkaError.REBALANCE_IN_PROGRESS
+TIMED_OUT = KafkaError._TIMED_OUT
 
 
 class BuildReplayHeadersTest(TestCase):

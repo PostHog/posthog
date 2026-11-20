@@ -1,4 +1,8 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 
@@ -20,7 +24,13 @@ SCHEMA_METADATA = {
 
 class TestBuildDirectTableForSchema(APIBaseTest):
     def _create(
-        self, *, enabled_columns: list[str] | None, masked_columns: list[str] | None = None
+        self,
+        *,
+        enabled_columns: list[str] | None,
+        masked_columns: list[str] | None = None,
+        should_sync: bool = True,
+        live_query_enabled: bool = False,
+        row_filters: list[dict[str, Any]] | None = None,
     ) -> tuple[ExternalDataSchema, ExternalDataSource]:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -35,9 +45,37 @@ class TestBuildDirectTableForSchema(APIBaseTest):
             source=source,
             enabled_columns=enabled_columns,
             masked_columns=masked_columns,
+            should_sync=should_sync,
+            live_query_enabled=live_query_enabled,
+            row_filters=row_filters,
             sync_type_config={"schema_metadata": SCHEMA_METADATA, "primary_key_columns": ["id"]},
         )
         return schema, source
+
+    @parameterized.expand(
+        [
+            ("synced", True, False, None, True),
+            ("live_only", False, True, None, True),
+            ("neither", False, False, None, False),
+            ("live_only_row_filtered", False, True, [{"column": "id", "operator": "eq", "value": 1}], False),
+        ]
+    )
+    def test_live_catalog_selection(
+        self,
+        _label: str,
+        should_sync: bool,
+        live_query_enabled: bool,
+        row_filters: list[dict[str, Any]] | None,
+        expected_eligible: bool,
+    ):
+        schema, source = self._create(
+            enabled_columns=None,
+            should_sync=should_sync,
+            live_query_enabled=live_query_enabled,
+            row_filters=row_filters,
+        )
+
+        assert eligible_direct_query_schemas(self.team.pk, str(source.pk)) == ([schema] if expected_eligible else [])
 
     def test_deselected_column_excluded_from_direct_table(self):
         # A user with only "enabled_columns": ["email"] must not be able to read "secret"

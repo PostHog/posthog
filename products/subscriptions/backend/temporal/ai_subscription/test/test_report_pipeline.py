@@ -5,6 +5,8 @@ from typing import Optional
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
@@ -12,6 +14,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.ph_client import PH_EU_HOST, PH_US_HOST
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.logic.report_text import ReportDocument, ReportLinkItem, ReportText, ReportTextItem
@@ -48,13 +51,16 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     AI_QUERY_PLAN_VERSION,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_tracing,
 )
 from products.subscriptions.backend.temporal.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult
+from ee.hogai.llm import MaxCallbackHandler
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
+_SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
@@ -307,6 +313,59 @@ async def test_degraded_report_still_synthesizes(
     assert props["query_coverage"] == 0.0
 
 
+def _handler_trace_and_session(config: object) -> tuple[str, str]:
+    assert isinstance(config, dict)
+    (handler,) = config["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.trace_id is not None
+    return str(handler.trace_id), handler.properties["$ai_session_id"]
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+@patch(f"{_SG}.posthoganalytics.default_client", MagicMock(privacy_mode=False))
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_llm_calls_in_one_report_run_share_a_session_but_not_a_trace(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_privacy: MagicMock, _mock_capture: MagicMock
+) -> None:
+    team, user = MagicMock(id=7), MagicMock(distinct_id="user-1")
+    planner_ids: list[tuple[str, str]] = []
+
+    def _plan(**kwargs: object) -> EnrichedPromptSpec:
+        _, config = ai_subscription_llm_tracing(team=team, user=user, stage="plan", trace_correlation_id=None)
+        planner_ids.append(_handler_trace_and_session(config))
+        return _spec(steps=1)
+
+    mock_bep.side_effect = _plan
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+        charts=[],
+    )
+    synthesis = mock_chat.return_value.with_structured_output.return_value
+    synthesis.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
+
+    for _ in range(2):
+        await generate_ai_report(team=team, user=user, prompt="x", window=_test_window())
+
+    synthesis_ids = [_handler_trace_and_session(call.kwargs["config"]) for call in synthesis.invoke.call_args_list]
+    run_ids = list(zip(planner_ids, synthesis_ids))
+    # AI credit billing joins each generation to every $ai_trace with its trace ID, so a shared trace ID
+    # bills the run once per LLM call.
+    trace_ids = [trace_id for run in run_ids for trace_id, _ in run]
+    assert len(set(trace_ids)) == len(trace_ids) == 4
+    sessions_per_run = [{session_id for _, session_id in run} for run in run_ids]
+    assert [len(sessions) for sessions in sessions_per_run] == [1, 1]
+    assert sessions_per_run[0] != sessions_per_run[1]
+
+
 @parameterized.expand(
     [
         ("manage_link_shown", True, True),
@@ -388,6 +447,63 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
         trace_correlation_id=None,
     )
     assert result is None
+
+
+@pytest.mark.parametrize("org_privacy_mode", [False, True])
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.is_privacy_mode_enabled")
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.posthoganalytics.default_client")
+@patch(f"{_RP}.MaxChatOpenAI")
+async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
+    mock_chat: MagicMock, mock_client: MagicMock, mock_privacy_mode: MagicMock, org_privacy_mode: bool
+) -> None:
+    mock_client.privacy_mode = False
+    mock_privacy_mode.return_value = org_privacy_mode
+    structured = mock_chat.return_value.with_structured_output.return_value
+    structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
+    await _arequest_hogql_fix(
+        original_hogql="SELECT 1",
+        error_message="boom",
+        step_description="d",
+        context_blob="c",
+        team=MagicMock(id=7),
+        user=MagicMock(distinct_id="user-1"),
+        trace_correlation_id=42,
+    )
+
+    assert mock_chat.call_args.kwargs["posthog_properties"]["ai_product"] == "subscriptions"
+    (handler,) = structured.invoke.call_args.kwargs["config"]["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.privacy_mode is org_privacy_mode
+    assert handler._groups["instance"] == settings.SITE_URL
+    assert handler.properties == {
+        "ai_product": "subscriptions",
+        "feature": "ai_subscription",
+        "stage": "query_fix",
+        "subscription_id": 42,
+        "team_id": 7,
+    }
+
+
+@pytest.mark.parametrize("region,expected_host", [("EU", PH_EU_HOST), ("US", PH_US_HOST)])
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+def test_cloud_subscription_traces_capture_to_the_deployment_region(
+    _mock_privacy_mode: MagicMock, region: str, expected_host: str
+) -> None:
+    with (
+        patch(f"{_SG}.is_cloud", return_value=True),
+        patch(f"{_SG}.get_instance_region", return_value=region),
+        patch(f"{_SG}.posthoganalytics.default_client", MagicMock(host=PH_US_HOST, privacy_mode=False)),
+        patch.dict(f"{_SG}._regional_analytics_clients", clear=True),
+    ):
+        _, config = ai_subscription_llm_tracing(
+            team=MagicMock(id=7), user=MagicMock(distinct_id="user-1"), stage="synthesis", trace_correlation_id=None
+        )
+
+    callbacks = config["callbacks"]
+    assert isinstance(callbacks, list)
+    (handler,) = callbacks
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler._ph_client.host == expected_host
 
 
 @patch(f"{_RP}.resolve_prompt", return_value="Fix this query. Intent: {{{description}}} Error: {{{error}}}")
@@ -1012,12 +1128,22 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param("x", id="plain_prompt"),
+        pytest.param(
+            "Run: SELECT toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS h, count() FROM events WHERE {{date_range}} GROUP BY h",
+            id="interval_used_for_bucketing",
+        ),
+    ],
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
 async def test_unfrozen_run_returns_plan_to_persist(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock, prompt: str
 ) -> None:
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
     # so the next delivery is deterministic. The envelope must carry the plan AND the relevant_events it
@@ -1037,7 +1163,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist == {
         "version": AI_QUERY_PLAN_VERSION,
@@ -1048,16 +1174,19 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
 
 @pytest.mark.parametrize(
-    "total_steps,failed_count,should_freeze",
+    "total_steps,failed_count,coverage_complete,should_freeze",
     [
-        (12, 0, True),  # all succeeded
-        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
-        (12, 6, False),  # half failed
-        (12, 12, False),  # all failed
-        (1, 1, False),  # the single step failed
+        (12, 0, True, True),  # all succeeded
+        (12, 1, True, False),  # a single step failed — re-plan rather than replay one broken query every run
+        (12, 6, True, False),  # half failed
+        (12, 12, True, False),  # all failed
+        (1, 1, True, False),  # the single step failed
+        (12, 0, False, False),  # all succeeded, but the plan still misses a coverage item
     ],
 )
-def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+def test_plan_to_freeze_requires_no_failures(
+    total_steps: int, failed_count: int, coverage_complete: bool, should_freeze: bool
+) -> None:
     # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
     # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
     # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
@@ -1076,6 +1205,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         total_steps=total_steps,
         relevant_events=["export created"],
         trace_correlation_id=None,
+        coverage_complete=coverage_complete,
     )
     if should_freeze:
         assert result == {
@@ -1200,13 +1330,19 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
-    "spec,run_result",
+    "spec,run_result,prompt",
     [
         # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
-        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, "x", id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
-        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
-        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
+        pytest.param(_spec(steps=1), _OK_RUN, "x", id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, "x", id="no_step_found_data"),
+        pytest.param(
+            _spec_with_window_placeholder(),
+            _OK_RUN,
+            "Run exactly: SELECT count() FROM ci_jobs WHERE created_at >= today() - INTERVAL 21 DAY",
+            id="prompt_sets_own_date_bounds",
+        ),
     ],
 )
 @patch(_SLO_CAPTURE)
@@ -1220,6 +1356,7 @@ async def test_unfreezable_plans_are_not_frozen(
     _mock_capture: MagicMock,
     spec: EnrichedPromptSpec,
     run_result: tuple,
+    prompt: str,
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
@@ -1229,7 +1366,7 @@ async def test_unfreezable_plans_are_not_frozen(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist is None
     assert result.query_plan_status == AIQueryPlanStatus.NOT_FROZEN

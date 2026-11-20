@@ -90,7 +90,8 @@ return task
             label: 'Instructions',
             secret: false,
             required: true,
-            description: 'What the agent should do. Supports variable templating.',
+            description:
+                'What the agent should do. Insert a value with braces, like `{person.properties.email}`. To use a literal brace, type `\\{`.',
         },
         {
             key: 'title',

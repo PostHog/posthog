@@ -10,6 +10,7 @@ import type { TeamManager } from '~/common/utils/team-manager'
 import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CdpConfig } from '../../config'
+import { HIDDEN_OUTPUT_MESSAGE, hidesInvocationOutput } from '../../read-guarded-internal-events'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -176,6 +177,7 @@ export class HogFunctionMonitoringService {
             metric_kind: metric.metric_kind,
             metric_name: metric.metric_name,
             count: metric.count,
+            timestamp: metric.timestamp,
         })
 
         // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
@@ -190,6 +192,7 @@ export class HogFunctionMonitoringService {
                 metric_kind: metric.metric_kind,
                 metric_name: metric.metric_name,
                 count: metric.count,
+                timestamp: metric.timestamp,
             })
         }
     }
@@ -235,9 +238,11 @@ export class HogFunctionMonitoringService {
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined
 
+            const hideOutput = hidesInvocationOutput(result.invocation)
             this.queueLogs(
                 result.logs.map((logEntry) => ({
                     ...logEntry,
+                    ...(hideOutput ? { message: HIDDEN_OUTPUT_MESSAGE } : {}),
                     team_id: result.invocation.teamId,
                     log_source: source,
                     log_source_id: logSourceId,

@@ -99,6 +99,8 @@ export interface ClusteringRunOption {
     runId: string
     windowEnd: string
     label: string // Formatted date for display
+    jobId?: string | null
+    jobName?: string | null
 }
 
 // Summary from $ai_trace_summary or $ai_generation_summary events — or, for

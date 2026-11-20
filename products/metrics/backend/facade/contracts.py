@@ -32,6 +32,7 @@ from .enums import (
     DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
     PanelImportOutcome,
@@ -69,6 +70,13 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
+# Gates recording rules, on top of METRICS_FEATURE_FLAG. It gates both the API and the evaluation, so turning it
+# off for a project also stops the rules that project already has.
+METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
+
+# Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.
+MAX_RECORDING_RULES_PER_TEAM = 20
+
 # Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
 METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
 
@@ -80,6 +88,20 @@ DERIVED_METRIC_PREFIX = "posthog.derived."
 # Stable wire identifier shared by query-status producers and readers. Renaming requires
 # a dual-read rollout and a drain of in-flight query statuses.
 DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DerivedSeriesStatus:
+    """Whether a team can see series derived from its spans and logs."""
+
+    # The team sent spans or logs in the last day.
+    has_sources: bool
+    # Derived series are on for the team, which needs sources.
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if self.enabled and not self.has_sources:
+            raise ValueError("derived series need spans or logs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,12 +139,14 @@ class MetricQueryClause:
     metric_type: MetricType | None = None
     # Applied to each series before `aggregation` combines them.
     range_function: MetricRangeFunction | None = None
+    # Apdex threshold T for the derived apdex metric; None uses its default.
+    apdex_threshold_ms: float | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.is_raw and self.group_by:
             raise ValueError("group_by needs an aggregation; without one every series stays separate")
         if self.range_function is not None and self.aggregation.is_counter_function:
-            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
+            raise ValueError(f"range_function cannot combine with the {self.aggregation} aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -130,6 +154,8 @@ class MetricQueryClause:
                 raise ValueError("quantile must be in (0, 1)")
         if not self.name:
             raise ValueError("clause name must be non-empty")
+        if self.apdex_threshold_ms is not None and not self.apdex_threshold_ms > 0:
+            raise ValueError("apdex threshold must be a positive number of milliseconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +193,14 @@ class MetricQueryRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricInstantWindow:
+    """The range an instant builder query reads: its value is the bucket that ends at `date_to`."""
+
+    date_from: dt.datetime
+    date_to: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
 class MetricPoint:
     """One bucketed datapoint. `time` is the bucket start, ISO 8601.
     `value` is None when the bucket's aggregate isn't representable (e.g.
@@ -194,6 +228,36 @@ class MetricSeries:
     # Bucket upper edges a histogram quantile was estimated from, merged over every
     # point. The estimate can be anywhere between two edges. None for other aggregations.
     histogram_bounds: tuple[float, ...] | None = None
+    # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
+    # with different buckets were combined. None for other aggregations.
+    histogram_layout_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryProvenance:
+    """Where a query's buckets came from. `precomputed_until` is the earliest time a precomputed clause switched
+    to raw samples, None when no clause read precomputed metrics. `reasons` says why clauses ran raw."""
+
+    mode: MetricQueryProvenanceMode
+    precomputed_until: dt.datetime | None = None
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryShadowCheck:
+    """A precomputed answer compared with the same query run raw. `max_relative_difference` is over the points
+    both answers have, and `mismatched_points` counts the points only one has. Both are None when the raw run
+    failed."""
+
+    max_relative_difference: float | None
+    mismatched_points: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryResult:
+    series: list[MetricSeries]
+    provenance: MetricQueryProvenance
+    shadow: MetricQueryShadowCheck | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +296,8 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+    # Start of the trailing bucket that was still filling: plotted in `series`, left out of the stats.
+    partial_bucket_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,3 +655,29 @@ class PromQLQueryError(ValueError):
     def __init__(self, message: str, *, transient: bool = False) -> None:
         super().__init__(message)
         self.transient = transient
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingRule:
+    """A PromQL query that is evaluated every minute and written back into the team's metrics as `metric_name`."""
+
+    id: str
+    metric_name: str
+    query: str
+    description: str
+    enabled: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    # The minute the rule last wrote. None until the first write.
+    last_evaluated_at: dt.datetime | None = None
+    last_series_count: int | None = None
+    # Why the last evaluation wrote nothing. Cleared by the next write.
+    last_error: str | None = None
+
+
+class RecordingRuleError(ValueError):
+    """A recording rule edit that cannot be saved. The message is safe to show."""
+
+
+class RecordingRuleNotFound(RecordingRuleError):
+    pass

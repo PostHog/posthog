@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
 
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
+
+
 class AccountPersonsPropertyAccessError(Exception):
     pass
 
@@ -1370,6 +1380,17 @@ class CustomPropertyValue:
     value: float | bool | str | datetime | None
     created_at: datetime
     created_by_id: int | None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValueHistoryEntry:
+    """One value an account held for a custom property, and when it held it."""
+
+    value: float | bool | str | datetime | None
+    set_at: datetime
+    set_by_id: int | None
+    replaced_at: datetime | None
+    is_current: bool
 
 
 class ExternalAccountCustomPropertiesError(Enum):

@@ -6,9 +6,18 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
+)
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.forced_variant import (
+    forced_variant_release_condition,
+    forced_variant_rows,
+    forced_variant_values,
+)
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -55,11 +64,21 @@ NOT_IOS: dict[str, Any] = {
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 
+EDIT = ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS
+END = ExperimentHealthFindingActionKind.END_EXPERIMENT
+
 
 def _property_is(key: str, value: str, *, group_type_index: int | None = None) -> dict[str, Any]:
     source = {"type": "person"} if group_type_index is None else {"type": "group", "group_type_index": group_type_index}
     return {
         "properties": [{"key": key, "value": [value], "operator": "exact", **source}],
+        "rollout_percentage": 100,
+    }
+
+
+def _properties_are(*pairs: tuple[str, str]) -> dict[str, Any]:
+    return {
+        "properties": [{"key": key, "value": [value], "operator": "exact", "type": "person"} for key, value in pairs],
         "rollout_percentage": 100,
     }
 
@@ -97,7 +116,9 @@ def _history(
     return flag_history([change], start_date=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
 
-def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) -> ConditionSetTraffic:
+def _traffic(
+    people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0, filters_test_accounts: bool = False
+) -> ConditionSetTraffic:
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
@@ -107,6 +128,7 @@ def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) 
         calls=calls,
         remotely_evaluated_calls=round(calls * remotely_evaluated),
         people_assigned_outside=0,
+        filters_test_accounts=filters_test_accounts,
     )
 
 
@@ -158,6 +180,127 @@ class TestForcedVariantReleaseCondition(TestCase):
                     ]
                 ),
                 ("assigned_by_property", ExperimentHealthFindingSeverity.INFO, "1, 2", "control, test", None),
+            ),
+            (
+                "variants_mapped_from_a_slot_in_each_stratum",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                ("assigned_by_property", ExperimentHealthFindingSeverity.INFO, "1, 2, 3, 4", "control, test", None),
+            ),
+            (
+                "one_variant_pinned_in_every_stratum",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "test"},
+                    ]
+                ),
+                ("closed_to_matched_users", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test", None),
+            ),
+            (
+                "strata_that_map_the_slots_to_different_variants",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "control"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
+                "a_value_that_a_stratum_serves_twice",
+                _context(
+                    [
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "test"},
+                        {**_properties_are(("tier", "a"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4, 5",
+                    "test, control",
+                    None,
+                ),
+            ),
+            (
+                "a_partial_rollout_lets_matched_users_fall_through",
+                _context(
+                    [
+                        {
+                            **_properties_are(("tier", "a"), ("slot", "0")),
+                            "rollout_percentage": 50,
+                            "variant": "control",
+                        },
+                        {**_properties_are(("tier", "a"), ("slot", "1")), "variant": "test"},
+                        {**_properties_are(("tier", "b"), ("slot", "0")), "variant": "control"},
+                        {**_properties_are(("tier", "b"), ("slot", "1")), "variant": "test"},
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
+            ),
+            (
+                "group_filters_are_not_read_as_strata",
+                _context(
+                    [
+                        {
+                            "properties": [
+                                {
+                                    "key": "tier",
+                                    "value": [tier],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                                {
+                                    "key": "slot",
+                                    "value": [slot],
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                            ],
+                            "rollout_percentage": 100,
+                            "variant": variant,
+                        }
+                        for tier, slot, variant in (
+                            ("a", "0", "control"),
+                            ("a", "1", "test"),
+                            ("b", "0", "control"),
+                            ("b", "1", "test"),
+                        )
+                    ]
+                ),
+                (
+                    "closed_to_matched_users",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "1, 2, 3, 4",
+                    "control, test",
+                    None,
+                ),
             ),
             (
                 "segments_mapped_onto_variants",
@@ -260,6 +403,14 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
             ),
             (
+                "pinned_share_without_test_users",
+                _context(
+                    [{**STAFF, "variant": "test"}, EVERYONE],
+                    traffic=_traffic({1: 120, 2: 880}, filters_test_accounts=True),
+                ),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
+            ),
+            (
                 "pins_to_two_variants_grade_by_the_most_affected",
                 _context(
                     [{**STAFF, "variant": "control"}, {**IOS, "variant": "test"}, EVERYONE],
@@ -354,7 +505,53 @@ class TestForcedVariantReleaseCondition(TestCase):
         )
         self.assertEqual("before launch" in finding.detail, not ctx.is_launched)
         self.assertEqual("of the users who got" in finding.detail, expected[4] is not None)
+        traffic = ctx.condition_set_traffic
+        self.assertEqual(
+            "(120 of about 560, not counting internal and test users)" in finding.detail,
+            traffic is not None and traffic.filters_test_accounts,
+        )
         self.assertEqual('Nobody gets "holdout" at random' in finding.detail, "holdout" in expected[3])
+
+    @parameterized.expand(
+        [
+            ("one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}]), (END, EDIT)),
+            ("draft_one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}], status=DRAFT), (EDIT,)),
+            (
+                "a_variant_for_each_segment",
+                _context([{**IOS, "variant": "test"}, {**NOT_IOS, "variant": "control"}]),
+                (EDIT,),
+            ),
+            (
+                "only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}]),
+                (EDIT, END),
+            ),
+            (
+                "draft_only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**IOS, "variant": "test"}], status=DRAFT),
+                (EDIT,),
+            ),
+            ("some_users_pinned", _context([{**STAFF, "variant": "test"}, EVERYONE]), (EDIT,)),
+            (
+                "variants_mapped_from_a_property",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test"), "variant": "test"},
+                    ]
+                ),
+                (EDIT,),
+            ),
+        ]
+    )
+    def test_offers_to_end_the_experiment_when_the_detail_does(
+        self, _name: str, ctx: HealthContext, expected: tuple[ExperimentHealthFindingActionKind, ...]
+    ) -> None:
+        finding = forced_variant_release_condition(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(finding.actions, expected)
+        self.assertEqual("end the experiment" in finding.detail, END in finding.actions)
 
     @parameterized.expand(
         [
@@ -390,6 +587,7 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.reason, "can't measure" in finding.detail), (expected_reason, says_not_measurable))
+        self.assertEqual("pinned_people" in finding.evidence, "pinned_share" in finding.evidence)
 
     @parameterized.expand(
         [
@@ -491,6 +689,38 @@ class TestForcedVariantReleaseCondition(TestCase):
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.title, finding.detail), (title, detail))
 
+    def test_reads_the_share_forced_in_each_variant(self) -> None:
+        # Set 1 forces 10 people into test. Set 2 splits the other 990 evenly, so test has 505 people.
+        ctx = _context(
+            [{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 10, 2: 990}, remotely_evaluated=0.8)
+        )
+
+        self.assertEqual(
+            (dict(forced_variant_values(ctx)), [dict(row) for row in forced_variant_rows(ctx)]),
+            (
+                {
+                    ExperimentHealthValueKey.FORCED_CONDITION_COUNT: 1,
+                    ExperimentHealthValueKey.MATCHED_COUNT: 1000,
+                    ExperimentHealthValueKey.TRAFFIC_SINCE_AT: "2026-10-12T13:04:00+00:00",
+                    ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: 80.0,
+                },
+                [
+                    {
+                        ExperimentHealthValueKey.VARIANT: "control",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 495,
+                        ExperimentHealthValueKey.FORCED_COUNT: 0,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 0.0,
+                    },
+                    {
+                        ExperimentHealthValueKey.VARIANT: "test",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 505,
+                        ExperimentHealthValueKey.FORCED_COUNT: 10,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 1.98,
+                    },
+                ],
+            ),
+        )
+
     def test_variants_mapped_from_a_property_say_who_assigns_them(self) -> None:
         finding = forced_variant_release_condition(
             _context(
@@ -506,9 +736,9 @@ class TestForcedVariantReleaseCondition(TestCase):
             (finding.title, finding.detail, finding.evidence["variant_property"]),
             (
                 "Variants are assigned outside PostHog",
-                'Each release condition that includes users matches the users whose property "checkout_arm" holds a '
-                'variant key, and serves them that variant. So the code that sets "checkout_arm" assigns the '
-                "variants, not PostHog. If it assigns at random, each variant gets similar users. If it assigns by "
+                "Each release condition that includes users serves one variant to the users with one value of the "
+                'property "checkout_arm". So the code that sets "checkout_arm" assigns the variants, not PostHog. '
+                "If it assigns at random, each variant gets similar users. If it assigns by "
                 "who the users are, for example by plan or country, a difference in the results can come from those "
                 "users and not from the variant.",
                 "checkout_arm",

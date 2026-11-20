@@ -13,7 +13,6 @@ import {
     logsMetricRulesValueSkippedCounter,
     retentionBytesMetricName,
 } from '../logs-ingestion-consumer'
-import { buildMetricRulesOtlpPayload } from '../metrics-rules/otlp-payload'
 import type { LogsIngestionMessage } from '../types'
 import { LogsPipelineContext } from './logs-pipeline-context'
 import type { MetricTalliesByTeam } from './process-log-message-step'
@@ -31,7 +30,7 @@ export function queueInternalLogsUsage(context: LogsPipelineContext, internalMes
 }
 
 export async function emitMetricRuleTallies(context: LogsPipelineContext, byTeam: MetricTalliesByTeam): Promise<void> {
-    for (const [teamId, { token, rules, tallies }] of byTeam) {
+    for (const [teamId, { tallies }] of byTeam) {
         const teamIdLabel = teamId.toString()
         if (tallies.valueSkipped > 0) {
             logsMetricRulesValueSkippedCounter.inc({ team_id: teamIdLabel }, tallies.valueSkipped)
@@ -55,17 +54,8 @@ export async function emitMetricRuleTallies(context: LogsPipelineContext, byTeam
         if (matched > 0) {
             logsMetricRulesRecordsMatchedCounter.inc({ team_id: teamIdLabel }, matched)
         }
-
-        const payload = buildMetricRulesOtlpPayload(rules, tallies, Date.now())
-        if (!payload) {
-            continue
-        }
-        try {
-            await context.deps.metricsEmitter!.emit(token, teamId, payload)
-        } catch (error) {
-            logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
-        }
     }
+    await context.metricRulesEmission.emitBatch(byTeam)
 }
 
 export async function emitUsageMetrics(context: LogsPipelineContext, usageStats: UsageStatsByTeam): Promise<void> {

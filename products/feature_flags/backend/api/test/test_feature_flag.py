@@ -89,6 +89,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FLAG_TARGETING_FLAG
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
@@ -762,10 +763,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -846,9 +849,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("false", False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
+    def test_boolean_early_exit_accepted(self, _name, value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -864,59 +865,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
         self.assertEqual(flag.filters["early_exit"], value)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit gated",
-                "key": "early-exit-gated",
-                "filters": {
-                    "early_exit": True,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("early_exit is not available", response.json()["detail"])
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit off",
-                "key": "early-exit-off",
-                "filters": {
-                    "early_exit": False,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
-        # A flag created while the feature was enabled keeps working if access is later revoked,
-        # as long as the PATCH doesn't newly turn early_exit on.
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="early-exit-existing",
-            filters={"early_exit": True, "groups": [{"rollout_percentage": 100}]},
-        )
-        mock_feature_enabled.return_value = False
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            data={"filters": {"early_exit": True, "groups": [{"rollout_percentage": 50}]}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_null_early_exit_accepted(self):
         response = self.client.post(
@@ -1113,10 +1061,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [50],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1172,10 +1122,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1571,11 +1523,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 3,
                 "has_filters": False,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
@@ -1875,10 +1829,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -2317,49 +2273,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    @parameterized.expand(
-        [
-            ("legacy_verifiers_on", True),
-            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
-            ("legacy_verifiers_off", False),
-        ]
-    )
-    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="my-remote-config-flag",
-            name="Remote Config Flag",
-            active=True,
-            filters={
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "payloads": {"true": '{"test": true}'},
-            },
-            is_remote_configuration=True,
-        )
-        self.client.logout()
-        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), '{"test": true}')
-
-    def test_get_remote_config_with_secret_api_token_of_second_environment(self):
+    def test_get_remote_config_with_secret_api_key_of_second_environment(self):
         environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        environment.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        env_token, _ = _make_feature_flag_psak(environment, label="env2")
         self._create_remote_config_flag()
         self.client.logout()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config?token={environment.api_token}",
-            headers={"authorization": f"Bearer {environment.secret_api_token}"},
+            headers={"authorization": f"Bearer {env_token}"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2468,7 +2390,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_returns_response_even_if_shadow_raises(self):
         # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="shadow")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2487,7 +2409,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ) as shadow:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                headers={"authorization": f"Bearer {secret_token}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -2538,7 +2460,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     # which must replicate both.
     @parameterized.expand(
         [
-            ("project_secret_key", False),
             ("personal_api_key", True),
             ("psak", False),
         ]
@@ -2553,13 +2474,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             PersonalAPIKey.objects.create(
                 label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
             )
-        elif _name == "psak":
-            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
-            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            secret_token = self.team.secret_api_token
-            assert secret_token is not None
-            auth_token = secret_token
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
 
         self.client.logout()
         response = self.client.get(
@@ -2569,9 +2485,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
+    @parameterized.expand([("plaintext", False), ("encrypted", True)])
+    def test_remote_config_returns_no_payload_for_disabled_flag(self, _name: str, encrypted: bool):
+        plaintext = '{"cap": 200}'
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="disabled-remote-config-flag",
+            active=False,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {
+                    "true": flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+                    if encrypted
+                    else plaintext
+                },
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=encrypted,
+        )
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token))
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/disabled-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(response.content, b"null")
+
     @parameterized.expand(
         [
-            ("project_secret_key", False, "198.51.100.7", status.HTTP_200_OK),
             ("personal_api_key", True, "198.51.100.7", status.HTTP_403_FORBIDDEN),
             ("personal_api_key_allowed", True, "203.0.113.7", status.HTTP_200_OK),
             ("psak", False, "198.51.100.7", status.HTTP_200_OK),
@@ -2592,13 +2538,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
         elif _name == "session":
             auth_token = None
-        elif _name == "psak":
-            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
-            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            secret_token = self.team.secret_api_token
-            assert secret_token is not None
-            auth_token = secret_token
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
 
         self.client.force_login(self.user)
         response = self.client.get(
@@ -2616,7 +2557,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
         self, _name: str, has_encrypted_payloads: bool
     ):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="bucket")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2639,7 +2580,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(3):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                    headers={"authorization": f"Bearer {secret_token}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2650,7 +2591,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="notrc")
         FeatureFlag.objects.create(
             team=self.team,
             key="not-a-remote-config-flag",
@@ -2666,7 +2607,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
@@ -2697,13 +2638,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="thisteam")
         other_team = Team.objects.create(
             organization=self.organization,
             api_token="phc_other_team_token",
             name="Other Team",
         )
-        other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        _make_feature_flag_psak(other_team, label="otherteam")
 
         # Create a flag in the other team
         FeatureFlag.objects.create(
@@ -2728,7 +2669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -3305,10 +3246,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -4598,6 +4541,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         assert {flag["key"] for flag in response.json()["results"]} == expected_keys
         assert response.json()["count"] == len(expected_keys)
+
+    def test_list_ids_returns_exactly_the_requested_flags(self):
+        listed = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="listed-flag")
+        archived = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        deleted = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrequested-flag")
+
+        ids = ",".join(str(flag.id) for flag in (listed, archived, deleted))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}&search=nothing")
+
+        assert response.status_code == 200, response.json()
+        assert {flag["key"] for flag in response.json()["results"]} == {"listed-flag", "archived-flag"}
+
+    def test_list_ids_rejects_more_than_the_limit(self):
+        ids = ",".join(str(flag_id) for flag_id in range(1, 202))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}")
+
+        assert response.status_code == 400
 
     def test_list_excluded_tags_filtering(self):
         for key, tags in [
@@ -5956,8 +5919,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 status.HTTP_400_BAD_REQUEST,
                 "has an event-based condition",
             ),
+            (
+                "realtime_off",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "Realtime is off for cohort",
+            ),
         ]
     )
+    # The env list is the one source of access where the rollout flag still decides.
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch("products.feature_flags.backend.realtime_targeting.feature_enabled_or_false")
     @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_behavioral_cohort_flag_validation(
@@ -6004,6 +5977,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         if cohort_type is not None:
             cohort_kwargs["cohort_type"] = cohort_type
+        if cohort_type == CohortType.REALTIME and _name != "realtime_off":
+            cohort_kwargs["realtime_enabled_at"] = datetime.now(tz=UTC)
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
             cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
@@ -7727,7 +7702,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # experiment_set should include both experiments
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment_id, experiment2_id]
+        assert sorted(response.json()["experiment_set"]) == sorted([experiment_id, experiment2_id])
 
         # Delete the active experiments
         update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
@@ -9597,16 +9572,23 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
-    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+    def test_persons_seen_so_far_pins_v1_and_bounds_memory(self):
         team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
         for i in range(3):
             _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
+        def assert_memory_bounded(query: str) -> None:
+            query_settings = query.rsplit("SETTINGS", 1)[-1]
+            assert "optimize_aggregation_in_order=1" in query_settings
+            assert f"max_bytes_before_external_group_by={SPILL_GROUP_BY_AFTER_BYTES}" in query_settings
+            assert "timeout_overflow_mode='throw'" in query_settings
+
         with self.capture_select_queries() as queries:
-            assert team.count_persons_seen_so_far() == 3
+            assert get_user_blast_radius(team, {"properties": []}).total == 3
 
         assert queries
         for query in queries:
+            assert_memory_bounded(query)
             # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
             # with a subquery, so a balanced paren would build a string that never occurs and
             # the assertion would always pass.
@@ -9623,7 +9605,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (result.affected, result.total) == (1, 3)
         assert create_for_spy.call_count == 1
-        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        person_count_queries = [query for query in queries if "argMax(person.is_deleted" in query]
+        assert len(person_count_queries) == 2
+        for query in person_count_queries:
+            assert_memory_bounded(query)
+        denominator_queries = [query for query in person_count_queries if "count(DISTINCT" not in query]
         assert denominator_queries
         for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
@@ -9668,17 +9654,65 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
             )
 
-    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+    @parameterized.expand(
+        [
+            (
+                "event_property",
+                [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}], "isn't supported in release conditions"),
+            (
+                "nested_hogql_expression",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]},
+                "isn't supported in release conditions",
+            ),
+            (
+                "unknown_type",
+                [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "hogql_expression_with_values_key",
+                [{"key": "1 = 1", "type": "hogql", "values": []}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "legacy_dict_shaped_like_a_person_property",
+                {"key": "email", "type": "person", "value": "a"},
+                "isn't supported in release conditions",
+            ),
+            ("missing_type", [{"key": "x", "value": "y"}], "needs a type"),
+            ("list_type", [{"key": "x", "type": ["person"], "value": "y"}], "needs a type"),
+            ("non_dict_item", ["not-a-property"], "needs a type"),
+            (
+                "nested_hogql_expression_with_values_key",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql", "values": []}]},
+                "is not a valid PropertyOperatorType",
+            ),
+        ]
+    )
+    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties, detail_fragment):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
-                }
-            },
+            {"condition": {"properties": properties}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertIn(detail_fragment, response.json()["detail"])
+
+    def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        self.team.test_account_filters = [{"key": "1 = 0", "type": "hogql"}]
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "filter_test_accounts": True}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 3, "total": 3}.items(), response.json().items())
 
     @parameterized.expand(
         [

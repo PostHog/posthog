@@ -49,6 +49,8 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
     if inputs.schema_name not in ENDPOINTS:
         raise ValueError("Unknown US Treasury Fiscal Data table. Select a table from the source settings.")
     endpoint = ENDPOINTS[inputs.schema_name]
+    if inputs.should_use_incremental_field and endpoint.incremental_field is None:
+        raise ValueError("This US Treasury Fiscal Data table supports full refresh only.")
     if inputs.should_use_incremental_field and inputs.incremental_field != endpoint.incremental_field:
         raise ValueError(f"Select {endpoint.incremental_field} as the incremental field for this table.")
 
@@ -69,7 +71,7 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
             initial_state = {"page": saved.page}
             lower_bound = saved.lower_bound
 
-    sort_fields = list(dict.fromkeys((endpoint.incremental_field, *endpoint.primary_keys)))
+    sort_fields = list(dict.fromkeys((endpoint.incremental_field or endpoint.partition_key, *endpoint.primary_keys)))
     params: dict[str, Any] = {"page[size]": PAGE_SIZE, "sort": ",".join(sort_fields), "format": "json"}
     if lower_bound is not None:
         params["filter"] = f"{endpoint.incremental_field}:gte:{lower_bound}"
@@ -103,11 +105,12 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
         for field in endpoint.numeric_fields:
             if (value := normalized.get(field)) is not None:
                 normalized[field] = Decimal(str(value))
-        for field in ("record_date", "effective_date"):
+        for field in endpoint.date_fields:
             if (value := normalized.get(field)) is not None:
                 normalized[field] = date.fromisoformat(str(value))
-        if (value := normalized.get("src_line_nbr")) is not None:
-            normalized["src_line_nbr"] = int(str(value))
+        for field in endpoint.integer_fields:
+            if (value := normalized.get(field)) is not None:
+                normalized[field] = int(str(value))
         return normalized
 
     resource = rest_api_resource(
@@ -123,9 +126,9 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
         name=inputs.schema_name,
         items=lambda: resource,
         primary_keys=list(endpoint.primary_keys),
-        partition_keys=["record_date"],
+        partition_keys=[endpoint.partition_key],
         partition_mode="datetime",
         partition_format="month",
-        sort_mode="asc",
+        sort_mode="asc" if endpoint.incremental_field is not None else None,
         on_complete=manager.clear_state,
     )

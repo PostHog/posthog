@@ -7,6 +7,7 @@ from requests import Response
 from products.warehouse_sources.sources.hugging_face.settings import (
     HUGGING_FACE_ENDPOINTS,
     REPO_KINDS,
+    REPO_TYPES,
     HuggingFaceEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -16,8 +17,10 @@ from products.warehouse_sources.sources.sdk import (
     HeaderLinkPaginator,
     PageNumberPaginator,
     Resource,
+    ResponseAction,
     ResumableSourceManager,
     SourceResponse,
+    make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -101,13 +104,13 @@ def hugging_face_source(
 
     if config.kind == "tags":
         resource = _tags_resource(client, config, team_id, job_id)
-    elif config.kind == "discussions":
+    elif config.kind in ("discussions", "commits"):
 
         def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state:
                 resumable_source_manager.save_state(HuggingFaceResumeConfig(fanout_state=state))
 
-        resource = _discussions_resource(
+        resource = _repo_fanout_resource(
             client,
             config,
             author,
@@ -201,7 +204,7 @@ def _tags_resource(client: ClientConfig, config: HuggingFaceEndpointConfig, team
     return resource.add_map(_tag_rows)
 
 
-def _discussions_resource(
+def _repo_fanout_resource(
     client: ClientConfig,
     config: HuggingFaceEndpointConfig,
     author: str,
@@ -217,28 +220,48 @@ def _discussions_resource(
         "endpoint": {"path": "/api/models"},
         "data_iterator": lambda: _repo_pages(client, author, team_id, job_id),
     }
-    child: EndpointResource = {
-        "name": config.name,
-        "endpoint": {
-            "path": config.path,
-            "params": {
-                "repo_kind": {"type": "resolve", "resource": "repos", "field": "repo_kind"},
-                "repo_id": {"type": "resolve", "resource": "repos", "field": "id"},
-            },
-            "paginator": HuggingFaceDiscussionsPaginator(),
-            "data_selector": "discussions",
-            "response_actions": [
-                {
-                    "status_code": 403,
-                    "json_field": "error",
-                    "json_values": [DISCUSSIONS_DISABLED_ERROR],
-                    "action": "ignore",
-                },
-                # A repo deleted between the listing and its discussions fetch.
-                {"status_code": 404, "action": "ignore"},
-            ],
-        },
+    params: dict[str, Any] = {
+        **config.params,
+        "repo_kind": {"type": "resolve", "resource": "repos", "field": "repo_kind"},
+        "repo_id": {"type": "resolve", "resource": "repos", "field": "id"},
     }
+    # A repo deleted between the listing and its child fetch.
+    not_found: ResponseAction = {"status_code": 404, "action": "ignore"}
+    child: EndpointResource
+    if config.kind == "discussions":
+        child = {
+            "name": config.name,
+            "endpoint": {
+                "path": config.path,
+                "params": params,
+                "paginator": HuggingFaceDiscussionsPaginator(),
+                "data_selector": "discussions",
+                "response_actions": [
+                    {
+                        "status_code": 403,
+                        "json_field": "error",
+                        "json_values": [DISCUSSIONS_DISABLED_ERROR],
+                        "action": "ignore",
+                    },
+                    not_found,
+                ],
+            },
+        }
+        row_map = _flatten_repo
+    else:
+        # Commit rows don't name their repo, so carry it over from the parent row.
+        child = {
+            "name": config.name,
+            "endpoint": {
+                "path": config.path,
+                "params": params,
+                "paginator": HuggingFaceLinkPaginator(),
+                "response_actions": [not_found],
+            },
+            "include_from_parent": ["repo_kind", "id"],
+        }
+        row_map = _commit_row
+
     resources = rest_api_resources(
         {"client": client, "resources": [parent, child]},
         team_id,
@@ -248,7 +271,7 @@ def _discussions_resource(
         initial_paginator_state=initial_state,
     )
     resource = next(r for r in resources if r.name == config.name)
-    return resource.add_map(_flatten_repo)
+    return resource.add_map(row_map)
 
 
 def _repo_pages(client: ClientConfig, author: str, team_id: int, job_id: str) -> Iterator[list[dict[str, Any]]]:
@@ -268,6 +291,14 @@ def _repo_pages(client: ClientConfig, author: str, team_id: int, job_id: str) ->
 
 def _flatten_repo(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "repo_type": row["repo"]["type"], "repo_name": row["repo"]["name"]}
+
+
+def _commit_row(row: dict[str, Any]) -> dict[str, Any]:
+    commit = dict(row)
+    repo_kind = commit.pop(make_parent_key_name("repos", "repo_kind"))
+    repo_name = commit.pop(make_parent_key_name("repos", "id"))
+    # Match the singular `repo_type` that discussions and likes carry ("model", not "models").
+    return {**commit, "repo_type": REPO_TYPES[repo_kind], "repo_name": repo_name}
 
 
 def _tag_rows(tags_by_type: dict[str, Any]) -> list[dict[str, Any]]:

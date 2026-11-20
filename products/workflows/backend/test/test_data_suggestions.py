@@ -565,17 +565,27 @@ class TestDataSuggestions(SimpleTestCase):
             "subscription paused": "churn_risk",
         }
 
-    @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])
+    @parameterized.expand(
+        [
+            ("jev is not configured", SystemOneNotConfigured("no gateway"), False),
+            ("the gateway rate-limits", SystemOneRequestFailed("busy", status_code=429), False),
+            ("the gateway is overloaded", SystemOneRequestFailed("full", status_code=529), False),
+            ("the gateway errors", SystemOneRequestFailed("boom", status_code=500), True),
+            ("the gateway is not reached", SystemOneRequestFailed("unreachable"), True),
+        ]
+    )
+    @patch("products.workflows.backend.services.data_suggestions.stages.capture_exception")
     @patch("products.workflows.backend.services.data_suggestions.stages.build_system_one_client")
     def test_classify_event_stages_fails_without_a_working_jev(
-        self, _name: str, not_configured: bool, build_client: MagicMock
+        self, _name: str, error: Exception, reported: bool, build_client: MagicMock, capture: MagicMock
     ) -> None:
-        if not_configured:
-            build_client.side_effect = SystemOneNotConfigured("no gateway")
+        if isinstance(error, SystemOneNotConfigured):
+            build_client.side_effect = error
         else:
-            build_client.return_value.decide.side_effect = SystemOneRequestFailed("boom", status_code=529)
+            build_client.return_value.decide.side_effect = error
         with self.assertRaises(StageClassificationFailed):
             classify_event_stages(team_id=1, event_names=["signed_up"])
+        assert capture.called is reported
 
     @parameterized.expand(
         [

@@ -217,7 +217,16 @@ def _read_capped_body(response: requests.Response) -> bytes:
 
 
 @retry(
-    retry=retry_if_exception_type((ChatwootRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    retry=retry_if_exception_type(
+        (
+            ChatwootRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            # A connection reset mid-body-stream (in _read_capped_body's iter_content) surfaces from
+            # requests as ChunkedEncodingError, a sibling of ConnectionError rather than a subclass.
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
@@ -791,6 +800,12 @@ def _normalize_webhook_row(endpoint: str, row: dict[str, Any]) -> dict[str, Any]
         message_type = row.get("message_type")
         if isinstance(message_type, str):
             row["message_type"] = MESSAGE_TYPE_TO_INT.get(message_type, message_type)
+
+    if endpoint == "conversations":
+        # REST serializes first_reply_created_at with `.to_i` (0 before the first reply). The
+        # webhook presenter sends the raw time (an ISO string, or null), which does not fit the
+        # int64 column that the first REST sync created.
+        row["first_reply_created_at"] = _iso_to_epoch(row.get("first_reply_created_at")) or 0
 
     if row.get("id") is None:
         return None

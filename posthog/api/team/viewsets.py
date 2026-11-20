@@ -12,7 +12,6 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -29,7 +28,6 @@ from posthog.models.event_ingestion_restriction_config import (
     RestrictionType,
 )
 from posthog.models.product_intent.product_intent import ProductIntentSerializer
-from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -38,17 +36,18 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    request_subject,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.authorization.backend.presentation.querysets import filter_visible_projects
 
 from . import integration_config, team_config, team_permissions, team_serializer
 
@@ -113,10 +112,8 @@ class TeamViewSet(
     GET_DOWNGRADE_ACTIONS = ("evaluation_context_suggestions",)
 
     def safely_get_queryset(self, queryset):
-        user = cast(User, self.request.user)
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
-        queryset = queryset.filter(id__in=visible_teams_ids)
+        queryset = filter_visible_projects(queryset, subject=request_subject(self.request))
         authenticator = self.request.successful_authenticator
         if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
             queryset = queryset.filter(project__organization_id__in=scoped_organizations)
@@ -276,32 +273,6 @@ class TeamViewSet(
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
-        return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        # Minting a durable credential needs a fresh session, like PSAK creation does.
-        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
-    )
-    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
-        integration_config.validate_secret_token_generation(team)
-        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
-        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
-        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
-        return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
-    )
-    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
-        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @extend_schema(request=None, responses=team_serializer.TeamSerializer)
@@ -598,12 +569,6 @@ class TeamViewSet(
     def user_permissions(self):
         team = self.get_object() if self.action in actions_that_require_current_team else None
         return UserPermissions(cast(User, self.request.user), team)
-
-
-class RootTeamViewSet(TeamViewSet):
-    # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
-    # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
-    hide_api_docs = True
 
 
 class ProjectEnvironmentsViewSet(TeamViewSet):

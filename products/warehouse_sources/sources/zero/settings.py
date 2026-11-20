@@ -108,6 +108,56 @@ ENDPOINT_CONFIGS: dict[str, ZeroEndpointConfig] = {
         scoped_by_workspace=False,
         incremental_fields=_datetime_incremental_fields(),
     ),
+    "Lists": ZeroEndpointConfig(
+        name="Lists",
+        path="/api/lists",
+        table_name="lists",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "Quotes": ZeroEndpointConfig(
+        name="Quotes",
+        path="/api/quotes",
+        table_name="quotes",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    # Zero documents these as "sequence enrollments"; the list endpoint is named after the
+    # SequenceContactStatus object (one row per contact per sequence).
+    "SequenceEnrollments": ZeroEndpointConfig(
+        name="SequenceEnrollments",
+        path="/api/sequenceContactStatuses",
+        table_name="sequence_enrollments",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "SequenceSteps": ZeroEndpointConfig(
+        name="SequenceSteps",
+        path="/api/sequenceSteps",
+        table_name="sequence_steps",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "Sequences": ZeroEndpointConfig(
+        name="Sequences",
+        path="/api/sequences",
+        table_name="sequences",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "Products": ZeroEndpointConfig(
+        name="Products",
+        path="/api/products",
+        table_name="products",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "CustomActivities": ZeroEndpointConfig(
+        name="CustomActivities",
+        path="/api/customActivities",
+        table_name="custom_activities",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "CustomActivityTypes": ZeroEndpointConfig(
+        name="CustomActivityTypes",
+        path="/api/customActivityTypes",
+        table_name="custom_activity_types",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
 }
 
 ENDPOINTS: tuple[str, ...] = tuple(ENDPOINT_CONFIGS.keys())

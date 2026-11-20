@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts a project secret API key with the `account:write` scope.
  * @summary Create an external customer analytics account
  */
 export const customerAnalyticsExternalAccountCreateBodyExternalIdMax = 400
@@ -460,6 +460,16 @@ export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
 export const AccountsPersonsQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+export const accountsPersonsMembershipsCreateBodyPersonIdsMax = 500
+
+export const AccountsPersonsMembershipsCreateBody = /* @__PURE__ */ zod.object({
+    person_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(accountsPersonsMembershipsCreateBodyPersonIdsMax)
+        .describe('Loaded person IDs to enrich, up to 500.'),
+})
 
 export const accountsUpdateBodyNameMax = 400
 

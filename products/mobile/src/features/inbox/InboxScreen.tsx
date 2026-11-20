@@ -6,7 +6,6 @@ import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
-import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
@@ -21,12 +20,14 @@ import { ViewsReauthState } from '../views/ViewsReauthState'
 import type { RowAnchor } from './contextMenuPlacement'
 import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
+import { InboxEmptyState } from './InboxEmptyState'
 import { InboxFilterSheet } from './InboxFilterSheet'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { inboxFilterActions } from './inboxFilterActions'
 import { useInboxFilters } from './inboxFiltersStore'
+import { useInboxStatus } from './useInboxStatus'
 import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
@@ -87,6 +88,7 @@ export function InboxScreen(): ReactElement {
     const refresh = (trigger: 'pull' | 'retry'): void => {
         track('mobile_inbox_refreshed', { trigger })
         void query.refetch()
+        if (isEmpty) void setupStatus.refetch()
     }
 
     const openFilters = (): void => {
@@ -98,6 +100,7 @@ export function InboxScreen(): ReactElement {
     const listFailed = query.isError
     const loaded = !query.isLoading && !query.isError
     const isEmpty = loaded && query.totalCount === 0
+    const setupStatus = useInboxStatus(isEmpty && focused && access.state === 'ok')
     // While the remaining pages load, a match may still arrive, so the footer spinner shows instead of this screen.
     const isFilteredEmpty = loaded && query.totalCount > 0 && query.matchedCount === 0 && !query.isLoadingMore
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
@@ -124,6 +127,7 @@ export function InboxScreen(): ReactElement {
         }
     }, [isFilteredEmpty])
     useTabHeader('inbox', {
+        scrollToTop: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
         refreshing: query.isRefetching,
         hint: null,
         status: null,
@@ -172,12 +176,7 @@ export function InboxScreen(): ReactElement {
                 testID="inbox-filtered-empty"
             />
         ) : query.totalCount > 0 ? null : (
-            <StateView
-                icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="Nothing needs you right now"
-                message="New reports show up here when PostHog finds something worth a look."
-                testID="inbox-empty"
-            />
+            <InboxEmptyState status={setupStatus} onRefresh={() => void query.refetch()} />
         )
 
     return (

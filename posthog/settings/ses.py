@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, get_uuid_set
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
@@ -29,6 +29,12 @@ SES_TENANT_CONFIGURATION_SETS: list[str] = [
     if cs.strip()
 ]
 
+SES_SANDBOX_FROM_ADDRESS = os.getenv("SES_SANDBOX_FROM_ADDRESS", "").strip().lower()
+SES_SANDBOX_TENANT_NAME = os.getenv("SES_SANDBOX_TENANT_NAME", "").strip()
+WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED: bool = get_from_env(
+    "WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED", False, type_cast=str_to_bool
+)
+
 # SNS topics allowed to deliver SES tenant reputation events (EventBridge -> SNS -> webhook).
 # Empty (the default) leaves the webhook inert: the SNS signature proves a message came from AWS,
 # but only the allowlist proves it came from *our* topic.
@@ -45,6 +51,9 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 # anything enforces.
 WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
     "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = get_uuid_set(
+    os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "")
 )
 
 # Volume gates. A workflow that sent 12 emails and drew 1 complaint is a 8% complaint rate and
@@ -129,4 +138,6 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Aol",
     "Gmx",
     "Tencent",
+    "Yandex",
+    "MailRu",
 ]

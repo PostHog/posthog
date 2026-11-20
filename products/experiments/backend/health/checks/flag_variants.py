@@ -10,19 +10,32 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     CheckOutcome,
     CheckSkip,
+    CheckValues,
     flag_to_check,
     not_applicable,
 )
+from products.experiments.backend.health.split_changes import split_value
 
 # pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 FLAG_HAS_NO_VARIANTS = "flag_has_no_variants"
 NO_CONTROL_VARIANT = "no_control_variant"
+
+
+def flag_variants_values(ctx: HealthContext) -> CheckValues:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip):
+        return {}
+    return {
+        ExperimentHealthValueKey.FLAG_SPLIT: split_value(flag.variants),
+        ExperimentHealthValueKey.BASELINE_VARIANT: ctx.baseline_variant_key,
+    }
 
 
 def flag_variants_mismatch(ctx: HealthContext) -> CheckOutcome:

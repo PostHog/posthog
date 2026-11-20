@@ -23,7 +23,12 @@ import {
 
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
-import { externalDataSchemasHistoryTableDestroy } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSchemasHistoryTableDestroy,
+    externalDataSchemasPartialUpdate,
+    externalDataSourcesWizardRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'data-quality', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
@@ -70,6 +75,7 @@ export interface schemaSceneLogicValues {
     isProjectTime: boolean
     refreshingSchemas: boolean
     resyncingSchema: boolean
+    savingLiveQuery: boolean
     schema: ExternalDataSourceSchema | null
     schemaData: ExternalDataSchemaWithSource | null
     schemaDataLoading: boolean
@@ -77,6 +83,9 @@ export interface schemaSceneLogicValues {
     schemaIncrementalFieldsLoading: boolean
     sidePanelContext: SidePanelSceneContext | null
     source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null
+    sourceConfig: SourceConfigResponseApi | null
+    sourceConfigLoading: boolean
+    sourceSupportsCdc: boolean
     supportsColumnSelection: boolean
     supportsRowFilters: boolean
 }
@@ -128,6 +137,21 @@ export interface schemaSceneLogicActions {
         schemaData: ExternalDataSchemaWithSource | null
         payload?: any
     }
+    loadSourceConfig: () => any
+    loadSourceConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceConfigSuccess: (
+        sourceConfig: SourceConfigResponseApi | null,
+        payload?: any
+    ) => {
+        sourceConfig: SourceConfigResponseApi | null
+        payload?: any
+    }
     refreshSchemas: () => {
         value: true
     }
@@ -146,11 +170,17 @@ export interface schemaSceneLogicActions {
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
     }
+    setLiveQueryEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
     }
     setResyncingSchema: (resyncing: boolean) => {
         resyncing: boolean
+    }
+    setSavingLiveQuery: (saving: boolean) => {
+        saving: boolean
     }
     updateSchema: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
@@ -167,6 +197,10 @@ export interface schemaSceneLogicMeta {
         ) => (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null
         supportsColumnSelection: (schemaData: ExternalDataSchemaWithSource | null) => boolean
         supportsRowFilters: (schemaData: ExternalDataSchemaWithSource | null) => boolean
+        sourceSupportsCdc: (
+            source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null,
+            sourceConfig: SourceConfigResponseApi | null
+        ) => boolean
         breadcrumbs: (schemaData: ExternalDataSchemaWithSource | null, arg: any) => Breadcrumb[]
         sidePanelContext: (arg: any, schema: ExternalDataSourceSchema | null) => SidePanelSceneContext | null
     }
@@ -193,6 +227,8 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
         setResyncingSchema: (resyncing: boolean) => ({ resyncing }),
+        setLiveQueryEnabled: (enabled: boolean) => ({ enabled }),
+        setSavingLiveQuery: (saving: boolean) => ({ saving }),
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -201,7 +237,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         deleteHistoryTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         refreshSchemas: true,
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         schemaData: [
             null as ExternalDataSchemaWithSource | null,
             {
@@ -230,6 +266,22 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e
                     }
+                },
+            },
+        ],
+        // Only this source type's config: the unfiltered catalog describes every source and is large.
+        sourceConfig: [
+            null as SourceConfigResponseApi | null,
+            {
+                loadSourceConfig: async () => {
+                    const sourceType = values.source?.source_type
+                    if (!sourceType) {
+                        return null
+                    }
+                    const configs = await externalDataSourcesWizardRetrieve(String(ApiConfig.getCurrentProjectId()), {
+                        source_type: sourceType,
+                    })
+                    return configs[sourceType] ?? null
                 },
             },
         ],
@@ -269,6 +321,12 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 setResyncingSchema: (_, { resyncing }) => resyncing,
             },
         ],
+        savingLiveQuery: [
+            false as boolean,
+            {
+                setSavingLiveQuery: (_, { saving }) => saving,
+            },
+        ],
     })),
     selectors({
         schema: [
@@ -295,6 +353,14 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         supportsRowFilters: [
             (s) => [s.schemaData],
             (schemaData: ExternalDataSchemaWithSource | null): boolean => !!schemaData?.source?.supports_row_filters,
+        ],
+        // Matches where the source's CDC section is shown, so the sync method page never points to a missing setting.
+        sourceSupportsCdc: [
+            (s) => [s.source, s.sourceConfig],
+            (
+                source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null,
+                sourceConfig: SourceConfigResponseApi | null
+            ): boolean => source?.access_method === 'warehouse' && !!sourceConfig?.cdcEngine,
         ],
         breadcrumbs: [
             (s) => [s.schemaData, (_, props) => props.sourceId],
@@ -357,6 +423,25 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 return
             }
             await runUpdate()
+        },
+        // Sends only this field: updateSchema re-sends a fixed field list that leaves it out.
+        setLiveQueryEnabled: async ({ enabled }) => {
+            const schema = values.schemaData
+            if (!schema || values.savingLiveQuery) {
+                return
+            }
+            actions.setSavingLiveQuery(true)
+            try {
+                await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
+                    live_query_enabled: enabled,
+                })
+                posthog.capture('schema live query toggled', { sourceType: values.source?.source_type, enabled })
+            } catch (e: any) {
+                lemonToast.error(e?.message || "Can't update live queries at this time")
+            } finally {
+                actions.setSavingLiveQuery(false)
+                actions.loadSchema()
+            }
         },
         reloadSchema: async ({ schema }) => {
             const runReload = async (): Promise<void> => {

@@ -17,18 +17,22 @@ from products.replay_vision.backend.models.replay_scanner_backfill import Replay
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import _resolve
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionError, ScannerFailureError
 from products.replay_vision.backend.temporal.types import ResolveExperimentVariantInputs
-from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    SeededExperiment,
+    create_experiment,
+    snapshot_for,
+    update_experiment,
+)
 
 FROZEN_NOW = "2026-01-10T20:00:00Z"
 BASE_TIME = datetime(2026, 1, 9, 10, 0, tzinfo=UTC)
 
 
-def _launched_experiment(test: BaseTest, key: str, variants: list[str]):
+def _launched_experiment(test: BaseTest, key: str, variants: list[str]) -> SeededExperiment:
     # The helper launches "now"; exposures in these tests happen at BASE_TIME, so the experiment
     # must have started before them or every session reads as unexposed.
     experiment = create_experiment(test.team, key, launched=True, variants=variants)
-    experiment.start_date = BASE_TIME - timedelta(days=1)
-    experiment.save()
+    update_experiment(experiment, start_date=BASE_TIME - timedelta(days=1))
     return experiment
 
 
@@ -97,9 +101,8 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
     def test_attributes_the_variant_and_returns_the_prompt_context(self) -> None:
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
         # The description rides in the workflow history twice; only its head does.
-        experiment.description = "x" * 3_000
-        experiment.save()
-        scanner = self._scanner(experiment.pk)
+        update_experiment(experiment, description="x" * 3_000)
+        scanner = self._scanner(experiment.id)
         session_id = self._session("exposed-user", "test")
         flush_persons_and_events()
 
@@ -120,10 +123,10 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         with pytest.raises(IneligibleSessionError) as never_exposed:
-            _resolve(self._inputs(self._scanner(experiment.pk), unexposed_session))
+            _resolve(self._inputs(self._scanner(experiment.id), unexposed_session))
         assert never_exposed.value.kind == IneligibleSessionKind.NOT_EXPOSED
 
-        narrowed = self._scanner(experiment.pk, variants=["test"])
+        narrowed = self._scanner(experiment.id, variants=["test"])
         with pytest.raises(IneligibleSessionError) as outside_variants:
             _resolve(self._inputs(narrowed, control_session))
         assert outside_variants.value.kind == IneligibleSessionKind.NOT_EXPOSED
@@ -141,9 +144,8 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
     ) -> None:
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
         if end_date is not None:
-            experiment.end_date = end_date
-            experiment.save()
-        scanner = self._scanner(experiment.pk)
+            update_experiment(experiment, end_date=end_date)
+        scanner = self._scanner(experiment.id)
         # Distinct per case: ClickHouse rows outlive each test's transaction.
         session_id = self._session(f"outside-run-{name}", "test", exposure_at=exposure_at)
         flush_persons_and_events()
@@ -166,7 +168,7 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         self, name: str, scanner_creator: bool, backfill_launcher: bool | None, resolves: bool
     ) -> None:
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
-        scanner = self._scanner(experiment.pk)
+        scanner = self._scanner(experiment.id)
         if not scanner_creator:
             scanner.created_by = None
             scanner.save()
@@ -209,7 +211,7 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         from products.experiments.backend.facade import replay as experiments_replay
 
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
-        scanner = self._scanner(experiment.pk)
+        scanner = self._scanner(experiment.id)
         session_id = self._session(f"transient-{name}", "test")
         flush_persons_and_events()
 
@@ -227,11 +229,10 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         # Its own distinct id: ClickHouse rows outlive each test's transaction, so reusing another
         # test's id on the shared team would double-map the person.
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
-        scanner = self._scanner(experiment.pk)
+        scanner = self._scanner(experiment.id)
         session_id = self._session("deleted-exp-user", "test")
         flush_persons_and_events()
-        experiment.deleted = True
-        experiment.save()
+        update_experiment(experiment, deleted=True)
 
         with pytest.raises(IneligibleSessionError) as excinfo:
             _resolve(self._inputs(scanner, session_id))

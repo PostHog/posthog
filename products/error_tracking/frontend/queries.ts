@@ -38,6 +38,7 @@ export const errorTrackingQuery = ({
     orderBy,
     status,
     severity,
+    issueTag,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -56,6 +57,7 @@ export const errorTrackingQuery = ({
     | 'orderBy'
     | 'status'
     | 'severity'
+    | 'issueTag'
     | 'dateRange'
     | 'assignee'
     | 'filterTestAccounts'
@@ -78,6 +80,7 @@ export const errorTrackingQuery = ({
             orderBy,
             status,
             ...(severity ? { severity } : {}),
+            ...(issueTag ? { issueTag } : {}),
             dateRange,
             assignee,
             volumeResolution,

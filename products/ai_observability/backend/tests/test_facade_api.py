@@ -76,7 +76,7 @@ READY_SUMMARY = ReadySummary(
     bullets=(SummaryItem(text="The user asks for a refund.", node_id="gen-1"),),
     notes=(),
     flow="ask → refuse",
-    model="gpt-4.1-mini",
+    model="gpt-6-luna",
     generated_at=T0,
 )
 
@@ -93,6 +93,18 @@ def test_root_node_is_the_trace_and_nodes_keep_event_uuids() -> None:
     assert (root.id, root.kind, root.name) == ("trace-1", "trace", "Trace")
     assert [(node.id, [child.id for child in node.children]) for node in root.children] == [("span-uuid", ["gen-uuid"])]
     assert [row.id for row in trace.timeline] == ["span-uuid", "gen-uuid"]
+
+
+@parameterized.expand([("under the event cap", 3, False), ("at the event cap", 2, True)])
+def test_totals_are_partial_when_the_read_reached_the_event_cap(_name: str, cap: int, partial: bool) -> None:
+    rows = (make_row(uuid="span-uuid", timestamp=T0), make_row(uuid="gen-uuid", event="$ai_generation", timestamp=T1))
+    with (
+        patch.object(api, "load_trace", return_value=LoadedTrace(rows=rows, person=None)),
+        patch.object(trace_queries, "MAX_TRACE_EVENTS", cap),
+    ):
+        trace = api.get_trace(team=Team(), user=None, trace_id="trace-1", timestamp_hint=None)
+
+    assert trace.totals_partial is partial
 
 
 def test_missing_trace_raises_not_found() -> None:

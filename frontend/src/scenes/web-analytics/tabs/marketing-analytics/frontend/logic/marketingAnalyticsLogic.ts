@@ -38,6 +38,8 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
@@ -54,6 +56,7 @@ import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/compon
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { marketingAnalyticsSourceValidationRetrieve } from 'products/marketing_analytics/frontend/generated/api'
 import type { SourceValidationApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
+import type { SourceValidationApiErrorsBySource } from 'products/marketing_analytics/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
@@ -139,12 +142,19 @@ export interface RecommendationsShownProperties {
     has_invest_impact: boolean
     source_types: string[]
     data_gap_count: number
+    resolved_count: number
     intro_shown: boolean
 }
 
 export type RecommendationsEntryPoint = 'button' | 'intro'
 
-export type RecommendationsAction = 'connect_google_ads' | 'manage_source' | 'view_instructions' | 'open_step_link'
+export type RecommendationsAction =
+    | 'connect_google_ads'
+    | 'manage_source'
+    | 'view_instructions'
+    | 'open_step_link'
+    | 'show_resolved'
+    | 'undo'
 
 export type RecommendationsActionLocation =
     | 'section_empty'
@@ -153,6 +163,8 @@ export type RecommendationsActionLocation =
     | 'modal_data_gaps'
     | 'rule_banner'
     | 'instructions'
+    | 'modal'
+    | 'toast'
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -349,7 +361,7 @@ export interface marketingAnalyticsLogicValues {
     allAvailableSources: {
         id: string
         name: string
-        prefix?: string | undefined
+        prefix?: string
         source_type: string
         type: string
     }[]
@@ -372,7 +384,7 @@ export interface marketingAnalyticsLogicValues {
         id: string
         name: string
         schema_name: string
-        schema_status?: string | undefined
+        schema_status?: string
         source_map: SourceMap | null
         source_map_id: string
         source_prefix: string
@@ -550,6 +562,24 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
+    reportRecommendationResolved: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
+        rule: MarketingAnalyticsRecommendationRule
+    }
+    reportRecommendationRestored: (
+        rule: MarketingAnalyticsRecommendationRule,
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
+    ) => {
+        level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
+        rule: MarketingAnalyticsRecommendationRule
+    }
     reportRecommendationsActionClicked: (
         action: RecommendationsAction,
         location: RecommendationsActionLocation,
@@ -674,16 +704,16 @@ export interface marketingAnalyticsLogicActions {
         tileColumnSelection?: string
     }) => {
         params: {
-            chartDisplayType?: ChartDisplayType | undefined
-            compare?: boolean | undefined
-            compare_to?: string | undefined
-            dateFrom?: string | null | undefined
-            dateTo?: string | null | undefined
-            drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
-            includeNonIntegrated?: boolean | undefined
-            integrationSourceIds?: string[] | undefined
-            interval?: IntervalType | undefined
-            tileColumnSelection?: string | undefined
+            chartDisplayType?: ChartDisplayType
+            compare?: boolean
+            compare_to?: string
+            dateFrom?: string | null
+            dateTo?: string | null
+            drillDownLevel?: MarketingAnalyticsDrillDownLevel
+            includeNonIntegrated?: boolean
+            integrationSourceIds?: string[]
+            interval?: IntervalType
+            tileColumnSelection?: string
         }
     }
 }
@@ -764,7 +794,7 @@ export interface marketingAnalyticsLogicMeta {
         ) => {
             id: string
             name: string
-            prefix?: string | undefined
+            prefix?: string
             source_type: string
             type: string
         }[]
@@ -780,7 +810,7 @@ export interface marketingAnalyticsLogicMeta {
                 id: string
                 name: string
                 schema_name: string
-                schema_status?: string | undefined
+                schema_status?: string
                 source_map: SourceMap | null
                 source_map_id: string
                 source_prefix: string
@@ -810,7 +840,7 @@ export interface marketingAnalyticsLogicMeta {
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
             nativeSources: ExternalDataSource[],
-            sourceValidationErrors: import('products/marketing_analytics/frontend/generated/api.schemas').SourceValidationApiErrorsBySource
+            sourceValidationErrors: SourceValidationApiErrorsBySource
         ) => {
             columns: {
                 name: string
@@ -821,7 +851,7 @@ export interface marketingAnalyticsLogicMeta {
             id: string
             name: string
             schema_name: string
-            schema_status?: string | undefined
+            schema_status?: string
             source_map: SourceMap | null
             source_map_id: string
             source_prefix: string
@@ -941,6 +971,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ruleRecommendationCount: number
         ) => ({ rule, ruleRecommendationCount }),
         reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
+        reportRecommendationResolved: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
+        reportRecommendationRestored: (
+            rule: MarketingAnalyticsRecommendationRule,
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
         reportRecommendationsActionClicked: (
             action: RecommendationsAction,
             location: RecommendationsActionLocation,
@@ -1851,6 +1891,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportRecommendationsClosed: ({ rule }) => {
                 posthog.capture('marketing analytics recommendations closed', { rule })
+            },
+            reportRecommendationResolved: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation resolved', { rule, level, resolution })
+            },
+            reportRecommendationRestored: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation restored', { rule, level, resolution })
             },
             reportRecommendationsActionClicked: ({ action, location, rule }) => {
                 posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })

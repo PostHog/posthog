@@ -35,6 +35,7 @@ const config: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    custom_image_id: null,
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,
@@ -48,6 +49,8 @@ const config: SignalScoutConfigApi = {
     created_at: '2026-07-21T00:00:00Z',
     updated_at: '2026-07-21T00:00:00Z',
     write_scopes: [],
+    report_actions: [],
+    max_report_actions_per_day: 3,
     allowed_mcp_tools: null,
     tool_preset: null,
 }

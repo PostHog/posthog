@@ -44,7 +44,7 @@ export function HeatmapPanel({
     }
 
     return (
-        <div className="relative flex h-full w-full min-h-0 flex-col">
+        <div className="relative flex h-full w-full min-h-0 flex-1 flex-col">
             <Heatmap
                 xLabels={xLabels}
                 yLabels={yLabels}

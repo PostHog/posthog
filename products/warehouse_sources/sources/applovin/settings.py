@@ -48,6 +48,11 @@ class AppLovinEndpointConfig:
     # upstream doesn't fork a row into two.
     primary_keys: list[str]
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Column pinned with `sort_<column>=ASC` so limit/offset paging can't reshuffle rows.
+    sort_column: str = "day"
+    # False for reports that have no `day` column. They are requested one day at a time, and
+    # each row gets the day it was requested for.
+    has_day_column: bool = True
 
     @property
     def columns(self) -> list[str]:
@@ -117,7 +122,8 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         path="/report",
         dimensions=[
             "day",
-            "application",
+            # The docs list `application` for publisher reports, but `/report` answers
+            # `400 Invalid Column: application` with report_type=publisher.
             "package_name",
             "store_id",
             "platform",
@@ -152,8 +158,9 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
             "campaign_type",
             "campaign_ad_type",
             "campaign_package_name",
-            "application",
-            "app_id_external",
+            # The docs list the source-app columns `application` and `app_id_external` for
+            # advertiser reports, but `/report` answers `400 Invalid Column: <column>` for both
+            # with report_type=advertiser.
             "platform",
             "country",
             "device_type",
@@ -174,7 +181,6 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         primary_keys=[
             "day",
             "campaign_id_external",
-            "app_id_external",
             "platform",
             "country",
             "device_type",
@@ -209,6 +215,72 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
             *cohort_metrics(("user_count", "retention", "session_count", "daily_usage", "session_length")),
         ],
         primary_keys=list(COHORT_PRIMARY_KEYS),
+    ),
+    # `/assetAnalyticsReport` takes `start`/`end` but has no `day` column, so a multi-day request
+    # sums the whole range. `/assetReport` only takes fixed ranges (yesterday, last_7d, last_month).
+    "asset_report": AppLovinEndpointConfig(
+        name="asset_report",
+        path="/assetAnalyticsReport",
+        dimensions=[
+            "campaign",
+            "campaign_id",
+            "campaign_package_name",
+            "creative_set",
+            "creative_set_id",
+            "asset_id",
+            "asset_name",
+            "asset_url",
+        ],
+        metrics=["impressions", "clicks", "ctr", "cost"],
+        primary_keys=["day", "campaign_id", "creative_set_id", "asset_id"],
+        sort_column="asset_id",
+        has_day_column=False,
+    ),
+    # `device_model` and `os_version` are left out: each multiplies the row count many times.
+    "playable_metrics": AppLovinEndpointConfig(
+        name="playable_metrics",
+        path="/playableMetrics",
+        dimensions=["day", "asset_id", "html_name", "original_url", "platform", "country"],
+        metrics=[
+            "impressions",
+            "spend",
+            "average_duration",
+            "total_interactions",
+            "unique_interactions",
+            "unique_interactions_rate",
+            "unique_redirects",
+            "unique_redirects_rate",
+            "html_loading",
+            "html_loaded",
+            "html_displayed",
+            "html_completed",
+            "html_completion_rate",
+            "challenge_started",
+            "challenge_failed",
+            "challenge_failed_rate",
+            "challenge_retry",
+            "challenge_retry_rate",
+            "challenge_solved",
+            "challenge_solved_rate",
+            "challenge_pass_25",
+            "challenge_pass_25_rate",
+            "challenge_pass_50",
+            "challenge_pass_50_rate",
+            "challenge_pass_75",
+            "challenge_pass_75_rate",
+            "cta_clicked",
+            "cta_click_rate",
+            "endcard_shown",
+            "redirect_count",
+            "redirect_rate",
+            "black_view_error",
+            "black_view_error_rate",
+            "rendering_error",
+            "rendering_error_rate",
+            "runtime_error",
+            "runtime_error_rate",
+        ],
+        primary_keys=["day", "asset_id", "platform", "country"],
     ),
 }
 
@@ -262,6 +334,9 @@ MANAGEMENT_ENDPOINTS: dict[str, AppLovinManagementEndpointConfig] = {
     "creative_sets": AppLovinManagementEndpointConfig(
         name="creative_sets", path="/creative_set/list", primary_keys=["id"]
     ),
+    "assets": AppLovinManagementEndpointConfig(
+        name="assets", path="/asset/list", primary_keys=["id"], partition_key="upload_time"
+    ),
     "campaign_operation_logs": AppLovinManagementEndpointConfig(
         name="campaign_operation_logs",
         path="/operation_logs/campaign",
@@ -286,8 +361,8 @@ DAY_INCREMENTAL_FIELD: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
-# Operation logs are filtered server-side by `start_date`/`end_date`. Campaigns and creative sets
-# have no server-side filter, so they sync as a full refresh.
+# Operation logs are filtered server-side by `start_date`/`end_date`. Campaigns, creative sets and
+# assets have no server-side filter, so they sync as a full refresh.
 OPERATION_TIME_INCREMENTAL_FIELD: IncrementalField = {
     "label": "operation_time",
     "type": IncrementalFieldType.DateTime,

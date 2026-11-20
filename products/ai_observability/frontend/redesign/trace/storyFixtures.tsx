@@ -1,6 +1,7 @@
 import type { Decorator } from '@storybook/react'
 
 import type {
+    TraceApi,
     TraceClusterApi,
     TraceEvaluationResultApi,
     TraceFeedbackApi,
@@ -13,7 +14,6 @@ import type {
     TraceSummaryContentApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
-import type { TraceSummaryBarProps } from './components/TraceSummaryBar'
 import { jsonContent, messagesContent, messagesSides } from './sampleFixtures/sampleContent'
 import { SampleNodeDetail, SampleTraceFixture, sampleDetail, sampleRaw } from './sampleFixtures/sampleTraceFixture'
 import { ConversationTurn, EvalRollupOutcome, FeedbackStepContext, MessagePart, ThreadMessage } from './types'
@@ -27,11 +27,12 @@ export const FIXTURE_STATS: TraceNodeStatsApi = {
     latencyMs: 2310,
 }
 
-export const FIXTURE_SUMMARY_TRACE: TraceSummaryBarProps['trace'] = {
+export const FIXTURE_SUMMARY_TRACE: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial'> = {
     id: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
     createdAt: '2026-09-01T10:15:00Z',
     person: { distinctId: 'ana', label: 'ana@example.com' },
     totals: FIXTURE_STATS,
+    totalsPartial: false,
 }
 
 const noStats: TraceNodeStatsApi = {
@@ -89,7 +90,7 @@ export const FIXTURE_TREE: TraceNodeApi[] = [
                 kind: 'generation',
                 name: 'draft-answer',
                 label: 'draft-answer',
-                model: 'gpt-4.1-mini',
+                model: 'gpt-6-luna',
                 stats: {
                     costUsd: 0.0021,
                     inputTokens: 1822,
@@ -651,7 +652,7 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
         { text: 'The retrieval step returned three documents but the answer uses only one.', nodeId: 'span-retrieve' },
     ],
     flow: 'question → retrieve-context → search-billing → answer\n                      └─→ 3 documents found ✓',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generatedAt: '2026-09-01T10:20:00Z',
 }
 

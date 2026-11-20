@@ -1,8 +1,9 @@
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO
+from typing import IO, Any, Final
 
 from django.utils.timezone import now
 
@@ -10,6 +11,7 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -31,7 +33,17 @@ from products.surveys.backend.facade.api import (
     get_survey_responses_linked_to,
 )
 
+from ..logic.eval_suggestions import (
+    config as eval_suggestions_config,
+    eligibility as eval_suggestions_eligibility,
+    pipeline as eval_suggestions_pipeline,
+    runs as eval_suggestion_runs,
+)
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
+from ..logic.evaluations.judge_preview import (
+    MAX_JUDGE_TEST_UNITS as MAX_JUDGE_TEST_UNITS,
+    run_judge_test,
+)
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
@@ -40,23 +52,34 @@ from ..logic.evaluations.period import (
     PeriodBounds,
     overview_period,
 )
+from ..logic.evaluations.preview_units import (
+    DEFAULT_PREVIEW_UNITS as DEFAULT_PREVIEW_UNITS,
+    MAX_PREVIEW_UNITS as MAX_PREVIEW_UNITS,
+    sample_traffic,
+)
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
-from ..logic.message_normalizer.normalizer import check_stored_recipe_source
+from ..logic.message_normalizer.normalizer import RecipeNormalizer, check_stored_recipe_source, compile_candidate_recipe
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
+from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
-from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.events_fallback import fallback_window, page_window
 from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
-from ..logic.traces.review import HumanReview, QueueAssignment
-from ..logic.traces.review_queries import load_trace_review_state
-from ..logic.traces.step_content import step_content
+from ..logic.traces.parser_verdict import parser_test_result
+from ..logic.traces.person import person_label
+from ..logic.traces.preview_queries import load_preview_sources
+from ..logic.traces.previews import page_turns
+from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
+from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
+from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
+from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -70,7 +93,7 @@ from ..logic.traces.summary import (
 from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
-from ..logic.traces.team_recipes import team_normalizer
+from ..logic.traces.team_recipes import save_team_recipe, team_normalizer, team_normalizer_with
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_export import (
@@ -85,17 +108,40 @@ from ..logic.traces.trace_export import (
     TraceExportWriter,
 )
 from ..logic.traces.trace_queries import (
+    PageTraceRows,
+    PersonRow,
     TraceNodeRow,
     load_available_trace_ids,
+    load_people,
     load_trace,
+    load_trace_distinct_ids,
     load_trace_feedback_rows,
     load_trace_git_rows,
     load_trace_node,
     load_trace_root,
     load_trace_search,
+    load_traces_rows,
 )
 from ..logic.traces.trace_search import TraceSearchResult
+from ..logic.traces.trace_selection import (
+    MAX_PROPERTY_FILTERS as MAX_PROPERTY_FILTERS,
+    QUERY_SCOPED_FILTERS as QUERY_SCOPED_FILTERS,
+    QUICK_FILTERS as QUICK_FILTERS,
+    InvalidTraceCursorError as InvalidTraceCursorError,
+    InvalidTraceSelectionError as InvalidTraceSelectionError,
+    InvalidTraceWindowError as InvalidTraceWindowError,
+    QuickFilter as QuickFilter,
+    TraceGroupScope as TraceGroupScope,
+    TracePosition,
+    TraceSelection as TraceSelection,
+    TraceWindow,
+    decode_cursor,
+    encode_cursor,
+    resolve_window,
+)
+from ..logic.traces.trace_selection_queries import SelectionCounts, load_selection_page
 from ..logic.traces.tree import TreeNode
+from ..logic.traces.turn import Turn, missing_reason, preview
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
@@ -117,6 +163,9 @@ class NoScoreScaleError(Exception):
     pass
 
 
+TRACE_LIST_DEFAULT_LIMIT: Final = 50
+TRACE_LIST_MAX_LIMIT: Final = 100
+
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
 )
@@ -130,6 +179,14 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     return True
 
 
+def is_usable_page_bounds(earliest: datetime, latest: datetime) -> bool:
+    try:
+        page_window((earliest, latest))
+    except OverflowError:
+        return False
+    return True
+
+
 def get_available_trace_ids(team: Team, user: User | None, trace_ids: list[str]) -> list[str]:
     return load_available_trace_ids(team, user, trace_ids)
 
@@ -138,7 +195,143 @@ def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: date
     loaded = load_trace(team, user, trace_id, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    return _to_trace(Trace(trace_id, loaded.rows, loaded.person))
+    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, partial=loaded.truncated))
+
+
+def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None) -> TraceWindow:
+    """Raises `InvalidTraceWindowError` for a bound that does not parse or a range that ends before it starts."""
+    return resolve_window(team, date_from, date_to, now())
+
+
+def load_trace_list(
+    team: Team, user: User, selection: TraceSelection, *, cursor: str | None, limit: int
+) -> Callable[[], contracts.TraceList]:
+    """Loads a page of the selected traces, newest first, and returns the step that builds it into the list, each
+    trace read the way `get_trace` reads it. Counts come with the first page only. Raises `InvalidTraceCursorError`
+    for a cursor this read did not hand out, before any read.
+
+    The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
+    caller that holds a query concurrency slot for the load can release the slot before it runs the step.
+    """
+    after = decode_cursor(cursor) if cursor is not None else None
+    page = load_selection_page(team, user, selection, after=after, limit=limit)
+    loaded = _load_page_rows(team, user, page.positions)
+    return lambda: contracts.TraceList(
+        items=_list_items(team, user, selection.window, page.positions, loaded),
+        counts=_to_list_counts(page.counts) if cursor is None else None,
+        next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+    )
+
+
+def _to_list_counts(counts: SelectionCounts) -> contracts.TraceListCounts:
+    return contracts.TraceListCounts(total=counts.total, errors=counts.errors, feedback=counts.feedback)
+
+
+def _load_page_rows(team: Team, user: User, positions: Sequence[TracePosition]) -> dict[str, PageTraceRows]:
+    if not positions:
+        return {}
+    window = page_window([position.first_timestamp for position in positions])
+    return load_traces_rows(team, user, [position.trace_id for position in positions], window)
+
+
+def _list_items(
+    team: Team,
+    user: User,
+    window: TraceWindow,
+    positions: Sequence[TracePosition],
+    loaded: Mapping[str, PageTraceRows],
+) -> list[contracts.TraceListItem]:
+    found = [position for position in positions if position.trace_id in loaded]
+    reviews = load_trace_review_states(team, user, [position.trace_id for position in found])
+    return [
+        _to_list_item(
+            Trace(
+                position.trace_id,
+                loaded[position.trace_id].rows,
+                None,
+                partial=_is_partial(window, position, loaded[position.trace_id]),
+            ),
+            reviews[position.trace_id],
+        )
+        for position in found
+    ]
+
+
+def _is_partial(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> bool:
+    # A trace read from `posthog.ai_events` is read by id without a time bound, so only a shared table read, which is
+    # bounded by the trace's first timestamp, can miss the events before it.
+    return rows.truncated or (rows.from_shared_table and window.may_read_a_suffix_of(position.first_timestamp))
+
+
+def load_trace_previews(
+    team: Team, user: User | None, trace_ids: Sequence[str]
+) -> Callable[[], contracts.TracePreviewList]:
+    """Loads what the traces' input and output previews are built from, and returns the step that builds them, one per
+    requested trace in request order.
+
+    The step reads the team's recipes from Postgres and normalizes each trace's turn, but runs no ClickHouse query. So a
+    caller that holds a query concurrency slot for the load can release the slot before it runs the step. A side the
+    step cannot build within `PREVIEWS_TIME_LIMIT_SECONDS` for the whole page previews as null and timed out.
+    """
+    requested = list(dict.fromkeys(trace_ids))
+    sources = load_preview_sources(team, user, requested)
+    return lambda: _to_preview_list(
+        requested, page_turns(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+    )
+
+
+def _to_preview_list(trace_ids: Sequence[str], turns: Mapping[str, Turn]) -> contracts.TracePreviewList:
+    return contracts.TracePreviewList(items=[_to_preview(trace_id, turns.get(trace_id)) for trace_id in trace_ids])
+
+
+def _to_preview(trace_id: str, turn: Turn | None) -> contracts.TracePreview:
+    message = turn.message if turn else None
+    answer = turn.answer if turn else None
+    return contracts.TracePreview(
+        trace_id=trace_id,
+        input=preview(message),
+        output=preview(answer),
+        input_missing_reason=missing_reason(message),
+        output_missing_reason=missing_reason(answer),
+    )
+
+
+def load_trace_people(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
+) -> contracts.TracePeopleList:
+    """The person of each requested trace, in request order. `earliest` and `latest` are the first timestamps of the
+    page's earliest and latest traces, which bound the read of traces missing from `posthog.ai_events`."""
+    requested = list(dict.fromkeys(trace_ids))
+    distinct_ids = load_trace_distinct_ids(team, user, requested, page_window((earliest, latest)))
+    people = load_people(team, user, list(distinct_ids.values()))
+    return contracts.TracePeopleList(
+        items=[
+            contracts.TracePersonItem(
+                trace_id=trace_id,
+                person=_to_person(people[distinct_ids[trace_id]]) if trace_id in distinct_ids else None,
+            )
+            for trace_id in requested
+        ]
+    )
+
+
+def load_trace_sentiments(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
+) -> contracts.TraceSentimentList:
+    """The sentiment of each requested trace, in request order. `earliest` and `latest` are the first timestamps of the
+    page's earliest and latest traces, which bound the read of traces whose results may have aged out of
+    `posthog.ai_events`."""
+    requested = list(dict.fromkeys(trace_ids))
+    sentiments = load_sentiments(team, user, requested, page_window((earliest, latest)), now())
+    return contracts.TraceSentimentList(
+        items=[
+            contracts.TraceSentimentItem(
+                trace_id=trace_id,
+                sentiment=_to_sentiment(sentiments[trace_id]) if trace_id in sentiments else None,
+            )
+            for trace_id in requested
+        ]
+    )
 
 
 def load_trace_node_detail(
@@ -158,6 +351,54 @@ def load_trace_node_raw(
 ) -> Callable[[], contracts.TraceNodeRaw]:
     event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
     return lambda: _to_node_raw(node_id, event)
+
+
+def load_trace_node_dataset_item(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime
+) -> Callable[[], contracts.TraceNodeDatasetItem]:
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_node_dataset_item(
+        StepDatasetItem(trace_id=trace_id, trace_timestamp=timestamp_hint, event=event)
+    )
+
+
+def run_trace_node_parser_test(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None, source: str
+) -> Callable[[], contracts.TraceNodeParserTest]:
+    """Loads one node's event and returns the step that tests a parser not saved yet against it. Saves nothing.
+
+    Raises `RecipeCompileError` before any read when the parser does not compile. The step reads the team's saved
+    recipes and normalizes the node twice, without and with the parser, but runs no ClickHouse query.
+    """
+    candidate = compile_candidate_recipe(source)
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_parser_test(team.pk, node_id, event, partial(team_normalizer_with, team.pk, candidate))
+
+
+def _to_parser_test(
+    team_id: int, node_id: str, event: NodeEvent | None, candidate_normalizer: Callable[[], RecipeNormalizer]
+) -> contracts.TraceNodeParserTest:
+    if event is None:
+        return _NOTHING_TO_TEST
+
+    def read(build_normalizer: Callable[[], RecipeNormalizer]) -> StepReading:
+        return read_step(
+            event.kind, node_id, event.input, event.output, build_normalizer=build_normalizer, team_id=team_id
+        )
+
+    return parser_test_result(read(partial(team_normalizer, team_id)), read(candidate_normalizer))
+
+
+_NOTHING_TO_FIX: Final = contracts.TraceParserTestSide(needed_fixing=False, fixed=False, broken=False, error=None)
+_NOTHING_TO_TEST: Final = contracts.TraceNodeParserTest(
+    content=contracts.TraceNodeContent(
+        input=contracts.TraceJsonSide(kind="json", value=None),
+        output=contracts.TraceJsonSide(kind="json", value=None),
+    ),
+    input=_NOTHING_TO_FIX,
+    output=_NOTHING_TO_FIX,
+    passed=False,
+)
 
 
 def _load_node_event(
@@ -215,32 +456,54 @@ def _to_timeline_row(row: TimelineRow) -> contracts.TraceTimelineRow:
     )
 
 
-def _to_trace(trace: Trace) -> contracts.Trace:
-    totals = _to_stats(trace.totals)
-    person = (
-        contracts.TracePerson(distinct_id=trace.person.distinct_id, label=trace.person_label)
-        if trace.person is not None and trace.person_label is not None
-        else None
+def _to_overview(trace: Trace) -> contracts.TraceOverview:
+    return contracts.TraceOverview(
+        id=trace.id,
+        name=trace.name,
+        created_at=trace.created_at,
+        session_id=trace.session_id,
+        totals=_to_stats(trace.totals),
+        has_error=trace.has_error,
+        error_count=trace.error_count,
+        totals_partial=trace.partial,
     )
+
+
+def _to_list_item(trace: Trace, review: TraceReviewState) -> contracts.TraceListItem:
+    return contracts.TraceListItem(
+        **dict(_to_overview(trace)),
+        default_node_id=None if trace.partial else trace.default_node_id,
+        first_error=trace.first_error_text,
+        tools_called=list(trace.tools_called),
+        is_support_trace=trace.is_support_trace,
+        review=_to_review_status(review) if review.review or review.queue else None,
+    )
+
+
+def _to_person(person: PersonRow) -> contracts.TracePerson:
+    return contracts.TracePerson(distinct_id=person.distinct_id, label=person_label(person))
+
+
+def _to_sentiment(sentiment: TraceSentimentRow) -> contracts.TraceSentiment:
+    return contracts.TraceSentiment(label=sentiment.label, score=sentiment.score)
+
+
+def _to_trace(trace: Trace) -> contracts.Trace:
+    overview = _to_overview(trace)
+    person = _to_person(trace.person) if trace.person is not None and trace.person_label is not None else None
     root = contracts.TraceNode(
         id=trace.id,
         kind="trace",
         name=trace.title,
         label=trace.node_labels[trace.id],
         model=None,
-        stats=totals,
+        stats=overview.totals,
         has_error=trace.has_error,
         children=[_to_node(node, trace.node_labels) for node in trace.tree],
     )
     return contracts.Trace(
-        id=trace.id,
-        name=trace.name,
-        created_at=trace.created_at,
-        session_id=trace.session_id,
+        **dict(overview),
         person=person,
-        totals=totals,
-        has_error=trace.has_error,
-        error_count=trace.error_count,
         tree=[root],
         timeline=[_to_timeline_row(row) for row in trace.timeline.rows],
         total_ms=trace.timeline.total_ms,
@@ -274,6 +537,18 @@ def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRa
     if event is None:
         return contracts.TraceNodeRaw(id=node_id, kind="trace", event=None)
     return contracts.TraceNodeRaw(id=node_id, kind=event.kind, event=_to_node_event(event))
+
+
+def _to_node_dataset_item(item: StepDatasetItem) -> contracts.TraceNodeDatasetItem:
+    return contracts.TraceNodeDatasetItem(
+        client_item_id=item.source_event_id,
+        source_trace_id=item.trace_id,
+        source_event_id=item.source_event_id,
+        source_timestamp=item.trace_timestamp,
+        input=item.input,
+        source_output=item.source_output,
+        metadata=item.metadata,
+    )
 
 
 def _to_node_detail(team_id: int, node_id: str, event: NodeEvent | None) -> contracts.TraceNodeDetail:
@@ -459,7 +734,10 @@ def get_trace_feedback(
 def get_trace_review_status(team: Team, user: User, trace_id: str) -> contracts.TraceReviewStatus:
     """The trace's human review and the review queue it waits in, as far as the user may see them. An unknown trace
     has neither."""
-    state = load_trace_review_state(team, user, trace_id)
+    return _to_review_status(load_trace_review_state(team, user, trace_id))
+
+
+def _to_review_status(state: TraceReviewState) -> contracts.TraceReviewStatus:
     return contracts.TraceReviewStatus(
         review=_to_human_review(state.review) if state.review else None,
         queue=_to_review_queue_assignment(state.queue) if state.queue else None,
@@ -650,6 +928,33 @@ def get_evaluation_score_distribution(
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
 
 
+def sample_evaluation_traffic(
+    team: Team, user: User, scope: contracts.EvaluationPreviewScope, count: int | None
+) -> list[contracts.EvaluationTrafficSample]:
+    """The latest units an unsaved evaluation would run on, newest first. `count` defaults to
+    `DEFAULT_PREVIEW_UNITS` and is capped at what one test of the target covers."""
+    try:
+        return sample_traffic(team, user, scope, count)
+    except AIEventsUnavailableError:
+        return []
+
+
+def run_unsaved_judge(
+    team: Team,
+    user: User,
+    judge: contracts.UnsavedJudge,
+    scope: contracts.EvaluationPreviewScope,
+    sample_ids: Sequence[str] | None,
+    *,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> list[contracts.EvaluationTestResult]:
+    """Judge up to `MAX_JUDGE_TEST_UNITS` units with an unsaved LLM judge, on the team's own provider key.
+    Saves nothing and emits no results. `reading` wraps each ClickHouse read, and no model call.
+
+    Raises `contracts.JudgeModelError` and `contracts.JudgeTestAlreadyRunningError`."""
+    return run_judge_test(team, user, judge, scope, sample_ids, reading=reading)
+
+
 def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:
     """Raises `AIDataProcessingNotApprovedError`, or `TraceSummaryNotFoundError` when this viewer has no summary."""
     return _to_trace_summary(viewer_summary(team, user, trace_id))
@@ -692,7 +997,9 @@ def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
             )
             return contracts.TraceSummary(status="ready", content=content, failure=None)
         case FailedSummary():
-            failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
+            failure = contracts.TraceSummaryFailure(
+                reason=entry.reason, message=entry.message, retryable=entry.retryable
+            )
             return contracts.TraceSummary(status="failed", content=None, failure=failure)
 
 
@@ -810,3 +1117,74 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
 def validate_parser_recipe_source(source: str) -> None:
     """Raises `RecipeCompileError` with a message for the author when trace reads would skip this recipe."""
     check_stored_recipe_source(source)
+
+
+def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
+    """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
+    validate_parser_recipe_source(source)
+    return save_team_recipe(team.pk, user, name=name, source=source)
+
+
+def eligible_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
+    from ..logic.clustering.eligibility import eligible_clustering_team_ids as eligible
+
+    return eligible(team_ids)
+
+
+def is_current_clustering_job(team_id: int, job_id: str, job_scope: str) -> bool:
+    from ..logic.clustering.execution import is_current_job
+
+    return is_current_job(team_id, job_id, job_scope)
+
+
+def validate_clustering_filters(team_id: int, user: User, filters: list[dict[str, Any]]) -> None:
+    from ..logic.clustering.permissions import validate_clustering_filters as validate
+
+    validate(team_id, user, filters)
+
+
+def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:
+    suggestion_settings = eval_suggestions_config.load_settings()
+    return contracts.EvalSuggestionsPlan(
+        team_ids=eval_suggestions_eligibility.eligible_team_ids(suggestion_settings),
+        max_concurrent_teams=suggestion_settings.max_concurrent_teams,
+    )
+
+
+def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str:
+    team = Team.objects.get(id=team_id)
+    return str(eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id).id)
+
+
+def fail_eval_suggestions_run(team_id: int, run_id: str, error: str) -> None:
+    eval_suggestion_runs.fail_run(team_id, run_id, error)
+
+
+def measure_eval_suggestions(team_id: int, run_id: str, *, deadline: float) -> int:
+    return eval_suggestions_pipeline.measure_stage(
+        team_id, run_id, settings=eval_suggestions_config.load_settings(), deadline=deadline
+    )
+
+
+def screen_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, deadline: float) -> int:
+    return eval_suggestions_pipeline.screen_stage(
+        team_id,
+        run_id,
+        include_paid=include_paid,
+        settings=eval_suggestions_config.load_settings(),
+        deadline=deadline,
+    )
+
+
+def draft_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, deadline: float) -> int:
+    return eval_suggestions_pipeline.draft_stage(
+        team_id,
+        run_id,
+        include_paid=include_paid,
+        settings=eval_suggestions_config.load_settings(),
+        deadline=deadline,
+    )
+
+
+def publish_eval_suggestions(team_id: int, run_id: str) -> int:
+    return eval_suggestions_pipeline.publish_stage(team_id, run_id)

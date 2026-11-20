@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
@@ -33,6 +34,7 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
+    captureInboxReportRead,
     setInboxServedRanker,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
@@ -301,7 +303,12 @@ function findReportRank(id: string): {
         reportsBySection,
         selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
         filterValues.activeSortField,
-        filterValues.activeSortDirection
+        filterValues.activeSortDirection,
+        {
+            collapsePlans:
+                !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS],
+            selectedReportIds: inboxBulkActionsLogic.findMounted()?.values.selectedReportIds,
+        }
     )
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {
@@ -312,7 +319,7 @@ function findReportRank(id: string): {
         })?.values
         // The opened report can come from the detail endpoint, which has no personal fields, so they
         // come from the list row the person saw.
-        const personalSort = filterValues.activeSortField === 'personal' || sectionValues?.loadedRanker === 'personal'
+        const personalSort = sectionValues?.loadedRanker === 'personal'
         return {
             rank: idx + 1,
             listSize: rows.length,
@@ -340,6 +347,8 @@ function reportListsSettled(): boolean {
 
 const OPEN_RANK_WAIT_MS = 5000
 const OPEN_RANK_POLL_MS = 250
+/** Visible time an open report needs, after a scroll, to count as read for `Inbox report read`. */
+export const REPORT_READ_ACTIVE_MS = 8000
 
 // A cold load answers the report fetch long before the lists, so a rank read at open time is null
 // and the row joins to no impression. Wait for the lists, then send whatever the lookup gives.
@@ -466,6 +475,48 @@ interface InboxOpenTracking {
     openedAt: number
     /** Set once the first detail-pane scroll has fired `Inbox report scrolled` for this open. */
     scrolled: boolean
+    /** Visible time banked before `visibleSince`. */
+    activeMs: number
+    /** When the tab last became visible during this open, or null while the tab is hidden. */
+    visibleSince: number | null
+    /** Set once `Inbox report read` has fired for this open. */
+    read: boolean
+}
+
+function openActiveMs(open: InboxOpenTracking): number {
+    return open.activeMs + (open.visibleSince === null ? 0 : Date.now() - open.visibleSince)
+}
+
+function clearReportReadTimer(cache: Record<string, any>): void {
+    clearTimeout(cache.reportReadTimer)
+    cache.reportReadTimer = undefined
+}
+
+/**
+ * Fire `Inbox report read` once the open report has a scroll and enough visible time. Before that,
+ * check again at the moment the visible time can reach the threshold. A hidden tab schedules
+ * nothing, because the visibility listener calls this again when the tab comes back.
+ */
+function captureReadWhenDue(cache: Record<string, any>): void {
+    clearReportReadTimer(cache)
+    const open: InboxOpenTracking | undefined = cache.openTracking
+    if (!open || open.read || !open.scrolled || open.visibleSince === null) {
+        return
+    }
+    const activeMs = openActiveMs(open)
+    if (activeMs < REPORT_READ_ACTIVE_MS) {
+        cache.reportReadTimer = setTimeout(() => captureReadWhenDue(cache), REPORT_READ_ACTIVE_MS - activeMs)
+        return
+    }
+    open.read = true
+    const { rank, listSize } = findReportRank(open.report.id)
+    captureInboxReportRead({
+        report: open.report,
+        rank,
+        listSize,
+        activeTimeMs: activeMs,
+        timeSinceOpenMs: Date.now() - open.openedAt,
+    })
 }
 
 /**
@@ -483,7 +534,16 @@ function flushOpenReport(
         return
     }
     flushPendingOpen(cache, options)
-    captureInboxReportClosed({ report: open.report, timeSpentMs: Date.now() - open.openedAt, closeMethod }, options)
+    clearReportReadTimer(cache)
+    captureInboxReportClosed(
+        {
+            report: open.report,
+            timeSpentMs: Date.now() - open.openedAt,
+            activeTimeMs: openActiveMs(open),
+            closeMethod,
+        },
+        options
+    )
     cache.openTracking = undefined
 }
 
@@ -1003,10 +1063,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             const open: InboxOpenTracking | undefined = cache.openTracking
             if (open) {
                 flushPendingOpen(cache)
+                clearReportReadTimer(cache)
                 const closeMethod: InboxReportCloseMethod = id ? 'next_report' : 'deselected'
                 captureInboxReportClosed({
                     report: open.report,
                     timeSpentMs: Date.now() - open.openedAt,
+                    activeTimeMs: openActiveMs(open),
                     closeMethod,
                 })
                 cache.previousReportId = open.report.id
@@ -1026,9 +1088,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // A report page is a Reports-tab surface even when reached from a scout page, so its
-            // back button returns to the report list.
-            if (values.activeTab !== 'reports') {
+            // Keep Monitoring behind its report so closing the report does not add a Reports entry to browser history.
+            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
@@ -1052,7 +1113,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const tracking: InboxOpenTracking = { report, openedAt: Date.now(), scrolled: false }
+            const openedAt = Date.now()
+            const tracking: InboxOpenTracking = {
+                report,
+                openedAt,
+                scrolled: false,
+                activeMs: 0,
+                visibleSince: document.visibilityState === 'hidden' ? null : openedAt,
+                read: false,
+            }
             cache.openTracking = tracking
             captureOpenWhenRanked(
                 cache,
@@ -1108,6 +1177,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 listSize,
                 timeSinceOpenMs: Date.now() - open.openedAt,
             })
+            captureReadWhenDue(cache)
         },
         setSelectedScoutSkillName: ({ skillName }) => {
             if (skillName !== null) {
@@ -1194,6 +1264,32 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
                 },
                 'selectedReportRefreshOnVisible',
+                { pauseOnPageHidden: false }
+            )
+            // Bank the open report's visible time, so a report left open in a background tab does not
+            // count as read. Same opt-out as above, because the hide and the return are what count.
+            cache.disposables.add(
+                () => {
+                    const onVisibilityChange = (): void => {
+                        const open: InboxOpenTracking | undefined = cache.openTracking
+                        if (!open) {
+                            return
+                        }
+                        if (document.visibilityState === 'hidden') {
+                            if (open.visibleSince !== null) {
+                                open.activeMs += Date.now() - open.visibleSince
+                                open.visibleSince = null
+                            }
+                            clearReportReadTimer(cache)
+                        } else {
+                            open.visibleSince ??= Date.now()
+                            captureReadWhenDue(cache)
+                        }
+                    }
+                    document.addEventListener('visibilitychange', onVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                },
+                'reportActiveTime',
                 { pauseOnPageHidden: false }
             )
         },
@@ -1343,6 +1439,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
                 }
+                if (tab === 'monitoring' && !values.featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]) {
+                    router.actions.replace(urls.inbox('reports'), searchParams, hashParams)
+                    return
+                }
                 // A bare report deep-link `/inbox/<reportId>` is redirected to report form. Mark the list
                 // as visited only when we're actually staying on a list view — otherwise the redirected
                 // report would be misclassified as an in-app click instead of a deep-link.
@@ -1414,9 +1514,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (tab !== 'reports') {
                     router.actions.replace(urls.inboxReport('reports', reportId), searchParams, hashParams)
                     return
-                }
-                if (values.activeTab !== 'reports') {
-                    actions.setActiveTab('reports')
                 }
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full

@@ -60,6 +60,7 @@ from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
     ActiveInsight,
     ActivityReason,
+    FirstTrainReport,
     InsightPick,
     QueryBudget,
     TeamCensus,
@@ -104,12 +105,14 @@ from products.signals.backend.anomaly_scores.spend import (
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run, save_state
 from products.signals.backend.anomaly_scores.tick import (
+    ANOMALY_SCOUT_SKILL,
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
     AnomalyScoringTickResult,
     AnomalyScoringTickWorkflow,
     ScoreInsightInput,
     ScoreInsightResult,
+    _first_train_key,
     capture_census,
     plan_tick,
     run_insight,
@@ -119,6 +122,7 @@ from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
     AnomalyScoringState,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
 )
@@ -200,6 +204,8 @@ class TestTickConfig(SimpleTestCase):
                 "train_score_split": "true",
                 "train_every_buckets": {"hour": 100_000, "day": 0, "week": 2},
                 "active_window_days": "30",
+                "first_train_insights_per_tick": 0,
+                "first_train_insights_per_project": 0,
             }
         )
 
@@ -218,6 +224,7 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.MONTH: 3,
         }
         assert config.active_window_days == 90
+        assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
     def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
@@ -281,6 +288,8 @@ class TestTickConfig(SimpleTestCase):
             ("max_score_queries_per_project_per_hour", 1001, 1000),
             ("max_score_insights_per_tick", 201, 200),
             ("max_train_insights_per_tick", 51, 50),
+            ("first_train_insights_per_tick", 51, 50),
+            ("first_train_insights_per_project", 11, 10),
             ("active_window_days", 1000, 365),
         ]
     )
@@ -1320,6 +1329,130 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
             scored.id,
         ]
         assert due_list.oldest_due_seconds == 10 * 24 * 3600
+
+    @parameterized.expand([("per_project_cap", 10, [1, 2], [0, 1]), ("fleet_cap", 2, [2], [0])])
+    @time_machine.travel(NOW, tick=False)
+    def test_one_project_backlog_cannot_fill_the_never_scored_read(
+        self, _name: str, fleet_cap: int, large_read: list[int], small_read: list[int]
+    ) -> None:
+        small_team = Team.objects.create(organization=self.organization, name="Small")
+
+        def rows(team: Team, due: datetime, viewers: list[int]) -> list[int]:
+            ids = []
+            for index, count in enumerate(viewers):
+                insight = Insight.objects.create(team=team, name=f"{team.name}_{index}", query=_trends(interval="day"))
+                AnomalyScoringDueInsight.all_teams.create(
+                    team_id=team.id,
+                    insight_id=insight.id,
+                    interval="day",
+                    next_due_at=due,
+                    refreshed_at=NOW,
+                    viewers=count,
+                )
+                ids.append(insight.id)
+            return ids
+
+        large = rows(self.team, NOW - timedelta(days=10), [0, 5, 9, 1])
+        small = rows(small_team, NOW - timedelta(days=1), [0, 0])
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", fleet_cap),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM", 2),
+        ):
+            due_list = load_due_list([self.team.id, small_team.id], (IntervalType.DAY,), NOW, first_train_lane=False)
+
+        read = [*(large[index] for index in large_read), *(small[index] for index in small_read)]
+        assert [insight.insight_id for insight in due_list.insights] == read
+        assert (due_list.never_scored_due, due_list.due_unread) == (6, 6 - len(read))
+
+    @parameterized.expand([("lane_on", 1, True), ("lane_off", 0, False)])
+    @time_machine.travel(NOW, tick=False)
+    def test_a_new_project_trains_before_the_never_scored_backlog_of_an_older_project(
+        self, _name: str, lane_slots: int, new_project_first: bool
+    ) -> None:
+        new_team = Team.objects.create(organization=self.organization, name="New")
+        _enable_analytics_source(new_team)
+        today = NOW.replace(hour=0)
+        trained = Insight.objects.create(team=self.team, name="trained", query=_trends(interval="day"))
+        self._row(trained, NOW + timedelta(hours=6), {"a": today - timedelta(days=1)})
+        backlog = [
+            Insight.objects.create(team=self.team, name=f"backlog_{index}", query=_trends(interval="day"))
+            for index in range(3)
+        ]
+        for index, insight in enumerate(backlog):
+            self._row(insight, NOW - timedelta(days=10 - index), {})
+        new_insight = Insight.objects.create(team=new_team, name="new", query=_trends(interval="day"))
+        self._row(new_insight, NOW, {})
+        insights = [trained, *backlog, new_insight]
+        cache.delete_many(
+            [
+                *(_cooldown_key(insight.id) for insight in insights),
+                _fleet_budget_key(NOW),
+                *(_project_budget_key(team_id, NOW) for team_id in (self.team.id, new_team.id)),
+            ]
+        )
+        config = dataclasses.replace(
+            self._config(self.team.id, new_team.id), max_insights_per_tick=1, first_train_insights_per_tick=lane_slots
+        )
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 1),
+        ):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        [pick] = selection.picks
+        assert (pick.insight_id == new_insight.id, pick.first_train) == (new_project_first, new_project_first)
+        assert selection.first_train == FirstTrainReport(
+            waiting_teams=1, picked=int(new_project_first), never_scored_due=4
+        )
+
+    @time_machine.travel(NOW, tick=False)
+    def test_the_first_trained_daily_model_of_a_project_sends_one_first_train_event(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="first", query=_trends(interval="day"))
+        self._row(insight, NOW, {})
+        cache.delete_many([_cooldown_key(insight.id), _first_train_key(self.team.id)])
+        self.addCleanup(cache.delete, _first_train_key(self.team.id))
+        source_enabled_at = SignalSourceConfig.objects.get(team=self.team).created_at
+        # The first pre-check found no scores yet and skipped, and the coordinator stamped the anchor.
+        scout = SignalScoutConfig.all_teams.create(team=self.team, skill_name=ANOMALY_SCOUT_SKILL, last_run_at=NOW)
+        tick = "products.signals.backend.anomaly_scores.tick"
+        capture = MagicMock()
+        pick = InsightPick(
+            team_id=self.team.id, insight_id=insight.id, scored_through={}, interval=IntervalType.DAY, first_train=True
+        )
+
+        with (
+            patch(f"{tick}.ph_background_capture", return_value=capture),
+            patch(f"{tick}.emit"),
+            patch(
+                f"{tick}.score_insight", return_value=_scores(_series("a", [NOW.replace(hour=0) - timedelta(days=1)]))
+            ),
+        ):
+            for _ in range(2):
+                run_insight(ScoreInsightInput(pick=pick), NOW)
+
+        [event] = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "anomaly scoring first train"
+        ]
+        assert {
+            key: event["properties"][key]
+            for key in (
+                "team_id",
+                "insight_id",
+                "seconds_since_source_enabled",
+                "seconds_since_listed",
+                "scout_made_due",
+            )
+        } == {
+            "team_id": self.team.id,
+            "insight_id": insight.id,
+            "seconds_since_source_enabled": round((NOW - source_enabled_at).total_seconds()),
+            "seconds_since_listed": 0,
+            "scout_made_due": True,
+        }
+        scout.refresh_from_db()
+        assert scout.last_run_at is not None and scout.last_run_at < NOW
 
     @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
     @time_machine.travel(NOW, tick=False)

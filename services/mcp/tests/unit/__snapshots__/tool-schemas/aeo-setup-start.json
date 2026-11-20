@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "activate_paused_prompts": {
+            "default": false,
+            "description": "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on.",
+            "type": "boolean"
+        },
+        "brand": {
+            "description": "The brand name. Inferred from the site when empty.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "description": {
+            "description": "What the product does and who it is for. Inferred from the site when empty.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "domain": {
+            "description": "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "engines": {
+            "description": "The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.",
+            "items": {
+                "description": "An engine id from GET aeo_setup/context/.",
+                "maxLength": 64,
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "only_first_run": {
+            "default": false,
+            "description": "Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine.",
+            "type": "boolean"
+        },
+        "run_first_check": {
+            "default": false,
+            "description": "Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

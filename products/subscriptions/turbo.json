@@ -6,6 +6,7 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/temporal/**",

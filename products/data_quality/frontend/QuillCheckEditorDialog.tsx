@@ -21,7 +21,7 @@ import {
 } from '@posthog/quill'
 
 import { checkTypeLabel } from './checksConstants'
-import { EMPTY_CHECK_FORM, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
+import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi } from './generated/api.schemas'
 import { QuillCheckAdvancedOptions } from './QuillCheckAdvancedOptions'
 import { QuillCheckConfigFields } from './QuillCheckConfigFields'
@@ -45,7 +45,7 @@ function RetryRow({ message, onRetry }: { message: string; onRetry: () => void }
 
 function CheckTypeField(): JSX.Element {
     const { checkTypes, checkTypeByName } = useValues(dataQualityCheckEditorLogic)
-    const { setCheckFormValues } = useActions(dataQualityCheckEditorLogic)
+    const { setCheckType } = useActions(dataQualityCheckEditorLogic)
     const items = checkTypes.map((checkType) => ({
         value: checkType.check_type,
         label: checkTypeLabel(checkType.check_type),
@@ -59,20 +59,9 @@ function CheckTypeField(): JSX.Element {
                         items={items}
                         value={value}
                         onValueChange={(checkType) => {
-                            if (!checkType) {
-                                return
+                            if (checkType) {
+                                setCheckType(checkType as CheckTypeEnumApi)
                             }
-                            setCheckFormValues({
-                                checkType: checkType as CheckTypeEnumApi,
-                                columnName: EMPTY_CHECK_FORM.columnName,
-                                acceptedValues: EMPTY_CHECK_FORM.acceptedValues,
-                                toSubjectUuid: EMPTY_CHECK_FORM.toSubjectUuid,
-                                toColumn: EMPTY_CHECK_FORM.toColumn,
-                                rowCountMin: EMPTY_CHECK_FORM.rowCountMin,
-                                rowCountMax: EMPTY_CHECK_FORM.rowCountMax,
-                                maxAgeMinutes: EMPTY_CHECK_FORM.maxAgeMinutes,
-                                customSql: EMPTY_CHECK_FORM.customSql,
-                            })
                         }}
                     >
                         <SelectTrigger id={id} data-attr="data-quality-check-type">

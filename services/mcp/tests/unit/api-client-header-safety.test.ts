@@ -1,7 +1,8 @@
 import http from 'node:http'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { ErrorCode, PostHogApiError } from '@/lib/errors'
 
 // The forwarded MCP attribution headers carry client-supplied strings (`clientInfo.name`,
 // the OAuth app name, the wrapping consumer), and the runtime converts header values to a
@@ -43,9 +44,38 @@ describe('ApiClient header safety', () => {
         const result = await client.projects().get({ projectId: '2' })
 
         expect(result.success).toBe(true)
+        expect(seenHeaders.authorization).toBe('Bearer phx_test')
         expect(seenHeaders['x-posthog-mcp-client-name']).toBe('Claude  Code')
         expect(seenHeaders['x-posthog-mcp-oauth-client-name']).toBe('Acme  Analytics')
         expect(seenHeaders['x-posthog-mcp-consumer']).toBe('wrapper')
+    })
+
+    it.each([
+        { source: 'config', token: 'phx_FAKE_TOKEN_NOT_REAL\nTAIL' },
+        { source: 'introspection', token: 'pha_FAKE_TOKEN_NOT_REAL\u0000TAIL' },
+        { source: 'override', token: 'phx_FAKE_TOKEN_NOT_REAL\u{1F389}' },
+    ])('rejects unsafe $source credentials before native fetch', async ({ source, token }) => {
+        const nativeFetch = vi.spyOn(globalThis, 'fetch')
+        try {
+            const client = new ApiClient({ apiToken: source === 'config' ? token : 'phx_test', baseUrl })
+            const outcome =
+                source === 'introspection'
+                    ? await client.oauth().introspect({ token })
+                    : await client
+                          .request({
+                              method: 'GET',
+                              path: '/api/projects/2/',
+                              ...(source === 'override' ? { headers: { authorization: `Bearer ${token}` } } : {}),
+                          })
+                          .catch((error: unknown) => ({ success: false as const, error }))
+            expect(outcome).toMatchObject({ success: false, error: expect.any(PostHogApiError) })
+            const error = (outcome as { error: Error }).error
+            expect(error.message).toBe(ErrorCode.INVALID_API_KEY)
+            expect(error).not.toHaveProperty('cause')
+            expect(nativeFetch).not.toHaveBeenCalled()
+        } finally {
+            nativeFetch.mockRestore()
+        }
     })
 
     it('confirms the unsanitized value would have been fatal', () => {

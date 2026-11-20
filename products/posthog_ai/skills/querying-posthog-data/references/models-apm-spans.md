@@ -4,7 +4,7 @@ The `posthog.trace_spans` table holds OpenTelemetry span data from instrumented 
 
 **Namespacing:** Reference this table as `posthog.trace_spans`, not bare `trace_spans` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.trace_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level — `logs` works without a prefix.)
 
-**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations. Reach for HogQL when you need cross-signal joins (with `logs` or `posthog.metrics` by `trace_id`), exemplar lookups, or aggregations the typed tools don't expose.
+**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations. Reach for HogQL when you need cross-signal joins with `logs` by `trace_id`, or aggregations the typed tools don't expose. `posthog.metrics` is on a separate cluster, so it cannot appear in the same query as `posthog.trace_spans`: look up a metric's exemplar `trace_id` in its own query first.
 
 ## `posthog.trace_spans`
 
@@ -45,7 +45,7 @@ OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distrib
 - **`trace_id`, `span_id`, `parent_span_id` are base64-encoded bytes**, not hex. The MCP layer (`posthog:query-apm-spans`, `posthog:apm-trace-get`) converts to hex via `hex(tryBase64Decode(...))` for display. Raw HogQL queries against this table see the base64 form.
 - **`parent_span_id` of a root span** is `'AAAAAAAAAAA='` (12-char base64 of 8 zero bytes), not null. **Use `is_root_span` to find trace entries** — don't string-match the padding.
 - **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
-- Cross-signal joins by `trace_id` work against `logs` (both store base64). For `posthog.metrics`, only points with an exemplar carry a `trace_id` (filter `trace_id != ''`) — see the metrics reference.
+- Cross-signal joins by `trace_id` work against `logs` (both store base64). `posthog.metrics` cannot be joined: query it separately, and only points with an exemplar carry a `trace_id` (filter `trace_id != ''`) — see the metrics reference.
 - User HogQL queries on `posthog.trace_spans` are capped at 50 GB read per query.
 
 ## `posthog.trace_attributes`

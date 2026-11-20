@@ -18,6 +18,7 @@ const KIND_TYPE: Partial<Record<ReleaseEvent['kind'], string>> = {
     flag: 'feature_flag',
     experiment: 'experiment',
     early_access: 'early_access_feature',
+    broadcast: 'broadcasts',
 }
 
 function EventIcon({ kind }: { kind: ReleaseEvent['kind'] }): JSX.Element {
@@ -83,7 +84,7 @@ export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
     return (
         <Card data-attr="release-timeline-card">
             <CardHeader>
-                <CardTitle>Timeline</CardTitle>
+                <CardTitle>Activity</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">

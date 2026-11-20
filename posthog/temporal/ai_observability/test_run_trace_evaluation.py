@@ -31,6 +31,11 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import restriction_cache_scope
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_MAX_CHARS,
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+)
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -39,12 +44,10 @@ from products.cdp.backend.validation import compile_hog
 from products.event_definitions.backend.models import PropertyDefinition
 
 from .eval_reports.report_agent.tools import _execute_hogql, get_trace_detail
-from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
 from .evaluation_workflow_activities import backfill_verdict_timestamp
 from .run_trace_evaluation import (
-    JUDGE_TRACE_MAX_CHARS,
     MAX_TRACE_EVAL_EVENTS,
     TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
@@ -55,7 +58,6 @@ from .run_trace_evaluation import (
     TraceHogTestSample,
     _build_trace_skip_result,
     _sample_recent_traces,
-    build_trace_hog_globals,
     build_trace_system_prompt,
     emit_trace_evaluation_event_activity,
     execute_trace_hog_eval_activity,

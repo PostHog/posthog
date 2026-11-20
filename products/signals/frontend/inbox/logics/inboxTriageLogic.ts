@@ -6,17 +6,23 @@ import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { UserType } from '~/types'
+
+import type { ReviewerRemovalReasonEnumApi } from '../../generated/api.schemas'
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
+import type { InboxReportActionSurface, InboxReportLinkSource, InboxReportOpenMethod } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
+import type { DismissalFeedback, ResolveReasonValue } from '../utils/dismissalReasons'
 import { canCreateImplementationPr, canUnassignMe, implementationClaimDisabledReason } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
+import type { ReportListResponse } from './reportListLogic'
 
 /**
  * Triage mode triages the Needs-a-PR queue, sharing that section's loaded pages, filters, and
@@ -71,29 +77,31 @@ export interface inboxTriageLogicValues {
 export interface inboxTriageLogicActions {
     setSelectedReportId: (
         id: string | null,
-        openMethod?: import('../inboxAnalytics').InboxReportOpenMethod | undefined,
-        linkSource?: null | import('../inboxAnalytics').InboxReportLinkSource | undefined
+        openMethod?: InboxReportOpenMethod | undefined,
+        linkSource?: InboxReportLinkSource | null | undefined
     ) => {
         id: string | null
-        linkSource: null | import('../inboxAnalytics').InboxReportLinkSource
-        openMethod: import('../inboxAnalytics').InboxReportOpenMethod
+        linkSource: InboxReportLinkSource | null
+        openMethod: InboxReportOpenMethod
     } // inboxSceneLogic
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('../inboxAnalytics').InboxReportActionSurface,
-        openedFromLink?: boolean | undefined
+        surface: InboxReportActionSurface,
+        openedFromLink?: boolean | undefined,
+        repository?: string | undefined
     ) => {
         feedback: string | undefined
         openedFromLink: boolean
         report: SignalReport
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        repository: string | undefined
+        surface: InboxReportActionSurface
     } // inboxTaskKickoffLogic
     dismissReport: (
         reportId: string,
-        dismissal: import('../utils/dismissalReasons').DismissalFeedback
+        dismissal: DismissalFeedback
     ) => {
-        dismissal: import('../utils/dismissalReasons').DismissalFeedback
+        dismissal: DismissalFeedback
         reportId: string
     } // reportListLogic
     ensureLoaded: () => {
@@ -110,39 +118,39 @@ export interface inboxTriageLogicActions {
         errorObject?: any
     } // reportListLogic
     loadMoreReportsSuccess: (
-        reportsResponse: import('./reportListLogic').ReportListResponse,
+        reportsResponse: ReportListResponse,
         payload?: any
     ) => {
         payload?: any
-        reportsResponse: import('./reportListLogic').ReportListResponse
+        reportsResponse: ReportListResponse
     } // reportListLogic
     loadReportsSuccess: (
-        reportsResponse: import('./reportListLogic').ReportListResponse,
+        reportsResponse: ReportListResponse,
         payload?: void | undefined
     ) => {
         payload?: void | undefined
-        reportsResponse: import('./reportListLogic').ReportListResponse
+        reportsResponse: ReportListResponse
     } // reportListLogic
     removeReport: (reportId: string) => {
         reportId: string
     } // reportListLogic
     resolveReport: (
         reportId: string,
-        reason: import('../utils/dismissalReasons').ResolveReasonValue,
+        reason: ResolveReasonValue,
         note: string
     ) => {
         note: string
-        reason: import('../utils/dismissalReasons').ResolveReasonValue
+        reason: ResolveReasonValue
         reportId: string
     } // reportListLogic
     unassignMe: (
         reportId: string,
-        surface: import('../inboxAnalytics').InboxReportActionSurface,
-        reason?: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
+        surface: InboxReportActionSurface,
+        reason?: ReviewerRemovalReasonEnumApi | undefined
     ) => {
-        reason: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
+        reason: ReviewerRemovalReasonEnumApi | undefined
         reportId: string
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: InboxReportActionSurface
     } // reportListLogic
     createPrForCurrent: () => {
         value: true
@@ -204,10 +212,7 @@ export interface inboxTriageLogicMeta {
         nextReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
         canCreatePr: (currentReport: SignalReport | null) => boolean
-        implementationDisabledReason: (
-            currentReport: SignalReport | null,
-            user: null | import('~/types').UserType
-        ) => string | null
+        implementationDisabledReason: (currentReport: SignalReport | null, user: UserType | null) => string | null
         isUnassigningCurrent: (currentReport: SignalReport | null, unassigningReportIds: string[]) => boolean
         unassignDisabledReason: (
             currentReport: SignalReport | null,
@@ -523,7 +528,13 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                     return
                 }
                 // Triage is a fast keyboard flow with no note box, so it never steers the agent.
-                actions.implementReport(report, undefined, 'triage_mode')
+                actions.implementReport(
+                    report,
+                    undefined,
+                    'triage_mode',
+                    false,
+                    access?.values.repositoryRequired ? access.values.selectedRepository : undefined
+                )
             },
             openCurrent: () => {
                 const report = values.currentReport

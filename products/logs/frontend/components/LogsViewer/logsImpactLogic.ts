@@ -14,6 +14,7 @@ import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewe
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsImpactCreate } from 'products/logs/frontend/generated/api'
 import type { _LogsCountBodyApi, _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsQueryTriggerEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 
@@ -45,8 +46,12 @@ export interface logsImpactLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
-    runQuery: (debounce?: number | undefined) => {
+    runQuery: (
+        trigger?: LogsQueryTriggerEnumApi | undefined,
+        debounce?: number | undefined
+    ) => {
         debounce: number | undefined
+        trigger: LogsQueryTriggerEnumApi | undefined
     } // logsViewerDataLogic
     loadImpact: (_: any) => any
     loadImpactFailure: (

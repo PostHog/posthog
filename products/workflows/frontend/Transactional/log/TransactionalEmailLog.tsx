@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconCursorClick, IconEye, IconRefresh, IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -12,9 +12,16 @@ import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
-import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
+import {
+    EMAIL_STATUS_DESCRIPTION,
+    EMAIL_STATUS_LABEL,
+    EMAIL_STATUS_TAG,
+    emailReasonOptions,
+    emailReasonText,
+} from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
@@ -42,24 +49,48 @@ const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained',
     label: EMAIL_STATUS_LABEL[status],
 }))
 
-export function TransactionalEmailLog(): JSX.Element {
-    const { emails, pageLoading, pageFailed, filters, isFiltered, pagination } = useValues(transactionalEmailLogLogic)
-    const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
-    const { transactionalTemplates } = useValues(messageTemplatesLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+export function TransactionalEmailLog({ workflowId }: { workflowId?: string }): JSX.Element {
+    return (
+        <BindLogic logic={transactionalEmailLogLogic} props={{ workflowId }}>
+            {workflowId ? <EmailLogList /> : <AllEmailsLogList />}
+        </BindLogic>
+    )
+}
 
+function AllEmailsLogList(): JSX.Element {
+    const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
         .map((template) => ({
             value: template.transactional_hog_flow_id as string,
             label: template.name || 'Unnamed email',
         }))
+    return <EmailLogList emailOptions={emailOptions} />
+}
+
+function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label: string }[] }): JSX.Element {
+    const { emails, pageLoading, pageFailed, filters, isFiltered, pagination, sendFilterSearchParams } =
+        useValues(transactionalEmailLogLogic)
+    const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const oneEmail = !emailOptions
+
+    const sendUrl = (email: TransactionalEmailLogEntryApi): string =>
+        sendLinks
+            ? combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
+            : urls.transactionalEmailLogEntry(email.message_id)
+    const reasonOptions = sendLinks ? emailReasonOptions(filters.status) : null
 
     return (
         <div className="flex flex-col gap-2">
-            <EmailDirectionToggle />
+            {!oneEmail && <EmailDirectionToggle />}
             {todayRailNav ? (
-                <QuillTransactionalEmailLogFilters emailOptions={emailOptions} statusOptions={STATUS_OPTIONS} />
+                <QuillTransactionalEmailLogFilters
+                    emailOptions={emailOptions}
+                    statusOptions={STATUS_OPTIONS}
+                    reasonOptions={reasonOptions}
+                />
             ) : (
                 <div className="flex flex-wrap items-center gap-2 justify-between">
                     <div className="flex items-center gap-2 flex-1 min-w-60">
@@ -76,14 +107,16 @@ export function TransactionalEmailLog(): JSX.Element {
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <LemonSelect
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            value={filters.workflowId}
-                            onChange={(workflowId) => setFilters({ workflowId })}
-                            options={[{ value: null, label: 'All emails' }, ...emailOptions]}
-                            data-attr="transactional-email-log-email-filter"
-                        />
+                        {emailOptions && (
+                            <LemonSelect
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                value={filters.workflowId}
+                                onChange={(workflowId) => setFilters({ workflowId })}
+                                options={[{ value: null, label: 'All emails' }, ...emailOptions]}
+                                data-attr="transactional-email-log-email-filter"
+                            />
+                        )}
                         <LemonSelect
                             size="small"
                             dropdownMatchSelectWidth={false}
@@ -92,6 +125,16 @@ export function TransactionalEmailLog(): JSX.Element {
                             options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
                             data-attr="transactional-email-log-status-filter"
                         />
+                        {reasonOptions && (
+                            <LemonSelect
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                value={filters.reason}
+                                onChange={(reason) => setFilters({ reason })}
+                                options={[{ value: null, label: 'Any reason' }, ...reasonOptions]}
+                                data-attr="transactional-email-log-reason-filter"
+                            />
+                        )}
                         <TransactionalEmailLogDateFilter />
                         <LemonButton
                             type="secondary"
@@ -105,6 +148,12 @@ export function TransactionalEmailLog(): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
+            )}
+            {!oneEmail && (
+                <TransactionalTemplatesLoadError
+                    message="Your emails couldn't load, so you can't filter by email yet. Check your connection and try again."
+                    dataAttr="transactional-email-log-templates-retry"
+                />
             )}
             {pageFailed && (
                 <LemonBanner
@@ -133,7 +182,7 @@ export function TransactionalEmailLog(): JSX.Element {
                 nouns={['send', 'sends']}
                 data-attr="transactional-email-log-table"
                 onRow={(email) => ({
-                    onClick: () => router.actions.push(urls.transactionalEmailLogEntry(email.message_id)),
+                    onClick: () => router.actions.push(sendUrl(email)),
                     className: 'cursor-pointer',
                 })}
                 columns={[
@@ -142,22 +191,26 @@ export function TransactionalEmailLog(): JSX.Element {
                         key: 'recipient',
                         render: (_, email) => (
                             <LemonTableLink
-                                to={urls.transactionalEmailLogEntry(email.message_id)}
+                                to={sendUrl(email)}
                                 title={<EmailAddress address={email.recipient} />}
                                 className="ph-no-capture"
                                 onClick={(event) => event.stopPropagation()}
                             />
                         ),
                     },
-                    {
-                        title: 'Email',
-                        key: 'template',
-                        render: (_, email) => (
-                            <span className="whitespace-nowrap">
-                                {email.template_name || <span className="text-secondary">Deleted email</span>}
-                            </span>
-                        ),
-                    },
+                    ...(oneEmail
+                        ? []
+                        : [
+                              {
+                                  title: 'Email',
+                                  key: 'template',
+                                  render: (_: unknown, email: TransactionalEmailLogEntryApi) => (
+                                      <span className="whitespace-nowrap">
+                                          {email.template_name || <span className="text-secondary">Deleted email</span>}
+                                      </span>
+                                  ),
+                              },
+                          ]),
                     {
                         title: 'Status',
                         key: 'status',
@@ -197,16 +250,33 @@ export function TransactionalEmailLog(): JSX.Element {
                         render: (_, email) => <TZLabel time={email.created_at} className="whitespace-nowrap" />,
                     },
                 ]}
-                emptyState={
-                    pageFailed
-                        ? "The log couldn't load"
-                        : filters.page > 1
-                          ? 'No more sends past this page. Go back a page to see the rest.'
-                          : isFiltered
-                            ? 'No sends match these filters'
-                            : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
-                }
+                emptyState={emptySendsMessage({ pageFailed, page: filters.page, isFiltered, oneEmail })}
             />
         </div>
     )
+}
+
+function emptySendsMessage({
+    pageFailed,
+    page,
+    isFiltered,
+    oneEmail,
+}: {
+    pageFailed: boolean
+    page: number
+    isFiltered: boolean
+    oneEmail: boolean
+}): string {
+    if (pageFailed) {
+        return "The log couldn't load"
+    }
+    if (page > 1) {
+        return 'No more sends past this page. Go back a page to see the rest.'
+    }
+    if (isFiltered) {
+        return 'No sends match these filters'
+    }
+    return oneEmail
+        ? 'This email had no sends in this period. New sends show up here within a few seconds.'
+        : 'No transactional emails sent in this period. Sends from your code show up here within a few seconds.'
 }

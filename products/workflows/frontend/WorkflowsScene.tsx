@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
+import { EngagementEventsBanner } from './EngagementEventsBanner'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab } from './messagingTabs'
@@ -198,7 +199,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
     const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
@@ -237,7 +237,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {showsNewWorkflowButton && customerioImportEnabled && (
+                        {showsNewWorkflowButton && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -279,8 +279,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            {customerioImportEnabled && <CustomerioImportModal />}
+            <CustomerioImportModal />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>
                 activeKey={topTabFor(currentTab)}
                 tabs={[

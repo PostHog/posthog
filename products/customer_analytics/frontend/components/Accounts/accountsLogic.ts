@@ -7,7 +7,6 @@ import {
     isAssignmentStatus,
 } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +16,21 @@ import { userLogic } from 'scenes/userLogic'
 import { membersLogic } from '~/models/membersLogic'
 import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import type {
+    ErrorTrackingQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
+} from '~/queries/schema/schema-general'
 import type {
     AccountsTableCustomPropertyDefinition,
     AccountsTableRelationshipDefinition,
@@ -54,12 +68,7 @@ import type {
 } from '../../generated/api.schemas'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
-import {
-    ACCOUNT_EXPANSION_TABS,
-    AccountExpansionTab,
-    accountsExpansionLogic,
-    DEFAULT_ACCOUNT_TAB,
-} from './accountsExpansionLogic'
+import type { AccountColumnDisplayConfig } from './accountsColumnConfigLogic'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountsOverviewTile } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
@@ -75,6 +84,7 @@ import {
 } from './accountsTableQuery'
 import { getAccountsViewSession } from './accountsViewSessionLogic'
 import { AccountsViewState, normalizeRoleFilter } from './accountsViewState'
+import type { AccountSystemTabKind } from './accountViewComponents'
 import { ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES, AccountsEvents, DEFAULT_TILES } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -84,10 +94,6 @@ export const TAGS_SAVE_DEBOUNCE_MS = 300
 export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
 
 type AccountPresenceResponse = AccountPresenceApi[]
-
-// Wait for refetched rows before scrolling to an account.
-const SCROLL_TO_ACCOUNT_POLL_MS = 100
-const SCROLL_TO_ACCOUNT_MAX_ATTEMPTS = 40
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -133,13 +139,12 @@ export const customPropertySavingKey = (accountId: string, definitionId: string)
     `${accountId}:${definitionId}`
 
 // Late list updates must not leave an account detail route or navigate back from another scene.
-function accountsPathToWriteBackTo(accountIdFilter: string | null): string | null {
+function accountsPathToWriteBackTo(): string | null {
     const pathname = removeProjectIdIfPresent(router.values.location.pathname)
     if (pathname === urls.customerAnalyticsAccounts()) {
         return pathname
     }
-    const deepLinkPath = accountIdFilter ? urls.customerAnalyticsAccount(accountIdFilter) : null
-    return deepLinkPath && pathname.startsWith(deepLinkPath) ? pathname : null
+    return null
 }
 
 function hasSharedView(hashParams: Record<string, any> | undefined): boolean {
@@ -265,7 +270,6 @@ export interface accountsLogicValues {
     user: UserType | null // userLogic
     accountFilterGroups: AccountFilter[][]
     accountFilters: AccountFilter[]
-    accountIdFilter: string | null
     accountPresenceByAccountId: Record<string, AccountPresenceViewerApi[]>
     accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsTableQuery | null
@@ -321,9 +325,9 @@ export interface accountsLogicActions {
     } // accountsColumnConfigLogic
     setColumnDisplay: (
         definitionId: string,
-        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        config: AccountColumnDisplayConfig | null
     ) => {
-        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        config: AccountColumnDisplayConfig | null
         definitionId: string
     } // accountsColumnConfigLogic
     setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
@@ -335,13 +339,6 @@ export interface accountsLogicActions {
     unselectColumn: (column: string) => {
         column: string
     } // accountsColumnConfigLogic
-    openAccountTab: (
-        accountId: string,
-        tab: AccountExpansionTab
-    ) => {
-        accountId: string
-        tab: AccountExpansionTab
-    } // accountsExpansionLogic
     setTileFilter: (filter: TileFilter | null) => {
         filter: TileFilter | null
     } // accountsOverviewTilesLogic
@@ -360,21 +357,21 @@ export interface accountsLogicActions {
     } // dataNodeLogic
     listLoadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -391,21 +388,21 @@ export interface accountsLogicActions {
             refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
@@ -464,14 +461,10 @@ export interface accountsLogicActions {
     }
     openAccount: (
         accountId: string,
-        externalId: string | null,
-        name: string,
-        tab: AccountExpansionTab
+        tab: AccountSystemTabKind
     ) => {
         accountId: string
-        externalId: string | null
-        name: string
-        tab: AccountExpansionTab
+        tab: AccountSystemTabKind
     }
     persistViewState: (search?: string) => {
         search: string | undefined
@@ -510,9 +503,6 @@ export interface accountsLogicActions {
     }
     setAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
-    }
-    setAccountIdFilter: (accountId: string | null) => {
-        accountId: string | null
     }
     setAssignedToCurrentUser: (value: boolean) => {
         value: boolean
@@ -660,7 +650,6 @@ export interface accountsLogicMeta {
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
-            accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
             accountFilterGroups: AccountFilter[][],
@@ -692,7 +681,6 @@ export interface accountsLogicMeta {
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
-            accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
             accountFilterGroups: AccountFilter[][],
@@ -768,8 +756,6 @@ export const accountsLogic = kea<accountsLogicType>([
             ],
             accountsOverviewTilesLogic,
             ['setTileFilter', 'setTiles'],
-            accountsExpansionLogic,
-            ['openAccountTab'],
             userLogic,
             ['loadUserSuccess'],
             membersLogic,
@@ -842,13 +828,10 @@ export const accountsLogic = kea<accountsLogicType>([
         tagsUpdateStarted: (accountId: string) => ({ accountId }),
         tagsUpdateFinished: (accountId: string) => ({ accountId }),
         setTagsOverride: (accountId: string, tags: string[] | null) => ({ accountId, tags }),
-        openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
+        openAccount: (accountId: string, tab: AccountSystemTabKind) => ({
             accountId,
-            externalId,
-            name,
             tab,
         }),
-        setAccountIdFilter: (accountId: string | null) => ({ accountId }),
         setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
         setViewStateHydrated: (hydrated: boolean) => ({ hydrated }),
     }),
@@ -898,12 +881,6 @@ export const accountsLogic = kea<accountsLogicType>([
             [] as RoleFilterValue,
             {
                 setAssignedToFilter: (_, { value }) => value,
-            },
-        ],
-        accountIdFilter: [
-            null as string | null,
-            {
-                setAccountIdFilter: (_, { accountId }) => accountId,
             },
         ],
         awaitingSavedView: [
@@ -1112,7 +1089,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tagsFilter,
                 s.assignmentStatus,
                 s.assignedToFilter,
-                s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
                 s.accountFilterGroups,
@@ -1125,7 +1101,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
-                accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
                 accountFilterGroups: AccountFilter[][],
@@ -1137,7 +1112,6 @@ export const accountsLogic = kea<accountsLogicType>([
                     tagsFilter,
                     assignmentStatus,
                     assignedToFilter,
-                    accountIdFilter,
                     tileFilter,
                     accountFilters,
                     accountFilterGroups,
@@ -1194,7 +1168,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tagsFilter,
                 s.assignmentStatus,
                 s.assignedToFilter,
-                s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
                 s.accountFilterGroups,
@@ -1212,7 +1185,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
-                accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
                 accountFilterGroups: AccountFilter[][],
@@ -1229,7 +1201,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 tagsFilter,
                 assignmentStatus,
                 assignedToFilter,
-                accountIdFilter,
                 tileFilter,
                 accountFilters,
                 accountFilterGroups,
@@ -1327,7 +1298,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 cache.applyingViewState ||
                 !draftIdentity ||
                 !objectsEqual(cache.viewStateDraftIdentity, draftIdentity) ||
-                !accountsPathToWriteBackTo(values.accountIdFilter)
+                !accountsPathToWriteBackTo()
             ) {
                 return
             }
@@ -1384,7 +1355,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 queryId,
                 datasetKey: values.listDatasetKey,
                 serverSortOrder: values.serverSortOrder,
-                validatesViewFilters: !values.accountIdFilter,
             }
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
@@ -1422,11 +1392,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 if ('columns' in response && 'kind' in response && response.kind === NodeKind.AccountsTableQuery) {
                     const tableResponse = response as AccountsTableQueryResponse
                     actions.hydrateTableDefinitions(tableResponse, values.querySelectColumns)
-                    if (
-                        requestState.validatesViewFilters &&
-                        tableResponse.customPropertyDefinitions &&
-                        tableResponse.relationshipDefinitions
-                    ) {
+                    if (tableResponse.customPropertyDefinitions && tableResponse.relationshipDefinitions) {
                         const customById = Object.fromEntries(
                             tableResponse.customPropertyDefinitions.map((definition) => [definition.id, definition])
                         )
@@ -1858,59 +1824,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.tagsUpdateFinished(accountId)
             }
         },
-        openAccount: ({ accountId, externalId, name, tab }) => {
-            const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })
-            const results = (dataNode?.values.response as { results?: unknown[] } | undefined)?.results
-            const rows = Array.isArray(results) ? results : []
-            const isVisible = rows.some(
-                (row) =>
-                    row && typeof row === 'object' && !Array.isArray(row) && (row as { id?: string }).id === accountId
-            )
-            // Remove excluding filters so the requested account can render.
-            if (!isVisible) {
-                if (values.tagsFilter.length > 0) {
-                    actions.setTagsFilter([])
-                }
-                if (values.assignmentStatus !== 'all') {
-                    actions.setAssignmentStatus('all')
-                }
-                if (values.assignedToFilter.length > 0) {
-                    actions.setAssignedToFilter([])
-                }
-                if (values.accountFilters.length > 0) {
-                    actions.setAccountFilters([])
-                }
-                if (values.accountFilterGroups.length > 0) {
-                    actions.setAccountFilterGroups([])
-                }
-                const term = externalId || name
-                if (term) {
-                    actions.setSearchQuery(term)
-                }
-            }
-            actions.openAccountTab(accountId, tab)
-            // Cancel earlier scrolls and do not repeat a completed scroll when the browser tab resumes.
-            cache.disposables.add(
-                () => {
-                    let attempts = 0
-                    let timer: number | undefined
-                    const scrollWhenReady = (): void => {
-                        const row = document.querySelector(`[data-account-id="${accountId}"]`)
-                        if (row) {
-                            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                            return
-                        }
-                        attempts += 1
-                        if (attempts < SCROLL_TO_ACCOUNT_MAX_ATTEMPTS) {
-                            timer = window.setTimeout(scrollWhenReady, SCROLL_TO_ACCOUNT_POLL_MS)
-                        }
-                    }
-                    scrollWhenReady()
-                    return () => window.clearTimeout(timer)
-                },
-                'scrollToAccount',
-                { pauseOnPageHidden: false }
-            )
+        openAccount: ({ accountId, tab }) => {
+            router.actions.push(urls.customerAnalyticsAccount(accountId, tab))
         },
     })),
     afterMount(({ actions }) => {
@@ -1921,7 +1836,7 @@ export const accountsLogic = kea<accountsLogicType>([
     }),
     actionToUrl(({ values }) => ({
         syncViewStateToUrl: () => {
-            const pathname = accountsPathToWriteBackTo(values.accountIdFilter)
+            const pathname = accountsPathToWriteBackTo()
             if (!pathname || !values.viewStateHydrated) {
                 return undefined
             }
@@ -1938,38 +1853,9 @@ export const accountsLogic = kea<accountsLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => {
-        const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
-            if (!accountId || !isUUIDLike(accountId)) {
-                return
-            }
-            const tab =
-                rawTab && ACCOUNT_EXPANSION_TABS.includes(rawTab as AccountExpansionTab)
-                    ? (rawTab as AccountExpansionTab)
-                    : DEFAULT_ACCOUNT_TAB
-            if (values.accountIdFilter !== accountId) {
-                actions.setAccountIdFilter(accountId)
-            }
-            actions.openAccountTab(accountId, tab)
-        }
-        return {
-            [urls.customerAnalyticsAccounts()]: (_, __, ___, { method }): void => {
-                actions.restoreViewStateFromRoute(method)
-                if (values.accountIdFilter !== null) {
-                    actions.setAccountIdFilter(null)
-                }
-            },
-            // Account navigation must not replace the active list edits.
-            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => {
-                actions.restoreViewStateFromRoute()
-                openAccountByPath(accountId)
-            },
-            // This is a route template, not a navigable URL. `customerAnalyticsAccount` encodes
-            // tab values for real links, so append the literal matcher segment here.
-            [`${urls.customerAnalyticsAccount(':accountId')}/:tab`]: ({ accountId, tab }): void => {
-                actions.restoreViewStateFromRoute()
-                openAccountByPath(accountId, tab)
-            },
-        }
-    }),
+    urlToAction(({ actions }) => ({
+        [urls.customerAnalyticsAccounts()]: (_, __, ___, { method }): void => {
+            actions.restoreViewStateFromRoute(method)
+        },
+    })),
 ])
