@@ -1,13 +1,19 @@
 """Which models a task run may use, and how to name them.
 
-The catalogue is the static model catalog, narrowed to the models a gateway product's
-token pin admits. It is read without a network call, so a picker render never waits on
-the LLM gateway and a gateway outage never empties a picker.
+The catalogue is the live LLM-gateway model list for a gateway product, intersected
+with the runtime adapters this product knows how to drive. Anything the gateway serves
+under a provider we can't route — bedrock, vertex — is dropped rather than offered.
 
 Every surface that offers a model picker derives from here: the task composer in the
-web app and PostHog Code (`posthog_code`), the Slack App Home picker and the
-model-override classifier (`slack_app`). None of them may hardcode a model list, and
-none of them owns the display labels.
+web app (`posthog_code`), the Slack App Home picker and the model-override classifier
+(`slack_app`). None of them may hardcode a model list, and none of them owns the
+display labels — a new model ships by appearing on the gateway, not by a PR per
+surface.
+
+The gateway is fetched through Django's shared cache so a picker render never blocks on
+a round-trip; the timeout is capped at 3s because Slack's interactivity path expires
+`trigger_id` after ~3s, and failures are negatively cached for 30s so a broken gateway
+can't make every interaction wait the full timeout.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
+from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
 from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
@@ -101,8 +108,43 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
 
 
 def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
-    """Every model a picker may offer a run on the given gateway product."""
-    return tuple(choice for choice in offered_model_choices() if model_allowed_by_product_pin(product, choice.model))
+    """Every model a run on the given gateway product may use.
+
+    Empty when the gateway is unreachable — callers must treat that as "no choice to
+    offer" rather than falling back to a hardcoded list, so a gateway outage can't route
+    a run to a model the gateway would reject anyway.
+    """
+    # Deferred because `temporal.process_task.utils` pulls the tasks ORM, mcp_store, and
+    # sandbox config at import time; keeping that off the import path of every catalogue
+    # consumer is the reason, and the App Home tests' `sys.modules` swap depends on it
+    # staying that way.
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see above
+        get_supported_reasoning_efforts,
+    )
+
+    by_provider = _runtime_adapter_by_provider()
+    choices = []
+    for model in list_gateway_models(product):
+        if not model_allowed_by_product_pin(product, model.id):
+            continue
+        # The catalog names the harness that drives a model; `owned_by` names whoever
+        # serves it, which for the vendor-served models is `cloudflare`/`baseten`/the
+        # vendor org and says nothing about the harness. Falling back to the provider
+        # keeps an unlisted `gpt-*` working and still drops a provider we cannot route.
+        runtime_adapter = runtime_adapter_for(model.id) or by_provider.get(model.owned_by)
+        if runtime_adapter is None:
+            continue
+        choices.append(
+            ModelChoice(
+                runtime_adapter=runtime_adapter,
+                model=model.id,
+                label=model_catalog.display_name_for_model(model.id),
+                supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
+                cost_multiplier=model_catalog.cost_multiplier_label(model.id),
+                context_window=model.context_window,
+            )
+        )
+    return tuple(choices)
 
 
 def runnable_model_choices(product: Product) -> tuple[ModelChoice, ...]:
@@ -158,11 +200,7 @@ def runtime_adapter_for(model: str | None) -> str | None:
     deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
     `None` for a model this product has no runtime for.
     """
-    # Deferred because `temporal.process_task.utils` pulls the tasks ORM, mcp_store, and
-    # sandbox config at import time; keeping that off the import path of every catalogue
-    # consumer is the reason, and the App Home tests' `sys.modules` swap depends on it
-    # staying that way.
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see above
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
         get_runtime_adapter_for_model,
     )
 
@@ -184,6 +222,28 @@ def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, ef
     return effort if effort in model_catalog.reasoning_efforts_for(runtime_adapter, model) else None
 
 
+@lru_cache(maxsize=1)
+def _runtime_adapter_by_provider() -> dict[str, str]:
+    """Gateway `owned_by` → runtime adapter.
+
+    Inverted from the adapter → provider mapping rather than written out here, so the
+    two can never disagree about which runtime serves a provider. Providers with no
+    adapter (bedrock, vertex) are simply absent, which is what drops their models from
+    the catalogue.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
+        RuntimeAdapter,
+        get_provider_for_runtime_adapter,
+    )
+
+    by_provider = {}
+    for adapter in RuntimeAdapter:
+        provider = get_provider_for_runtime_adapter(adapter)
+        if provider is not None:
+            by_provider[provider.value] = adapter.value
+    return by_provider
+
+
 def label_for(value: str | None, mapping: dict[str, str]) -> str:
     """Display name for a stored value, falling back to the value itself."""
     if not value:
@@ -195,6 +255,7 @@ __all__ = [
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "TASK_RUN_GATEWAY_PRODUCT",
+    "GatewayModel",
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
@@ -207,5 +268,6 @@ __all__ = [
     "find_model_choice",
     "group_by_runtime",
     "label_for",
+    "list_gateway_models",
     "runtime_adapter_for",
 ]
