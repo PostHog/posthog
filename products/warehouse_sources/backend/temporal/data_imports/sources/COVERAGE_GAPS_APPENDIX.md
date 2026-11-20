@@ -825,9 +825,9 @@ Today (11): `banners`, `checklists`, `embeds`, `flows`, `flows_v2`, `launchpads`
 
 Diffed against: <https://api.appcues.com/v2/docs>
 
-- [ ] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
-- [ ] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
-- [ ] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
+- [x] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
+- [x] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
+- [x] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
 
 Note: The API has no OpenAPI spec (the openapi.json path returns 404), so I parsed the rendered single-page docs at /v2/docs and read each section. Every experience type is already synced. Both gaps above are async: the POST returns job_id and job_url, and the file is fetched from the job when done, so the table needs a job poll step. Excluded: user and group profiles (no list form), publish and unpublish actions, SDK keys, bulk imports, GDPR deletion and the jobs list (ephemeral).
 
