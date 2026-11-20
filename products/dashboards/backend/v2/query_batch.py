@@ -9,7 +9,8 @@ runs them, a few at a time, and each line is written the moment its query finish
 import json
 import math
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+import weakref
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from datetime import datetime
@@ -66,10 +67,12 @@ CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
 MAX_BATCHES_PER_TEAM = 3
-MAX_CONCURRENT_CACHE_READS = 8
-CACHE_READ_WAIT_SECONDS = 10.0
+MAX_OPEN_BATCHES = 16
+MAX_OPEN_BATCHES_PER_TEAM = 4
+OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
-_cache_read_slots = BoundedSemaphore(MAX_CONCURRENT_CACHE_READS)
+_open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
+_team_open: dict[int, int] = {}
 _team_batches: dict[int, int] = {}
 _team_batches_lock = Lock()
 
@@ -83,6 +86,44 @@ def _admit_batch(team_id: int) -> bool:
             return False
         _team_batches[team_id] = _team_batches.get(team_id, 0) + 1
         return True
+
+
+class _OpenSlot:
+    """A batch's place among the open batches, from its cache read until its stream closes, because it holds its
+    cached results all that time. Released once, by the stream or, if the stream never runs, when the batch is
+    collected."""
+
+    def __init__(self, team_id: int) -> None:
+        self._team_id = team_id
+        self._held = False
+
+    def acquire(self) -> bool:
+        deadline = monotonic() + OPEN_WAIT_SECONDS
+        with _team_batches_lock:
+            if _team_open.get(self._team_id, 0) >= MAX_OPEN_BATCHES_PER_TEAM:
+                return False
+            _team_open[self._team_id] = _team_open.get(self._team_id, 0) + 1
+        if not _open_slots.acquire(timeout=max(0.0, deadline - monotonic())):
+            self._release_team()
+            return False
+        self._held = True
+        return True
+
+    def release(self) -> None:
+        with _team_batches_lock:
+            if not self._held:
+                return
+            self._held = False
+        _open_slots.release()
+        self._release_team()
+
+    def _release_team(self) -> None:
+        with _team_batches_lock:
+            count = _team_open.get(self._team_id, 0) - 1
+            if count > 0:
+                _team_open[self._team_id] = count
+            else:
+                _team_open.pop(self._team_id, None)
 
 
 def _release_batch(team_id: int) -> None:
@@ -314,13 +355,16 @@ class QueryBatch:
         self._lock = Lock()
         self._idle = Event()
         self._unread = Semaphore(MAX_UNREAD_LINES)
-        # Planning and cache reads are bounded too, so cache-only batches cannot pile up CPU and cache I/O.
-        if not _cache_read_slots.acquire(timeout=CACHE_READ_WAIT_SECONDS):
+        self._deadline = monotonic() + MAX_STREAM_SECONDS
+        self._open = _OpenSlot(team.pk)
+        if not self._open.acquire():
             raise QueryBatchBusy()
+        weakref.finalize(self, self._open.release)
         try:
             self._read_cache(inputs)
-        finally:
-            _cache_read_slots.release()
+        except BaseException:
+            self._open.release()
+            raise
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -453,6 +497,8 @@ class QueryBatch:
 
     def _ready_lines(self) -> Iterator[bytes]:
         for index, body in self.ready:
+            if monotonic() >= self._deadline:
+                return
             yield b'{"i":%d,' % index + body[1:] + b"\n"
 
     def _dispatch_refreshes(self) -> None:
@@ -600,13 +646,28 @@ class QueryBatch:
             yield self._encode({"i": index, "error": _BUSY})
 
     def stream(self) -> Iterator[bytes]:
+        try:
+            yield from self._stream()
+        finally:
+            self._open.release()
+
+    async def astream(self) -> AsyncIterator[bytes]:
+        body = self._astream()
+        try:
+            async for chunk in body:
+                yield chunk
+        finally:
+            await body.aclose()
+            self._open.release()
+
+    def _stream(self) -> Iterator[bytes]:
         yield from self._ready_lines()
         self._dispatch_refreshes()
         if not self._start():
             yield from self._busy_lines()
             return
         complete = False
-        deadline = monotonic() + MAX_STREAM_SECONDS
+        deadline = self._deadline
         pending = {index for index, _query_id, _job in self._jobs}
         try:
             while pending:
@@ -626,7 +687,7 @@ class QueryBatch:
         finally:
             self._close(complete)
 
-    async def astream(self) -> AsyncIterator[bytes]:
+    async def _astream(self) -> AsyncGenerator[bytes]:
         for chunk in self._ready_lines():
             yield chunk
         self._dispatch_refreshes()
@@ -637,7 +698,7 @@ class QueryBatch:
                 yield chunk
             return
         complete = False
-        deadline = monotonic() + MAX_STREAM_SECONDS
+        deadline = self._deadline
         pending = {index for index, _query_id, _job in self._jobs}
         try:
             while pending:
